@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const db = require('../db/database');
 
 const PLEX_CLIENT_ID = 'diskovarr-app';
 const PLEX_SERVER_ID = process.env.PLEX_SERVER_ID;
@@ -89,12 +90,18 @@ router.get('/check-pin', async (req, res) => {
       return res.json({ status: 'no_access' });
     }
 
+    const username = userData.username || userData.friendlyName || 'Plex User';
+    const thumb = userData.thumb || null;
+
+    // Persist username so admin panel can show names instead of IDs
+    db.upsertKnownUser(String(userData.id), username, thumb);
+
     // Store in session — token stays server-side only
     req.session.plexUser = {
       id: String(userData.id),
       uuid: userData.uuid,
-      username: userData.username || userData.friendlyName || 'Plex User',
-      thumb: userData.thumb || null,
+      username,
+      thumb,
       token: userToken, // user's personal token, never sent to browser
     };
 

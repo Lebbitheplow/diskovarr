@@ -14,6 +14,9 @@ const libraryCache = new Map(); // sectionId -> { data, fetchedAt }
 const watchedSyncInProgress = new Map();
 const WATCHED_SYNC_TTL = 30 * 60; // 30 minutes (seconds)
 
+// Per-section library sync: sectionId -> Promise (prevents parallel fetches)
+const libSyncInProgress = new Map();
+
 const PLEX_HEADERS = {
   'Accept': 'application/json',
   'X-Plex-Token': PLEX_TOKEN,
@@ -25,7 +28,7 @@ async function plexFetch(path, token) {
   if (token && token !== PLEX_TOKEN) {
     headers['X-Plex-Token'] = token;
   }
-  const timeout = path.includes('/sections/') ? 90000 : 15000;
+  const timeout = path.includes('/sections/') ? 180000 : 15000;
   const res = await fetch(url, { headers, signal: AbortSignal.timeout(timeout) });
   if (!res.ok) throw new Error(`Plex API error ${res.status} for ${path}`);
   return res.json();
@@ -49,6 +52,10 @@ function parseMediaItem(video) {
     contentRating: video.contentRating || '',
     addedAt: video.addedAt || 0,
     summary: video.summary || '',
+    rating: parseFloat(video.rating) || 0,
+    ratingImage: video.ratingImage || '',
+    audienceRatingImage: video.audienceRatingImage || '',
+    studio: video.studio || '',
   };
 }
 
@@ -58,10 +65,10 @@ async function fetchSection(sectionId) {
     return cached.data;
   }
 
-  // Try DB first — use it if it was synced recently enough
+  // Try DB first — use it if synced recently enough
   const dbSyncTime = db.getSyncTime(`library_${sectionId}`);
   const dbAge = Math.floor(Date.now() / 1000) - dbSyncTime;
-  if (dbSyncTime > 0 && dbAge < 7200) { // 2 hours
+  if (dbSyncTime > 0 && dbAge < 7200) {
     const items = db.getLibraryItemsFromDb(sectionId);
     if (items.length > 0) {
       libraryCache.set(sectionId, { data: items, fetchedAt: Date.now() });
@@ -70,7 +77,22 @@ async function fetchSection(sectionId) {
     }
   }
 
-  return syncLibrarySection(sectionId);
+  // Deduplicate concurrent syncs — only one fetch per sectionId at a time
+  if (!libSyncInProgress.has(sectionId)) {
+    const p = syncLibrarySection(sectionId)
+      .catch(err => {
+        const stale = db.getLibraryItemsFromDb(sectionId);
+        if (stale.length > 0) {
+          console.warn(`Sync failed for section ${sectionId} (${err.message}), serving ${stale.length} stale items from DB`);
+          libraryCache.set(sectionId, { data: stale, fetchedAt: Date.now() - CACHE_TTL + 5 * 60 * 1000 }); // retry in 5 min
+          return stale;
+        }
+        throw err;
+      })
+      .finally(() => libSyncInProgress.delete(sectionId));
+    libSyncInProgress.set(sectionId, p);
+  }
+  return libSyncInProgress.get(sectionId);
 }
 
 async function syncLibrarySection(sectionId) {
@@ -116,34 +138,66 @@ function invalidateCache(sectionId) {
 async function syncUserWatched(userId, userToken) {
   const syncKey = `watched_${userId}`;
   try {
-    // Fetch fully-watched items from both sections + onDeck (in-progress)
-    const [moviesJson, tvJson, deckJson] = await Promise.all([
-      fetch(`${PLEX_URL}/library/sections/${MOVIES_SECTION}/all?unwatched=0&X-Plex-Container-Size=99999&X-Plex-Token=${userToken}`, {
-        headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(20000),
-      }).then(r => r.ok ? r.json() : { MediaContainer: {} }),
-      fetch(`${PLEX_URL}/library/sections/${TV_SECTION}/all?unwatched=0&X-Plex-Container-Size=99999&X-Plex-Token=${userToken}`, {
-        headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(30000),
-      }).then(r => r.ok ? r.json() : { MediaContainer: {} }),
-      fetch(`${PLEX_URL}/library/sections/${TV_SECTION}/onDeck?X-Plex-Token=${userToken}`, {
-        headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(10000),
-      }).then(r => r.ok ? r.json() : { MediaContainer: {} }),
+    // Use admin token + accountID to query user-specific watch data.
+    // The user's own token may return 401 on direct server library endpoints
+    // (common with Plex Friends who authenticate via plex.tv but aren't managed users).
+    const accountParam = `&accountID=${userId}`;
+    const adminToken = PLEX_TOKEN;
+
+    // Helper: fetch with timeout, never rejects — returns empty on any failure
+    const safeFetch = (url, timeoutMs) =>
+      fetch(url, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(timeoutMs) })
+        .then(r => r.ok ? r.json() : { MediaContainer: {} })
+        .catch(err => {
+          console.warn(`syncUserWatched fetch failed (${err.message}): ${url.split('?')[0]}`);
+          return { MediaContainer: {} };
+        });
+
+    const [moviesJson, tvWatchedJson, deckJson] = await Promise.all([
+      safeFetch(`${PLEX_URL}/library/sections/${MOVIES_SECTION}/all?unwatched=0${accountParam}&X-Plex-Container-Size=99999&X-Plex-Token=${adminToken}`, 45000),
+      safeFetch(`${PLEX_URL}/library/sections/${TV_SECTION}/all?unwatched=0${accountParam}&X-Plex-Container-Size=99999&X-Plex-Token=${adminToken}`, 45000),
+      safeFetch(`${PLEX_URL}/library/onDeck?${accountParam}&X-Plex-Container-Size=9999&X-Plex-Token=${adminToken}`, 20000),
     ]);
 
     const watchedKeys = new Set();
+
+    // Fully-watched movies
     for (const item of (moviesJson.MediaContainer?.Metadata || [])) {
       watchedKeys.add(String(item.ratingKey));
     }
-    for (const item of (tvJson.MediaContainer?.Metadata || [])) {
-      watchedKeys.add(String(item.ratingKey));
+
+    // Fully-watched TV shows
+    for (const show of (tvWatchedJson.MediaContainer?.Metadata || [])) {
+      watchedKeys.add(String(show.ratingKey));
     }
-    // onDeck returns episodes — extract the show (grandparentRatingKey)
-    for (const ep of (deckJson.MediaContainer?.Metadata || [])) {
-      if (ep.grandparentRatingKey) watchedKeys.add(String(ep.grandparentRatingKey));
+
+    // In-progress content from global on-deck
+    for (const item of (deckJson.MediaContainer?.Metadata || [])) {
+      if (item.type === 'movie') {
+        // Started but not finished movie — exclude from recommendations
+        watchedKeys.add(String(item.ratingKey));
+      } else if (item.grandparentRatingKey) {
+        // In-progress episode — mark the parent show as seen
+        watchedKeys.add(String(item.grandparentRatingKey));
+      }
     }
 
     db.replaceWatchedBatch(userId, watchedKeys);
     db.setSyncTime(syncKey);
-    console.log(`Synced ${watchedKeys.size} watched items for user ${userId}`);
+
+    // Extract and store any user star ratings from watched movies
+    const ratedItems = [];
+    for (const item of (moviesJson.MediaContainer?.Metadata || [])) {
+      if (item.userRating) {
+        ratedItems.push({ ratingKey: String(item.ratingKey), userRating: parseFloat(item.userRating) });
+      }
+    }
+    if (ratedItems.length > 0) {
+      db.upsertUserRatings(userId, ratedItems);
+      console.log(`Stored ${ratedItems.length} user ratings for user ${userId}`);
+    }
+
+    console.log(`Synced ${watchedKeys.size} watched items for user ${userId} (movies: ${(moviesJson.MediaContainer?.Metadata || []).length}, tv shows: ${(tvWatchedJson.MediaContainer?.Metadata || []).length}, on-deck: ${(deckJson.MediaContainer?.Metadata || []).length})`);
   } catch (err) {
     console.warn(`syncUserWatched(${userId}) error:`, err.message);
   } finally {

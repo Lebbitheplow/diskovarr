@@ -41,7 +41,8 @@
       <div class="admin-section-header">
         <h2 class="section-title">Library Sync</h2>
         <div id="sync-status-badge" class="status-badge <%= syncInProgress ? 'status-syncing' : 'status-idle' %>">
-          <%= syncInProgress ? 'Syncing...' : 'Idle' %>
+          <% if (syncInProgress) { %><span class="sync-spinner"></span><% } %>
+          <span id="sync-status-text"><%= syncInProgress ? 'Syncing…' : 'Idle' %></span>
         </div>
       </div>
 
@@ -71,8 +72,12 @@
         </div>
       </div>
 
+      <div id="sync-progress-msg" class="sync-progress-msg" style="display:<%= syncInProgress ? 'block' : 'none' %>">
+        Syncing libraries… TV &amp; Anime can take up to 2 minutes.
+      </div>
+
       <div class="admin-actions">
-        <button class="btn-admin btn-primary" id="btn-sync-now" onclick="syncLibrary()">
+        <button class="btn-admin btn-primary" id="btn-sync-now" onclick="syncLibrary()" <%= syncInProgress ? 'disabled' : '' %>>
           <span>↻</span> Sync Library Now
         </button>
         <button class="btn-admin" id="btn-toggle-autosync" onclick="toggleAutoSync()">
@@ -96,15 +101,21 @@
       <% } else { %>
         <div class="user-table">
           <div class="user-table-header">
-            <span>User ID</span>
+            <span>User</span>
             <span>Watched Items</span>
             <span>Last Sync</span>
             <span>Actions</span>
           </div>
           <% for (const user of stats.users) { %>
             <div class="user-table-row" id="user-row-<%= user.user_id %>">
-              <span class="user-id"><%= user.user_id %></span>
-              <span><%= user.watched_count.toLocaleString() %> items</span>
+              <span class="user-id">
+                <% if (user.thumb) { %>
+                  <img src="<%= user.thumb %>" class="user-avatar-sm" alt="" onerror="this.style.display='none'">
+                <% } %>
+                <span><%= user.username %></span>
+                <span class="user-id-sub"><%= user.user_id %></span>
+              </span>
+              <span class="watched-count-cell" data-count="<%= user.watched_count %>"><%= user.watched_count.toLocaleString() %> items</span>
               <span><%= user.last_sync ? relativeTime(user.last_sync) : 'Never' %></span>
               <div class="user-actions">
                 <button class="btn-admin btn-sm" onclick="syncWatched('<%= user.user_id %>')">↻ Re-sync Watched</button>
@@ -213,12 +224,11 @@
     let pollInterval = null;
 
     async function syncLibrary() {
-      const btn = document.getElementById('btn-sync-now');
-      btn.disabled = true;
+      setSyncingState(true);
       const d = await apiFetch('/admin/sync/library');
       showToast(d.message);
       if (d.success) startPolling();
-      else btn.disabled = false;
+      else setSyncingState(false);
     }
 
     function startPolling() {
@@ -226,16 +236,37 @@
       pollInterval = setInterval(pollStatus, 2000);
     }
 
-    async function pollStatus() {
-      const d = await apiFetch('/admin/status', 'GET');
+    // Auto-start polling if server reports a sync already in progress
+    if (<%= syncInProgress ? 'true' : 'false' %>) startPolling();
+
+    function setSyncingState(isSyncing) {
       const badge = document.getElementById('sync-status-badge');
       const btn = document.getElementById('btn-sync-now');
+      const msg = document.getElementById('sync-progress-msg');
+      const text = document.getElementById('sync-status-text');
 
-      badge.textContent = d.syncInProgress ? 'Syncing...' : 'Idle';
-      badge.className = 'status-badge ' + (d.syncInProgress ? 'status-syncing' : 'status-idle');
+      btn.disabled = isSyncing;
+      msg.style.display = isSyncing ? 'block' : 'none';
+      text.textContent = isSyncing ? 'Syncing…' : 'Idle';
+      badge.className = 'status-badge ' + (isSyncing ? 'status-syncing' : 'status-idle');
+
+      // Spinner element
+      const existing = badge.querySelector('.sync-spinner');
+      if (isSyncing && !existing) {
+        const sp = document.createElement('span');
+        sp.className = 'sync-spinner';
+        badge.insertBefore(sp, text);
+      } else if (!isSyncing && existing) {
+        existing.remove();
+      }
+    }
+
+    async function pollStatus() {
+      const d = await apiFetch('/admin/status', 'GET');
+
+      setSyncingState(d.syncInProgress);
 
       if (!d.syncInProgress) {
-        btn.disabled = false;
         clearInterval(pollInterval);
         pollInterval = null;
 
@@ -261,8 +292,45 @@
     // ── Watched sync ──────────────────────────────────────────────────
 
     async function syncWatched(userId) {
+      const row = document.getElementById('user-row-' + userId);
+      const btns = row ? row.querySelectorAll('button') : [];
+      const syncBtn = [...btns].find(b => b.textContent.includes('Re-sync'));
+
+      // Show spinner on button
+      if (syncBtn) {
+        syncBtn.disabled = true;
+        syncBtn.dataset.origText = syncBtn.textContent;
+        syncBtn.innerHTML = '<span class="sync-spinner" style="width:10px;height:10px;border-width:2px;vertical-align:middle;margin-right:4px"></span>Syncing…';
+      }
+
       const d = await apiFetch('/admin/sync/watched/' + userId);
-      showToast(d.message, !d.success);
+      if (!d.success) {
+        showToast(d.message, true);
+        if (syncBtn) { syncBtn.disabled = false; syncBtn.textContent = syncBtn.dataset.origText; }
+        return;
+      }
+
+      showToast('Sync started for ' + userId);
+
+      // Poll /admin/status until the watched count for this user changes
+      const prevCount = row ? parseInt(row.querySelector('.watched-count-cell')?.dataset.count || '0') : -1;
+      let polls = 0;
+      const poll = setInterval(async () => {
+        polls++;
+        const s = await apiFetch('/admin/status', 'GET');
+        const userStat = (s.stats?.users || []).find(u => u.user_id === userId);
+        if (userStat && (userStat.watched_count !== prevCount || polls > 30)) {
+          clearInterval(poll);
+          if (syncBtn) { syncBtn.disabled = false; syncBtn.textContent = syncBtn.dataset.origText; }
+          // Update the count cell
+          const countCell = row?.querySelector('.watched-count-cell');
+          if (countCell) {
+            countCell.textContent = (userStat.watched_count || 0).toLocaleString() + ' items';
+            countCell.dataset.count = userStat.watched_count || 0;
+          }
+          showToast('Watched sync complete — ' + (userStat.watched_count || 0).toLocaleString() + ' items');
+        }
+      }, 2000);
     }
 
     async function clearWatched(userId) {

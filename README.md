@@ -15,8 +15,9 @@ Sign in with your Plex account and Diskovarr surfaces what to watch next — sco
 - **Diskovarr playlist** — private Plex playlist ("Diskovarr") separate from the Plex watchlist, so adding items here does not trigger any download automation
 - **Dismiss** — hide individual items permanently; stored in SQLite per user
 - **Background library sync** — library is cached in SQLite and refreshed from Plex every 2 hours; no cold-start timeouts
-- **Per-user watched sync** — watched status pulled from Plex using user tokens; blocks only on first request, then refreshes in the background
-- **Admin panel** — password-protected page to trigger manual syncs, manage caches, and change the theme color
+- **Per-user watched sync** — watched status pulled directly from Plex via admin token + accountID; catches fully-watched movies, fully-watched TV shows, and in-progress content via onDeck; syncs on first request then refreshes in background every 30 minutes
+- **Detail modal** — click any card to open a pop-up with full poster, Rotten Tomatoes tomatometer and audience scores, genres, summary, director and cast credits, and action buttons
+- **Admin panel** — password-protected page to trigger manual syncs, manage caches, and change the theme color; shows all users by Plex display name with per-user re-sync controls
 - **Theme color picker** — color wheel + presets; all accent colors update globally in real time
 - **Toast notifications** — slide-up confirmation when items are added to or removed from the watchlist
 - **Poster proxy** — all poster images are proxied through the server; Plex tokens are never exposed to the browser
@@ -136,14 +137,17 @@ Visit `/admin` and enter the `ADMIN_PASSWORD` from your `.env`.
 1. **Watch history** — fetches up to 1,000 movies and 2,000 episodes from Tautulli for the signed-in user
 2. **Preference profile** — builds weighted maps of genres, directors, actors, and decades from watched items; recent watches (top 50) get a 1.5× multiplier; fully-watched items get a 1.3× completion bonus
 3. **Scoring** — every unwatched, non-dismissed library item is scored:
-   - Genre overlap: up to 40 pts
-   - Director match: up to 25 pts
-   - Actor overlap (top 3 matches): up to 20 pts
-   - Decade preference: up to 10 pts
-   - Audience rating ≥ 8.0: +5 pts
-   - Added to Plex within the last 7 days: +3 pts
-4. **Sections** — top results are split into Movies, TV Shows, and Anime; Top Picks is a cross-section blend of the highest scorers
-5. **Watched filtering** — uses Plex's own `unwatched=0` endpoint with the user's token; always reflects current Plex state
+   - Genre overlap: up to 20 pts (each genre capped at 7 pts to prevent single-genre dominance)
+   - Director match: up to 30 pts
+   - Actor overlap (top 3 matches): up to 25 pts
+   - Studio match: up to 15 pts
+   - Decade preference: up to 8 pts
+   - Star rating multipliers: items the user rated 5 stars score 2.5×; low-rated items are suppressed
+   - Recency multipliers: most recently watched items contribute up to 1.8× weight to the profile
+   - Reason tags: "Because you like Sci-Fi", "Directed by X", "Starring Y" shown on each card
+4. **Top Picks diversity** — seeds from highest scorers then injects picks for top directors, actors, and studios to avoid genre-bubble recommendations
+5. **Sections** — results split into Movies, TV Shows, and Anime; Top Picks is a cross-section blend
+6. **Watched filtering** — uses Plex admin token with `accountID` parameter to reliably fetch watched state for any user regardless of token type; works for Plex Friends and managed users alike
 6. **Anime detection** — TV items where the "Anime" genre tag is present are separated into their own section
 
 ## Development

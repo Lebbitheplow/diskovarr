@@ -78,13 +78,32 @@ function removeDismissal(userId, ratingKey) {
   stmtRemove.run(String(userId), String(ratingKey));
 }
 
+// ── Migrate: add columns if this is an existing DB ────────────────────────────
+[
+  'ALTER TABLE library_items ADD COLUMN rating REAL DEFAULT 0',
+  "ALTER TABLE library_items ADD COLUMN rating_image TEXT DEFAULT ''",
+  "ALTER TABLE library_items ADD COLUMN audience_rating_image TEXT DEFAULT ''",
+  "ALTER TABLE library_items ADD COLUMN studio TEXT DEFAULT ''",
+].forEach(sql => { try { db.exec(sql); } catch (_) {} });
+
+// User ratings table (Plex star ratings, per user)
+db.exec(`
+  CREATE TABLE IF NOT EXISTS user_ratings (
+    user_id TEXT NOT NULL,
+    rating_key TEXT NOT NULL,
+    user_rating REAL NOT NULL,
+    PRIMARY KEY (user_id, rating_key)
+  );
+`);
+
 // ── Library items ─────────────────────────────────────────────────────────────
 
 const stmtUpsertItem = db.prepare(`
   INSERT OR REPLACE INTO library_items
     (rating_key, section_id, title, year, thumb, type, genres, directors, cast,
-     audience_rating, content_rating, added_at, summary, synced_at)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     audience_rating, content_rating, added_at, summary, synced_at,
+     rating, rating_image, audience_rating_image, studio)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
 
 const upsertManyItems = db.transaction((items) => {
@@ -93,14 +112,14 @@ const upsertManyItems = db.transaction((items) => {
       item.ratingKey, item.sectionId, item.title, item.year, item.thumb, item.type,
       JSON.stringify(item.genres), JSON.stringify(item.directors), JSON.stringify(item.cast),
       item.audienceRating, item.contentRating, item.addedAt, item.summary,
-      Math.floor(Date.now() / 1000)
+      Math.floor(Date.now() / 1000),
+      item.rating, item.ratingImage, item.audienceRatingImage, item.studio
     );
   }
 });
 
-function getLibraryItemsFromDb(sectionId) {
-  const rows = db.prepare('SELECT * FROM library_items WHERE section_id = ?').all(String(sectionId));
-  return rows.map(r => ({
+function rowToItem(r) {
+  return {
     ratingKey: r.rating_key,
     sectionId: r.section_id,
     title: r.title,
@@ -114,20 +133,21 @@ function getLibraryItemsFromDb(sectionId) {
     contentRating: r.content_rating,
     addedAt: r.added_at,
     summary: r.summary,
-  }));
+    rating: r.rating || 0,
+    ratingImage: r.rating_image || '',
+    audienceRatingImage: r.audience_rating_image || '',
+    studio: r.studio || '',
+  };
+}
+
+function getLibraryItemsFromDb(sectionId) {
+  return db.prepare('SELECT * FROM library_items WHERE section_id = ?')
+    .all(String(sectionId)).map(rowToItem);
 }
 
 function getLibraryItemByKey(ratingKey) {
   const r = db.prepare('SELECT * FROM library_items WHERE rating_key = ?').get(String(ratingKey));
-  if (!r) return null;
-  return {
-    ratingKey: r.rating_key, sectionId: r.section_id, title: r.title, year: r.year,
-    thumb: r.thumb, type: r.type,
-    genres: JSON.parse(r.genres || '[]'), directors: JSON.parse(r.directors || '[]'),
-    cast: JSON.parse(r.cast || '[]'),
-    audienceRating: r.audience_rating, contentRating: r.content_rating,
-    addedAt: r.added_at, summary: r.summary,
-  };
+  return r ? rowToItem(r) : null;
 }
 
 // ── User watched ──────────────────────────────────────────────────────────────
@@ -171,10 +191,24 @@ function getAdminStats() {
     .get(process.env.PLEX_TV_SECTION_ID || '2')?.c || 0;
   const dismissalCount = db.prepare("SELECT COUNT(*) as c FROM dismissals").get()?.c || 0;
 
-  // Per-user watched counts
+  // Per-user watched counts — include users from sync_log even if they have 0 watched items
   const watchedStats = db.prepare(`
-    SELECT user_id, COUNT(*) as watched_count, MAX(synced_at) as last_sync
-    FROM user_watched GROUP BY user_id
+    SELECT
+      s.uid AS user_id,
+      COALESCE(ku.username, s.uid) AS username,
+      ku.thumb,
+      COALESCE(w.watched_count, 0) AS watched_count,
+      COALESCE(w.last_sync, s.last_sync) AS last_sync
+    FROM (
+      SELECT SUBSTR(key, 9) AS uid, last_sync
+      FROM sync_log WHERE key LIKE 'watched_%'
+    ) s
+    LEFT JOIN (
+      SELECT user_id, COUNT(*) as watched_count, MAX(synced_at) as last_sync
+      FROM user_watched GROUP BY user_id
+    ) w ON w.user_id = s.uid
+    LEFT JOIN known_users ku ON ku.user_id = s.uid
+    ORDER BY last_sync DESC
   `).all();
 
   // Sync times
@@ -221,6 +255,44 @@ function clearUserDismissals(userId) {
   }
 }
 
+// ── Known users (username cache) ─────────────────────────────────────────────
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS known_users (
+    user_id TEXT PRIMARY KEY,
+    username TEXT NOT NULL,
+    thumb TEXT,
+    seen_at INTEGER DEFAULT 0
+  );
+`);
+
+function upsertKnownUser(userId, username, thumb) {
+  db.prepare(`
+    INSERT OR REPLACE INTO known_users (user_id, username, thumb, seen_at)
+    VALUES (?, ?, ?, ?)
+  `).run(String(userId), username, thumb || null, Math.floor(Date.now() / 1000));
+}
+
+function getKnownUsers() {
+  return db.prepare('SELECT user_id, username, thumb FROM known_users ORDER BY seen_at DESC').all();
+}
+
+// ── User ratings (Plex star ratings) ─────────────────────────────────────────
+
+const upsertUserRatings = db.transaction((userId, ratings) => {
+  const stmt = db.prepare(
+    'INSERT OR REPLACE INTO user_ratings (user_id, rating_key, user_rating) VALUES (?, ?, ?)'
+  );
+  for (const { ratingKey, userRating } of ratings) {
+    stmt.run(String(userId), String(ratingKey), userRating);
+  }
+});
+
+function getUserRatingsFromDb(userId) {
+  const rows = db.prepare('SELECT rating_key, user_rating FROM user_ratings WHERE user_id = ?').all(String(userId));
+  return new Map(rows.map(r => [r.rating_key, r.user_rating]));
+}
+
 // ── Theme ─────────────────────────────────────────────────────────────────────
 
 const DEFAULT_ACCENT = '#e5a00d';
@@ -237,8 +309,10 @@ function setThemeColor(hex) {
 
 module.exports = {
   addDismissal, getDismissals, removeDismissal,
+  upsertKnownUser, getKnownUsers,
   upsertManyItems, getLibraryItemsFromDb, getLibraryItemByKey,
   replaceWatchedBatch, getWatchedKeysFromDb,
+  upsertUserRatings, getUserRatingsFromDb,
   getSyncTime, setSyncTime,
   getAdminStats, clearUserWatched, clearAllUserWatched,
   clearLibraryDb, clearUserDismissals,

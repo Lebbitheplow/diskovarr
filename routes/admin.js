@@ -139,7 +139,6 @@ router.post('/sync/watched/:userId', requireAdmin, async (req, res) => {
   res.json({ success: true, message: 'Watched sync started for user ' + userId });
 
   try {
-    db.clearUserWatched(userId);
     await plexService.syncUserWatched(userId, userToken);
     recommender.invalidateUserCache(userId);
     console.log(`[Admin] Watched sync completed for user ${userId}`);
