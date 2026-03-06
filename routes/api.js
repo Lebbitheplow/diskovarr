@@ -66,9 +66,9 @@ router.post('/watchlist/add', (req, res) => {
 
   // Async: also sync to Plex playlist (fire and forget — DB is source of truth)
   plexService.addToWatchlist(userToken, String(ratingKey), serverUrl)
-    .then(() => plexService.getDiskovarrPlaylist(userToken, serverUrl))
+    .then(() => plexService.getWatchlist(userToken, serverUrl))
     .then(playlist => {
-      if (!playlist) return;
+      if (!playlist.playlistId) return;
       const item = playlist.items.find(i => i.ratingKey === String(ratingKey));
       if (item) db.updateWatchlistPlexIds(userId, ratingKey, playlist.playlistId, item.playlistItemId);
     })
@@ -93,9 +93,9 @@ router.post('/watchlist/remove', (req, res) => {
       .catch(err => console.warn(`Plex playlist remove failed for user ${userId}:`, err.message));
   } else {
     // No stored IDs — fetch playlist to find the item
-    plexService.getDiskovarrPlaylist(userToken, serverUrl)
+    plexService.getWatchlist(userToken, serverUrl)
       .then(playlist => {
-        if (!playlist) return;
+        if (!playlist.playlistId) return;
         const item = playlist.items.find(i => i.ratingKey === String(ratingKey));
         if (item) return plexService.removeFromWatchlist(userToken, playlist.playlistId, item.playlistItemId, serverUrl);
       })
