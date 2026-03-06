@@ -4,52 +4,25 @@ Personalized Plex content recommendations powered by your watch history.
 
 Sign in with your Plex account and Diskovarr surfaces what to watch next — scored by your genre, director, actor, and decade preferences — with a full browse/filter view, private watchlist, and an admin panel to manage syncing and theming.
 
----
-
-## Screenshots
-
-### Home — Personalized Recommendations
 ![Home screen showing Top Picks, Movies, TV Shows, and Anime carousels](docs/screenshots/home.png)
-
-Four sections of scored recommendations in a 2-row carousel layout. Each section has a ↺ shuffle button to draw a fresh random sample from the pool without rescoring.
-
-### Movie / Show Detail
-![Detail modal showing poster, Rotten Tomatoes scores, genres, summary, and cast](docs/screenshots/movie-info.png)
-
-Click any card to open the detail modal: full poster, Rotten Tomatoes tomatometer and audience scores, genres, plot summary, director and cast credits, and watchlist/dismiss actions.
-
-### Admin Panel — Library & Users
-![Admin panel showing library sync stats and user watch history table](docs/screenshots/admin-panel.png)
-
-Password-protected admin panel showing item counts, last sync times, sync controls, and a per-user table with watched item counts and re-sync actions.
-
-### Admin Panel — Cache & User Controls
-![Admin panel showing per-user controls and recommendation cache section](docs/screenshots/user-clear-cache.png)
-
-Per-user controls to re-sync or clear watched history and dismissals, plus a global recommendation cache clear.
-
-### Admin Panel — Theme, Server Owner & Stats
-![Admin panel showing theme color picker, server owner selector, and library stats](docs/screenshots/theme-server-owner.png)
-
-Theme color picker with presets and a custom color wheel, server owner account selector with watchlist/playlist mode toggle, and overall library stats.
-
----
 
 ## Features
 
 - **Plex OAuth sign-in** — users authenticate with their own Plex account via the official PIN flow; PIN is created browser-side so the server IP is never exposed in Plex's security warning
 - **Personalized recommendations** — scored from Tautulli watch history across genre, director, cast, decade, and rating; fresh random sample drawn on every page load and shuffle
-- **Four sections** — Top Picks, Movies, TV Shows, Anime (auto-detected by genre tag); each a 2-row carousel with pagination and a shuffle button
+- **Four sections** — Top Picks, Movies, TV Shows, Anime (auto-detected by genre tag); each a 2-row carousel with pagination and a ↺ shuffle button
 - **Diskovarr View** — full library browser with filters for type, decade, genre, min rating, sort order, and watched status
-- **Watchlist sync** — items added to your Diskovarr watchlist are synced to Plex. By default (and for all Friend users), items sync to the native Plex.tv Watchlist (visible in the Plex app under Discover → Watchlist). Server owners can switch to **Playlist mode** in the admin panel, which instead creates a private "Diskovarr" server playlist — useful when the native Plex Watchlist is monitored by download automation (e.g. pd_zurg)
-- **Dismiss** — hide individual items permanently; stored in SQLite per user
-- **Background library sync** — library is cached in SQLite and refreshed from Plex every 2 hours; no cold-start timeouts
-- **Per-user watched sync** — watched status pulled directly from Plex via admin token + accountID; catches fully-watched movies, fully-watched TV shows, and in-progress content via onDeck; syncs on first request then refreshes in background every 30 minutes
-- **Detail modal** — click any card to open a pop-up with full poster, Rotten Tomatoes tomatometer and audience scores, genres, summary, director and cast credits, and action buttons
-- **Admin panel** — password-protected page to trigger manual syncs, manage caches, set the server owner account, toggle watchlist/playlist mode, and change the theme color; shows all users by Plex display name with per-user re-sync controls
-- **Theme color picker** — color wheel + presets; all accent colors update globally in real time
-- **Toast notifications** — slide-up confirmation when items are added to or removed from the watchlist
-- **Poster proxy** — all poster images are proxied through the server; Plex tokens are never exposed to the browser
+- **Detail modal** — click any card to open a full overlay with poster, Rotten Tomatoes scores, genres, summary, director and cast credits, and watchlist/dismiss actions
+
+  ![Detail modal showing poster, Rotten Tomatoes scores, genres, summary, and cast](docs/screenshots/movie-info.png)
+
+- **Watchlist sync** — items sync to the native Plex.tv Watchlist by default (visible in the Plex app under Discover → Watchlist); server owners can switch to **Playlist mode** in the admin panel for a private "Diskovarr" server playlist — useful when the Plex Watchlist triggers download automation (e.g. pd_zurg)
+- **Dismiss** — hide individual items permanently per user; stored in SQLite
+- **Background library sync** — cached in SQLite, refreshed from Plex every 2 hours; no cold-start delays
+- **Per-user watched sync** — fetched via Plex admin token + accountID; catches fully-watched and in-progress content; syncs on first request then refreshes in the background every 30 minutes
+- **Admin panel** — password-protected; manage library syncs, per-user caches, server owner account, watchlist/playlist mode, and theme color
+- **Theme color picker** — color wheel + presets; accent color updates globally in real time
+- **Poster proxy** — all poster images proxied through the server; Plex tokens never reach the browser
 - **Dark UI** — Netflix-style card grid with shimmer skeleton loading, hover overlays, and CSS variable theming
 
 ## Requirements
@@ -156,11 +129,18 @@ The Plex OAuth user ID returned at sign-in is the same ID Tautulli uses. No tran
 
 Visit `/admin` and enter the `ADMIN_PASSWORD` from your `.env`.
 
+![Admin panel showing library sync stats and user watch history table](docs/screenshots/admin-panel.png)
+
 - **Library Sync** — view item counts and last sync time; trigger a manual full sync; enable or disable the 2-hour auto-sync
 - **User Watch Sync** — see watched counts per user; re-sync or clear individual users' watched history
+
+![Admin panel showing per-user controls and recommendation cache section](docs/screenshots/user-clear-cache.png)
+
 - **Recommendation Cache** — clear the in-memory recommendation cache for all users or a specific user
-- **Watchlist Mode** — toggle between Watchlist mode (plex.tv native Watchlist, default) and Playlist mode (private server playlist) for the server owner's account only
+- **Server Owner & Watchlist Mode** — select which Plex account is the server owner; toggle between Watchlist mode (plex.tv native Watchlist, default) and Playlist mode (private server playlist) for that account only
 - **Theme Color** — pick from presets or use the color wheel; the change applies immediately across all pages
+
+![Admin panel showing theme color picker, server owner selector, and library stats](docs/screenshots/theme-server-owner.png)
 
 ## How Recommendations Work
 
