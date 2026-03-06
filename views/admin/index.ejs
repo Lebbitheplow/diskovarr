@@ -10,7 +10,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/style.css">
   <link rel="stylesheet" href="/css/admin.css">
-  <link rel="stylesheet" href="/theme.css">
+  <link rel="stylesheet" href="/theme.css?c=<%= themeParam %>" id="theme-css">
 </head>
 <body>
   <nav class="nav">
@@ -428,8 +428,8 @@
 
       if (d.success) {
         // Update the theme.css link to force reload
-        const link = document.querySelector('link[href="/theme.css"]');
-        if (link) link.href = '/theme.css?t=' + Date.now();
+        const link = document.getElementById('theme-css');
+        if (link) link.href = '/theme.css?c=' + encodeURIComponent(data.color);
         showToast('Theme color updated');
       } else {
         showToast(d.error || 'Failed to update color', true);

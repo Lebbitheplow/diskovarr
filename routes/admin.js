@@ -67,6 +67,7 @@ router.get('/', requireAdmin, (req, res) => {
     autoSyncEnabled,
     syncInProgress,
     lastSyncError,
+    themeParam: encodeURIComponent(db.getThemeColor()),
   });
 });
 
