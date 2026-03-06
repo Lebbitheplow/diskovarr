@@ -17,6 +17,37 @@ db.exec(`
     UNIQUE(plex_user_id, rating_key)
   );
   CREATE INDEX IF NOT EXISTS idx_dismissals_user ON dismissals(plex_user_id);
+
+  CREATE TABLE IF NOT EXISTS library_items (
+    rating_key TEXT PRIMARY KEY,
+    section_id TEXT NOT NULL,
+    title TEXT,
+    year INTEGER,
+    thumb TEXT,
+    type TEXT,
+    genres TEXT DEFAULT '[]',
+    directors TEXT DEFAULT '[]',
+    cast TEXT DEFAULT '[]',
+    audience_rating REAL DEFAULT 0,
+    content_rating TEXT DEFAULT '',
+    added_at INTEGER DEFAULT 0,
+    summary TEXT DEFAULT '',
+    synced_at INTEGER DEFAULT 0
+  );
+  CREATE INDEX IF NOT EXISTS idx_library_section ON library_items(section_id);
+
+  CREATE TABLE IF NOT EXISTS user_watched (
+    user_id TEXT NOT NULL,
+    rating_key TEXT NOT NULL,
+    synced_at INTEGER DEFAULT 0,
+    PRIMARY KEY (user_id, rating_key)
+  );
+  CREATE INDEX IF NOT EXISTS idx_watched_user ON user_watched(user_id);
+
+  CREATE TABLE IF NOT EXISTS sync_log (
+    key TEXT PRIMARY KEY,
+    last_sync INTEGER DEFAULT 0
+  );
 `);
 
 const stmtAdd = db.prepare(
@@ -42,4 +73,93 @@ function removeDismissal(userId, ratingKey) {
   stmtRemove.run(String(userId), String(ratingKey));
 }
 
-module.exports = { addDismissal, getDismissals, removeDismissal };
+// ── Library items ─────────────────────────────────────────────────────────────
+
+const stmtUpsertItem = db.prepare(`
+  INSERT OR REPLACE INTO library_items
+    (rating_key, section_id, title, year, thumb, type, genres, directors, cast,
+     audience_rating, content_rating, added_at, summary, synced_at)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`);
+
+const upsertManyItems = db.transaction((items) => {
+  for (const item of items) {
+    stmtUpsertItem.run(
+      item.ratingKey, item.sectionId, item.title, item.year, item.thumb, item.type,
+      JSON.stringify(item.genres), JSON.stringify(item.directors), JSON.stringify(item.cast),
+      item.audienceRating, item.contentRating, item.addedAt, item.summary,
+      Math.floor(Date.now() / 1000)
+    );
+  }
+});
+
+function getLibraryItemsFromDb(sectionId) {
+  const rows = db.prepare('SELECT * FROM library_items WHERE section_id = ?').all(String(sectionId));
+  return rows.map(r => ({
+    ratingKey: r.rating_key,
+    sectionId: r.section_id,
+    title: r.title,
+    year: r.year,
+    thumb: r.thumb,
+    type: r.type,
+    genres: JSON.parse(r.genres || '[]'),
+    directors: JSON.parse(r.directors || '[]'),
+    cast: JSON.parse(r.cast || '[]'),
+    audienceRating: r.audience_rating,
+    contentRating: r.content_rating,
+    addedAt: r.added_at,
+    summary: r.summary,
+  }));
+}
+
+function getLibraryItemByKey(ratingKey) {
+  const r = db.prepare('SELECT * FROM library_items WHERE rating_key = ?').get(String(ratingKey));
+  if (!r) return null;
+  return {
+    ratingKey: r.rating_key, sectionId: r.section_id, title: r.title, year: r.year,
+    thumb: r.thumb, type: r.type,
+    genres: JSON.parse(r.genres || '[]'), directors: JSON.parse(r.directors || '[]'),
+    cast: JSON.parse(r.cast || '[]'),
+    audienceRating: r.audience_rating, contentRating: r.content_rating,
+    addedAt: r.added_at, summary: r.summary,
+  };
+}
+
+// ── User watched ──────────────────────────────────────────────────────────────
+
+const stmtReplaceWatched = db.prepare(
+  'INSERT OR REPLACE INTO user_watched (user_id, rating_key, synced_at) VALUES (?, ?, ?)'
+);
+const stmtClearWatched = db.prepare('DELETE FROM user_watched WHERE user_id = ?');
+
+const replaceWatchedBatch = db.transaction((userId, ratingKeys) => {
+  stmtClearWatched.run(String(userId));
+  const now = Math.floor(Date.now() / 1000);
+  for (const key of ratingKeys) {
+    stmtReplaceWatched.run(String(userId), String(key), now);
+  }
+});
+
+function getWatchedKeysFromDb(userId) {
+  const rows = db.prepare('SELECT rating_key FROM user_watched WHERE user_id = ?').all(String(userId));
+  return new Set(rows.map(r => r.rating_key));
+}
+
+// ── Sync log ──────────────────────────────────────────────────────────────────
+
+function getSyncTime(key) {
+  const row = db.prepare('SELECT last_sync FROM sync_log WHERE key = ?').get(key);
+  return row ? row.last_sync : 0;
+}
+
+function setSyncTime(key) {
+  db.prepare('INSERT OR REPLACE INTO sync_log (key, last_sync) VALUES (?, ?)')
+    .run(key, Math.floor(Date.now() / 1000));
+}
+
+module.exports = {
+  addDismissal, getDismissals, removeDismissal,
+  upsertManyItems, getLibraryItemsFromDb, getLibraryItemByKey,
+  replaceWatchedBatch, getWatchedKeysFromDb,
+  getSyncTime, setSyncTime,
+};

@@ -1,11 +1,18 @@
+const db = require('../db/database');
+
 const PLEX_URL = process.env.PLEX_URL;
 const PLEX_TOKEN = process.env.PLEX_TOKEN;
 const PLEX_SERVER_ID = process.env.PLEX_SERVER_ID;
 const MOVIES_SECTION = process.env.PLEX_MOVIES_SECTION_ID || '1';
 const TV_SECTION = process.env.PLEX_TV_SECTION_ID || '2';
 
+// In-memory L1 cache on top of DB — avoids repeat DB reads within same cycle
 const CACHE_TTL = 2 * 60 * 60 * 1000; // 2 hours
 const libraryCache = new Map(); // sectionId -> { data, fetchedAt }
+
+// Per-user watched sync: userId -> Promise (prevents parallel syncs)
+const watchedSyncInProgress = new Map();
+const WATCHED_SYNC_TTL = 30 * 60; // 30 minutes (seconds)
 
 const PLEX_HEADERS = {
   'Accept': 'application/json',
@@ -18,7 +25,8 @@ async function plexFetch(path, token) {
   if (token && token !== PLEX_TOKEN) {
     headers['X-Plex-Token'] = token;
   }
-  const res = await fetch(url, { headers, signal: AbortSignal.timeout(15000) });
+  const timeout = path.includes('/sections/') ? 90000 : 15000;
+  const res = await fetch(url, { headers, signal: AbortSignal.timeout(timeout) });
   if (!res.ok) throw new Error(`Plex API error ${res.status} for ${path}`);
   return res.json();
 }
@@ -50,16 +58,37 @@ async function fetchSection(sectionId) {
     return cached.data;
   }
 
-  console.log(`Fetching library section ${sectionId}...`);
+  // Try DB first — use it if it was synced recently enough
+  const dbSyncTime = db.getSyncTime(`library_${sectionId}`);
+  const dbAge = Math.floor(Date.now() / 1000) - dbSyncTime;
+  if (dbSyncTime > 0 && dbAge < 7200) { // 2 hours
+    const items = db.getLibraryItemsFromDb(sectionId);
+    if (items.length > 0) {
+      libraryCache.set(sectionId, { data: items, fetchedAt: Date.now() });
+      console.log(`Loaded ${items.length} items for section ${sectionId} from DB (age: ${Math.round(dbAge/60)}m)`);
+      return items;
+    }
+  }
+
+  return syncLibrarySection(sectionId);
+}
+
+async function syncLibrarySection(sectionId) {
+  console.log(`Syncing library section ${sectionId} from Plex...`);
   const json = await plexFetch(
     `/library/sections/${sectionId}/all?X-Plex-Container-Size=99999&X-Plex-Token=${PLEX_TOKEN}`
   );
 
   const videos = json.MediaContainer?.Metadata || [];
-  const items = videos.map(parseMediaItem);
+  const items = videos.map(v => ({ ...parseMediaItem(v), sectionId }));
 
+  // Write to DB
+  db.upsertManyItems(items);
+  db.setSyncTime(`library_${sectionId}`);
+
+  // Update in-memory cache
   libraryCache.set(sectionId, { data: items, fetchedAt: Date.now() });
-  console.log(`Cached ${items.length} items for section ${sectionId}`);
+  console.log(`Synced ${items.length} items for section ${sectionId} to DB`);
   return items;
 }
 
@@ -68,8 +97,7 @@ async function getLibraryItems(sectionId) {
 }
 
 async function warmCache() {
-  await fetchSection(MOVIES_SECTION);
-  await fetchSection(TV_SECTION);
+  await Promise.all([fetchSection(MOVIES_SECTION), fetchSection(TV_SECTION)]);
 }
 
 function invalidateCache(sectionId) {
@@ -78,6 +106,81 @@ function invalidateCache(sectionId) {
   } else {
     libraryCache.clear();
   }
+}
+
+/**
+ * Sync watched status for a user from Plex into the local DB.
+ * Uses `unwatched=0` (fast, small result) + onDeck for in-progress.
+ * This runs in the background — callers always get data from DB.
+ */
+async function syncUserWatched(userId, userToken) {
+  const syncKey = `watched_${userId}`;
+  try {
+    // Fetch fully-watched items from both sections + onDeck (in-progress)
+    const [moviesJson, tvJson, deckJson] = await Promise.all([
+      fetch(`${PLEX_URL}/library/sections/${MOVIES_SECTION}/all?unwatched=0&X-Plex-Container-Size=99999&X-Plex-Token=${userToken}`, {
+        headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(20000),
+      }).then(r => r.ok ? r.json() : { MediaContainer: {} }),
+      fetch(`${PLEX_URL}/library/sections/${TV_SECTION}/all?unwatched=0&X-Plex-Container-Size=99999&X-Plex-Token=${userToken}`, {
+        headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(30000),
+      }).then(r => r.ok ? r.json() : { MediaContainer: {} }),
+      fetch(`${PLEX_URL}/library/sections/${TV_SECTION}/onDeck?X-Plex-Token=${userToken}`, {
+        headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(10000),
+      }).then(r => r.ok ? r.json() : { MediaContainer: {} }),
+    ]);
+
+    const watchedKeys = new Set();
+    for (const item of (moviesJson.MediaContainer?.Metadata || [])) {
+      watchedKeys.add(String(item.ratingKey));
+    }
+    for (const item of (tvJson.MediaContainer?.Metadata || [])) {
+      watchedKeys.add(String(item.ratingKey));
+    }
+    // onDeck returns episodes — extract the show (grandparentRatingKey)
+    for (const ep of (deckJson.MediaContainer?.Metadata || [])) {
+      if (ep.grandparentRatingKey) watchedKeys.add(String(ep.grandparentRatingKey));
+    }
+
+    db.replaceWatchedBatch(userId, watchedKeys);
+    db.setSyncTime(syncKey);
+    console.log(`Synced ${watchedKeys.size} watched items for user ${userId}`);
+  } catch (err) {
+    console.warn(`syncUserWatched(${userId}) error:`, err.message);
+  } finally {
+    watchedSyncInProgress.delete(userId);
+  }
+}
+
+/**
+ * Get watched keys from DB for a user.
+ * Triggers a background sync if data is stale (>30 min) or missing.
+ * Returns whatever is in DB immediately — never blocks recommendations.
+ */
+async function getWatchedKeys(userId, userToken) {
+  const syncKey = `watched_${userId}`;
+  const lastSync = db.getSyncTime(syncKey);
+  const age = Math.floor(Date.now() / 1000) - lastSync;
+  const hasData = lastSync > 0;
+
+  if (!hasData) {
+    // First time for this user — sync now and wait (first request only)
+    if (!watchedSyncInProgress.has(userId)) {
+      const p = syncUserWatched(userId, userToken);
+      watchedSyncInProgress.set(userId, p);
+      await p;
+    } else {
+      await watchedSyncInProgress.get(userId);
+    }
+  } else if (age > WATCHED_SYNC_TTL) {
+    // Stale — return current DB data immediately, refresh in background
+    if (!watchedSyncInProgress.has(userId)) {
+      const p = syncUserWatched(userId, userToken);
+      watchedSyncInProgress.set(userId, p);
+      // Don't await — let it run in background
+    }
+  }
+
+  return db.getWatchedKeysFromDb(userId);
 }
 
 // Build a lookup map by ratingKey for fast scoring
@@ -101,7 +204,7 @@ async function getDiskovarrPlaylist(userToken) {
       userToken
     );
     const playlists = json.MediaContainer?.Metadata || [];
-    const playlist = playlists.find(p => p.title === 'Diskovarr Watchlist');
+    const playlist = playlists.find(p => p.title === 'Diskovarr');
     if (!playlist) return null;
 
     const itemsJson = await plexFetch(
@@ -173,6 +276,9 @@ function getDeepLink(ratingKey) {
 module.exports = {
   getLibraryItems,
   getLibraryMap,
+  getWatchedKeys,
+  syncUserWatched,
+  syncLibrarySection,
   warmCache,
   invalidateCache,
   getWatchlist,
@@ -181,4 +287,6 @@ module.exports = {
   getDeepLink,
   PLEX_URL,
   PLEX_TOKEN,
+  MOVIES_SECTION,
+  TV_SECTION,
 };

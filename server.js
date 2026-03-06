@@ -55,14 +55,22 @@ const PORT = process.env.PORT || 3232;
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Diskovarr running on http://0.0.0.0:${PORT}`);
 
-  // Pre-warm library cache in background
-  setTimeout(async () => {
+  const plexService = require('./services/plex');
+  const REFRESH_INTERVAL = 2 * 60 * 60 * 1000; // 2 hours
+
+  async function refreshLibrarySync() {
     try {
-      const plexService = require('./services/plex');
-      await plexService.warmCache();
-      console.log('Library cache pre-warmed');
+      plexService.invalidateCache(); // clear in-memory L1 so DB re-read triggers fresh Plex sync
+      await plexService.warmCache(); // re-syncs both sections to DB + in-memory
+      console.log(`[${new Date().toISOString()}] Library synced`);
     } catch (err) {
-      console.warn('Cache pre-warm failed (will retry on first request):', err.message);
+      console.warn('Library sync failed:', err.message);
     }
-  }, 2000);
+  }
+
+  // On startup: load from DB if fresh, otherwise sync from Plex
+  setTimeout(refreshLibrarySync, 2000);
+
+  // Background re-sync every 2 hours
+  setInterval(refreshLibrarySync, REFRESH_INTERVAL);
 });

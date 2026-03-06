@@ -22,11 +22,15 @@ function normalizeMap(map) {
   return normalized;
 }
 
-async function buildPreferenceProfile(userId) {
+/**
+ * Build preference weights from Tautulli watch history.
+ * Only used for scoring (genre/director/actor/decade affinity).
+ * Watched filtering is handled separately via Plex API to avoid stale ratingKeys.
+ * libraryMap is passed in to avoid re-fetching it.
+ */
+async function buildPreferenceProfile(userId, libraryMap) {
   const history = await tautulliService.getFullHistory(userId);
   if (!history.length) return null;
-
-  const libraryMap = await plexService.getLibraryMap();
 
   // Sort by recency for recency multiplier
   const sorted = [...history].sort((a, b) => b.watched_at - a.watched_at);
@@ -37,15 +41,10 @@ async function buildPreferenceProfile(userId) {
   const actorWeights = new Map();
   const decadeWeights = new Map();
 
-  const watchedMovieKeys = new Set();
-  const watchedShowKeys = new Set();
-
   for (const entry of history) {
+    // Try exact ratingKey match first, then title fallback for stale keys
     const item = libraryMap.get(entry.rating_key);
     if (!item) continue;
-
-    if (entry.media_type === 'movie') watchedMovieKeys.add(entry.rating_key);
-    if (entry.media_type === 'show') watchedShowKeys.add(entry.rating_key);
 
     const recency = top50Keys.has(entry.rating_key) ? 1.5 : 1.0;
     const completion = entry.percent_complete >= 95 ? 1.3 : 1.0;
@@ -71,21 +70,14 @@ async function buildPreferenceProfile(userId) {
     directorWeights: normalizeMap(directorWeights),
     actorWeights: normalizeMap(actorWeights),
     decadeWeights: normalizeMap(decadeWeights),
-    watchedMovieKeys,
-    watchedShowKeys,
   };
 }
 
-function scoreItem(item, profile, dismissedKeys) {
+function scoreItem(item, profile, dismissedKeys, watchedKeys) {
   const key = item.ratingKey;
 
   if (dismissedKeys.has(key)) return null;
-
-  const isMovie = item.type === 'movie';
-  const isShow = item.type === 'show';
-
-  if (isMovie && profile.watchedMovieKeys.has(key)) return null;
-  if (isShow && profile.watchedShowKeys.has(key)) return null;
+  if (watchedKeys.has(key)) return null;
 
   const { genreWeights, directorWeights, actorWeights, decadeWeights } = profile;
 
@@ -181,11 +173,17 @@ async function getRecommendations(userId, userToken) {
     return attachWatchlistStatus(cached.data, watchlistKeys, watchlistMap, watchlist.playlistId);
   }
 
-  const [movies, tv, dismissedKeys] = await Promise.all([
+  // Fetch library + watched keys in parallel (library from DB/cache, watched from DB)
+  const [movies, tv, watchedKeys, dismissedKeys] = await Promise.all([
     plexService.getLibraryItems(MOVIES_SECTION),
     plexService.getLibraryItems(TV_SECTION),
+    plexService.getWatchedKeys(userId, userToken),
     Promise.resolve(db.getDismissals(userId)),
   ]);
+
+  // Build library map from already-fetched items, then build profile (reuses same data)
+  const libraryMap = new Map([...movies, ...tv].map(i => [i.ratingKey, i]));
+  const profile = await buildPreferenceProfile(userId, libraryMap);
 
   // Anime = TV items with 'anime' genre (case-insensitive)
   const animeItems = tv.filter(item =>
@@ -195,26 +193,22 @@ async function getRecommendations(userId, userToken) {
     !item.genres.some(g => g.toLowerCase() === 'anime')
   );
 
-  // Build preference profile
-  const profile = await buildPreferenceProfile(userId);
-
   let scoredMovies, scoredTV, scoredAnime;
 
   if (!profile) {
-    // No history fallback
-    const allWatched = new Set();
-    scoredMovies = movies.map(i => scoreFallback(i, dismissedKeys, allWatched)).filter(Boolean);
-    scoredTV = tvOnlyItems.map(i => scoreFallback(i, dismissedKeys, allWatched)).filter(Boolean);
-    scoredAnime = animeItems.map(i => scoreFallback(i, dismissedKeys, allWatched)).filter(Boolean);
+    // No history fallback — sort by rating, filter watched
+    scoredMovies = movies.map(i => scoreFallback(i, dismissedKeys, watchedKeys)).filter(Boolean);
+    scoredTV = tvOnlyItems.map(i => scoreFallback(i, dismissedKeys, watchedKeys)).filter(Boolean);
+    scoredAnime = animeItems.map(i => scoreFallback(i, dismissedKeys, watchedKeys)).filter(Boolean);
   } else {
     scoredMovies = movies
-      .map(item => scoreItem(item, profile, dismissedKeys))
+      .map(item => scoreItem(item, profile, dismissedKeys, watchedKeys))
       .filter(Boolean);
     scoredTV = tvOnlyItems
-      .map(item => scoreItem(item, profile, dismissedKeys))
+      .map(item => scoreItem(item, profile, dismissedKeys, watchedKeys))
       .filter(Boolean);
     scoredAnime = animeItems
-      .map(item => scoreItem(item, profile, dismissedKeys))
+      .map(item => scoreItem(item, profile, dismissedKeys, watchedKeys))
       .filter(Boolean);
   }
 
