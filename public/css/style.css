@@ -136,6 +136,39 @@ img {
   font-weight: 500;
 }
 
+/* Nav tabs — prominent Home / Diskovarr View links */
+.nav-tabs {
+  display: flex;
+  align-items: stretch;
+  height: 100%;
+  gap: 0;
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.nav-tab {
+  display: flex;
+  align-items: center;
+  padding: 0 22px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  border-bottom: 3px solid transparent;
+  transition: all 0.2s;
+  letter-spacing: 0.01em;
+}
+
+.nav-tab:hover {
+  color: var(--text-primary);
+  background: var(--accent-glow);
+}
+
+.nav-tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
 .nav-logout {
   font-size: 0.8rem;
   color: var(--text-muted);
@@ -639,4 +672,37 @@ img {
 
 ::-webkit-scrollbar-thumb:hover {
   background: var(--bg-hover);
+}
+
+/* ============================================================
+   Toast notification
+   ============================================================ */
+.wl-toast {
+  position: fixed;
+  bottom: 32px;
+  left: 50%;
+  transform: translateX(-50%) translateY(20px);
+  background: var(--bg-elevated);
+  border: 1px solid var(--accent-border);
+  color: var(--text-primary);
+  padding: 13px 24px;
+  border-radius: 40px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  white-space: nowrap;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5), 0 0 0 1px var(--accent-border);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease, transform 0.25s ease;
+  z-index: 9999;
+}
+
+.wl-toast-show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+.wl-toast-error {
+  border-color: rgba(220, 50, 50, 0.5);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(220, 50, 50, 0.3);
 }

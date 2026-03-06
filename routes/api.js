@@ -183,6 +183,7 @@ router.get('/discover', async (req, res) => {
 
     const itemsWithWatchlist = items.map(item => ({
       ...item,
+      deepLink: plexService.getDeepLink(item.ratingKey),
       isInWatchlist: watchlistKeys.has(item.ratingKey),
       watchlistPlaylistId: watchlist.playlistId,
       watchlistItemId: watchlistMap.get(item.ratingKey)?.playlistItemId || null,

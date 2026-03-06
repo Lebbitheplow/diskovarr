@@ -237,7 +237,7 @@ async function addToWatchlist(userToken, ratingKey) {
 
   if (!existing) {
     // Create new playlist
-    const createUrl = `${PLEX_URL}/playlists?type=video&title=Diskovarr%20Watchlist&smart=0&uri=${encodeURIComponent(uri)}&X-Plex-Token=${userToken}`;
+    const createUrl = `${PLEX_URL}/playlists?type=video&title=Diskovarr&smart=0&uri=${encodeURIComponent(uri)}&X-Plex-Token=${userToken}`;
     const res = await fetch(createUrl, {
       method: 'POST',
       headers: { 'Accept': 'application/json' },

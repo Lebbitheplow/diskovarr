@@ -176,6 +176,9 @@
     grid.appendChild(fragment);
   }
 
+  // Expose renderCard globally for discover.js
+  window.renderCard = renderCard;
+
   // ----------------------------------------------------------------
   // Bootstrap
   // ----------------------------------------------------------------

@@ -3,6 +3,22 @@
  */
 window.Watchlist = (function () {
 
+  // ── Toast notification ────────────────────────────────────────────
+  let toastTimeout = null;
+
+  function showToast(message, type) {
+    let toast = document.getElementById('wl-toast');
+    if (!toast) {
+      toast = document.createElement('div');
+      toast.id = 'wl-toast';
+      document.body.appendChild(toast);
+    }
+    toast.textContent = message;
+    toast.className = 'wl-toast wl-toast-' + (type || 'add') + ' wl-toast-show';
+    clearTimeout(toastTimeout);
+    toastTimeout = setTimeout(() => toast.classList.remove('wl-toast-show'), 3000);
+  }
+
   async function add(ratingKey) {
     const res = await fetch('/api/watchlist/add', {
       method: 'POST',
@@ -52,9 +68,11 @@ window.Watchlist = (function () {
         btn.classList.add('in-watchlist');
         btn.textContent = '✓ In Watchlist';
         btn.title = 'Remove from Diskovarr Watchlist';
+        showToast('Added to your Diskovarr playlist ◈', 'add');
       }
     } catch (err) {
       console.error('Watchlist toggle error:', err);
+      showToast('Something went wrong. Try again.', 'error');
     } finally {
       btn.disabled = false;
     }

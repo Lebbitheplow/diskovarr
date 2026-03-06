@@ -4,6 +4,10 @@
       <span class="logo-icon">◈</span>
       <span class="logo-text">diskovarr</span>
     </a>
+    <div class="nav-tabs">
+      <a href="/" class="nav-tab <%= currentPath === '/' ? 'active' : '' %>">Home</a>
+      <a href="/discover" class="nav-tab <%= currentPath === '/discover' ? 'active' : '' %>">🔍 Diskovarr View</a>
+    </div>
     <div class="nav-user">
       <% if (thumb) { %>
         <img class="nav-avatar" src="/api/poster?path=<%= encodeURIComponent(thumb) %>" alt="<%= username %>" onerror="this.style.display='none'">
@@ -11,7 +15,6 @@
         <div class="nav-avatar-placeholder"><%= username.charAt(0).toUpperCase() %></div>
       <% } %>
       <span class="nav-username"><%= username %></span>
-      <a href="/discover" class="nav-logout">🔍 Diskovarr View</a>
       <a href="/admin" class="nav-logout">Admin</a>
       <a href="/auth/logout" class="nav-logout">Sign out</a>
     </div>

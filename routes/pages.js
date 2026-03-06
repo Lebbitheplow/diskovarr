@@ -42,13 +42,13 @@ router.get('/login', (req, res) => {
 // Home page — requires auth
 router.get('/', requireAuth, (req, res) => {
   const { id: userId, username, thumb } = req.session.plexUser;
-  res.render('home', { userId, username, thumb });
+  res.render('home', { userId, username, thumb, currentPath: '/' });
 });
 
 // Discover page — requires auth
 router.get('/discover', requireAuth, (req, res) => {
   const { id: userId, username, thumb } = req.session.plexUser;
-  res.render('discover', { userId, username, thumb });
+  res.render('discover', { userId, username, thumb, currentPath: '/discover' });
 });
 
 module.exports = router;

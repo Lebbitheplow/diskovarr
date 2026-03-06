@@ -48,6 +48,11 @@ db.exec(`
     key TEXT PRIMARY KEY,
     last_sync INTEGER DEFAULT 0
   );
+
+  CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
 `);
 
 const stmtAdd = db.prepare(
@@ -221,18 +226,13 @@ function clearUserDismissals(userId) {
 const DEFAULT_ACCENT = '#e5a00d';
 
 function getThemeColor() {
-  const row = db.prepare("SELECT last_sync FROM sync_log WHERE key = 'theme_color'").get();
-  if (!row) return DEFAULT_ACCENT;
-  // Store color as a hex string encoded in last_sync (we store it as a separate key)
-  const colorRow = db.prepare("SELECT key FROM sync_log WHERE key LIKE 'theme_color_#%'").get();
-  return colorRow ? colorRow.key.replace('theme_color_', '') : DEFAULT_ACCENT;
+  const row = db.prepare("SELECT value FROM settings WHERE key = 'theme_color'").get();
+  return row ? row.value : DEFAULT_ACCENT;
 }
 
 function setThemeColor(hex) {
-  // Remove any old color entry, store new one
-  db.prepare("DELETE FROM sync_log WHERE key LIKE 'theme_color_#%'").run();
-  db.prepare("INSERT OR REPLACE INTO sync_log (key, last_sync) VALUES (?, ?)")
-    .run(`theme_color_${hex}`, Math.floor(Date.now() / 1000));
+  db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('theme_color', ?)")
+    .run(hex);
 }
 
 module.exports = {
