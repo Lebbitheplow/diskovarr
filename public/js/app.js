@@ -148,16 +148,6 @@
     const actionsEl = document.getElementById('modal-actions');
     actionsEl.innerHTML = '';
 
-    if (item.deepLink) {
-      const plexBtn = document.createElement('a');
-      plexBtn.className = 'modal-btn modal-btn-primary';
-      plexBtn.href = item.deepLink;
-      plexBtn.target = '_blank';
-      plexBtn.rel = 'noopener noreferrer';
-      plexBtn.textContent = 'Watch in Plex ↗';
-      actionsEl.appendChild(plexBtn);
-    }
-
     const wlBtn = document.createElement('button');
     wlBtn.className = 'modal-btn modal-btn-watchlist' + (item.isInWatchlist ? ' in-watchlist' : '');
     wlBtn.textContent = item.isInWatchlist ? '✓ In Watchlist' : '+ Watchlist';
