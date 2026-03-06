@@ -1,13 +1,19 @@
-const TAUTULLI_URL = process.env.TAUTULLI_URL;
-const TAUTULLI_API_KEY = process.env.TAUTULLI_API_KEY;
+const db = require('../db/database');
+
+function getTautulliUrl() {
+  return db.getSetting('tautulli_url', null) || process.env.TAUTULLI_URL;
+}
+function getTautulliKey() {
+  return db.getSetting('tautulli_api_key', null) || process.env.TAUTULLI_API_KEY;
+}
 
 async function tautulliGet(cmd, params = {}) {
   const query = new URLSearchParams({
-    apikey: TAUTULLI_API_KEY,
+    apikey: getTautulliKey(),
     cmd,
     ...params,
   });
-  const url = `${TAUTULLI_URL}/api/v2?${query}`;
+  const url = `${getTautulliUrl()}/api/v2?${query}`;
   const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
   if (!res.ok) throw new Error(`Tautulli error ${res.status} for cmd=${cmd}`);
   const json = await res.json();

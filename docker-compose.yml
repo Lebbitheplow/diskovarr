@@ -1,0 +1,25 @@
+services:
+  diskovarr:
+    build: .
+    # Alternatively, pull a pre-built image:
+    # image: ghcr.io/lebbitheplow/diskovarr:latest
+    container_name: diskovarr
+    restart: unless-stopped
+    ports:
+      - "3232:3232"
+    volumes:
+      - ./data:/app/data
+    environment:
+      # ── Required ──────────────────────────────────────────────────
+      - PLEX_URL=http://192.168.1.x:32400
+      - PLEX_TOKEN=your_plex_admin_token
+      - PLEX_SERVER_ID=your_plex_machine_identifier
+      - PLEX_SERVER_NAME=Your Server Name
+      - ADMIN_PASSWORD=change_this_to_a_secure_password
+      - SESSION_SECRET=change_this_to_a_long_random_string
+      # ── Optional (can be set in admin panel instead) ───────────────
+      - TAUTULLI_URL=http://192.168.1.x:8181
+      - TAUTULLI_API_KEY=your_tautulli_api_key
+      - PLEX_MOVIES_SECTION_ID=1
+      - PLEX_TV_SECTION_ID=2
+      - PORT=3232

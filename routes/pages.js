@@ -3,6 +3,13 @@ const router = express.Router();
 const requireAuth = require('../middleware/requireAuth');
 const db = require('../db/database');
 
+function pageLocals() {
+  return {
+    discoverEnabled: db.isDiscoverEnabled(),
+    themeParam: themeParam(),
+  };
+}
+
 // Dynamic theme CSS — overrides all accent CSS variables with the current color
 router.get('/theme.css', (req, res) => {
   const color = db.getThemeColor();
@@ -48,13 +55,30 @@ function themeParam() {
 // Home page — requires auth
 router.get('/', requireAuth, (req, res) => {
   const { id: userId, username, thumb } = req.session.plexUser;
-  res.render('home', { userId, username, thumb, currentPath: '/', themeParam: themeParam() });
+  res.render('home', { ...pageLocals(), userId, username, thumb, currentPath: '/' });
 });
 
-// Discover page — requires auth
+// Diskovarr View (library browse) — requires auth
 router.get('/discover', requireAuth, (req, res) => {
   const { id: userId, username, thumb } = req.session.plexUser;
-  res.render('discover', { userId, username, thumb, currentPath: '/discover', themeParam: themeParam() });
+  res.render('discover', { ...pageLocals(), userId, username, thumb, currentPath: '/discover' });
+});
+
+// Recommended Requests (external content) — requires auth + discover enabled
+router.get('/explore', requireAuth, (req, res) => {
+  if (!db.isDiscoverEnabled()) return res.redirect('/');
+  const { id: userId, username, thumb } = req.session.plexUser;
+  const connections = db.getConnectionSettings();
+  const services = {
+    overseerr: connections.overseerrEnabled && !!connections.overseerrUrl,
+    radarr: connections.radarrEnabled && !!connections.radarrUrl,
+    sonarr: connections.sonarrEnabled && !!connections.sonarrUrl,
+  };
+  const hasAnyService = services.overseerr || services.radarr || services.sonarr;
+  res.render('explore', {
+    ...pageLocals(), userId, username, thumb, currentPath: '/explore',
+    services, hasAnyService,
+  });
 });
 
 // Watchlist page — requires auth
@@ -66,7 +90,7 @@ router.get('/watchlist', requireAuth, (req, res) => {
     .map(key => db.getLibraryItemByKey(key))
     .filter(Boolean)
     .map(item => ({ ...item, deepLink: plexService.getDeepLink(item.ratingKey), isInWatchlist: true }));
-  res.render('watchlist', { userId, username, thumb, currentPath: '/watchlist', items, themeParam: themeParam() });
+  res.render('watchlist', { ...pageLocals(), userId, username, thumb, currentPath: '/watchlist', items });
 });
 
 module.exports = router;

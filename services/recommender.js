@@ -5,8 +5,8 @@ const db = require('../db/database');
 // Signal type priority for reason display — genre always shows after specific signals
 const SIGNAL_TYPE_RANK = { director: 0, actor: 1, studio: 2, rating: 3, new: 4, genre: 99 };
 
-const MOVIES_SECTION = process.env.PLEX_MOVIES_SECTION_ID || '1';
-const TV_SECTION = process.env.PLEX_TV_SECTION_ID || '2';
+function getMoviesSection() { return db.getSetting('plex_movies_section', null) || process.env.PLEX_MOVIES_SECTION_ID || '1'; }
+function getTvSection()     { return db.getSetting('plex_tv_section', null)     || process.env.PLEX_TV_SECTION_ID     || '2'; }
 
 // Per-user recommendation cache: userId -> { pools, builtAt }
 // pools holds large score-sorted arrays; each request samples randomly from them
@@ -383,8 +383,8 @@ async function getRecommendations(userId, userToken) {
   } else {
     // Fetch library + watched keys in parallel (library from DB/cache, watched from DB)
     const [movies, tv, watchedKeys, dismissedKeys] = await Promise.all([
-      plexService.getLibraryItems(MOVIES_SECTION),
-      plexService.getLibraryItems(TV_SECTION),
+      plexService.getLibraryItems(getMoviesSection()),
+      plexService.getLibraryItems(getTvSection()),
       plexService.getWatchedKeys(userId, userToken),
       Promise.resolve(db.getDismissals(userId)),
     ]);
@@ -474,4 +474,8 @@ function invalidateAllCaches() {
   recCache.clear();
 }
 
-module.exports = { getRecommendations, invalidateUserCache, invalidateAllCaches };
+module.exports = {
+  getRecommendations, invalidateUserCache, invalidateAllCaches,
+  // Exported for use by discoverRecommender
+  buildPreferenceProfile, partialShuffle, tieredSample,
+};

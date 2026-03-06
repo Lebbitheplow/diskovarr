@@ -242,6 +242,16 @@
   font-size: 0.72rem;
   color: var(--text-muted);
   display: block;
+  max-width: 0;
+  overflow: hidden;
+  opacity: 0;
+  transition: max-width 0.2s ease, opacity 0.2s ease;
+  white-space: nowrap;
+}
+
+.user-id:hover .user-id-sub {
+  max-width: 200px;
+  opacity: 1;
 }
 
 .user-actions {
@@ -380,4 +390,265 @@
   }
   .user-table-header { display: none; }
   .user-table-row { gap: 6px; }
+}
+
+/* ── Version strip ───────────────────────────────────────────── */
+
+.version-strip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.version-badge {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  padding: 3px 10px;
+  border-radius: 999px;
+  letter-spacing: 0.04em;
+}
+
+.version-update-badge {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--accent-dim);
+  border: 1px solid var(--accent-border);
+  padding: 3px 10px;
+  border-radius: 999px;
+  text-decoration: none;
+  letter-spacing: 0.04em;
+  transition: opacity 0.15s;
+}
+
+.version-update-badge:hover {
+  opacity: 0.8;
+}
+
+.version-uptodate {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  opacity: 0.6;
+}
+
+/* ── Admin tabs ──────────────────────────────────────────────── */
+
+.admin-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 24px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0;
+}
+
+.admin-tab {
+  padding: 10px 22px;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  margin-bottom: -1px;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.admin-tab:hover { color: var(--text-primary); }
+
+.admin-tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+/* ── Connections: service blocks ─────────────────────────────── */
+
+.conn-block {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 20px 22px;
+  margin-bottom: 16px;
+  transition: border-color 0.2s;
+}
+
+.conn-block:last-child { margin-bottom: 0; }
+
+.conn-block-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.conn-block-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.conn-block-name {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.conn-block-desc {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.conn-block-fields {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+/* ── Styled text inputs ──────────────────────────────────────── */
+
+.conn-input {
+  flex: 1;
+  min-width: 180px;
+  padding: 10px 18px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
+}
+
+.conn-input::placeholder { color: var(--text-muted); }
+
+.conn-input:focus {
+  border-color: var(--accent);
+  background: var(--bg-elevated);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+/* ── Sliding toggle ──────────────────────────────────────────── */
+
+.conn-toggle-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.conn-toggle-label {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  min-width: 50px;
+  text-align: right;
+}
+
+.slide-toggle {
+  position: relative;
+  display: inline-block;
+  width: 46px;
+  height: 26px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.slide-toggle input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+  position: absolute;
+}
+
+.slide-track {
+  position: absolute;
+  inset: 0;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  transition: background 0.25s, border-color 0.25s;
+}
+
+.slide-track::before {
+  content: '';
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  left: 3px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: var(--text-muted);
+  border-radius: 50%;
+  transition: transform 0.25s, background 0.25s;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.4);
+}
+
+.slide-toggle input:checked + .slide-track {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+}
+
+.slide-toggle input:checked + .slide-track::before {
+  transform: translateY(-50%) translateX(20px);
+  background: var(--accent);
+}
+
+.slide-toggle input:disabled + .slide-track {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.slide-toggle:has(input:disabled) {
+  cursor: not-allowed;
+}
+
+/* ── Password field wrap (eye + copy buttons) ────────────────── */
+
+.conn-input-wrap {
+  position: relative;
+  flex: 1;
+  min-width: 180px;
+  display: flex;
+  align-items: center;
+}
+
+.conn-input-wrap .conn-input {
+  flex: 1;
+  min-width: 0;
+  padding-right: 40px;
+}
+
+.conn-input-btns {
+  position: absolute;
+  right: 10px;
+  display: flex;
+  gap: 2px;
+  align-items: center;
+}
+
+.conn-input-icon-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  padding: 4px 5px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s, background 0.15s;
+  line-height: 1;
+}
+
+.conn-input-icon-btn:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.08);
 }

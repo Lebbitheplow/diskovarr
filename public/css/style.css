@@ -323,8 +323,8 @@ img {
   display: block;
 }
 
-/* ── Mobile breakpoint ───────────────────────────────────────── */
-@media (max-width: 640px) {
+/* ── Mobile breakpoint (≤960px covers wide phones like Galaxy Fold unfolded) ── */
+@media (max-width: 960px) {
   :root {
     --nav-height: 54px;
   }
@@ -1407,3 +1407,291 @@ img {
   margin: 0;
 }
 .info-modal-section strong { color: var(--text-primary); }
+
+/* ============================================================
+   Diskovarr Requests (explore) — badges, request button, dialog
+   ============================================================ */
+
+/* "Not in Library" badge overlaid on card poster */
+.badge-not-in-library {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  background: rgba(0, 0, 0, 0.75);
+  color: var(--text-secondary);
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 3px 7px;
+  border-radius: 4px;
+  pointer-events: none;
+  backdrop-filter: blur(4px);
+}
+
+.badge-not-in-library.badge-requested {
+  background: rgba(16, 120, 16, 0.8);
+  color: #90ee90;
+}
+
+/* Request button (replaces watchlist btn on explore cards) */
+.btn-request {
+  display: inline-block;
+  padding: 7px 16px;
+  background: var(--accent);
+  color: #000;
+  border: none;
+  border-radius: var(--radius);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s, opacity 0.2s;
+  white-space: nowrap;
+}
+
+.btn-request:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.btn-request:disabled,
+.btn-request.btn-request-sent {
+  background: rgba(255,255,255,0.12);
+  color: var(--text-muted);
+  cursor: default;
+}
+
+/* Request confirm dialog */
+.request-dialog-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  background: rgba(0,0,0,0.6);
+  backdrop-filter: blur(4px);
+  align-items: center;
+  justify-content: center;
+}
+
+.request-dialog-backdrop.open {
+  display: flex;
+}
+
+.request-dialog-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 28px 32px;
+  max-width: 420px;
+  width: 90%;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+}
+
+.request-dialog-title {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+}
+
+.request-dialog-sub {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin-bottom: 24px;
+}
+
+.request-dialog-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.btn-dialog-cancel {
+  padding: 8px 18px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.btn-dialog-cancel:hover {
+  background: var(--bg-card-hover);
+}
+
+.btn-dialog-confirm {
+  padding: 8px 18px;
+  background: var(--accent);
+  border: none;
+  border-radius: var(--radius);
+  color: #000;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.btn-dialog-confirm:hover {
+  background: var(--accent-hover);
+}
+
+/* ── Detail modal ──────────────────────────────────────────────────────────── */
+.detail-modal-wrap {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.85);
+  z-index: 500;
+  overflow-y: auto;
+  padding: 40px 16px 60px;
+}
+.detail-modal-wrap.open {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+}
+.detail-modal-card {
+  background: var(--bg-elevated);
+  border-radius: 14px;
+  overflow: hidden;
+  width: 100%;
+  max-width: 780px;
+  position: relative;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.75);
+  margin: auto;
+}
+.detail-modal-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 10;
+  background: rgba(0, 0, 0, 0.65);
+  border: none;
+  color: #fff;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  font-size: 0.85rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s;
+}
+.detail-modal-close:hover { background: rgba(255,255,255,0.15); }
+.detail-modal-hero {
+  width: 100%;
+  height: 200px;
+  background: var(--bg-secondary) no-repeat center top / cover;
+  position: relative;
+}
+.detail-modal-hero::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to bottom, transparent 30%, var(--bg-elevated) 100%);
+}
+.detail-modal-body {
+  display: flex;
+  gap: 20px;
+  padding: 0 22px 26px;
+  margin-top: -56px;
+  position: relative;
+  z-index: 1;
+}
+.detail-modal-poster {
+  width: 110px;
+  min-width: 110px;
+  aspect-ratio: 2/3;
+  object-fit: cover;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
+  border: 2px solid var(--border);
+  align-self: flex-start;
+}
+.detail-modal-info {
+  flex: 1;
+  min-width: 0;
+  padding-top: 60px;
+}
+.detail-modal-title {
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.25;
+  margin-bottom: 5px;
+}
+.detail-modal-meta {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+}
+.detail-modal-reasons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-bottom: 8px;
+}
+.detail-modal-genres {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-bottom: 12px;
+}
+.genre-tag {
+  font-size: 0.72rem;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+}
+.detail-modal-overview {
+  font-size: 0.85rem;
+  line-height: 1.65;
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+}
+.detail-modal-credits {
+  margin-bottom: 16px;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.detail-credit-row { line-height: 1.5; }
+.detail-credit-label {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+.detail-modal-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.btn-tmdb-link {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  text-decoration: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 14px;
+  transition: color 0.15s, border-color 0.15s;
+}
+.btn-tmdb-link:hover {
+  color: var(--text-primary);
+  border-color: var(--text-secondary);
+}
+/* Mobile: no backdrop overlap, stack vertically */
+@media (max-width: 560px) {
+  .detail-modal-wrap { padding: 0; align-items: flex-end; }
+  .detail-modal-card { border-radius: 14px 14px 0 0; max-width: 100%; }
+  .detail-modal-hero { height: 140px; }
+  .detail-modal-body { flex-direction: column; padding: 12px 16px 24px; margin-top: 0; gap: 12px; }
+  .detail-modal-poster { width: 80px; min-width: 80px; margin-top: -44px; }
+  .detail-modal-info { padding-top: 0; }
+}

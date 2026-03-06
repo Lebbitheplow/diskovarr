@@ -3,6 +3,39 @@ const router = express.Router();
 const db = require('../db/database');
 const plexService = require('../services/plex');
 const recommender = require('../services/recommender');
+const discoverRecommender = require('../services/discoverRecommender');
+const { version: APP_VERSION } = require('../package.json');
+
+// ── Update check (GitHub releases, 6h cache) ─────────────────────────────────
+
+let _updateCache = { checkedAt: 0, latestVersion: null };
+const UPDATE_CHECK_TTL = 6 * 60 * 60 * 1000;
+
+async function getLatestVersion() {
+  if (Date.now() - _updateCache.checkedAt < UPDATE_CHECK_TTL) {
+    return _updateCache.latestVersion;
+  }
+  try {
+    const res = await fetch('https://api.github.com/repos/Lebbitheplow/diskovarr/releases/latest', {
+      headers: { 'User-Agent': 'diskovarr-update-check' },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) throw new Error(`GitHub API ${res.status}`);
+    const data = await res.json();
+    const tag = (data.tag_name || '').replace(/^v/, '');
+    _updateCache = { checkedAt: Date.now(), latestVersion: tag || null };
+  } catch {
+    _updateCache.checkedAt = Date.now(); // suppress retries for TTL window
+  }
+  return _updateCache.latestVersion;
+}
+
+function isNewerVersion(latest, current) {
+  if (!latest) return false;
+  const [lM, lm, lp] = latest.split('.').map(Number);
+  const [cM, cm, cp] = current.split('.').map(Number);
+  return lM > cM || (lM === cM && lm > cm) || (lM === cM && lm === cm && lp > cp);
+}
 
 // ── Auth middleware ───────────────────────────────────────────────────────────
 
@@ -60,8 +93,9 @@ router.post('/logout', requireAdmin, (req, res) => {
 
 // ── Main admin page ───────────────────────────────────────────────────────────
 
-router.get('/', requireAdmin, (req, res) => {
+router.get('/', requireAdmin, async (req, res) => {
   const stats = db.getAdminStats();
+  const latestVersion = await getLatestVersion();
   res.render('admin/index', {
     stats,
     autoSyncEnabled,
@@ -70,7 +104,11 @@ router.get('/', requireAdmin, (req, res) => {
     watchlistMode: db.getAdminWatchlistMode(),
     ownerUserId: db.getOwnerUserId(),
     knownUsers: db.getKnownUsers(),
+    connections: db.getConnectionSettings(),
     themeParam: encodeURIComponent(db.getThemeColor()),
+    appVersion: APP_VERSION,
+    latestVersion,
+    updateAvailable: isNewerVersion(latestVersion, APP_VERSION),
   });
 });
 
@@ -78,7 +116,11 @@ router.get('/', requireAdmin, (req, res) => {
 
 router.get('/status', requireAdmin, (req, res) => {
   const stats = db.getAdminStats();
-  res.json({ stats, autoSyncEnabled, syncInProgress, lastSyncError, watchlistMode: db.getAdminWatchlistMode() });
+  res.json({
+    stats, autoSyncEnabled, syncInProgress, lastSyncError,
+    watchlistMode: db.getAdminWatchlistMode(),
+    discoverEnabled: db.isDiscoverEnabled(),
+  });
 });
 
 // ── Library sync controls ─────────────────────────────────────────────────────
@@ -97,6 +139,7 @@ router.post('/sync/library', requireAdmin, async (req, res) => {
     plexService.invalidateCache();
     await plexService.warmCache();
     recommender.invalidateAllCaches();
+    discoverRecommender.invalidateAllCaches();
     console.log('[Admin] Manual library sync completed');
   } catch (err) {
     lastSyncError = err.message;
@@ -188,6 +231,137 @@ router.post('/settings/owner-user', requireAdmin, (req, res) => {
   }
   db.setOwnerUserId(userId);
   res.json({ success: true, userId });
+});
+
+// ── Connections & external service config ────────────────────────────────────
+
+const CONNECTION_KEYS = [
+  'plex_url', 'plex_token',
+  'tautulli_url', 'tautulli_api_key',
+  'tmdb_api_key', 'discover_enabled',
+  'overseerr_url', 'overseerr_api_key', 'overseerr_enabled',
+  'radarr_url', 'radarr_api_key', 'radarr_enabled',
+  'sonarr_url', 'sonarr_api_key', 'sonarr_enabled',
+];
+
+router.post('/connections/save', requireAdmin, (req, res) => {
+  const body = req.body;
+  for (const key of CONNECTION_KEYS) {
+    if (key in body) {
+      // Checkboxes send '1' when checked, absent when unchecked
+      db.setSetting(key, body[key] || '0');
+    }
+  }
+  // Invalidate discover cache when settings change
+  discoverRecommender.invalidateAllCaches();
+  res.json({ success: true });
+});
+
+router.get('/connections/reveal', requireAdmin, (req, res) => {
+  res.json({
+    plexToken:       db.getSetting('plex_token', '')        || process.env.PLEX_TOKEN        || '',
+    tautulliApiKey:  db.getSetting('tautulli_api_key', '')  || process.env.TAUTULLI_API_KEY  || '',
+    tmdbApiKey:      db.getSetting('tmdb_api_key', '')      || '',
+    overseerrApiKey: db.getSetting('overseerr_api_key', '') || '',
+    radarrApiKey:    db.getSetting('radarr_api_key', '')    || '',
+    sonarrApiKey:    db.getSetting('sonarr_api_key', '')    || '',
+  });
+});
+
+router.post('/connections/test/tmdb', requireAdmin, async (req, res) => {
+  const { apiKey } = req.body;
+  if (!apiKey) return res.json({ ok: false, message: 'No API key provided' });
+  // Temporarily test the provided key without saving
+  const origKey = db.getSetting('tmdb_api_key', null);
+  db.setSetting('tmdb_api_key', apiKey);
+  const tmdb = require('../services/tmdb');
+  const result = await tmdb.testApiKey();
+  if (!result.ok) db.setSetting('tmdb_api_key', origKey || '');
+  res.json(result);
+});
+
+router.post('/connections/test/overseerr', requireAdmin, async (req, res) => {
+  const { url, apiKey } = req.body;
+  if (!url || !apiKey) return res.json({ ok: false, message: 'URL and API key required' });
+  try {
+    const r = await fetch(`${url.replace(/\/$/, '')}/api/v1/settings/public`, {
+      headers: { 'X-Api-Key': apiKey, 'Accept': 'application/json' },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!r.ok) return res.json({ ok: false, message: `Overseerr returned ${r.status}` });
+    const data = await r.json();
+    res.json({ ok: true, message: `Connected to Overseerr (${data.applicationTitle || 'OK'})` });
+  } catch (err) {
+    res.json({ ok: false, message: err.message });
+  }
+});
+
+router.post('/connections/test/radarr', requireAdmin, async (req, res) => {
+  const { url, apiKey } = req.body;
+  if (!url || !apiKey) return res.json({ ok: false, message: 'URL and API key required' });
+  try {
+    const r = await fetch(`${url.replace(/\/$/, '')}/api/v3/system/status`, {
+      headers: { 'X-Api-Key': apiKey, 'Accept': 'application/json' },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!r.ok) return res.json({ ok: false, message: `Radarr returned ${r.status}` });
+    const data = await r.json();
+    res.json({ ok: true, message: `Connected to Radarr v${data.version || '?'}` });
+  } catch (err) {
+    res.json({ ok: false, message: err.message });
+  }
+});
+
+router.post('/connections/test/sonarr', requireAdmin, async (req, res) => {
+  const { url, apiKey } = req.body;
+  if (!url || !apiKey) return res.json({ ok: false, message: 'URL and API key required' });
+  try {
+    const r = await fetch(`${url.replace(/\/$/, '')}/api/v3/system/status`, {
+      headers: { 'X-Api-Key': apiKey, 'Accept': 'application/json' },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!r.ok) return res.json({ ok: false, message: `Sonarr returned ${r.status}` });
+    const data = await r.json();
+    res.json({ ok: true, message: `Connected to Sonarr v${data.version || '?'}` });
+  } catch (err) {
+    res.json({ ok: false, message: err.message });
+  }
+});
+
+router.post('/connections/test/tautulli', requireAdmin, async (req, res) => {
+  const { url, apiKey } = req.body;
+  if (!url || !apiKey) return res.json({ ok: false, message: 'URL and API key required' });
+  try {
+    const query = new URLSearchParams({ apikey: apiKey, cmd: 'get_server_info' });
+    const r = await fetch(`${url.replace(/\/$/, '')}/api/v2?${query}`, {
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!r.ok) return res.json({ ok: false, message: `Tautulli returned ${r.status}` });
+    const data = await r.json();
+    if (data.response?.result !== 'success') {
+      return res.json({ ok: false, message: data.response?.message || 'Tautulli API error' });
+    }
+    res.json({ ok: true, message: 'Connected to Tautulli' });
+  } catch (err) {
+    res.json({ ok: false, message: err.message });
+  }
+});
+
+router.post('/connections/test/plex', requireAdmin, async (req, res) => {
+  const { url, token } = req.body;
+  if (!url || !token) return res.json({ ok: false, message: 'URL and token required' });
+  try {
+    const r = await fetch(`${url.replace(/\/$/, '')}/?X-Plex-Token=${token}`, {
+      headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!r.ok) return res.json({ ok: false, message: `Plex returned ${r.status}` });
+    const data = await r.json();
+    const name = data?.MediaContainer?.friendlyName || 'Plex';
+    res.json({ ok: true, message: `Connected to ${name}` });
+  } catch (err) {
+    res.json({ ok: false, message: err.message });
+  }
 });
 
 // ── Cache operations ──────────────────────────────────────────────────────────

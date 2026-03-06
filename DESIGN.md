@@ -2,9 +2,9 @@
 
 ## Overview
 
-Diskovarr is a self-hosted web application that sits alongside Plex and Tautulli to deliver personalized content recommendations. Users sign in with their Plex account and see their library scored by personal taste — not global popularity. A secondary browse view lets users filter the full library by type, genre, decade, rating, and sort order.
+Diskovarr is a self-hosted web application that sits alongside Plex and Tautulli to deliver personalized content recommendations. Users sign in with their Plex account and see their library scored by personal taste — not global popularity. An optional Diskovarr Requests tab surfaces content not yet in the library (sourced from TMDB) with direct request integration to Overseerr, Radarr, and Sonarr. A secondary browse view lets users filter the full library by type, genre, decade, rating, and sort order.
 
-The app is intentionally server-side heavy: all Plex API calls, token handling, scoring, and SQLite I/O happen on the Node.js server. The browser receives pre-scored data and renders it; it never holds a Plex token.
+The app is intentionally server-side heavy: all Plex API calls, token handling, scoring, and SQLite I/O happen on the Node.js server. The browser receives pre-scored data and renders it; it never holds a Plex token or API key.
 
 ---
 
@@ -14,22 +14,26 @@ The app is intentionally server-side heavy: all Plex API calls, token handling, 
 Browser
   │  Sign in → Plex OAuth PIN flow
   │  GET /api/recommendations (JSON)
-  │  GET /api/discover (JSON, with filters)
+  │  GET /api/discover/recommendations (JSON)
   │  POST /api/watchlist/add | /remove
   │  POST /api/dismiss
+  │  POST /api/request
   └──────────────────────────────────────────────
          Express (Node.js 20, port 3232)
-           ├── routes/auth.js       Plex OAuth
-           ├── routes/api.js        JSON API
-           ├── routes/admin.js      Admin panel
-           ├── routes/pages.js      Page rendering + /theme.css
-           ├── services/plex.js     Plex HTTP client + cache
-           ├── services/tautulli.js Tautulli HTTP client
-           ├── services/recommender.js  Scoring engine
-           └── db/database.js       SQLite schema + helpers
+           ├── routes/auth.js              Plex OAuth
+           ├── routes/api.js               JSON API (recommendations, watchlist, dismiss, request)
+           ├── routes/admin.js             Admin panel + update check
+           ├── routes/pages.js             Page rendering + /theme.css
+           ├── routes/discover.js          Diskovarr Requests page + recommendation API
+           ├── services/plex.js            Plex HTTP client + library/watched cache
+           ├── services/tautulli.js        Tautulli HTTP client (watch history)
+           ├── services/recommender.js     In-library scoring engine
+           ├── services/discoverRecommender.js  TMDB-based out-of-library scoring
+           ├── services/tmdb.js            TMDB API wrapper + SQLite cache
+           └── db/database.js             SQLite schema + all query helpers
                     │
-              data/diskovarr.db     SQLite (library, watched, dismissals, settings)
-              data/sessions.db      SQLite session store
+              data/diskovarr.db    SQLite (library, watched, dismissals, settings, tmdb_cache)
+              data/sessions.db     SQLite session store
 ```
 
 ---
@@ -40,31 +44,39 @@ Diskovarr uses Plex's PIN-based OAuth, which avoids storing user passwords and w
 
 1. **Login page** — the browser directly POSTs to `https://plex.tv/api/v2/pins` to create a PIN (client-side, so Plex records the user's IP rather than the server's). The browser then redirects to `https://app.plex.tv/auth#?clientID=DISKOVARR&code={pinCode}&forwardUrl=...`.
 2. `GET /auth/callback?pinId=X&pinCode=Y` — Plex redirects here after the user authenticates. The PIN ID and code are saved to the session; a polling page with a spinner is rendered.
-3. `GET /auth/check-pin` — polled every 2 seconds by the browser. Server GETs `https://plex.tv/api/v2/pins/{pinId}`. When `authToken` appears, the server:
-   - Fetches user info from `https://plex.tv/api/v2/user`
-   - Fetches resources from `https://plex.tv/api/v2/resources` to verify the user has access to the configured server and to obtain the server-specific `accessToken`
-   - Stores `{ id, username, thumb, token, serverToken }` in the session
+3. `GET /auth/check-pin` — polled every 2 seconds by the browser. Server GETs `https://plex.tv/api/v2/pins/{pinId}`. When `authToken` appears, the server fetches user info and resources, verifies server membership, and stores `{ id, username, thumb, token, serverToken }` in the session.
 4. `GET /auth/logout` — destroys the session and redirects to `/login`.
 
 Sessions are stored in a SQLite file (`data/sessions.db`) via `connect-sqlite3`, with a 30-day cookie lifetime.
 
 ---
 
+## Configuration — DB Overrides `.env`
+
+All service credentials and connection settings can be stored in the `settings` SQLite table via the admin panel, allowing live changes without restarts. The resolution order for any setting is:
+
+1. `db.getSetting(key)` — value stored via admin panel
+2. `process.env.VARIABLE` — value from `.env` / Docker environment
+3. Hardcoded default (section IDs: `'1'`, `'2'`)
+
+This means `.env` / `docker-compose.yml` works as an initial bootstrap, and the admin panel can override anything afterwards.
+
+---
+
 ## Library Sync
 
-Fetching a full Plex library section (2,700+ movies, 1,000 shows) takes 15–30 seconds over the local network. Doing this on every request is not viable.
+Fetching a full Plex library section takes 15–30 seconds over the local network. A two-level cache makes the app fast after first load.
 
 ### Two-level cache
 
 **Level 1 — In-memory Map** (`libraryCache` in `plex.js`)
-- Keyed by section ID
-- 2-hour TTL
-- Populated on startup, refreshed by the background interval
+- Keyed by section ID, 2-hour TTL
+- Populated on startup, refreshed by background interval
 
 **Level 2 — SQLite** (`library_items` table)
-- Persists across server restarts
-- Checked first; used if the last sync was within 2 hours
-- On a warm restart, the server loads from SQLite in milliseconds
+- Persists across restarts
+- Checked first; used if last sync was within 2 hours
+- Warm restart loads from SQLite in milliseconds
 
 ### Sync flow
 
@@ -75,40 +87,26 @@ fetchSection(sectionId)
   └── Otherwise → syncLibrarySection() → Plex API → write DB → populate L1 → return
 ```
 
-### Background refresh
-
-On startup (after a 2-second delay), and every 2 hours thereafter, the server calls `warmCache()` which runs both sections in parallel. If auto-sync is disabled from the admin panel, this is a no-op. The interval is set in `server.js`.
-
-Manual sync can be triggered from the admin panel (`POST /admin/sync/library`).
+Background refresh runs on startup (after a 2-second delay) and every 2 hours. Manual sync available from the admin panel.
 
 ---
 
 ## Watched Status Sync
 
-Filtering out watched content must always reflect Plex's current state, but fetching a user's full watch history on every request would be slow.
-
 ### Strategy
 
-Diskovarr uses Plex's **`unwatched=0`** filter on the library section endpoint (with the user's personal token) to fetch only watched items. This is much faster than fetching the full library. TV show–level watched state is inferred from any watched episode (`onDeck` grandparent keys).
+Plex's `unwatched=0` filter on the library section endpoint (with the user's personal token) fetches only watched items, which is much faster than fetching the full library. TV show–level watched state is inferred from `onDeck` grandparent keys and Tautulli episode history.
 
 ### Sync flow (per user)
 
 ```
 getWatchedKeys(userId, userToken)
-  └── No DB data yet (first request for this user)?
-      → syncUserWatched() — await (blocks once, typically ~3s)
-  └── DB data exists but > 30 min old?
-      → syncUserWatched() — fire and forget (background)
-      → return current DB data immediately
-  └── DB data fresh?
-      → return from DB immediately
+  └── No DB data yet? → syncUserWatched() — await (blocks once, ~3s)
+  └── DB data > 30 min old? → syncUserWatched() — background, return current DB immediately
+  └── DB data fresh? → return from DB immediately
 ```
 
-`syncUserWatched` fetches movies (`unwatched=0`), TV shows (`unwatched=0`), and onDeck episodes in parallel, merges the ratingKey sets, and writes to `user_watched` via a transaction.
-
-### Why not Tautulli for watched filtering?
-
-Tautulli stores historical ratingKeys that can become stale if Plex rescans a library or content moves between libraries. Plex's own endpoints always return current keys. Tautulli is used exclusively for preference profile building (completion %, recency) where staleness doesn't break filtering.
+Sources merged: Plex movies (unwatched=0), Plex TV (unwatched=0), onDeck (in-progress), Tautulli movie keys, Tautulli show keys.
 
 ---
 
@@ -116,154 +114,129 @@ Tautulli stores historical ratingKeys that can become stale if Plex rescans a li
 
 ### Preference profile
 
-Built from the user's Tautulli watch history (up to 1,000 movies, 2,000 episodes):
+Built from Tautulli watch history (up to 1,000 movies, 2,000 episodes):
 
-1. Each watched item is looked up in the library map to get its metadata.
-2. Weights are accumulated into four maps: `genreWeights`, `directorWeights`, `actorWeights`, `decadeWeights`.
-3. Each watch contributes a base weight of 1.0, modified by:
-   - **Recency multiplier**: top 50 most recent watches → ×1.5
-   - **Completion bonus**: watch percentage ≥ 95% → ×1.3
-4. All maps are normalised to a 0–1 range.
+Each watched item accumulates weights into `genreWeights`, `directorWeights`, `actorWeights`, `studioWeights`, `decadeWeights`. Base weight 1.0, modified by:
+- **Recency multiplier**: top 50 most recent → ×1.5
+- **Completion bonus**: ≥ 95% completion → ×1.3
+
+All maps normalised to 0–1 range.
 
 ### Item scoring
 
-For each unwatched, non-dismissed item in the library:
-
 | Signal | Max points | Method |
 |---|---|---|
-| Genre overlap | 40 | Sum of `genreWeights` for matching genres |
-| Director match | 25 | Best matching director × 1.5 |
-| Actor overlap | 20 | Sum of top 3 cast member weights |
-| Decade preference | 10 | `decadeWeights[Math.floor(year/10)*10]` |
-| Audience rating ≥ 8.0 | +5 | Flat bonus |
-| Added within 7 days | +3 | Flat bonus |
+| Genre overlap | 20 | Sum of `genreWeights` for matching genres (each genre capped at 7 pts) |
+| Director match | 30 | Best matching director weight × factor |
+| Actor overlap | 25 | Sum of top 3 cast member weights |
+| Studio match | 15 | Best matching studio weight |
+| Decade preference | 8 | `decadeWeights[Math.floor(year/10)*10]` |
+| Star rating multipliers | ×0.4–×2.5 | User star ratings from Plex |
+| Recency tiers | ×1.3–×1.8 | Recently added items score higher |
 
-Top 3 contributing signals are attached as human-readable `reasons[]` strings ("Because you like Sci-Fi", "Directed by X", "Starring Y") and rendered as chips on each card.
+Reason tags (top 3 signals) attached per item: "Because you like Sci-Fi", "Directed by X", "Starring Y".
 
 **Fallback (no watch history):** Items sorted by `audienceRating` descending with reason "Highly Rated".
 
-### Output sections
+### Output
 
-- **Top Picks**: top 5 movies + top 4 TV + top 3 anime, re-sorted by score, limit 12
-- **Movies**: top 30 movie results
-- **TV Shows**: top 30 non-anime TV results
-- **Anime**: top 30 anime results (TV items where `genres` contains `"anime"`)
+- **Top Picks**: high-score blend across movies, TV, and anime (150 item pool)
+- **Movies**: movie results (200 item pool)
+- **TV Shows**: non-anime TV results (150 item pool)
+- **Anime**: TV items where `genres` contains `"anime"` (100 item pool)
 
-Results are cached per user for 30 minutes in an in-memory Map. Dismissing an item invalidates the cache for that user.
+Each pool is cached per user for 30 minutes. Dismissing an item invalidates the cache.
 
 ---
 
-## Diskovarr View (`/discover`)
+## Diskovarr Requests (`services/discoverRecommender.js`)
 
-A filterable, paginated browse of the entire library.
+Optional feature. Only visible when `discover_enabled = '1'` and a TMDB API key is configured.
 
-### Filters (all combinable)
+### Candidate sources
 
-| Filter | Values |
+For each of the user's top watched movies/shows (by Tautulli score):
+- TMDB `/movie/{id}/recommendations` and `/tv/{id}/recommendations`
+
+Genre-based discovery for the user's top genres (2 pages each, `popularity.desc`, min rating 6.5 / 50 votes).
+
+Trending movies and TV (weekly TMDB trending endpoint).
+
+All results deduplicated by TMDB ID and filtered to exclude:
+- Items already in the Plex library (TMDB ID match, with title+year fallback)
+- Items with a future `release_date` (unreleased content)
+
+### Scoring
+
+Same signals and weights as in-library scoring. Reason tags generated per item.
+
+### Pools (per user, 6-hour cache)
+
+| Pool | Size |
 |---|---|
-| Type | All, Movies, TV Shows, Anime |
-| Decade | Any, 1970s–2020s |
-| Min Rating | 0 (Any) through 10, stepped at common breakpoints |
-| Genres | Multi-select chips, loaded from library |
-| Sort | Highest Rated, Recently Added, Newest First, Oldest First, A–Z |
-| Include watched | Checkbox (default: off) |
+| Top Picks | 150 |
+| Movies | 200 |
+| TV Shows | 150 |
+| Anime | 100 |
 
-Filtering and sorting are applied server-side on the cached library data. Results are paginated at 40 items per page. Genre chips are loaded from `GET /api/discover/genres` on page load.
+### Request flow
 
----
+User clicks Request → modal shows confirm dialog → `POST /api/request { tmdbId, mediaType, service }` → server routes to Overseerr / Radarr / Sonarr → toast notification → card badge updates to "Already Requested".
 
-## Watchlist
-
-Diskovarr maintains a per-user watchlist stored locally in SQLite and synced to Plex in one of two modes.
-
-### Sync modes
-
-**Watchlist mode** (default for all users):
-Items are synced to the user's native Plex.tv Watchlist via the Plex Discover API (`PUT https://discover.provider.plex.tv/actions/addToWatchlist?ratingKey={guid}`). The GUID is resolved from the item's `plex://` metadata URI. Items appear in the Plex app under Discover → Watchlist. This works for the server owner and all Friend accounts.
-
-**Playlist mode** (server owner only, opt-in via admin panel):
-Items are synced to a private server playlist named "Diskovarr" on the owner's account. Used when the native Plex Watchlist is monitored by download automation (e.g. `pd_zurg`). Only the server owner's token has write access to server playlists; Friend users always fall back to Watchlist mode regardless of this setting.
-
-### API
-
-- **Add**: `POST /api/watchlist/add { ratingKey }` — saves to local DB; async Plex sync in background
-- **Remove**: `POST /api/watchlist/remove { ratingKey }` — removes from local DB; async Plex sync in background
-- **Read**: `GET /api/watchlist` — returns local DB watchlist (instant, no Plex API call)
-
-Plex IDs (`plex_playlist_id`, `plex_item_id` for playlist mode; `plex_guid` for watchlist mode) are stored in the `watchlist` table after the async sync completes, so subsequent removes can be performed without re-querying Plex.
-
-A toast notification slides up from the bottom of the screen when an item is added.
-
----
-
-## Dismiss System
-
-Each user can dismiss items they don't want to see. Dismissals are stored in the `dismissals` table with a `UNIQUE(plex_user_id, rating_key)` constraint.
-
-- Dismissed items are excluded from both recommendations and the Diskovarr View (unless the user explicitly searches for them — there is no un-dismiss UI currently, but the API supports `DELETE /api/dismiss`).
-- Dismissing a card triggers a CSS `card-dismissing` transition (scale + opacity) before the element is removed from the DOM.
-- The recommendation cache for the user is invalidated on dismiss.
+Routing preference: Overseerr (if enabled, handles both movies and TV); else Radarr for movies, Sonarr for TV.
 
 ---
 
 ## Admin Panel (`/admin`)
 
-Password-protected (compared with `crypto.timingSafeEqual` to prevent timing attacks). Password set via `ADMIN_PASSWORD` in `.env`.
+Password-protected (timing-safe comparison). Password set via `ADMIN_PASSWORD` in `.env`.
 
-### Sections
+Displays version strip below hero: current version badge + update-available link (GitHub releases API, 6-hour cache).
 
-**Library Sync**
-- Item counts per section with last sync timestamp
-- "Sync Now" button — triggers `syncLibrarySection` for both sections, invalidates L1 cache
-- Auto-sync toggle — persisted in SQLite (`sync_log` table, key `autosync_enabled`); checked before each background interval run
+### Settings tab
 
-**User Watch Sync**
-- Table of all users with watched item count and last sync time
-- Per-user: "Re-sync" (clears DB watched data, triggers fresh sync), "Clear" (removes watched data entirely)
-- "Clear All" — removes all user watched data
+**Library Sync** — item counts, last sync time, Sync Now button, auto-sync toggle.
 
-**Recommendation Cache**
-- "Clear All Caches" — wipes in-memory recommendation cache for all users
-- Per-user cache clear
+**User Watch Sync** — per-user table (avatar, username, hover-to-reveal ID, watched count, last sync); re-sync, clear watched, clear dismissals per user; bulk clear actions.
 
-**Watchlist Mode**
-- Toggles the server owner's sync target between `watchlist` (plex.tv native Watchlist) and `playlist` (private server playlist)
-- Persisted in the `settings` table as key `admin_watchlist_mode`; default is `watchlist`
-- `POST /admin/settings/watchlist-mode { mode }` — sets the mode
-- Does not affect Friend users, who always sync to plex.tv Watchlist
+**Recommendation Cache** — clear in-memory rec cache for all users.
 
-**Theme Color**
-- 8 preset swatches (gold, red, blue, green, purple, pink, teal, orange)
-- Color wheel `<input type="color">` for any custom color
-- `POST /admin/theme/color { color: '#rrggbb' }` — writes to `settings` table; response includes the new CSS so the page updates without a refresh
+**Server Owner & Watchlist Mode** — set owner account; toggle between Watchlist mode (plex.tv native) and Playlist mode (private server playlist). Only owner is affected; Friends always use Watchlist mode.
+
+**Theme Color** — 8 presets + color wheel; `POST /admin/theme/color`; updates live without page reload.
+
+### Connections tab
+
+All values stored in the `settings` SQLite table. Saved via `POST /admin/connections/save`.
+
+**Plex** — URL + token (eye toggle). Saved via the Save button.
+
+**Tautulli** — URL + API key (eye toggle). Test + Save buttons.
+
+**TMDB** — API key only. Save Key + Test buttons. No toggle (prerequisite for Requests).
+
+**Diskovarr Requests** — slide toggle; locked until TMDB key is saved.
+
+**Overseerr / Radarr / Sonarr** — URL + masked API key (eye toggle) + slide toggle in block header; toggle locked until URL and key are filled; auto-saves on toggle change. Test button available.
+
+API keys are never sent in page HTML. The eye button calls `GET /admin/connections/reveal` (admin-session-required) which returns actual stored values. Result cached in-page for the session.
 
 ---
 
 ## Theming
 
-All accent colors are CSS custom properties defined in `:root` in `style.css`. A dynamic `/theme.css` endpoint generates overrides for all 7 accent variables based on the color stored in the `settings` table:
-
-```css
---accent            /* Primary color */
---accent-dim        /* rgba at 15% opacity — chip backgrounds, active states */
---accent-dim2       /* rgba at 20% opacity — watchlist button background */
---accent-glow       /* rgba at 8% opacity — subtle glows, tab hover */
---accent-border     /* rgba at 40% opacity — borders on accented elements */
---accent-shadow     /* rgba at 40% opacity — box shadows */
---accent-hover      /* ~15% lighter than accent — hover states on buttons */
-```
-
-Every page loads `/theme.css` after `style.css`, so the override is always current. The endpoint sets `Cache-Control: no-cache, no-store`.
+All accent colors are CSS custom properties. A dynamic `/theme.css` endpoint generates overrides for 7 accent variables from the color stored in `settings`. Every page loads `/theme.css` after `style.css`; the endpoint sets `Cache-Control: no-cache, no-store`.
 
 ---
 
-## Security Considerations
+## Security
 
-- **Plex tokens never reach the browser** — all Plex API calls are proxied through the server. The poster proxy validates that the path starts with `/library/` to prevent SSRF.
-- **Session cookies** are `httpOnly` (Express default), 30-day lifetime, stored server-side in SQLite.
-- **ratingKey inputs** are validated against `/^\d+$/` before use in API calls.
-- **Admin password** is compared with `crypto.timingSafeEqual` to prevent timing-based enumeration.
-- **No personal data committed** — `.env`, `data/`, and `*.log` are all gitignored.
+- **Plex tokens never reach the browser** — all Plex API calls proxied through the server; poster proxy validates path starts with `/library/`
+- **API keys never in page HTML** — masked as `••••••••`; revealed only via authenticated `/admin/connections/reveal`
+- **Session cookies** are `httpOnly`, 30-day lifetime, stored server-side in SQLite
+- **ratingKey inputs** validated against `/^\d+$/` before use in API calls
+- **Admin password** compared with `crypto.timingSafeEqual`
+- **No secrets committed** — `.env`, `data/`, `*.log` gitignored; `.dockerignore` excludes them from Docker builds
 
 ---
 
@@ -273,7 +246,7 @@ Every page loads `/theme.css` after `style.css`, so the override is always curre
 | Column | Type | Notes |
 |---|---|---|
 | `rating_key` | TEXT PK | Plex ratingKey |
-| `section_id` | TEXT | Movies or TV section ID |
+| `section_id` | TEXT | |
 | `title` | TEXT | |
 | `year` | INTEGER | |
 | `thumb` | TEXT | Path for poster proxy |
@@ -285,7 +258,8 @@ Every page loads `/theme.css` after `style.css`, so the override is always curre
 | `content_rating` | TEXT | |
 | `added_at` | INTEGER | Unix timestamp |
 | `summary` | TEXT | |
-| `synced_at` | INTEGER | When this row was last written |
+| `tmdb_id` | TEXT | Populated from Plex Guid during sync |
+| `synced_at` | INTEGER | |
 
 ### `user_watched`
 | Column | Type | Notes |
@@ -298,23 +272,69 @@ Every page loads `/theme.css` after `style.css`, so the override is always curre
 ### `dismissals`
 | Column | Type | Notes |
 |---|---|---|
-| `id` | INTEGER PK AUTOINCREMENT | |
+| `id` | INTEGER PK | |
 | `plex_user_id` | TEXT | |
 | `rating_key` | TEXT | |
 | `dismissed_at` | DATETIME | |
 | UNIQUE | (plex_user_id, rating_key) | |
 
-### `sync_log`
+### `tmdb_cache`
 | Column | Type | Notes |
 |---|---|---|
-| `key` | TEXT PK | e.g. `library_1`, `watched_12345`, `autosync_enabled` |
-| `last_sync` | INTEGER | Unix timestamp or boolean-as-integer |
+| `tmdb_id` | INTEGER | |
+| `media_type` | TEXT | `movie` or `tv` |
+| `title` | TEXT | |
+| `overview` | TEXT | |
+| `poster_path` | TEXT | |
+| `backdrop_path` | TEXT | |
+| `genres` | TEXT | JSON array |
+| `cast` | TEXT | JSON array |
+| `directors` | TEXT | JSON array |
+| `studios` | TEXT | JSON array |
+| `vote_average` | REAL | |
+| `vote_count` | INTEGER | |
+| `release_year` | INTEGER | |
+| `release_date` | TEXT | ISO date string |
+| `fetched_at` | INTEGER | Unix timestamp |
+| PK | (tmdb_id, media_type) | |
+
+### `discover_requests`
+| Column | Type | Notes |
+|---|---|---|
+| `id` | INTEGER PK | |
+| `user_id` | TEXT | |
+| `tmdb_id` | INTEGER | |
+| `media_type` | TEXT | |
+| `requested_at` | INTEGER | |
 
 ### `settings`
 | Column | Type | Notes |
 |---|---|---|
-| `key` | TEXT PK | e.g. `theme_color` |
+| `key` | TEXT PK | |
 | `value` | TEXT | |
+
+**Settings keys used:**
+
+| Key | Purpose |
+|---|---|
+| `theme_color` | Hex color for accent theming |
+| `admin_watchlist_mode` | `watchlist` or `playlist` |
+| `owner_plex_user_id` | Server owner user ID |
+| `plex_url` | Overrides `PLEX_URL` env var |
+| `plex_token` | Overrides `PLEX_TOKEN` env var |
+| `tautulli_url` | Overrides `TAUTULLI_URL` env var |
+| `tautulli_api_key` | Overrides `TAUTULLI_API_KEY` env var |
+| `tmdb_api_key` | TMDB API key |
+| `discover_enabled` | `'1'` / `'0'` |
+| `overseerr_url` / `overseerr_api_key` / `overseerr_enabled` | Overseerr connection |
+| `radarr_url` / `radarr_api_key` / `radarr_enabled` | Radarr connection |
+| `sonarr_url` / `sonarr_api_key` / `sonarr_enabled` | Sonarr connection |
+
+### `sync_log`
+| Column | Type | Notes |
+|---|---|---|
+| `key` | TEXT PK | e.g. `library_1`, `watched_12345` |
+| `last_sync` | INTEGER | Unix timestamp |
 
 ---
 
@@ -322,43 +342,56 @@ Every page loads `/theme.css` after `style.css`, so the override is always curre
 
 ```
 diskovarr/
-├── server.js                  Express app entry point; background sync interval
+├── server.js                    Express app entry point; background sync interval
 ├── package.json
-├── .env                       Secrets (gitignored)
-├── .env.example               Template with placeholder values
+├── Dockerfile                   Multi-stage Docker build (node:20-alpine)
+├── docker-compose.yml           Recommended deployment
+├── .dockerignore
+├── .env                         Secrets (gitignored)
+├── .env.example                 Template with placeholder values
 ├── .gitignore
 ├── README.md
-├── DESIGN.md
+├── DESIGN.md                    This file
+├── CHANGELOG.md
 ├── routes/
-│   ├── auth.js                Plex OAuth PIN flow
-│   ├── api.js                 JSON API endpoints
-│   ├── admin.js               Admin panel routes + shouldAutoSync()
-│   └── pages.js               Page rendering; /theme.css dynamic endpoint
+│   ├── auth.js                  Plex OAuth PIN flow
+│   ├── api.js                   JSON API (recs, watchlist, dismiss, request, poster proxy)
+│   ├── admin.js                 Admin panel routes + update check
+│   ├── discover.js              Diskovarr Requests page + /api/discover/* endpoints
+│   └── pages.js                 Page rendering; /theme.css dynamic endpoint
 ├── services/
-│   ├── plex.js                Plex API client; library + watched cache
-│   ├── tautulli.js            Tautulli API client (watch history for scoring)
-│   └── recommender.js         Preference profile builder + scoring engine
+│   ├── plex.js                  Plex API client; library + watched cache; getter-based config
+│   ├── tautulli.js              Tautulli API client; getter-based config
+│   ├── recommender.js           In-library preference profile builder + scoring engine
+│   ├── discoverRecommender.js   TMDB-based out-of-library scoring + candidate fetching
+│   └── tmdb.js                  TMDB API wrapper; SQLite metadata cache (7-day TTL)
 ├── db/
-│   └── database.js            SQLite schema, migrations, all query helpers
+│   └── database.js              SQLite schema, migrations, all query helpers
 ├── middleware/
-│   └── requireAuth.js         Session check; 401 for API, redirect for pages
+│   └── requireAuth.js           Session check; 401 for API, redirect for pages
 ├── views/
 │   ├── login.ejs
-│   ├── home.ejs               Main recommendations page
-│   ├── discover.ejs           Diskovarr View browse/filter page
-│   ├── poll.ejs               OAuth polling spinner
+│   ├── home.ejs                 Main recommendations page
+│   ├── explore.ejs              Diskovarr Requests page
+│   ├── discover.ejs             Diskovarr View (library browser/filter)
+│   ├── poll.ejs                 OAuth polling spinner
+│   ├── admin/
+│   │   ├── index.ejs            Admin panel (Settings + Connections tabs)
+│   │   └── login.ejs
 │   └── partials/
-│       └── nav.ejs            Sticky nav with tab links and user info
+│       └── nav.ejs              Sticky nav with tab links, FAB, and user info
 ├── public/
 │   ├── css/
-│   │   ├── style.css          Full dark theme with CSS variables
-│   │   └── discover.css       Filter bar and discover page styles
+│   │   ├── style.css            Full dark theme with CSS variables
+│   │   ├── admin.css            Admin panel styles (tabs, connection blocks, toggles)
+│   │   └── discover.css         Filter bar and Diskovarr View styles
 │   └── js/
-│       ├── app.js             Recommendations fetch + card renderer (shared)
-│       ├── watchlist.js       Watchlist toggle + toast notification
-│       ├── discover.js        Discover page filter state + fetch + render
-│       └── auth-poll.js       PIN polling; redirects on authorization
-└── data/                      Runtime data (gitignored)
+│       ├── app.js               Home recommendations fetch + card renderer
+│       ├── watchlist.js         Watchlist toggle + toast notification
+│       ├── discover-app.js      Diskovarr Requests carousel + modal + request flow
+│       ├── discover.js          Diskovarr View filter state + fetch + render
+│       └── auth-poll.js         PIN polling; redirects on authorization
+└── data/                        Runtime data (gitignored; mounted as Docker volume)
     ├── diskovarr.db
     └── sessions.db
 ```

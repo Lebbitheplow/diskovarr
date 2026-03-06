@@ -53,6 +53,14 @@ db.exec(`
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS tmdb_cache (
+    tmdb_id INTEGER NOT NULL,
+    media_type TEXT NOT NULL,
+    data TEXT NOT NULL,
+    fetched_at INTEGER NOT NULL,
+    PRIMARY KEY (tmdb_id, media_type)
+  );
 `);
 
 const stmtAdd = db.prepare(
@@ -84,6 +92,7 @@ function removeDismissal(userId, ratingKey) {
   "ALTER TABLE library_items ADD COLUMN rating_image TEXT DEFAULT ''",
   "ALTER TABLE library_items ADD COLUMN audience_rating_image TEXT DEFAULT ''",
   "ALTER TABLE library_items ADD COLUMN studio TEXT DEFAULT ''",
+  'ALTER TABLE library_items ADD COLUMN tmdb_id TEXT DEFAULT NULL',
 ].forEach(sql => { try { db.exec(sql); } catch (_) {} });
 
 // User ratings table (Plex star ratings, per user)
@@ -102,8 +111,8 @@ const stmtUpsertItem = db.prepare(`
   INSERT OR REPLACE INTO library_items
     (rating_key, section_id, title, year, thumb, type, genres, directors, cast,
      audience_rating, content_rating, added_at, summary, synced_at,
-     rating, rating_image, audience_rating_image, studio)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     rating, rating_image, audience_rating_image, studio, tmdb_id)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
 
 const upsertManyItems = db.transaction((items) => {
@@ -113,7 +122,8 @@ const upsertManyItems = db.transaction((items) => {
       JSON.stringify(item.genres), JSON.stringify(item.directors), JSON.stringify(item.cast),
       item.audienceRating, item.contentRating, item.addedAt, item.summary,
       Math.floor(Date.now() / 1000),
-      item.rating, item.ratingImage, item.audienceRatingImage, item.studio
+      item.rating, item.ratingImage, item.audienceRatingImage, item.studio,
+      item.tmdbId || null
     );
   }
 });
@@ -137,6 +147,7 @@ function rowToItem(r) {
     ratingImage: r.rating_image || '',
     audienceRatingImage: r.audience_rating_image || '',
     studio: r.studio || '',
+    tmdbId: r.tmdb_id || null,
   };
 }
 
@@ -384,6 +395,115 @@ function setOwnerUserId(userId) {
     .run(String(userId));
 }
 
+// ── Generic settings helpers ──────────────────────────────────────────────────
+
+function getSetting(key, defaultValue = null) {
+  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
+  return row ? row.value : defaultValue;
+}
+
+function setSetting(key, value) {
+  db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)')
+    .run(key, String(value));
+}
+
+function getConnectionSettings() {
+  return {
+    plexUrl: getSetting('plex_url', '') || process.env.PLEX_URL || '',
+    plexToken: !!(getSetting('plex_token', '') || process.env.PLEX_TOKEN),
+    tautulliUrl: getSetting('tautulli_url', '') || process.env.TAUTULLI_URL || '',
+    tautulliApiKey: !!(getSetting('tautulli_api_key', '') || process.env.TAUTULLI_API_KEY),
+    tmdbApiKey: getSetting('tmdb_api_key', ''),
+    discoverEnabled: getSetting('discover_enabled', '0') === '1',
+    overseerrUrl: getSetting('overseerr_url', ''),
+    overseerrApiKey: getSetting('overseerr_api_key', ''),
+    overseerrEnabled: getSetting('overseerr_enabled', '0') === '1',
+    radarrUrl: getSetting('radarr_url', ''),
+    radarrApiKey: getSetting('radarr_api_key', ''),
+    radarrEnabled: getSetting('radarr_enabled', '0') === '1',
+    sonarrUrl: getSetting('sonarr_url', ''),
+    sonarrApiKey: getSetting('sonarr_api_key', ''),
+    sonarrEnabled: getSetting('sonarr_enabled', '0') === '1',
+  };
+}
+
+// Tab is visible if the toggle is on (TMDB key checked separately at recommendation time)
+function isDiscoverEnabled() {
+  return getSetting('discover_enabled', '0') === '1';
+}
+
+function hasTmdbKey() {
+  return !!getSetting('tmdb_api_key', '');
+}
+
+// ── TMDB cache ────────────────────────────────────────────────────────────────
+
+const TMDB_CACHE_TTL = 7 * 24 * 60 * 60; // 7 days in seconds
+
+function getTmdbCache(tmdbId, mediaType) {
+  const row = db.prepare('SELECT data, fetched_at FROM tmdb_cache WHERE tmdb_id = ? AND media_type = ?')
+    .get(Number(tmdbId), mediaType);
+  if (!row) return null;
+  if (Math.floor(Date.now() / 1000) - row.fetched_at > TMDB_CACHE_TTL) return null;
+  try { return JSON.parse(row.data); } catch { return null; }
+}
+
+function setTmdbCache(tmdbId, mediaType, data) {
+  db.prepare('INSERT OR REPLACE INTO tmdb_cache (tmdb_id, media_type, data, fetched_at) VALUES (?, ?, ?, ?)')
+    .run(Number(tmdbId), mediaType, JSON.stringify(data), Math.floor(Date.now() / 1000));
+}
+
+// ── Library TMDB IDs ──────────────────────────────────────────────────────────
+
+function getLibraryTmdbIds() {
+  const rows = db.prepare('SELECT tmdb_id FROM library_items WHERE tmdb_id IS NOT NULL').all();
+  return new Set(rows.map(r => String(r.tmdb_id)));
+}
+
+// Normalized "title|year" strings for title+year fallback filtering
+// Used when TMDB IDs aren't populated yet
+function getLibraryTitleYearSet() {
+  const rows = db.prepare('SELECT title, year FROM library_items').all();
+  const set = new Set();
+  for (const r of rows) {
+    if (r.title) {
+      // Normalize: lowercase, strip punctuation, collapse spaces
+      const norm = r.title.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim();
+      set.add(norm + '|' + (r.year || ''));
+      // Also add without year for fuzzy fallback
+      set.add(norm + '|');
+    }
+  }
+  return set;
+}
+
+// ── Discover requests log ─────────────────────────────────────────────────────
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS discover_requests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    tmdb_id INTEGER NOT NULL,
+    media_type TEXT NOT NULL,
+    title TEXT,
+    service TEXT,
+    requested_at INTEGER DEFAULT 0
+  );
+  CREATE INDEX IF NOT EXISTS idx_discover_requests_user ON discover_requests(user_id);
+`);
+
+function addDiscoverRequest(userId, tmdbId, mediaType, title, service) {
+  db.prepare(`
+    INSERT INTO discover_requests (user_id, tmdb_id, media_type, title, service, requested_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(String(userId), Number(tmdbId), mediaType, title, service, Math.floor(Date.now() / 1000));
+}
+
+function getRequestedTmdbIds(userId) {
+  const rows = db.prepare('SELECT tmdb_id, media_type FROM discover_requests WHERE user_id = ?').all(String(userId));
+  return new Set(rows.map(r => `${r.tmdb_id}:${r.media_type}`));
+}
+
 module.exports = {
   addDismissal, getDismissals, removeDismissal,
   addToWatchlistDb, removeFromWatchlistDb, getWatchlistFromDb,
@@ -398,4 +518,8 @@ module.exports = {
   getThemeColor, setThemeColor,
   getAdminWatchlistMode, setAdminWatchlistMode,
   getOwnerUserId, setOwnerUserId,
+  getSetting, setSetting, getConnectionSettings, isDiscoverEnabled, hasTmdbKey,
+  getTmdbCache, setTmdbCache,
+  getLibraryTmdbIds, getLibraryTitleYearSet,
+  addDiscoverRequest, getRequestedTmdbIds,
 };

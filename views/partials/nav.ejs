@@ -7,6 +7,9 @@
 
     <div class="nav-tabs">
       <a href="/" class="nav-tab <%= currentPath === '/' ? 'active' : '' %>">Home</a>
+      <% if (typeof discoverEnabled !== 'undefined' && discoverEnabled) { %>
+        <a href="/explore" class="nav-tab <%= currentPath === '/explore' ? 'active' : '' %>">Diskovarr Requests</a>
+      <% } %>
       <a href="/discover" class="nav-tab <%= currentPath === '/discover' ? 'active' : '' %>">🔍 Diskovarr View</a>
     </div>
 
@@ -77,6 +80,12 @@
         <div class="info-modal-section-title">◈ Watchlist</div>
         <p>Save anything you want to watch later. Items sync to your <strong>Plex Watchlist</strong> and appear in the Plex app under Discover → Watchlist. Remove items here and they'll be removed from Plex too.</p>
       </div>
+      <% if (typeof discoverEnabled !== 'undefined' && discoverEnabled) { %>
+      <div class="info-modal-section">
+        <div class="info-modal-section-title">✦ Diskovarr Requests</div>
+        <p>Recommendations for content <strong>not yet in the library</strong>, picked based on your watch history. Click <em>Request</em> on any title to send it to Overseerr (or Radarr/Sonarr) for download. Requested items are tracked so you won't be prompted to request them again.</p>
+      </div>
+      <% } %>
     </div>
   </div>
 </div>

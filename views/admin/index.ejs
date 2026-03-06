@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/style.css">
-  <link rel="stylesheet" href="/css/admin.css">
+  <link rel="stylesheet" href="/css/admin.css?v=5">
   <link rel="stylesheet" href="/theme.css?c=<%= themeParam %>" id="theme-css">
 </head>
 <body>
@@ -37,213 +37,455 @@
 
     <div id="toast" class="toast" style="display:none"></div>
 
-    <!-- ── Library Sync ─────────────────────────────────────────────── -->
-    <section class="admin-section">
-      <div class="admin-section-header">
-        <h2 class="section-title">Library Sync</h2>
-        <div id="sync-status-badge" class="status-badge <%= syncInProgress ? 'status-syncing' : 'status-idle' %>">
-          <% if (syncInProgress) { %><span class="sync-spinner"></span><% } %>
-          <span id="sync-status-text"><%= syncInProgress ? 'Syncing…' : 'Idle' %></span>
-        </div>
-      </div>
-
-      <div class="admin-grid">
-        <div class="stat-card">
-          <div class="stat-label">Movies</div>
-          <div class="stat-value" id="stat-movies"><%= stats.library.movies.toLocaleString() %></div>
-          <div class="stat-sub">
-            Last sync: <span id="stat-movies-sync"><%= stats.library.lastSyncMovies ? relativeTime(stats.library.lastSyncMovies) : 'Never' %></span>
-          </div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">TV &amp; Anime</div>
-          <div class="stat-value" id="stat-tv"><%= stats.library.tv.toLocaleString() %></div>
-          <div class="stat-sub">
-            Last sync: <span id="stat-tv-sync"><%= stats.library.lastSyncTV ? relativeTime(stats.library.lastSyncTV) : 'Never' %></span>
-          </div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">Auto-Sync (every 2h)</div>
-          <div class="stat-value" id="stat-autosync">
-            <span id="autosync-text" style="color: <%= autoSyncEnabled ? 'var(--accent)' : 'var(--text-muted)' %>">
-              <%= autoSyncEnabled ? 'Enabled' : 'Disabled' %>
-            </span>
-          </div>
-          <div class="stat-sub">Controls scheduled background sync</div>
-        </div>
-      </div>
-
-      <div id="sync-progress-msg" class="sync-progress-msg" style="display:<%= syncInProgress ? 'block' : 'none' %>">
-        Syncing libraries… TV &amp; Anime can take up to 2 minutes.
-      </div>
-
-      <div class="admin-actions">
-        <button class="btn-admin btn-primary" id="btn-sync-now" onclick="syncLibrary()" <%= syncInProgress ? 'disabled' : '' %>>
-          <span>↻</span> Sync Library Now
-        </button>
-        <button class="btn-admin" id="btn-toggle-autosync" onclick="toggleAutoSync()">
-          <span id="autosync-btn-text"><%= autoSyncEnabled ? '⏸ Disable Auto-Sync' : '▶ Enable Auto-Sync' %></span>
-        </button>
-      </div>
-
-      <% if (lastSyncError) { %>
-        <div class="error-banner" style="margin-top:16px">Last sync error: <%= lastSyncError %></div>
+    <!-- ── Version strip ────────────────────────────────────────── -->
+    <div class="version-strip">
+      <span class="version-badge">v<%= appVersion %></span>
+      <% if (updateAvailable) { %>
+        <a class="version-update-badge" href="https://github.com/Lebbitheplow/diskovarr/releases/latest" target="_blank" rel="noopener">
+          ↑ v<%= latestVersion %> available
+        </a>
+      <% } else if (latestVersion) { %>
+        <span class="version-uptodate">up to date</span>
       <% } %>
-    </section>
+    </div>
 
-    <!-- ── Users & Watch Sync ───────────────────────────────────────── -->
-    <section class="admin-section">
-      <div class="admin-section-header">
-        <h2 class="section-title">Users &amp; Watch Sync</h2>
-      </div>
+    <!-- ── Tab navigation ───────────────────────────────────────── -->
+    <div class="admin-tabs">
+      <button class="admin-tab active" data-tab="settings">Settings</button>
+      <button class="admin-tab" data-tab="connections">Connections</button>
+    </div>
 
-      <% if (stats.users.length === 0) { %>
-        <p class="empty-state" style="padding:20px 0">No users have synced yet.</p>
-      <% } else { %>
-        <div class="user-table">
-          <div class="user-table-header">
-            <span>User</span>
-            <span>Watched Items</span>
-            <span>Last Sync</span>
-            <span>Actions</span>
+    <!-- ══════════════════════════════════════════════════════════ -->
+    <!-- SETTINGS TAB                                               -->
+    <!-- ══════════════════════════════════════════════════════════ -->
+    <div class="admin-tab-panel" id="panel-settings">
+
+      <!-- ── Library Sync ─────────────────────────────────────── -->
+      <section class="admin-section">
+        <div class="admin-section-header">
+          <h2 class="section-title">Library Sync</h2>
+          <div id="sync-status-badge" class="status-badge <%= syncInProgress ? 'status-syncing' : 'status-idle' %>">
+            <% if (syncInProgress) { %><span class="sync-spinner"></span><% } %>
+            <span id="sync-status-text"><%= syncInProgress ? 'Syncing…' : 'Idle' %></span>
           </div>
-          <% for (const user of stats.users) { %>
-            <div class="user-table-row" id="user-row-<%= user.user_id %>">
-              <span class="user-id">
-                <% if (user.thumb) { %>
-                  <img src="<%= user.thumb %>" class="user-avatar-sm" alt="" onerror="this.style.display='none'">
-                <% } %>
-                <span><%= user.username %></span>
-                <span class="user-id-sub"><%= user.user_id %></span>
+        </div>
+
+        <div class="admin-grid">
+          <div class="stat-card">
+            <div class="stat-label">Movies</div>
+            <div class="stat-value" id="stat-movies"><%= stats.library.movies.toLocaleString() %></div>
+            <div class="stat-sub">
+              Last sync: <span id="stat-movies-sync"><%= stats.library.lastSyncMovies ? relativeTime(stats.library.lastSyncMovies) : 'Never' %></span>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">TV &amp; Anime</div>
+            <div class="stat-value" id="stat-tv"><%= stats.library.tv.toLocaleString() %></div>
+            <div class="stat-sub">
+              Last sync: <span id="stat-tv-sync"><%= stats.library.lastSyncTV ? relativeTime(stats.library.lastSyncTV) : 'Never' %></span>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Auto-Sync (every 2h)</div>
+            <div class="stat-value" id="stat-autosync">
+              <span id="autosync-text" style="color: <%= autoSyncEnabled ? 'var(--accent)' : 'var(--text-muted)' %>">
+                <%= autoSyncEnabled ? 'Enabled' : 'Disabled' %>
               </span>
-              <span class="watched-count-cell" data-count="<%= user.watched_count %>"><%= user.watched_count.toLocaleString() %> items</span>
-              <span><%= user.last_sync ? relativeTime(user.last_sync) : 'Never' %></span>
-              <div class="user-actions">
-                <button class="btn-admin btn-sm" onclick="syncWatched('<%= user.user_id %>')">↻ Re-sync Watched</button>
-                <button class="btn-admin btn-sm btn-danger" onclick="clearWatched('<%= user.user_id %>')">✕ Clear Watched</button>
-                <button class="btn-admin btn-sm btn-danger" onclick="clearDismissals('<%= user.user_id %>')">✕ Clear Dismissals</button>
+            </div>
+            <div class="stat-sub">Controls scheduled background sync</div>
+          </div>
+        </div>
+
+        <div id="sync-progress-msg" class="sync-progress-msg" style="display:<%= syncInProgress ? 'block' : 'none' %>">
+          Syncing libraries… TV &amp; Anime can take up to 2 minutes.
+        </div>
+
+        <div class="admin-actions">
+          <button class="btn-admin btn-primary" id="btn-sync-now" onclick="syncLibrary()" <%= syncInProgress ? 'disabled' : '' %>>
+            <span>↻</span> Sync Library Now
+          </button>
+          <button class="btn-admin" id="btn-toggle-autosync" data-enabled="<%= autoSyncEnabled %>">
+            <span id="autosync-btn-text"><%= autoSyncEnabled ? '⏸ Disable Auto-Sync' : '▶ Enable Auto-Sync' %></span>
+          </button>
+        </div>
+
+        <% if (lastSyncError) { %>
+          <div class="error-banner" style="margin-top:16px">Last sync error: <%= lastSyncError %></div>
+        <% } %>
+      </section>
+
+      <!-- ── Users & Watch Sync ─────────────────────────────── -->
+      <section class="admin-section">
+        <div class="admin-section-header">
+          <h2 class="section-title">Users &amp; Watch Sync</h2>
+        </div>
+
+        <% if (stats.users.length === 0) { %>
+          <p class="empty-state" style="padding:20px 0">No users have synced yet.</p>
+        <% } else { %>
+          <div class="user-table">
+            <div class="user-table-header">
+              <span>User</span>
+              <span>Watched Items</span>
+              <span>Last Sync</span>
+              <span>Actions</span>
+            </div>
+            <% for (const user of stats.users) { %>
+              <div class="user-table-row" id="user-row-<%= user.user_id %>">
+                <span class="user-id">
+                  <% if (user.thumb) { %>
+                    <img src="<%= user.thumb %>" class="user-avatar-sm" alt="" onerror="this.style.display='none'">
+                  <% } %>
+                  <span><%= user.username %></span>
+                  <span class="user-id-sub"><%= user.user_id %></span>
+                </span>
+                <span class="watched-count-cell" data-count="<%= user.watched_count %>"><%= user.watched_count.toLocaleString() %> items</span>
+                <span><%= user.last_sync ? relativeTime(user.last_sync) : 'Never' %></span>
+                <div class="user-actions">
+                  <button class="btn-admin btn-sm" onclick="syncWatched('<%= user.user_id %>')">↻ Re-sync Watched</button>
+                  <button class="btn-admin btn-sm btn-danger" onclick="clearWatched('<%= user.user_id %>')">✕ Clear Watched</button>
+                  <button class="btn-admin btn-sm btn-danger" onclick="clearDismissals('<%= user.user_id %>')">✕ Clear Dismissals</button>
+                </div>
+              </div>
+            <% } %>
+          </div>
+        <% } %>
+
+        <div class="admin-actions" style="margin-top:16px">
+          <button class="btn-admin btn-danger" onclick="confirmAction('Clear ALL watched caches for all users?', clearAllWatched)">
+            Clear All Watched Caches
+          </button>
+          <button class="btn-admin btn-danger" onclick="confirmAction('Clear ALL dismissals for all users?', clearAllDismissals)">
+            Clear All Dismissals
+          </button>
+        </div>
+      </section>
+
+      <!-- ── Recommendation Cache ───────────────────────────── -->
+      <section class="admin-section">
+        <div class="admin-section-header">
+          <h2 class="section-title">Recommendation Cache</h2>
+        </div>
+        <p class="section-desc">In-memory scored recommendation cache. Cleared automatically when library syncs or dismissals change. 30-minute TTL per user.</p>
+        <div class="admin-actions" style="margin-top:16px">
+          <button class="btn-admin" onclick="clearRecCache()">↺ Clear Rec Cache (All Users)</button>
+        </div>
+      </section>
+
+      <!-- ── Theme Color ────────────────────────────────────── -->
+      <section class="admin-section">
+        <div class="admin-section-header">
+          <h2 class="section-title">Theme Color</h2>
+        </div>
+        <p class="section-desc" style="margin-bottom:20px">
+          Pick an accent color. Changes apply immediately across the whole app.
+        </p>
+        <div class="color-picker-row">
+          <div class="color-preview-strip" id="color-swatches"></div>
+          <div class="color-wheel-wrap">
+            <label for="custom-color-input">Custom</label>
+            <input type="color" id="custom-color-input" title="Pick any color">
+          </div>
+          <button class="btn-admin btn-primary" id="btn-apply-color" onclick="applyColor()">Apply</button>
+        </div>
+      </section>
+
+      <!-- ── Server Owner & Watchlist Mode ─────────────────── -->
+      <section class="admin-section">
+        <div class="admin-section-header">
+          <h2 class="section-title">Server Owner &amp; Watchlist Mode</h2>
+          <div class="status-badge <%= watchlistMode === 'playlist' ? 'status-syncing' : 'status-idle' %>" style="font-size:0.78rem;padding:4px 10px">
+            <span><%= watchlistMode === 'playlist' ? 'Playlist mode' : 'Watchlist mode' %></span>
+          </div>
+        </div>
+        <p class="section-desc" style="margin-bottom:20px">
+          Select which Plex account is the server owner. The owner can use <strong>Playlist mode</strong>, which syncs watchlist items to a private "Diskovarr" server playlist instead of the native Plex.tv Watchlist — useful if your Watchlist triggers download automation (e.g. pd_zurg). All other users always use the Plex.tv Watchlist.
+        </p>
+
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;flex-wrap:wrap">
+          <label style="font-size:0.9rem;color:var(--text-secondary);white-space:nowrap">Server owner account:</label>
+          <select id="owner-user-select" class="btn-admin" style="padding:6px 10px;cursor:pointer;min-width:200px">
+            <option value="">— not set —</option>
+            <% for (const u of knownUsers) { %>
+              <option value="<%= u.user_id %>" <%= ownerUserId === u.user_id ? 'selected' : '' %>>
+                <%= u.username %> (<%= u.user_id %>)
+              </option>
+            <% } %>
+          </select>
+          <button class="btn-admin btn-primary" onclick="saveOwnerUser()">Save</button>
+          <% if (ownerUserId) { %>
+            <span class="stat-sub" style="margin:0">
+              Current: <strong><%= knownUsers.find(u => u.user_id === ownerUserId)?.username || ownerUserId %></strong>
+            </span>
+          <% } %>
+        </div>
+
+        <div class="admin-grid" style="margin-bottom:20px">
+          <div class="stat-card" style="<%= watchlistMode !== 'playlist' ? 'border-color:var(--accent-border)' : '' %>">
+            <div class="stat-label">Watchlist mode <% if (watchlistMode !== 'playlist') { %><span style="color:var(--accent)">✓ active</span><% } %></div>
+            <div class="stat-value" style="font-size:1.05rem">Plex.tv Watchlist</div>
+            <div class="stat-sub">Items appear in the Plex app under Discover → Watchlist. Default.</div>
+          </div>
+          <div class="stat-card" style="<%= watchlistMode === 'playlist' ? 'border-color:var(--accent-border)' : '' %>">
+            <div class="stat-label">Playlist mode <% if (watchlistMode === 'playlist') { %><span style="color:var(--accent)">✓ active</span><% } %></div>
+            <div class="stat-value" style="font-size:1.05rem">Server Playlist</div>
+            <div class="stat-sub">Items go into a private "Diskovarr" server playlist. Use with pd_zurg.</div>
+          </div>
+        </div>
+        <div class="admin-actions">
+          <button class="btn-admin btn-primary" id="btn-watchlist-mode" data-mode="<%= watchlistMode %>">
+            <span id="watchlist-mode-btn-text"><%= watchlistMode === 'playlist' ? '▶ Switch to Watchlist mode' : '▶ Switch to Playlist mode' %></span>
+          </button>
+        </div>
+      </section>
+
+      <!-- ── Stats ─────────────────────────────────────────── -->
+      <section class="admin-section">
+        <div class="admin-section-header">
+          <h2 class="section-title">Stats</h2>
+        </div>
+        <div class="admin-grid">
+          <div class="stat-card">
+            <div class="stat-label">Total Library Items</div>
+            <div class="stat-value"><%= (stats.library.movies + stats.library.tv).toLocaleString() %></div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Total Dismissals</div>
+            <div class="stat-value" id="stat-dismissals"><%= stats.dismissals.toLocaleString() %></div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Active Users (synced)</div>
+            <div class="stat-value"><%= stats.users.length %></div>
+          </div>
+        </div>
+      </section>
+
+    </div><!-- /panel-settings -->
+
+    <!-- ══════════════════════════════════════════════════════════ -->
+    <!-- CONNECTIONS TAB                                            -->
+    <!-- ══════════════════════════════════════════════════════════ -->
+    <div class="admin-tab-panel" id="panel-connections" hidden>
+
+      <section class="admin-section">
+        <p class="section-desc" style="margin-bottom:24px">
+          Configure external metadata sources and request services. Fill in the URL and API key for a service, then flip its toggle to enable it. Settings are saved automatically when the toggle changes.
+        </p>
+
+        <!-- Plex -->
+        <div class="conn-block">
+          <div class="conn-block-header">
+            <div class="conn-block-meta">
+              <span class="conn-block-name">Plex</span>
+              <span class="conn-block-desc">Your Plex Media Server — required for library sync and authentication</span>
+            </div>
+          </div>
+          <div class="conn-block-fields">
+            <input type="url" id="conn-plex-url" class="conn-input"
+              placeholder="http://192.168.1.27:32400"
+              value="<%= connections.plexUrl %>">
+            <div class="conn-input-wrap">
+              <input type="password" id="conn-plex-token" class="conn-input"
+                placeholder="Plex Token"
+                value="<%= connections.plexToken ? '••••••••' : '' %>"
+                autocomplete="new-password">
+              <div class="conn-input-btns">
+                <button type="button" class="conn-input-icon-btn" onclick="toggleFieldVis('conn-plex-token', this)" title="Show / hide"></button>
               </div>
             </div>
-          <% } %>
+            <button class="btn-admin" onclick="testCoreService('plex')">Test</button>
+            <button class="btn-admin btn-primary" onclick="saveCoreService('plex')">Save</button>
+          </div>
         </div>
-      <% } %>
 
-      <div class="admin-actions" style="margin-top:16px">
-        <button class="btn-admin btn-danger" onclick="confirmAction('Clear ALL watched caches for all users?', clearAllWatched)">
-          Clear All Watched Caches
-        </button>
-        <button class="btn-admin btn-danger" onclick="confirmAction('Clear ALL dismissals for all users?', clearAllDismissals)">
-          Clear All Dismissals
-        </button>
-      </div>
-    </section>
+        <!-- Tautulli -->
+        <div class="conn-block">
+          <div class="conn-block-header">
+            <div class="conn-block-meta">
+              <span class="conn-block-name">Tautulli</span>
+              <span class="conn-block-desc">Watch history source — required for personalized recommendations</span>
+            </div>
+          </div>
+          <div class="conn-block-fields">
+            <input type="url" id="conn-tautulli-url" class="conn-input"
+              placeholder="http://192.168.1.27:8181"
+              value="<%= connections.tautulliUrl %>">
+            <div class="conn-input-wrap">
+              <input type="password" id="conn-tautulli-key" class="conn-input"
+                placeholder="API Key"
+                value="<%= connections.tautulliApiKey ? '••••••••' : '' %>"
+                autocomplete="new-password">
+              <div class="conn-input-btns">
+                <button type="button" class="conn-input-icon-btn" onclick="toggleFieldVis('conn-tautulli-key', this)" title="Show / hide"></button>
+              </div>
+            </div>
+            <button class="btn-admin" onclick="testCoreService('tautulli')">Test</button>
+            <button class="btn-admin btn-primary" onclick="saveCoreService('tautulli')">Save</button>
+          </div>
+        </div>
 
-    <!-- ── Recommendation Cache ─────────────────────────────────────── -->
-    <section class="admin-section">
-      <div class="admin-section-header">
-        <h2 class="section-title">Recommendation Cache</h2>
-      </div>
-      <p class="section-desc">In-memory scored recommendation cache. Cleared automatically when library syncs or dismissals change. 30-minute TTL per user.</p>
-      <div class="admin-actions" style="margin-top:16px">
-        <button class="btn-admin" onclick="clearRecCache()">↺ Clear Rec Cache (All Users)</button>
-      </div>
-    </section>
+        <!-- TMDB -->
+        <div class="conn-block">
+          <div class="conn-block-header">
+            <div class="conn-block-meta">
+              <span class="conn-block-name">TMDB</span>
+              <span class="conn-block-desc">The Movie Database — metadata source for Diskovarr Requests</span>
+            </div>
+          </div>
+          <div class="conn-block-fields">
+            <div class="conn-input-wrap">
+              <input type="password" id="conn-tmdb-key" class="conn-input"
+                placeholder="API Key (v3 auth)"
+                value="<%= connections.tmdbApiKey ? '••••••••' : '' %>"
+                autocomplete="new-password"
+                oninput="onFieldInput('discover')">
+              <div class="conn-input-btns">
+                <button type="button" class="conn-input-icon-btn" onclick="toggleFieldVis('conn-tmdb-key', this)" title="Show / hide"></button>
+              </div>
+            </div>
+            <button class="btn-admin" onclick="testConnection('tmdb')">Test</button>
+            <button class="btn-admin btn-primary" onclick="saveTmdbKey()">Save Key</button>
+          </div>
+        </div>
 
-    <!-- ── Theme Color ─────────────────────────────────────────────── -->
-    <section class="admin-section">
-      <div class="admin-section-header">
-        <h2 class="section-title">Theme Color</h2>
-      </div>
-      <p class="section-desc" style="margin-bottom:20px">
-        Pick an accent color. Changes apply immediately across the whole app.
-      </p>
-      <div class="color-picker-row">
-        <div class="color-preview-strip" id="color-swatches">
-          <!-- Presets — filled by JS -->
+        <!-- Diskovarr Requests -->
+        <div class="conn-block">
+          <div class="conn-block-header">
+            <div class="conn-block-meta">
+              <span class="conn-block-name">Diskovarr Requests</span>
+              <span class="conn-block-desc">Show the Requests tab to all users — requires TMDB to be configured</span>
+            </div>
+            <div class="conn-toggle-wrap">
+              <span class="conn-toggle-label" id="lbl-discover"><%= connections.discoverEnabled ? 'Enabled' : 'Disabled' %></span>
+              <label class="slide-toggle" title="<%= !connections.tmdbApiKey ? 'Save a TMDB API key first' : '' %>">
+                <input type="checkbox" id="toggle-discover"
+                  <%= connections.discoverEnabled ? 'checked' : '' %>
+                  <%= !connections.tmdbApiKey ? 'disabled' : '' %>
+                  onchange="onToggleChange('discover')">
+                <span class="slide-track"></span>
+              </label>
+            </div>
+          </div>
         </div>
-        <div class="color-wheel-wrap">
-          <label for="custom-color-input">Custom</label>
-          <input type="color" id="custom-color-input" title="Pick any color">
-        </div>
-        <button class="btn-admin btn-primary" id="btn-apply-color" onclick="applyColor()">Apply</button>
-      </div>
-    </section>
 
-    <!-- ── Server Owner & Watchlist Mode ──────────────────────────── -->
-    <section class="admin-section">
-      <div class="admin-section-header">
-        <h2 class="section-title">Server Owner &amp; Watchlist Mode</h2>
-        <div class="status-badge <%= watchlistMode === 'playlist' ? 'status-syncing' : 'status-idle' %>" style="font-size:0.78rem;padding:4px 10px">
-          <span><%= watchlistMode === 'playlist' ? 'Playlist mode' : 'Watchlist mode' %></span>
+        <!-- Overseerr -->
+        <div class="conn-block">
+          <div class="conn-block-header">
+            <div class="conn-block-meta">
+              <span class="conn-block-name">Overseerr</span>
+              <span class="conn-block-desc">Media request management — preferred request service</span>
+            </div>
+            <div class="conn-toggle-wrap">
+              <span class="conn-toggle-label" id="lbl-overseerr"><%= connections.overseerrEnabled ? 'Enabled' : 'Disabled' %></span>
+              <label class="slide-toggle" title="<%= (!connections.overseerrUrl || !connections.overseerrApiKey) ? 'Enter URL and API key first' : '' %>">
+                <input type="checkbox" id="toggle-overseerr"
+                  <%= connections.overseerrEnabled ? 'checked' : '' %>
+                  <%= (!connections.overseerrUrl || !connections.overseerrApiKey) ? 'disabled' : '' %>
+                  onchange="onToggleChange('overseerr')">
+                <span class="slide-track"></span>
+              </label>
+            </div>
+          </div>
+          <div class="conn-block-fields">
+            <input type="url" id="conn-overseerr-url" class="conn-input"
+              placeholder="http://192.168.1.27:5055"
+              value="<%= connections.overseerrUrl %>"
+              oninput="onFieldInput('overseerr')">
+            <div class="conn-input-wrap">
+              <input type="password" id="conn-overseerr-key" class="conn-input"
+                placeholder="API Key"
+                value="<%= connections.overseerrApiKey ? '••••••••' : '' %>"
+                autocomplete="new-password"
+                oninput="onFieldInput('overseerr')">
+              <div class="conn-input-btns">
+                <button type="button" class="conn-input-icon-btn" onclick="toggleFieldVis('conn-overseerr-key', this)" title="Show / hide"></button>
+              </div>
+            </div>
+            <button class="btn-admin" onclick="testConnection('overseerr')">Test</button>
+          </div>
         </div>
-      </div>
-      <p class="section-desc" style="margin-bottom:20px">
-        Select which Plex account is the server owner. The owner can use <strong>Playlist mode</strong>, which syncs watchlist items to a private "Diskovarr" server playlist instead of the native Plex.tv Watchlist — useful if your Watchlist triggers download automation (e.g. pd_zurg). All other users always use the Plex.tv Watchlist.
-      </p>
 
-      <!-- Owner picker -->
-      <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;flex-wrap:wrap">
-        <label style="font-size:0.9rem;color:var(--text-secondary);white-space:nowrap">Server owner account:</label>
-        <select id="owner-user-select" class="btn-admin" style="padding:6px 10px;cursor:pointer;min-width:200px">
-          <option value="">— not set —</option>
-          <% for (const u of knownUsers) { %>
-            <option value="<%= u.user_id %>" <%= ownerUserId === u.user_id ? 'selected' : '' %>>
-              <%= u.username %> (<%= u.user_id %>)
-            </option>
-          <% } %>
-        </select>
-        <button class="btn-admin btn-primary" onclick="saveOwnerUser()">Save</button>
-        <% if (ownerUserId) { %>
-          <span class="stat-sub" style="margin:0">
-            Current: <strong><%= knownUsers.find(u => u.user_id === ownerUserId)?.username || ownerUserId %></strong>
-          </span>
-        <% } %>
-      </div>
+        <!-- Radarr -->
+        <div class="conn-block">
+          <div class="conn-block-header">
+            <div class="conn-block-meta">
+              <span class="conn-block-name">Radarr</span>
+              <span class="conn-block-desc">Movies — direct fallback if Overseerr is not used</span>
+            </div>
+            <div class="conn-toggle-wrap">
+              <span class="conn-toggle-label" id="lbl-radarr"><%= connections.radarrEnabled ? 'Enabled' : 'Disabled' %></span>
+              <label class="slide-toggle" title="<%= (!connections.radarrUrl || !connections.radarrApiKey) ? 'Enter URL and API key first' : '' %>">
+                <input type="checkbox" id="toggle-radarr"
+                  <%= connections.radarrEnabled ? 'checked' : '' %>
+                  <%= (!connections.radarrUrl || !connections.radarrApiKey) ? 'disabled' : '' %>
+                  onchange="onToggleChange('radarr')">
+                <span class="slide-track"></span>
+              </label>
+            </div>
+          </div>
+          <div class="conn-block-fields">
+            <input type="url" id="conn-radarr-url" class="conn-input"
+              placeholder="http://192.168.1.27:7878"
+              value="<%= connections.radarrUrl %>"
+              oninput="onFieldInput('radarr')">
+            <div class="conn-input-wrap">
+              <input type="password" id="conn-radarr-key" class="conn-input"
+                placeholder="API Key"
+                value="<%= connections.radarrApiKey ? '••••••••' : '' %>"
+                autocomplete="new-password"
+                oninput="onFieldInput('radarr')">
+              <div class="conn-input-btns">
+                <button type="button" class="conn-input-icon-btn" onclick="toggleFieldVis('conn-radarr-key', this)" title="Show / hide"></button>
+              </div>
+            </div>
+            <button class="btn-admin" onclick="testConnection('radarr')">Test</button>
+          </div>
+        </div>
 
-      <!-- Mode toggle — only meaningful once owner is set -->
-      <div class="admin-grid" style="margin-bottom:20px">
-        <div class="stat-card" style="<%= watchlistMode !== 'playlist' ? 'border-color:var(--accent-border)' : '' %>">
-          <div class="stat-label">Watchlist mode <% if (watchlistMode !== 'playlist') { %><span style="color:var(--accent)">✓ active</span><% } %></div>
-          <div class="stat-value" style="font-size:1.05rem">Plex.tv Watchlist</div>
-          <div class="stat-sub">Items appear in the Plex app under Discover → Watchlist. Default.</div>
+        <!-- Sonarr -->
+        <div class="conn-block">
+          <div class="conn-block-header">
+            <div class="conn-block-meta">
+              <span class="conn-block-name">Sonarr</span>
+              <span class="conn-block-desc">TV Shows — direct fallback if Overseerr is not used</span>
+            </div>
+            <div class="conn-toggle-wrap">
+              <span class="conn-toggle-label" id="lbl-sonarr"><%= connections.sonarrEnabled ? 'Enabled' : 'Disabled' %></span>
+              <label class="slide-toggle" title="<%= (!connections.sonarrUrl || !connections.sonarrApiKey) ? 'Enter URL and API key first' : '' %>">
+                <input type="checkbox" id="toggle-sonarr"
+                  <%= connections.sonarrEnabled ? 'checked' : '' %>
+                  <%= (!connections.sonarrUrl || !connections.sonarrApiKey) ? 'disabled' : '' %>
+                  onchange="onToggleChange('sonarr')">
+                <span class="slide-track"></span>
+              </label>
+            </div>
+          </div>
+          <div class="conn-block-fields">
+            <input type="url" id="conn-sonarr-url" class="conn-input"
+              placeholder="http://192.168.1.27:8989"
+              value="<%= connections.sonarrUrl %>"
+              oninput="onFieldInput('sonarr')">
+            <div class="conn-input-wrap">
+              <input type="password" id="conn-sonarr-key" class="conn-input"
+                placeholder="API Key"
+                value="<%= connections.sonarrApiKey ? '••••••••' : '' %>"
+                autocomplete="new-password"
+                oninput="onFieldInput('sonarr')">
+              <div class="conn-input-btns">
+                <button type="button" class="conn-input-icon-btn" onclick="toggleFieldVis('conn-sonarr-key', this)" title="Show / hide"></button>
+              </div>
+            </div>
+            <button class="btn-admin" onclick="testConnection('sonarr')">Test</button>
+          </div>
         </div>
-        <div class="stat-card" style="<%= watchlistMode === 'playlist' ? 'border-color:var(--accent-border)' : '' %>">
-          <div class="stat-label">Playlist mode <% if (watchlistMode === 'playlist') { %><span style="color:var(--accent)">✓ active</span><% } %></div>
-          <div class="stat-value" style="font-size:1.05rem">Server Playlist</div>
-          <div class="stat-sub">Items go into a private "Diskovarr" server playlist. Use with pd_zurg.</div>
-        </div>
-      </div>
-      <div class="admin-actions">
-        <button class="btn-admin btn-primary" id="btn-watchlist-mode" data-mode="<%= watchlistMode %>">
-          <span id="watchlist-mode-btn-text"><%= watchlistMode === 'playlist' ? '▶ Switch to Watchlist mode' : '▶ Switch to Playlist mode' %></span>
-        </button>
-      </div>
-    </section>
 
-    <!-- ── Stats ────────────────────────────────────────────────────── -->
-    <section class="admin-section">
-      <div class="admin-section-header">
-        <h2 class="section-title">Stats</h2>
-      </div>
-      <div class="admin-grid">
-        <div class="stat-card">
-          <div class="stat-label">Total Library Items</div>
-          <div class="stat-value"><%= (stats.library.movies + stats.library.tv).toLocaleString() %></div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">Total Dismissals</div>
-          <div class="stat-value" id="stat-dismissals"><%= stats.dismissals.toLocaleString() %></div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">Active Users (synced)</div>
-          <div class="stat-value"><%= stats.users.length %></div>
-        </div>
-      </div>
-    </section>
+      </section>
+    </div><!-- /panel-connections -->
+
   </main>
 
   <script>
-    // Relative time helper (rendered server-side via EJS function, also used client-side)
+    // ── Relative time helper ───────────────────────────────────────
     function fmtTime(unixTs) {
       if (!unixTs) return 'Never';
       const diff = Math.floor(Date.now() / 1000) - unixTs;
@@ -271,8 +513,17 @@
       return res.json();
     }
 
-    // ── Library sync ──────────────────────────────────────────────────
+    // ── Tabs ───────────────────────────────────────────────────────
+    document.querySelectorAll('.admin-tab').forEach(function (tab) {
+      tab.addEventListener('click', function () {
+        document.querySelectorAll('.admin-tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.admin-tab-panel').forEach(p => { p.hidden = true; });
+        this.classList.add('active');
+        document.getElementById('panel-' + this.dataset.tab).hidden = false;
+      });
+    });
 
+    // ── Library sync ───────────────────────────────────────────────
     let pollInterval = null;
 
     async function syncLibrary() {
@@ -288,7 +539,6 @@
       pollInterval = setInterval(pollStatus, 2000);
     }
 
-    // Auto-start polling if server reports a sync already in progress
     if (<%= syncInProgress ? 'true' : 'false' %>) startPolling();
 
     function setSyncingState(isSyncing) {
@@ -302,7 +552,6 @@
       text.textContent = isSyncing ? 'Syncing…' : 'Idle';
       badge.className = 'status-badge ' + (isSyncing ? 'status-syncing' : 'status-idle');
 
-      // Spinner element
       const existing = badge.querySelector('.sync-spinner');
       if (isSyncing && !existing) {
         const sp = document.createElement('span');
@@ -315,56 +564,42 @@
 
     async function pollStatus() {
       const d = await apiFetch('/admin/status', 'GET');
-
       setSyncingState(d.syncInProgress);
-
       if (!d.syncInProgress) {
         clearInterval(pollInterval);
         pollInterval = null;
-
-        // Update stats
         document.getElementById('stat-movies').textContent = d.stats.library.movies.toLocaleString();
         document.getElementById('stat-tv').textContent = d.stats.library.tv.toLocaleString();
         document.getElementById('stat-movies-sync').textContent = fmtTime(d.stats.library.lastSyncMovies);
         document.getElementById('stat-tv-sync').textContent = fmtTime(d.stats.library.lastSyncTV);
-
         if (d.lastSyncError) showToast('Sync error: ' + d.lastSyncError, true);
         else showToast('Library sync complete');
       }
     }
 
-    // ── Auto-sync toggle ──────────────────────────────────────────────
-
-    async function toggleAutoSync() {
-      const d = await apiFetch('/admin/sync/auto/' + (<%= autoSyncEnabled %> ? 'disable' : 'enable'));
-      // Reload to reflect new state cleanly
+    // ── Auto-sync toggle ───────────────────────────────────────────
+    document.getElementById('btn-toggle-autosync').addEventListener('click', async function () {
+      const isEnabled = this.dataset.enabled === 'true';
+      await apiFetch('/admin/sync/auto/' + (isEnabled ? 'disable' : 'enable'));
       window.location.reload();
-    }
+    });
 
-    // ── Watched sync ──────────────────────────────────────────────────
-
+    // ── Watched sync ───────────────────────────────────────────────
     async function syncWatched(userId) {
       const row = document.getElementById('user-row-' + userId);
-      const btns = row ? row.querySelectorAll('button') : [];
-      const syncBtn = [...btns].find(b => b.textContent.includes('Re-sync'));
-
-      // Show spinner on button
+      const syncBtn = row ? [...row.querySelectorAll('button')].find(b => b.textContent.includes('Re-sync')) : null;
       if (syncBtn) {
         syncBtn.disabled = true;
         syncBtn.dataset.origText = syncBtn.textContent;
         syncBtn.innerHTML = '<span class="sync-spinner" style="width:10px;height:10px;border-width:2px;vertical-align:middle;margin-right:4px"></span>Syncing…';
       }
-
       const d = await apiFetch('/admin/sync/watched/' + userId);
       if (!d.success) {
         showToast(d.message, true);
         if (syncBtn) { syncBtn.disabled = false; syncBtn.textContent = syncBtn.dataset.origText; }
         return;
       }
-
       showToast('Sync started for ' + userId);
-
-      // Poll /admin/status until the watched count for this user changes
       const prevCount = row ? parseInt(row.querySelector('.watched-count-cell')?.dataset.count || '0') : -1;
       let polls = 0;
       const poll = setInterval(async () => {
@@ -374,7 +609,6 @@
         if (userStat && (userStat.watched_count !== prevCount || polls > 30)) {
           clearInterval(poll);
           if (syncBtn) { syncBtn.disabled = false; syncBtn.textContent = syncBtn.dataset.origText; }
-          // Update the count cell
           const countCell = row?.querySelector('.watched-count-cell');
           if (countCell) {
             countCell.textContent = (userStat.watched_count || 0).toLocaleString() + ' items';
@@ -389,64 +623,43 @@
       const d = await apiFetch('/admin/cache/clear/watched/' + userId);
       showToast(d.message);
     }
-
     async function clearAllWatched() {
       const d = await apiFetch('/admin/cache/clear/watched');
       showToast(d.message);
     }
-
-    // ── Dismissals ────────────────────────────────────────────────────
-
     async function clearDismissals(userId) {
       const d = await apiFetch('/admin/cache/clear/dismissals/' + userId);
       showToast(d.message);
     }
-
     async function clearAllDismissals() {
       const d = await apiFetch('/admin/cache/clear/dismissals');
       showToast(d.message);
     }
-
-    // ── Rec cache ─────────────────────────────────────────────────────
-
     async function clearRecCache() {
       const d = await apiFetch('/admin/cache/clear/recommendations');
       showToast(d.message);
     }
 
-    // Auto-sync toggle: use stored state from data attribute
-    document.getElementById('btn-toggle-autosync').onclick = async function() {
-      const isEnabled = this.dataset.enabled === 'true';
-      await apiFetch('/admin/sync/auto/' + (isEnabled ? 'disable' : 'enable'));
-      window.location.reload();
-    };
-    document.getElementById('btn-toggle-autosync').dataset.enabled = '<%= autoSyncEnabled %>';
-
-    // ── Theme color ───────────────────────────────────────────────────
-
+    // ── Theme color ────────────────────────────────────────────────
     const PRESET_COLORS = [
-      { label: 'Plex Gold',    hex: '#e5a00d' },
-      { label: 'Netflix Red',  hex: '#e50914' },
-      { label: 'Neon Blue',    hex: '#00b4d8' },
-      { label: 'Purple',       hex: '#9b5de5' },
-      { label: 'Green',        hex: '#06d6a0' },
-      { label: 'Pink',         hex: '#f72585' },
-      { label: 'Orange',       hex: '#fb5607' },
-      { label: 'White',        hex: '#e0e0e0' },
+      { label: 'Plex Gold',   hex: '#e5a00d' },
+      { label: 'Netflix Red', hex: '#e50914' },
+      { label: 'Neon Blue',   hex: '#00b4d8' },
+      { label: 'Purple',      hex: '#9b5de5' },
+      { label: 'Green',       hex: '#06d6a0' },
+      { label: 'Pink',        hex: '#f72585' },
+      { label: 'Orange',      hex: '#fb5607' },
+      { label: 'White',       hex: '#e0e0e0' },
     ];
-
     let selectedColor = null;
 
     function initColorPicker() {
-      fetch('/admin/theme/color')
-        .then(r => r.json())
-        .then(d => {
-          selectedColor = d.color || '#e5a00d';
-          document.getElementById('custom-color-input').value = selectedColor;
-          renderSwatches(selectedColor);
-        });
+      fetch('/admin/theme/color').then(r => r.json()).then(d => {
+        selectedColor = d.color || '#e5a00d';
+        document.getElementById('custom-color-input').value = selectedColor;
+        renderSwatches(selectedColor);
+      });
     }
-
     function renderSwatches(activeColor) {
       const wrap = document.getElementById('color-swatches');
       wrap.innerHTML = '';
@@ -455,30 +668,19 @@
         s.className = 'color-swatch' + (p.hex.toLowerCase() === activeColor.toLowerCase() ? ' active' : '');
         s.style.background = p.hex;
         s.title = p.label;
-        s.onclick = () => {
-          selectedColor = p.hex;
-          document.getElementById('custom-color-input').value = p.hex;
-          renderSwatches(p.hex);
-        };
+        s.onclick = () => { selectedColor = p.hex; document.getElementById('custom-color-input').value = p.hex; renderSwatches(p.hex); };
         wrap.appendChild(s);
       });
     }
-
-    document.getElementById('custom-color-input').oninput = function() {
-      selectedColor = this.value;
-      renderSwatches(this.value);
-    };
+    document.getElementById('custom-color-input').oninput = function () { selectedColor = this.value; renderSwatches(this.value); };
 
     async function applyColor() {
       if (!selectedColor) return;
       const d = await fetch('/admin/theme/color', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ color: selectedColor }),
       }).then(r => r.json());
-
       if (d.success) {
-        // Update the theme.css link to force reload
         const link = document.getElementById('theme-css');
         if (link) link.href = '/theme.css?c=' + encodeURIComponent(d.color);
         showToast('Theme color updated');
@@ -486,44 +688,215 @@
         showToast(d.error || 'Failed to update color', true);
       }
     }
-
     initColorPicker();
 
-    // ── Server owner ──────────────────────────────────────────────────
-
+    // ── Server owner ───────────────────────────────────────────────
     async function saveOwnerUser() {
       const userId = document.getElementById('owner-user-select').value;
       if (!userId) { showToast('Please select a user first', true); return; }
       const d = await fetch('/admin/settings/owner-user', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId }),
       }).then(r => r.json());
+      if (d.success) { showToast('Server owner account saved'); window.location.reload(); }
+      else showToast(d.error || 'Failed to save owner', true);
+    }
+
+    // ── Watchlist mode ─────────────────────────────────────────────
+    document.getElementById('btn-watchlist-mode').addEventListener('click', async function () {
+      const newMode = this.dataset.mode === 'playlist' ? 'watchlist' : 'playlist';
+      const d = await fetch('/admin/settings/watchlist-mode', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: newMode }),
+      }).then(r => r.json());
+      if (d.success) { showToast('Watchlist mode set to: ' + newMode); window.location.reload(); }
+      else showToast(d.error || 'Failed to update watchlist mode', true);
+    });
+
+    // ── Connections ────────────────────────────────────────────────
+
+    // Check if a service has required fields filled
+    function serviceReady(service) {
+      if (service === 'discover') {
+        return document.getElementById('conn-tmdb-key').value.trim() !== '';
+      }
+      const url = document.getElementById('conn-' + service + '-url');
+      const key = document.getElementById('conn-' + service + '-key');
+      return url && url.value.trim() !== '' && key && key.value.trim() !== '';
+    }
+
+    // Called when any field for a service changes — updates toggle disabled state
+    function onFieldInput(service) {
+      var toggle = document.getElementById('toggle-' + service);
+      if (!toggle) return;
+      var ready = serviceReady(service);
+      toggle.disabled = !ready;
+      toggle.closest('.slide-toggle').title = ready ? '' : 'Enter ' + (service === 'discover' ? 'TMDB API key' : 'URL and API key') + ' first';
+    }
+
+    // Save TMDB key separately, then re-evaluate discover toggle
+    async function saveTmdbKey() {
+      var k = document.getElementById('conn-tmdb-key').value;
+      if (!k || k === '••••••••') { showToast('No change — key unchanged'); return; }
+      var d = await fetch('/admin/connections/save', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tmdb_api_key: k }),
+      }).then(r => r.json());
       if (d.success) {
-        showToast('Server owner account saved');
-        window.location.reload();
+        showToast('TMDB API key saved');
+        // Key is now saved — enable the discover toggle
+        var discoverToggle = document.getElementById('toggle-discover');
+        if (discoverToggle) discoverToggle.disabled = false;
+        discoverToggle.closest('.slide-toggle').title = '';
       } else {
-        showToast(d.error || 'Failed to save owner', true);
+        showToast('Save failed', true);
       }
     }
 
-    // ── Watchlist mode toggle ─────────────────────────────────────────
+    // Called when a toggle changes — auto-saves settings
+    async function onToggleChange(service) {
+      var toggle = document.getElementById('toggle-' + service);
+      var checked = toggle.checked;
+      var body = {};
 
-    document.getElementById('btn-watchlist-mode').addEventListener('click', async function () {
-      const current = this.dataset.mode;
-      const newMode = current === 'playlist' ? 'watchlist' : 'playlist';
-      const d = await fetch('/admin/settings/watchlist-mode', {
+      if (service === 'discover') {
+        body.discover_enabled = checked ? '1' : '0';
+      } else {
+        var urlVal = document.getElementById('conn-' + service + '-url').value;
+        var keyVal = document.getElementById('conn-' + service + '-key').value;
+        body[service + '_url'] = urlVal;
+        if (keyVal !== '••••••••') body[service + '_api_key'] = keyVal;
+        body[service + '_enabled'] = checked ? '1' : '0';
+      }
+
+      var d = await fetch('/admin/connections/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode: newMode }),
+        body: JSON.stringify(body),
+      }).then(r => r.json());
+
+      if (d.success) {
+        var name = service === 'discover' ? 'Diskovarr Requests' : service.charAt(0).toUpperCase() + service.slice(1);
+        var lbl = document.getElementById('lbl-' + service);
+        if (lbl) lbl.textContent = checked ? 'Enabled' : 'Disabled';
+        showToast(name + (checked ? ' enabled' : ' disabled'));
+      } else {
+        // Revert toggle
+        toggle.checked = !checked;
+        showToast('Save failed', true);
+      }
+    }
+
+    // ── Password field eye / copy ───────────────────────────────────
+    var EYE_ICON = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
+    var EYE_OFF_ICON = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';
+
+    var FIELD_KEY_MAP = {
+      'conn-plex-token':    'plexToken',
+      'conn-tautulli-key':  'tautulliApiKey',
+      'conn-tmdb-key':      'tmdbApiKey',
+      'conn-overseerr-key': 'overseerrApiKey',
+      'conn-radarr-key':    'radarrApiKey',
+      'conn-sonarr-key':    'sonarrApiKey',
+    };
+    var _revealedKeys = null;
+
+    async function getRevealedKeys() {
+      if (_revealedKeys) return _revealedKeys;
+      _revealedKeys = await fetch('/admin/connections/reveal').then(r => r.json());
+      return _revealedKeys;
+    }
+
+    // Resolve masked placeholder to real key if needed
+    async function resolveFieldValue(id) {
+      var input = document.getElementById(id);
+      if (input.value !== '••••••••') return input.value;
+      var keys = await getRevealedKeys();
+      var real = keys[FIELD_KEY_MAP[id]] || '';
+      if (real) input.value = real;
+      return input.value;
+    }
+
+    // Initialise all eye buttons with the default icon
+    document.querySelectorAll('.conn-input-btns').forEach(function (btns) {
+      btns.children[0].innerHTML = EYE_ICON;
+    });
+
+    async function toggleFieldVis(id, btn) {
+      var input = document.getElementById(id);
+      var willShow = input.type === 'password';
+      if (willShow) await resolveFieldValue(id);
+      input.type = willShow ? 'text' : 'password';
+      btn.innerHTML = willShow ? EYE_OFF_ICON : EYE_ICON;
+      btn.title = willShow ? 'Hide' : 'Show / hide';
+    }
+
+    // Save Plex or Tautulli (no toggle — always required)
+    async function saveCoreService(service) {
+      var body = {};
+      if (service === 'plex') {
+        var url = document.getElementById('conn-plex-url').value.trim();
+        var token = document.getElementById('conn-plex-token').value;
+        if (url) body.plex_url = url;
+        if (token && token !== '••••••••') body.plex_token = token;
+      } else if (service === 'tautulli') {
+        var url = document.getElementById('conn-tautulli-url').value.trim();
+        var key = document.getElementById('conn-tautulli-key').value;
+        if (url) body.tautulli_url = url;
+        if (key && key !== '••••••••') body.tautulli_api_key = key;
+      }
+      if (!Object.keys(body).length) { showToast('No changes to save', true); return; }
+      var d = await fetch('/admin/connections/save', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
       }).then(r => r.json());
       if (d.success) {
-        showToast('Watchlist mode set to: ' + newMode);
-        window.location.reload();
+        _revealedKeys = null; // invalidate reveal cache
+        showToast((service === 'plex' ? 'Plex' : 'Tautulli') + ' settings saved');
       } else {
-        showToast(d.error || 'Failed to update watchlist mode', true);
+        showToast('Save failed', true);
       }
-    });
+    }
+
+    async function testCoreService(service) {
+      var payload = {};
+      if (service === 'plex') {
+        payload.url = document.getElementById('conn-plex-url').value.trim();
+        payload.token = await resolveFieldValue('conn-plex-token');
+        if (!payload.url || !payload.token) { showToast('Enter URL and token first', true); return; }
+      } else if (service === 'tautulli') {
+        payload.url = document.getElementById('conn-tautulli-url').value.trim();
+        payload.apiKey = await resolveFieldValue('conn-tautulli-key');
+        if (!payload.url || !payload.apiKey) { showToast('Enter URL and API key first', true); return; }
+      }
+      var d = await fetch('/admin/connections/test/' + service, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      }).then(r => r.json());
+      showToast(d.message, !d.ok);
+    }
+
+    async function testConnection(service) {
+      var payload = {};
+      if (service === 'tmdb') {
+        payload.apiKey = document.getElementById('conn-tmdb-key').value;
+        if (payload.apiKey === '••••••••') { showToast('Enter the actual key to test it', true); return; }
+      } else {
+        payload.url = document.getElementById('conn-' + service + '-url').value;
+        payload.apiKey = document.getElementById('conn-' + service + '-key').value;
+        if (payload.apiKey === '••••••••') {
+          payload.apiKey = '<%= connections.overseerrApiKey %>';
+          if (service === 'radarr') payload.apiKey = '<%= connections.radarrApiKey %>';
+          if (service === 'sonarr') payload.apiKey = '<%= connections.sonarrApiKey %>';
+        }
+      }
+      var d = await fetch('/admin/connections/test/' + service, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      }).then(r => r.json());
+      showToast(d.message, !d.ok);
+    }
+
   </script>
 </body>
 </html>

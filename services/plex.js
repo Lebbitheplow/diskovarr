@@ -1,12 +1,12 @@
 const db = require('../db/database');
 const tautulliService = require('./tautulli');
 
-const PLEX_URL = process.env.PLEX_URL;
-const PLEX_TOKEN = process.env.PLEX_TOKEN;
-const PLEX_SERVER_ID = process.env.PLEX_SERVER_ID;
+function getPlexUrl()      { return db.getSetting('plex_url', null)   || process.env.PLEX_URL; }
+function getPlexToken()    { return db.getSetting('plex_token', null) || process.env.PLEX_TOKEN; }
+function getPlexServerId() { return process.env.PLEX_SERVER_ID; }
 
-const MOVIES_SECTION = process.env.PLEX_MOVIES_SECTION_ID || '1';
-const TV_SECTION = process.env.PLEX_TV_SECTION_ID || '2';
+function getMoviesSection() { return process.env.PLEX_MOVIES_SECTION_ID || '1'; }
+function getTvSection()     { return process.env.PLEX_TV_SECTION_ID     || '2'; }
 
 // In-memory L1 cache on top of DB — avoids repeat DB reads within same cycle
 const CACHE_TTL = 2 * 60 * 60 * 1000; // 2 hours
@@ -25,15 +25,11 @@ const PLEX_HEADERS = {
   'X-Plex-Product': 'Diskovarr',
   'X-Plex-Version': '1.0.0',
   'X-Plex-Platform': 'Web',
-  'X-Plex-Token': PLEX_TOKEN,
 };
 
 async function plexFetch(path, token) {
-  const url = `${PLEX_URL}${path}`;
-  const headers = { ...PLEX_HEADERS };
-  if (token && token !== PLEX_TOKEN) {
-    headers['X-Plex-Token'] = token;
-  }
+  const url = `${getPlexUrl()}${path}`;
+  const headers = { ...PLEX_HEADERS, 'X-Plex-Token': token || getPlexToken() };
   const timeout = path.includes('/sections/') ? 180000 : 15000;
   const res = await fetch(url, { headers, signal: AbortSignal.timeout(timeout) });
   if (!res.ok) throw new Error(`Plex API error ${res.status} for ${path}`);
@@ -45,6 +41,10 @@ function parseMediaItem(video) {
   const directors = (video.Director || []).map(d => d.tag);
   const cast = (video.Role || []).slice(0, 10).map(r => r.tag);
   const year = video.year || parseInt((video.originallyAvailableAt || '').slice(0, 4)) || 0;
+  // Extract TMDB ID from Guid array (present when includeGuids=1 is passed)
+  const guids = video.Guid || [];
+  const tmdbGuid = guids.find(g => g.id && g.id.startsWith('tmdb://'));
+  const tmdbId = tmdbGuid ? tmdbGuid.id.replace('tmdb://', '') : null;
   return {
     ratingKey: String(video.ratingKey),
     title: video.title,
@@ -62,6 +62,7 @@ function parseMediaItem(video) {
     ratingImage: video.ratingImage || '',
     audienceRatingImage: video.audienceRatingImage || '',
     studio: video.studio || '',
+    tmdbId,
   };
 }
 
@@ -104,7 +105,7 @@ async function fetchSection(sectionId) {
 async function syncLibrarySection(sectionId) {
   console.log(`Syncing library section ${sectionId} from Plex...`);
   const json = await plexFetch(
-    `/library/sections/${sectionId}/all?X-Plex-Container-Size=99999&X-Plex-Token=${PLEX_TOKEN}`
+    `/library/sections/${sectionId}/all?X-Plex-Container-Size=99999&includeGuids=1&X-Plex-Token=${getPlexToken()}`
   );
 
   const videos = json.MediaContainer?.Metadata || [];
@@ -125,7 +126,7 @@ async function getLibraryItems(sectionId) {
 }
 
 async function warmCache() {
-  await Promise.all([fetchSection(MOVIES_SECTION), fetchSection(TV_SECTION)]);
+  await Promise.all([fetchSection(getMoviesSection()), fetchSection(getTvSection())]);
 }
 
 function invalidateCache(sectionId) {
@@ -160,9 +161,9 @@ async function syncUserWatched(userId, userToken) {
 
     // Fetch Plex + Tautulli in parallel
     const [plexMoviesJson, plexTVJson, deckJson, tautulliMovieKeys, tautulliShowKeys] = await Promise.all([
-      safeFetch(`${PLEX_URL}/library/sections/${MOVIES_SECTION}/all?unwatched=0${accountParam}&X-Plex-Container-Size=99999&X-Plex-Token=${PLEX_TOKEN}`, 45000),
-      safeFetch(`${PLEX_URL}/library/sections/${TV_SECTION}/all?unwatched=0${accountParam}&X-Plex-Container-Size=99999&X-Plex-Token=${PLEX_TOKEN}`, 45000),
-      safeFetch(`${PLEX_URL}/library/onDeck?${accountParam}&X-Plex-Container-Size=9999&X-Plex-Token=${PLEX_TOKEN}`, 20000),
+      safeFetch(`${getPlexUrl()}/library/sections/${getMoviesSection()}/all?unwatched=0${accountParam}&X-Plex-Container-Size=99999&X-Plex-Token=${getPlexToken()}`, 45000),
+      safeFetch(`${getPlexUrl()}/library/sections/${getTvSection()}/all?unwatched=0${accountParam}&X-Plex-Container-Size=99999&X-Plex-Token=${getPlexToken()}`, 45000),
+      safeFetch(`${getPlexUrl()}/library/onDeck?${accountParam}&X-Plex-Container-Size=9999&X-Plex-Token=${getPlexToken()}`, 20000),
       tautulliService.getWatchedMovieKeys(userId),
       tautulliService.getWatchedShowKeys(userId),
     ]);
@@ -252,8 +253,8 @@ async function getWatchedKeys(userId, userToken) {
 // Build a lookup map by ratingKey for fast scoring
 async function getLibraryMap() {
   const [movies, tv] = await Promise.all([
-    getLibraryItems(MOVIES_SECTION),
-    getLibraryItems(TV_SECTION),
+    getLibraryItems(getMoviesSection()),
+    getLibraryItems(getTvSection()),
   ]);
   const map = new Map();
   for (const item of [...movies, ...tv]) {
@@ -263,10 +264,10 @@ async function getLibraryMap() {
 }
 
 // Watchlist / Playlist management
-// Always uses local PLEX_URL — the server validates Friend tokens against plex.tv locally.
+// Always uses local Plex URL — the server validates Friend tokens against plex.tv locally.
 // Relay URLs are for external clients reaching the server, not server-to-server calls.
 async function getDiskovarrPlaylist(userToken) {
-  const base = PLEX_URL;
+  const base = getPlexUrl();
   try {
     const res = await fetch(`${base}/playlists/all?playlistType=video&X-Plex-Token=${userToken}`, {
       headers: { ...PLEX_HEADERS, 'X-Plex-Token': userToken },
@@ -316,7 +317,7 @@ async function resolvePlaylistKey(ratingKey) {
 
   try {
     const res = await fetch(
-      `${PLEX_URL}/library/metadata/${ratingKey}/allLeaves?X-Plex-Container-Start=0&X-Plex-Container-Size=1&X-Plex-Token=${PLEX_TOKEN}`,
+      `${getPlexUrl()}/library/metadata/${ratingKey}/allLeaves?X-Plex-Container-Start=0&X-Plex-Container-Size=1&X-Plex-Token=${getPlexToken()}`,
       { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(10000) }
     );
     if (!res.ok) return ratingKey;
@@ -329,11 +330,11 @@ async function resolvePlaylistKey(ratingKey) {
 }
 
 async function addToWatchlist(userToken, ratingKey) {
-  const base = PLEX_URL;
+  const base = getPlexUrl();
   const existing = await getDiskovarrPlaylist(userToken);
   // For shows, use first episode so Plex doesn't expand the entire series
   const playlistKey = await resolvePlaylistKey(ratingKey);
-  const uri = `server://${PLEX_SERVER_ID}/com.plexapp.plugins.library/library/metadata/${playlistKey}`;
+  const uri = `server://${getPlexServerId()}/com.plexapp.plugins.library/library/metadata/${playlistKey}`;
 
   if (!existing) {
     const createUrl = `${base}/playlists?type=video&title=Diskovarr&smart=0&uri=${encodeURIComponent(uri)}&X-Plex-Token=${userToken}`;
@@ -357,7 +358,7 @@ async function addToWatchlist(userToken, ratingKey) {
 }
 
 async function removeFromWatchlist(userToken, playlistId, playlistItemId) {
-  const base = PLEX_URL;
+  const base = getPlexUrl();
   const url = `${base}/playlists/${playlistId}/items/${playlistItemId}?X-Plex-Token=${userToken}`;
   const res = await fetch(url, {
     method: 'DELETE',
@@ -369,7 +370,7 @@ async function removeFromWatchlist(userToken, playlistId, playlistItemId) {
 }
 
 function getDeepLink(ratingKey) {
-  return `https://app.plex.tv/desktop#!/server/${PLEX_SERVER_ID}/details?key=/library/metadata/${ratingKey}`;
+  return `https://app.plex.tv/desktop#!/server/${getPlexServerId()}/details?key=/library/metadata/${ratingKey}`;
 }
 
 /**
@@ -378,7 +379,7 @@ function getDeepLink(ratingKey) {
  */
 async function getPlexGuid(ratingKey) {
   try {
-    const res = await fetch(`${PLEX_URL}/library/metadata/${ratingKey}?X-Plex-Token=${PLEX_TOKEN}`, {
+    const res = await fetch(`${getPlexUrl()}/library/metadata/${ratingKey}?X-Plex-Token=${getPlexToken()}`, {
       headers: { Accept: 'application/json' },
       signal: AbortSignal.timeout(10000),
     });
@@ -441,8 +442,6 @@ module.exports = {
   removeFromPlexTvWatchlist,
   resolvePlaylistKey,
   getDeepLink,
-  PLEX_URL,
-  PLEX_TOKEN,
-  MOVIES_SECTION,
-  TV_SECTION,
+  getPlexUrl,
+  getPlexToken,
 };

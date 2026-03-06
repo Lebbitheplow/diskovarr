@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Diskovarr Requests</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/style.css?v=9">
+  <link rel="stylesheet" href="/theme.css?c=<%= themeParam %>">
+</head>
+<body>
+  <%- include('partials/nav', { username, thumb, currentPath, discoverEnabled }) %>
+
+  <main class="main-content">
+    <div class="hero">
+      <h1 class="hero-title">Diskovarr <span class="accent">Requests</span></h1>
+      <p class="hero-sub">Everything here is <strong>not yet in the library</strong> — picked for your taste based on your watch history.</p>
+      <% if (!hasAnyService) { %>
+        <p class="hero-sub" style="margin-top:8px;color:var(--text-muted);font-size:0.85rem;background:var(--bg-secondary);display:inline-block;padding:6px 14px;border-radius:8px;border:1px solid var(--border)">
+          No request service configured — ask your server admin to enable Overseerr, Radarr, or Sonarr in the Connections settings.
+        </p>
+      <% } %>
+    </div>
+
+    <!-- Top Picks -->
+    <section class="section" id="section-top-picks">
+      <div class="section-header">
+        <h2 class="section-title">Top Picks for You</h2>
+        <span class="section-badge">Outside Your Library</span>
+        <div class="carousel-controls">
+          <button class="carousel-btn carousel-btn-shuffle" aria-label="Shuffle" title="Show different picks">↺</button>
+          <button class="carousel-btn carousel-btn-prev" aria-label="Previous page" hidden>❮</button>
+          <span class="carousel-counter"></span>
+          <button class="carousel-btn carousel-btn-next" aria-label="Next page" hidden>❯</button>
+        </div>
+      </div>
+      <div class="card-grid skeleton-grid" id="grid-top-picks">
+        <% for(let i = 0; i < 12; i++) { %>
+          <div class="card card-skeleton">
+            <div class="skeleton-poster shimmer"></div>
+            <div class="skeleton-info">
+              <div class="skeleton-line shimmer" style="width:80%"></div>
+              <div class="skeleton-line shimmer" style="width:50%"></div>
+            </div>
+          </div>
+        <% } %>
+      </div>
+    </section>
+
+    <!-- Movies -->
+    <section class="section" id="section-movies">
+      <div class="section-header">
+        <h2 class="section-title">Movies</h2>
+        <div class="carousel-controls">
+          <button class="carousel-btn carousel-btn-shuffle" aria-label="Shuffle" title="Show different picks">↺</button>
+          <button class="carousel-btn carousel-btn-prev" aria-label="Previous page" hidden>❮</button>
+          <span class="carousel-counter"></span>
+          <button class="carousel-btn carousel-btn-next" aria-label="Next page" hidden>❯</button>
+        </div>
+      </div>
+      <div class="card-grid skeleton-grid" id="grid-movies">
+        <% for(let i = 0; i < 12; i++) { %>
+          <div class="card card-skeleton">
+            <div class="skeleton-poster shimmer"></div>
+            <div class="skeleton-info">
+              <div class="skeleton-line shimmer" style="width:70%"></div>
+              <div class="skeleton-line shimmer" style="width:40%"></div>
+            </div>
+          </div>
+        <% } %>
+      </div>
+    </section>
+
+    <!-- TV Shows -->
+    <section class="section" id="section-tv">
+      <div class="section-header">
+        <h2 class="section-title">TV Shows</h2>
+        <div class="carousel-controls">
+          <button class="carousel-btn carousel-btn-shuffle" aria-label="Shuffle" title="Show different picks">↺</button>
+          <button class="carousel-btn carousel-btn-prev" aria-label="Previous page" hidden>❮</button>
+          <span class="carousel-counter"></span>
+          <button class="carousel-btn carousel-btn-next" aria-label="Next page" hidden>❯</button>
+        </div>
+      </div>
+      <div class="card-grid skeleton-grid" id="grid-tv">
+        <% for(let i = 0; i < 12; i++) { %>
+          <div class="card card-skeleton">
+            <div class="skeleton-poster shimmer"></div>
+            <div class="skeleton-info">
+              <div class="skeleton-line shimmer" style="width:75%"></div>
+              <div class="skeleton-line shimmer" style="width:45%"></div>
+            </div>
+          </div>
+        <% } %>
+      </div>
+    </section>
+
+    <!-- Anime -->
+    <section class="section" id="section-anime">
+      <div class="section-header">
+        <h2 class="section-title">Anime</h2>
+        <div class="carousel-controls">
+          <button class="carousel-btn carousel-btn-shuffle" aria-label="Shuffle" title="Show different picks">↺</button>
+          <button class="carousel-btn carousel-btn-prev" aria-label="Previous page" hidden>❮</button>
+          <span class="carousel-counter"></span>
+          <button class="carousel-btn carousel-btn-next" aria-label="Next page" hidden>❯</button>
+        </div>
+      </div>
+      <div class="card-grid skeleton-grid" id="grid-anime">
+        <% for(let i = 0; i < 12; i++) { %>
+          <div class="card card-skeleton">
+            <div class="skeleton-poster shimmer"></div>
+            <div class="skeleton-info">
+              <div class="skeleton-line shimmer" style="width:65%"></div>
+              <div class="skeleton-line shimmer" style="width:35%"></div>
+            </div>
+          </div>
+        <% } %>
+      </div>
+    </section>
+  </main>
+
+  <!-- Detail modal -->
+  <div class="detail-modal-wrap" id="detail-modal" aria-hidden="true">
+    <div class="detail-modal-card" role="dialog" aria-modal="true">
+      <button class="detail-modal-close" id="detail-modal-close" aria-label="Close">✕</button>
+      <div class="detail-modal-hero" id="detail-modal-hero"></div>
+      <div class="detail-modal-body">
+        <img class="detail-modal-poster" id="detail-modal-poster" src="" alt="">
+        <div class="detail-modal-info">
+          <div class="detail-modal-title" id="detail-modal-title"></div>
+          <div class="detail-modal-meta" id="detail-modal-meta"></div>
+          <div class="detail-modal-reasons" id="detail-modal-reasons"></div>
+          <div class="detail-modal-genres" id="detail-modal-genres"></div>
+          <p class="detail-modal-overview" id="detail-modal-overview"></p>
+          <div class="detail-modal-credits" id="detail-modal-credits"></div>
+          <div class="detail-modal-actions" id="detail-modal-actions"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Request confirm dialog -->
+  <div class="request-dialog-backdrop" id="request-dialog" aria-hidden="true">
+    <div class="request-dialog-card" role="dialog" aria-modal="true">
+      <div class="request-dialog-title" id="request-dialog-title">Request this title?</div>
+      <div class="request-dialog-sub" id="request-dialog-sub"></div>
+      <div class="request-dialog-actions" id="request-dialog-actions">
+        <button class="btn-dialog-cancel" id="request-dialog-cancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    window.EXPLORE_CONFIG = {
+      userId: "<%= userId %>",
+      services: {
+        overseerr: <%= services.overseerr ? 'true' : 'false' %>,
+        radarr: <%= services.radarr ? 'true' : 'false' %>,
+        sonarr: <%= services.sonarr ? 'true' : 'false' %>,
+      },
+      hasAnyService: <%= hasAnyService ? 'true' : 'false' %>,
+    };
+  </script>
+  <script src="/js/discover-app.js?v=4"></script>
+</body>
+</html>
