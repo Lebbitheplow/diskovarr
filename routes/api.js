@@ -101,6 +101,120 @@ router.post('/watchlist/remove', async (req, res) => {
   }
 });
 
+// GET /api/discover — filtered library browse
+// Query: type (movie|show|anime|all), genres (comma list), decade, minRating, sort, page
+router.get('/discover', async (req, res) => {
+  try {
+    const { id: userId, token: userToken } = req.session.plexUser;
+    const {
+      type = 'all',
+      genres = '',
+      decade = '',
+      minRating = '0',
+      sort = 'recommended',
+      page = '1',
+      includeWatched = 'false',
+    } = req.query;
+
+    const PAGE_SIZE = 40;
+    const pageNum = Math.max(1, parseInt(page) || 1);
+    const minRatingNum = parseFloat(minRating) || 0;
+    const genreList = genres ? genres.split(',').map(g => g.trim().toLowerCase()).filter(Boolean) : [];
+
+    const [movies, tv, watchedKeys, dismissedKeys] = await Promise.all([
+      plexService.getLibraryItems(plexService.MOVIES_SECTION),
+      plexService.getLibraryItems(plexService.TV_SECTION),
+      includeWatched === 'true' ? Promise.resolve(new Set()) : plexService.getWatchedKeys(userId, userToken),
+      Promise.resolve(db.getDismissals(userId)),
+    ]);
+
+    // Categorise TV
+    const animeItems = tv.filter(i => i.genres.some(g => g.toLowerCase() === 'anime'));
+    const tvOnlyItems = tv.filter(i => !i.genres.some(g => g.toLowerCase() === 'anime'));
+
+    let pool = [];
+    if (type === 'movie') pool = movies;
+    else if (type === 'show') pool = tvOnlyItems;
+    else if (type === 'anime') pool = animeItems;
+    else pool = [...movies, ...tvOnlyItems, ...animeItems];
+
+    // Apply filters
+    let filtered = pool.filter(item => {
+      if (dismissedKeys.has(item.ratingKey)) return false;
+      if (watchedKeys.has(item.ratingKey)) return false;
+      if (item.audienceRating < minRatingNum) return false;
+      if (genreList.length > 0) {
+        const itemGenres = item.genres.map(g => g.toLowerCase());
+        if (!genreList.some(g => itemGenres.includes(g))) return false;
+      }
+      if (decade) {
+        const d = parseInt(decade);
+        if (!item.year || Math.floor(item.year / 10) * 10 !== d) return false;
+      }
+      return true;
+    });
+
+    // Sort
+    if (sort === 'rating') {
+      filtered.sort((a, b) => b.audienceRating - a.audienceRating);
+    } else if (sort === 'year_desc') {
+      filtered.sort((a, b) => (b.year || 0) - (a.year || 0));
+    } else if (sort === 'year_asc') {
+      filtered.sort((a, b) => (a.year || 0) - (b.year || 0));
+    } else if (sort === 'added') {
+      filtered.sort((a, b) => (b.addedAt || 0) - (a.addedAt || 0));
+    } else if (sort === 'title') {
+      filtered.sort((a, b) => a.title.localeCompare(b.title));
+    } else {
+      // 'recommended' — sort by audience rating as proxy when no personal profile applied
+      filtered.sort((a, b) => b.audienceRating - a.audienceRating);
+    }
+
+    const total = filtered.length;
+    const items = filtered.slice((pageNum - 1) * PAGE_SIZE, pageNum * PAGE_SIZE);
+
+    // Get all available genres from the pool for the filter UI
+    const allGenres = [...new Set(pool.flatMap(i => i.genres))].sort();
+
+    // Attach watchlist status
+    const watchlist = await plexService.getWatchlist(userToken);
+    const watchlistKeys = new Set(watchlist.items.map(i => i.ratingKey));
+    const watchlistMap = new Map(watchlist.items.map(i => [i.ratingKey, i]));
+
+    const itemsWithWatchlist = items.map(item => ({
+      ...item,
+      isInWatchlist: watchlistKeys.has(item.ratingKey),
+      watchlistPlaylistId: watchlist.playlistId,
+      watchlistItemId: watchlistMap.get(item.ratingKey)?.playlistItemId || null,
+    }));
+
+    res.json({
+      items: itemsWithWatchlist,
+      total,
+      page: pageNum,
+      pages: Math.ceil(total / PAGE_SIZE),
+      availableGenres: allGenres,
+    });
+  } catch (err) {
+    console.error('discover error:', err);
+    res.status(500).json({ error: 'Failed to fetch discover results' });
+  }
+});
+
+// GET /api/discover/genres — all unique genres in library
+router.get('/discover/genres', async (req, res) => {
+  try {
+    const [movies, tv] = await Promise.all([
+      plexService.getLibraryItems(plexService.MOVIES_SECTION),
+      plexService.getLibraryItems(plexService.TV_SECTION),
+    ]);
+    const genres = [...new Set([...movies, ...tv].flatMap(i => i.genres))].sort();
+    res.json({ genres });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch genres' });
+  }
+});
+
 // POST /api/dismiss — body: { ratingKey }
 router.post('/dismiss', (req, res) => {
   const { ratingKey } = req.body;
