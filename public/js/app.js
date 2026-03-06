@@ -388,10 +388,60 @@
   window.renderCard = renderCard;
 
   // ----------------------------------------------------------------
+  // Shuffle — re-fetches a fresh random sample from the cached pool
+  // ----------------------------------------------------------------
+
+  function shuffleAll(triggerBtn) {
+    // Spin the button briefly
+    if (triggerBtn) {
+      triggerBtn.style.transition = 'transform 0.4s ease';
+      triggerBtn.style.transform = 'rotate(360deg)';
+      setTimeout(function () {
+        triggerBtn.style.transform = '';
+        triggerBtn.style.transition = '';
+      }, 400);
+    }
+
+    // Show skeleton on all grids while loading
+    ['top-picks', 'movies', 'tv', 'anime'].forEach(function (id) {
+      const grid = document.getElementById('grid-' + id);
+      if (!grid) return;
+      grid.innerHTML = '';
+      grid.classList.add('skeleton-grid');
+      for (let i = 0; i < 8; i++) {
+        const card = document.createElement('div');
+        card.className = 'card card-skeleton';
+        card.innerHTML = '<div class="skeleton-poster shimmer"></div>'
+          + '<div class="skeleton-info">'
+          + '<div class="skeleton-line shimmer" style="width:70%"></div>'
+          + '<div class="skeleton-line shimmer" style="width:40%"></div>'
+          + '</div>';
+        grid.appendChild(card);
+      }
+    });
+
+    fetch('/api/recommendations')
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (!data) return;
+        renderCarousel('top-picks', data.topPicks);
+        renderCarousel('movies', data.movies);
+        renderCarousel('tv', data.tvShows);
+        renderCarousel('anime', data.anime);
+      })
+      .catch(function (err) { console.error('Shuffle error:', err); });
+  }
+
+  // ----------------------------------------------------------------
   // Bootstrap
   // ----------------------------------------------------------------
 
   document.addEventListener('DOMContentLoaded', function () {
+    // Wire shuffle buttons
+    document.querySelectorAll('.carousel-btn-shuffle').forEach(function (btn) {
+      btn.addEventListener('click', function () { shuffleAll(btn); });
+    });
+
     fetch('/api/recommendations')
       .then(r => {
         if (!r.ok) {

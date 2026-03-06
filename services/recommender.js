@@ -8,9 +8,65 @@ const SIGNAL_TYPE_RANK = { director: 0, actor: 1, studio: 2, rating: 3, new: 4, 
 const MOVIES_SECTION = process.env.PLEX_MOVIES_SECTION_ID || '1';
 const TV_SECTION = process.env.PLEX_TV_SECTION_ID || '2';
 
-// Per-user recommendation cache: userId -> { data, builtAt }
+// Per-user recommendation cache: userId -> { pools, builtAt }
+// pools holds large score-sorted arrays; each request samples randomly from them
+// so every page load / shuffle gives different results without re-scoring.
 const recCache = new Map();
 const REC_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+
+// Pool sizes — how many items to keep in cache per section
+const POOL_SIZES = { movies: 200, tv: 150, anime: 100, topPicks: 150 };
+
+/**
+ * Partial Fisher-Yates shuffle — returns the first n items after shuffling in-place.
+ * Used for the Top Picks pool (already curated, just want variety in which subset shows).
+ */
+function partialShuffle(arr, n) {
+  const copy = [...arr];
+  const end = Math.min(n, copy.length);
+  for (let i = 0; i < end; i++) {
+    const j = i + Math.floor(Math.random() * (copy.length - i));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy.slice(0, end);
+}
+
+/**
+ * Tiered random sampling from a score-sorted list.
+ * Draws ~60% from the top-25% tier, ~30% from the next-35%, ~10% from the rest.
+ * Higher-scored items are strongly favoured but not guaranteed — variety is the point.
+ */
+function tieredSample(items, n) {
+  if (items.length <= n) return partialShuffle(items, items.length);
+
+  const t1End = Math.ceil(items.length * 0.25);
+  const t2End = Math.ceil(items.length * 0.60);
+
+  const tier1 = items.slice(0, t1End);
+  const tier2 = items.slice(t1End, t2End);
+  const tier3 = items.slice(t2End);
+
+  const n1 = Math.min(Math.round(n * 0.60), tier1.length);
+  const n2 = Math.min(Math.round(n * 0.30), tier2.length);
+  const n3 = Math.min(n - n1 - n2, tier3.length);
+
+  const sample = [
+    ...partialShuffle(tier1, n1),
+    ...partialShuffle(tier2, n2),
+    ...partialShuffle(tier3, n3),
+  ];
+
+  // Fill any shortfall if a tier was smaller than its target
+  if (sample.length < n) {
+    const used = new Set(sample.map(i => i.ratingKey));
+    for (const item of items) {
+      if (sample.length >= n) break;
+      if (!used.has(item.ratingKey)) sample.push(item);
+    }
+  }
+
+  return sample;
+}
 
 function invalidateUserCache(userId) {
   recCache.delete(String(userId));
@@ -309,79 +365,91 @@ function buildTopPicks(scoredMovies, scoredTV, scoredAnime, profile) {
 
   // Fill remainder from top of scored pool
   for (const item of combined) {
-    if (picks.length >= 72) break;
+    if (picks.length >= POOL_SIZES.topPicks) break;
     if (!used.has(item.ratingKey)) { picks.push(item); used.add(item.ratingKey); }
   }
 
-  return picks.sort((a, b) => b.score - a.score).slice(0, 72);
+  return picks.sort((a, b) => b.score - a.score);
 }
 
 async function getRecommendations(userId, userToken) {
   const userIdStr = String(userId);
   const cached = recCache.get(userIdStr);
-  if (cached && Date.now() - cached.builtAt < REC_CACHE_TTL) {
-    const watchlistKeys = new Set(db.getWatchlistFromDb(userIdStr));
-    return attachWatchlistStatus(cached.data, watchlistKeys);
-  }
 
-  // Fetch library + watched keys in parallel (library from DB/cache, watched from DB)
-  const [movies, tv, watchedKeys, dismissedKeys] = await Promise.all([
-    plexService.getLibraryItems(MOVIES_SECTION),
-    plexService.getLibraryItems(TV_SECTION),
-    plexService.getWatchedKeys(userId, userToken),
-    Promise.resolve(db.getDismissals(userId)),
-  ]);
-
-  // Build library map from already-fetched items, then build profile (reuses same data)
-  const libraryMap = new Map([...movies, ...tv].map(i => [i.ratingKey, i]));
-  const profile = await buildPreferenceProfile(userId, libraryMap);
-
-  // Anime = TV items with 'anime' genre (case-insensitive)
-  const animeItems = tv.filter(item =>
-    item.genres.some(g => g.toLowerCase() === 'anime')
-  );
-  const tvOnlyItems = tv.filter(item =>
-    !item.genres.some(g => g.toLowerCase() === 'anime')
-  );
-
-  let scoredMovies, scoredTV, scoredAnime;
-
-  if (!profile) {
-    // No history fallback — sort by rating, filter watched
-    scoredMovies = movies.map(i => scoreFallback(i, dismissedKeys, watchedKeys)).filter(Boolean);
-    scoredTV = tvOnlyItems.map(i => scoreFallback(i, dismissedKeys, watchedKeys)).filter(Boolean);
-    scoredAnime = animeItems.map(i => scoreFallback(i, dismissedKeys, watchedKeys)).filter(Boolean);
+  let pools;
+  if (cached && cached.pools && Date.now() - cached.builtAt < REC_CACHE_TTL) {
+    // Pools already built — just re-sample (fast, no Plex/Tautulli calls)
+    pools = cached.pools;
   } else {
-    scoredMovies = movies
-      .map(item => scoreItem(item, profile, dismissedKeys, watchedKeys))
-      .filter(Boolean);
-    scoredTV = tvOnlyItems
-      .map(item => scoreItem(item, profile, dismissedKeys, watchedKeys))
-      .filter(Boolean);
-    scoredAnime = animeItems
-      .map(item => scoreItem(item, profile, dismissedKeys, watchedKeys))
-      .filter(Boolean);
+    // Fetch library + watched keys in parallel (library from DB/cache, watched from DB)
+    const [movies, tv, watchedKeys, dismissedKeys] = await Promise.all([
+      plexService.getLibraryItems(MOVIES_SECTION),
+      plexService.getLibraryItems(TV_SECTION),
+      plexService.getWatchedKeys(userId, userToken),
+      Promise.resolve(db.getDismissals(userId)),
+    ]);
+
+    // Build library map from already-fetched items, then build profile (reuses same data)
+    const libraryMap = new Map([...movies, ...tv].map(i => [i.ratingKey, i]));
+    const profile = await buildPreferenceProfile(userId, libraryMap);
+
+    // Anime = TV items with 'anime' genre (case-insensitive)
+    const animeItems = tv.filter(item =>
+      item.genres.some(g => g.toLowerCase() === 'anime')
+    );
+    const tvOnlyItems = tv.filter(item =>
+      !item.genres.some(g => g.toLowerCase() === 'anime')
+    );
+
+    let scoredMovies, scoredTV, scoredAnime;
+
+    if (!profile) {
+      // No history fallback — sort by rating, filter watched
+      scoredMovies = movies.map(i => scoreFallback(i, dismissedKeys, watchedKeys)).filter(Boolean);
+      scoredTV = tvOnlyItems.map(i => scoreFallback(i, dismissedKeys, watchedKeys)).filter(Boolean);
+      scoredAnime = animeItems.map(i => scoreFallback(i, dismissedKeys, watchedKeys)).filter(Boolean);
+    } else {
+      scoredMovies = movies
+        .map(item => scoreItem(item, profile, dismissedKeys, watchedKeys))
+        .filter(Boolean);
+      scoredTV = tvOnlyItems
+        .map(item => scoreItem(item, profile, dismissedKeys, watchedKeys))
+        .filter(Boolean);
+      scoredAnime = animeItems
+        .map(item => scoreItem(item, profile, dismissedKeys, watchedKeys))
+        .filter(Boolean);
+    }
+
+    // Sort descending — pools are score-sorted so tieredSample tiers work correctly
+    scoredMovies.sort((a, b) => b.score - a.score);
+    scoredTV.sort((a, b) => b.score - a.score);
+    scoredAnime.sort((a, b) => b.score - a.score);
+
+    // Top Picks: diversity-injected blend — buildTopPicks returns full pool sorted by score
+    const topPicksPool = profile
+      ? buildTopPicks(scoredMovies, scoredTV, scoredAnime, profile)
+      : [...scoredMovies.slice(0, 40), ...scoredTV.slice(0, 30), ...scoredAnime.slice(0, 20)]
+          .sort((a, b) => b.score - a.score);
+
+    pools = {
+      topPicks: topPicksPool,
+      movies: scoredMovies.slice(0, POOL_SIZES.movies),
+      tvShows: scoredTV.slice(0, POOL_SIZES.tv),
+      anime: scoredAnime.slice(0, POOL_SIZES.anime),
+    };
+
+    recCache.set(userIdStr, { pools, builtAt: Date.now() });
   }
 
-  // Sort descending
-  scoredMovies.sort((a, b) => b.score - a.score);
-  scoredTV.sort((a, b) => b.score - a.score);
-  scoredAnime.sort((a, b) => b.score - a.score);
-
-  // Top Picks: diversity-injected blend
-  const topPicks = profile
-    ? buildTopPicks(scoredMovies, scoredTV, scoredAnime, profile)
-    : [...scoredMovies.slice(0, 15), ...scoredTV.slice(0, 12), ...scoredAnime.slice(0, 9)]
-        .sort((a, b) => b.score - a.score).slice(0, 36);
-
+  // Sample fresh results from the pools on every call — this is what creates variety
+  // Top Picks: simple shuffle of the curated pool (all items are good, just vary the subset)
+  // Movies/TV/Anime: tiered sampling so higher-scored items are favoured but not always shown
   const result = {
-    topPicks,
-    movies: scoredMovies.slice(0, 60),
-    tvShows: scoredTV.slice(0, 60),
-    anime: scoredAnime.slice(0, 60),
+    topPicks: partialShuffle(pools.topPicks, Math.min(72, pools.topPicks.length)),
+    movies:   tieredSample(pools.movies,  60),
+    tvShows:  tieredSample(pools.tvShows, 60),
+    anime:    tieredSample(pools.anime,   60),
   };
-
-  recCache.set(userIdStr, { data: result, builtAt: Date.now() });
 
   const watchlistKeys = new Set(db.getWatchlistFromDb(userIdStr));
   return attachWatchlistStatus(result, watchlistKeys);
