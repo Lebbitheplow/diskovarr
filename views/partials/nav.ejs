@@ -18,6 +18,7 @@
         <div class="nav-avatar-placeholder"><%= username.charAt(0).toUpperCase() %></div>
       <% } %>
       <span class="nav-username"><%= username %></span>
+      <a href="/watchlist" class="nav-logout <%= currentPath === '/watchlist' ? 'active' : '' %>">◈ Watchlist</a>
       <a href="/admin" class="nav-logout">Admin</a>
       <a href="/auth/logout" class="nav-logout">Sign out</a>
     </div>
@@ -44,6 +45,7 @@
     <% } %>
     <span class="nav-fab-menu-username"><%= username %></span>
   </div>
+  <a href="/watchlist" class="nav-fab-menu-link">◈ Watchlist</a>
   <a href="/admin" class="nav-fab-menu-link">⚙ Admin</a>
   <a href="/auth/logout" class="nav-fab-menu-link nav-fab-menu-signout">Sign out</a>
 </div>

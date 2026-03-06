@@ -51,4 +51,16 @@ router.get('/discover', requireAuth, (req, res) => {
   res.render('discover', { userId, username, thumb, currentPath: '/discover' });
 });
 
+// Watchlist page — requires auth
+router.get('/watchlist', requireAuth, (req, res) => {
+  const { id: userId, username, thumb } = req.session.plexUser;
+  const plexService = require('../services/plex');
+  const keys = db.getWatchlistFromDb(userId);
+  const items = keys
+    .map(key => db.getLibraryItemByKey(key))
+    .filter(Boolean)
+    .map(item => ({ ...item, deepLink: plexService.getDeepLink(item.ratingKey) }));
+  res.render('watchlist', { userId, username, thumb, currentPath: '/watchlist', items });
+});
+
 module.exports = router;

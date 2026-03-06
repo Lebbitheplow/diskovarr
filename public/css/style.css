@@ -1222,3 +1222,39 @@ img {
   border-color: rgba(100, 160, 255, 0.4);
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(100, 160, 255, 0.25);
 }
+
+/* ── Watchlist page ───────────────────────────────────────────────────────── */
+.watchlist-empty {
+  text-align: center;
+  padding: 4rem 1rem;
+}
+.watchlist-empty-msg {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 0.5rem;
+}
+.watchlist-empty-sub {
+  color: var(--text-muted);
+  font-size: 0.95rem;
+}
+.wl-remove-btn {
+  margin-top: 0.5rem;
+  width: 100%;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.78rem;
+  background: rgba(220, 50, 50, 0.12);
+  color: rgba(220, 100, 100, 0.9);
+  border: 1px solid rgba(220, 50, 50, 0.25);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.wl-remove-btn:hover {
+  background: rgba(220, 50, 50, 0.25);
+  color: #ff7070;
+}
+.wl-remove-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
