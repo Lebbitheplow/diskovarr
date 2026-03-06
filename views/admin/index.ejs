@@ -429,7 +429,7 @@
       if (d.success) {
         // Update the theme.css link to force reload
         const link = document.getElementById('theme-css');
-        if (link) link.href = '/theme.css?c=' + encodeURIComponent(data.color);
+        if (link) link.href = '/theme.css?c=' + encodeURIComponent(d.color);
         showToast('Theme color updated');
       } else {
         showToast(d.error || 'Failed to update color', true);
