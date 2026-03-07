@@ -1,6 +1,15 @@
 const express = require('express');
 const router = express.Router();
+const rateLimit = require('express-rate-limit');
 const db = require('../db/database');
+
+const checkPinLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 120,            // allows polling every ~500ms with headroom
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { status: 'error', message: 'Too many requests' },
+});
 
 const PLEX_CLIENT_ID = 'diskovarr-app';
 const PLEX_SERVER_ID = process.env.PLEX_SERVER_ID;
@@ -24,7 +33,7 @@ router.get('/callback', (req, res) => {
 });
 
 // GET /auth/check-pin — polled by client JS
-router.get('/check-pin', async (req, res) => {
+router.get('/check-pin', checkPinLimiter, async (req, res) => {
   const pinId = req.session.plexPinId;
   if (!pinId) {
     return res.json({ status: 'expired' });
