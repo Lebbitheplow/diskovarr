@@ -121,7 +121,8 @@ router.post('/sync/auto/disable', requireAdmin, (req, res) => {
 router.post('/sync/watched/:userId', requireAdmin, async (req, res) => {
   const { userId } = req.params;
   // Find the user's token from active sessions
-  const sessDb = require('better-sqlite3')(require('path').join(__dirname, '..', 'data', 'sessions.db'));
+  const { DatabaseSync } = require('node:sqlite');
+  const sessDb = new DatabaseSync(require('path').join(__dirname, '..', 'data', 'sessions.db'));
   const rows = sessDb.prepare('SELECT sess FROM sessions').all();
   sessDb.close();
 

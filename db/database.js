@@ -1,11 +1,17 @@
-const Database = require('better-sqlite3');
+const { DatabaseSync } = require('node:sqlite');
 const path = require('path');
 const fs = require('fs');
 
 const dataDir = path.join(__dirname, '..', 'data');
 if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
 
-const db = new Database(path.join(dataDir, 'diskovarr.db'));
+const db = new DatabaseSync(path.join(dataDir, 'diskovarr.db'));
+
+function withTransaction(fn) {
+  db.exec('BEGIN');
+  try { const r = fn(); db.exec('COMMIT'); return r; }
+  catch (e) { db.exec('ROLLBACK'); throw e; }
+}
 
 // Schema
 db.exec(`
@@ -106,17 +112,19 @@ const stmtUpsertItem = db.prepare(`
   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
 
-const upsertManyItems = db.transaction((items) => {
-  for (const item of items) {
-    stmtUpsertItem.run(
-      item.ratingKey, item.sectionId, item.title, item.year, item.thumb, item.type,
-      JSON.stringify(item.genres), JSON.stringify(item.directors), JSON.stringify(item.cast),
-      item.audienceRating, item.contentRating, item.addedAt, item.summary,
-      Math.floor(Date.now() / 1000),
-      item.rating, item.ratingImage, item.audienceRatingImage, item.studio
-    );
-  }
-});
+function upsertManyItems(items) {
+  withTransaction(() => {
+    for (const item of items) {
+      stmtUpsertItem.run(
+        item.ratingKey, item.sectionId, item.title, item.year, item.thumb, item.type,
+        JSON.stringify(item.genres), JSON.stringify(item.directors), JSON.stringify(item.cast),
+        item.audienceRating, item.contentRating, item.addedAt, item.summary,
+        Math.floor(Date.now() / 1000),
+        item.rating, item.ratingImage, item.audienceRatingImage, item.studio
+      );
+    }
+  });
+}
 
 function rowToItem(r) {
   return {
@@ -157,13 +165,15 @@ const stmtReplaceWatched = db.prepare(
 );
 const stmtClearWatched = db.prepare('DELETE FROM user_watched WHERE user_id = ?');
 
-const replaceWatchedBatch = db.transaction((userId, ratingKeys) => {
-  stmtClearWatched.run(String(userId));
-  const now = Math.floor(Date.now() / 1000);
-  for (const key of ratingKeys) {
-    stmtReplaceWatched.run(String(userId), String(key), now);
-  }
-});
+function replaceWatchedBatch(userId, ratingKeys) {
+  withTransaction(() => {
+    stmtClearWatched.run(String(userId));
+    const now = Math.floor(Date.now() / 1000);
+    for (const key of ratingKeys) {
+      stmtReplaceWatched.run(String(userId), String(key), now);
+    }
+  });
+}
 
 function getWatchedKeysFromDb(userId) {
   const rows = db.prepare('SELECT rating_key FROM user_watched WHERE user_id = ?').all(String(userId));
@@ -327,14 +337,16 @@ function updateWatchlistPlexGuid(userId, ratingKey, plexGuid) {
 
 // ── User ratings (Plex star ratings) ─────────────────────────────────────────
 
-const upsertUserRatings = db.transaction((userId, ratings) => {
+function upsertUserRatings(userId, ratings) {
   const stmt = db.prepare(
     'INSERT OR REPLACE INTO user_ratings (user_id, rating_key, user_rating) VALUES (?, ?, ?)'
   );
-  for (const { ratingKey, userRating } of ratings) {
-    stmt.run(String(userId), String(ratingKey), userRating);
-  }
-});
+  withTransaction(() => {
+    for (const { ratingKey, userRating } of ratings) {
+      stmt.run(String(userId), String(ratingKey), userRating);
+    }
+  });
+}
 
 function getUserRatingsFromDb(userId) {
   const rows = db.prepare('SELECT rating_key, user_rating FROM user_ratings WHERE user_id = ?').all(String(userId));
