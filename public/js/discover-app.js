@@ -584,6 +584,29 @@
     return localStorage.getItem('matureEnabled') === 'true';
   }
 
+  // ── Building progress bar ─────────────────────────────────────────────────
+  var buildingBar = null;
+  var buildingInterval = null;
+
+  function showBuildingBar() {
+    if (buildingBar) return;
+    buildingBar = document.createElement('div');
+    buildingBar.id = 'explore-building-bar';
+    buildingBar.innerHTML =
+      '<div class="explore-building-inner">' +
+        '<div class="explore-building-track"><div class="explore-building-fill"></div></div>' +
+        '<span class="explore-building-label">Building your recommendations\u2026</span>' +
+      '</div>';
+    var hero = document.querySelector('.hero');
+    if (hero) hero.after(buildingBar);
+    else document.querySelector('.main-content').prepend(buildingBar);
+  }
+
+  function hideBuildingBar() {
+    if (buildingBar) { buildingBar.remove(); buildingBar = null; }
+    if (buildingInterval) { clearInterval(buildingInterval); buildingInterval = null; }
+  }
+
   async function fetchAndRender(shuffle) {
     if (shuffle) showSkeletons();
     try {
@@ -592,6 +615,7 @@
       var data = await r.json();
 
       if (!r.ok) {
+        hideBuildingBar();
         if (data.error === 'no_tmdb_key') {
           showSectionError('TMDB API key not configured. Add one in Admin → Connections to enable recommendations.');
         } else {
@@ -600,12 +624,23 @@
         return;
       }
 
+      // Pool is still building — show progress bar and poll
+      if (data.status === 'building') {
+        showBuildingBar();
+        if (!buildingInterval) {
+          buildingInterval = setInterval(function () { fetchAndRender(false); }, 5000);
+        }
+        return;
+      }
+
+      hideBuildingBar();
       sections.forEach(function (s) {
         var items = data[s.key] || [];
         renderCarousel(s.sectionId, s.gridId, items);
         attachCarouselListeners(s.sectionId, s.gridId);
       });
     } catch (err) {
+      hideBuildingBar();
       showToast('Failed to load recommendations: ' + err.message, 'error');
       showSectionError('Could not load recommendations. Check your connection and try again.');
     }

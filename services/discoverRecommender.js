@@ -469,12 +469,10 @@ async function getDiscoverRecommendations(userId, userToken, { mature = false } 
     // Kick off background rebuild if stale
     if (isStale) scheduleRebuild(userId, userToken);
   } else {
-    // No cache at all — must build synchronously (first time only)
-    console.log(`[discover] No cache for user ${userIdStr}, building now...`);
-    pools = await buildDiscoverPools(userId, userToken);
-    const builtAt = Date.now();
-    discoverCache.set(userIdStr, { pools, builtAt });
-    db.setDiscoverPool(userIdStr, pools, builtAt);
+    // No cache at all — kick off background build and signal client to poll
+    console.log(`[discover] No cache for user ${userIdStr}, building in background...`);
+    scheduleRebuild(userId, userToken);
+    return { status: 'building' };
   }
 
   // Sample fresh results from pools on every call

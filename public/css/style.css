@@ -757,6 +757,43 @@ img {
 /* ============================================================
    Skeleton Loading
    ============================================================ */
+/* ── Requests building bar ────────────────────────────────────────────────── */
+#explore-building-bar {
+  padding: 0 var(--page-padding);
+  margin-bottom: 24px;
+}
+.explore-building-inner {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.explore-building-label {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+.explore-building-track {
+  width: 100%;
+  height: 4px;
+  background: var(--bg-elevated);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.explore-building-fill {
+  height: 100%;
+  width: 30%;
+  background: var(--accent);
+  border-radius: 2px;
+  animation: building-slide 1.6s ease-in-out infinite;
+}
+@keyframes building-slide {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
+}
+
 .card-skeleton {
   pointer-events: none;
 }
