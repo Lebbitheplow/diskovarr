@@ -118,6 +118,7 @@ async function buildPreferenceProfile(userId, libraryMap) {
   const studioWeights     = new Map();
   const decadeWeights     = new Map();
   const keywordWeights    = new Map();
+  const keywordIdWeights  = new Map(); // keyword tmdb id -> { weight, name }
   const collectionWeights = new Map(); // tmdb collection id -> weight
 
   // Trigger tracking: for each signal key, the watched item that contributed most weight
@@ -136,12 +137,14 @@ async function buildPreferenceProfile(userId, libraryMap) {
     if (keywordFetchList.length >= 60) break;
   }
   const keywordMap    = new Map(); // ratingKey -> string[]
+  const keywordIdMap  = new Map(); // ratingKey -> [{ id, name }]
   const collectionMap = new Map(); // ratingKey -> collectionId
   await Promise.all(keywordFetchList.map(async item => {
     const mt = item.type === 'movie' ? 'movie' : 'tv';
     const details = await tmdbService.getItemDetails(item.tmdbId, mt).catch(() => null);
     if (!details) return;
     if (details.keywords?.length) keywordMap.set(item.ratingKey, details.keywords);
+    if (details.keywordIds?.length) keywordIdMap.set(item.ratingKey, details.keywordIds);
     if (details.collection) collectionMap.set(item.ratingKey, details.collection);
   }));
 
@@ -241,6 +244,11 @@ async function buildPreferenceProfile(userId, libraryMap) {
     for (const kw of (keywordMap.get(entry.rating_key) || [])) {
       keywordWeights.set(kw, (keywordWeights.get(kw) || 0) + weight);
     }
+    for (const kw of (keywordIdMap.get(entry.rating_key) || [])) {
+      const existing = keywordIdWeights.get(kw.id);
+      if (existing) existing.weight += weight;
+      else keywordIdWeights.set(kw.id, { weight, name: kw.name });
+    }
 
     // Collection/franchise (from TMDB pre-fetch)
     const collectionId = collectionMap.get(entry.rating_key);
@@ -256,6 +264,7 @@ async function buildPreferenceProfile(userId, libraryMap) {
     studioWeights:     normalizeMap(studioWeights),
     decadeWeights:     normalizeMap(decadeWeights),
     keywordWeights:    normalizeMap(keywordWeights),
+    keywordIdWeights,
     collectionWeights: normalizeMap(collectionWeights),
     tmdbSimilarMap,
     directorTriggers,

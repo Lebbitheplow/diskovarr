@@ -5,13 +5,16 @@ const { buildPreferenceProfile, partialShuffle, tieredSample } = require('./reco
 const db = require('../db/database');
 
 const CACHE_TTL = 6 * 60 * 60 * 1000; // 6 hours
-const POOL_SIZES = { topPicks: 150, movies: 200, tvShows: 150, anime: 100 };
+const POOL_SIZES = { topPicks: 300, movies: 400, tvShows: 300, anime: 150 };
 
-// Per-user discover cache: userId -> { pools, builtAt }
+// Per-user in-memory cache: userId -> { pools, builtAt }
 const discoverCache = new Map();
+// Track in-progress background rebuilds to avoid duplicates
+const rebuildInProgress = new Set();
 
 function invalidateUserCache(userId) {
   discoverCache.delete(String(userId));
+  db.setDiscoverPool(String(userId), {}, 0); // mark DB cache as stale too
 }
 
 function invalidateAllCaches() {
@@ -196,11 +199,11 @@ async function getTopWatchedTmdbIds(userId) {
   // Look up TMDB IDs from library DB
   const topMovieIds = [], topTvIds = [];
   for (const { key } of scored) {
-    if (topMovieIds.length >= 20 && topTvIds.length >= 10) break;
+    if (topMovieIds.length >= 30 && topTvIds.length >= 20) break;
     const item = db.getLibraryItemByKey(key);
     if (!item?.tmdbId) continue;
-    if (item.type === 'movie' && topMovieIds.length < 20) topMovieIds.push(item.tmdbId);
-    else if (item.type === 'show' && topTvIds.length < 10) topTvIds.push(item.tmdbId);
+    if (item.type === 'movie' && topMovieIds.length < 30) topMovieIds.push(item.tmdbId);
+    else if (item.type === 'show' && topTvIds.length < 20) topTvIds.push(item.tmdbId);
   }
 
   return { topMovieIds, topTvIds };
@@ -261,68 +264,75 @@ async function buildDiscoverPools(userId, userToken) {
   }
 
   // 1. TMDB recommendations + similar for user's top watched movies
-  const movieRecPromises = topMovieIds.slice(0, 20).map(id =>
-    tmdbService.getRecommendations(id, 'movie').then(recs => recs.forEach(r => addCandidate(r.tmdbId, 'movie', r.title, r.year)))
-  );
-  const movieSimPromises = topMovieIds.slice(0, 10).map(id =>
-    tmdbService.getSimilar(id, 'movie').then(recs => recs.forEach(r => addCandidate(r.tmdbId, 'movie', r.title, r.year)))
-  );
+  // Top 10 seeds get pages 1-3, next 20 get pages 1-2, rest page 1
+  const movieRecPromises = topMovieIds.slice(0, 30).flatMap((id, i) => {
+    const pages = i < 10 ? [1, 2, 3] : i < 25 ? [1, 2] : [1];
+    return pages.map(p => tmdbService.getRecommendations(id, 'movie', p).then(recs => recs.forEach(r => addCandidate(r.tmdbId, 'movie', r.title, r.year))));
+  });
+  const movieSimPromises = topMovieIds.slice(0, 25).flatMap((id, i) => {
+    const pages = i < 15 ? [1, 2] : [1];
+    return pages.map(p => tmdbService.getSimilar(id, 'movie', p).then(recs => recs.forEach(r => addCandidate(r.tmdbId, 'movie', r.title, r.year))));
+  });
 
   // 2. TMDB recommendations + similar for user's top watched shows
-  const tvRecPromises = topTvIds.slice(0, 15).map(id =>
-    tmdbService.getRecommendations(id, 'tv').then(recs => recs.forEach(r => addCandidate(r.tmdbId, 'tv', r.title, r.year)))
-  );
-  const tvSimPromises = topTvIds.slice(0, 8).map(id =>
-    tmdbService.getSimilar(id, 'tv').then(recs => recs.forEach(r => addCandidate(r.tmdbId, 'tv', r.title, r.year)))
-  );
+  const tvRecPromises = topTvIds.slice(0, 20).flatMap((id, i) => {
+    const pages = i < 15 ? [1, 2] : [1];
+    return pages.map(p => tmdbService.getRecommendations(id, 'tv', p).then(recs => recs.forEach(r => addCandidate(r.tmdbId, 'tv', r.title, r.year))));
+  });
+  const tvSimPromises = topTvIds.slice(0, 20).flatMap((id, i) => {
+    const pages = i < 12 ? [1, 2] : [1];
+    return pages.map(p => tmdbService.getSimilar(id, 'tv', p).then(recs => recs.forEach(r => addCandidate(r.tmdbId, 'tv', r.title, r.year))));
+  });
 
-  // 3. Genre-based discovery using top genres from preference profile
+  // 3. Genre-based discovery — top 8 genres, 10 pages popularity + 5 pages by rating
+  // Two passes per genre: popularity (mainstream) + vote_average (hidden gems)
   let genreDiscoverPromises = [];
   if (profile) {
     const topMovieGenres = [...profile.genreWeights.entries()]
-      .sort((a, b) => b[1] - a[1]).slice(0, 3).map(([g]) => g);
+      .sort((a, b) => b[1] - a[1]).slice(0, 8).map(([g]) => g);
     const topTvGenres = [...profile.genreWeights.entries()]
-      .sort((a, b) => b[1] - a[1]).slice(0, 3).map(([g]) => g);
+      .sort((a, b) => b[1] - a[1]).slice(0, 8).map(([g]) => g);
+
+    const popularPages = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    const ratedPages = [1, 2, 3, 4, 5];
 
     genreDiscoverPromises = [
-      ...topMovieGenres.map(g => {
+      ...topMovieGenres.flatMap(g => {
         const ids = tmdbService.MOVIE_GENRE_MAP[g];
-        if (!ids) return Promise.resolve();
-        return Promise.all([
-          tmdbService.discoverByGenreIds('movie', ids, 1),
-          tmdbService.discoverByGenreIds('movie', ids, 2),
-        ]).then(([p1, p2]) => [...p1, ...p2].forEach(r => addCandidate(r.tmdbId, 'movie', r.title, r.year)));
+        if (!ids) return [];
+        return [
+          ...popularPages.map(p => tmdbService.discoverByGenreIds('movie', ids, p, 'popularity.desc').then(recs => recs.forEach(r => addCandidate(r.tmdbId, 'movie', r.title, r.year)))),
+          ...ratedPages.map(p => tmdbService.discoverByGenreIds('movie', ids, p, 'vote_average.desc').then(recs => recs.forEach(r => addCandidate(r.tmdbId, 'movie', r.title, r.year)))),
+        ];
       }),
-      ...topTvGenres.map(g => {
+      ...topTvGenres.flatMap(g => {
         const ids = tmdbService.TV_GENRE_MAP[g];
-        if (!ids) return Promise.resolve();
-        return Promise.all([
-          tmdbService.discoverByGenreIds('tv', ids, 1),
-          tmdbService.discoverByGenreIds('tv', ids, 2),
-        ]).then(([p1, p2]) => [...p1, ...p2].forEach(r => addCandidate(r.tmdbId, 'tv', r.title, r.year)));
+        if (!ids) return [];
+        return [
+          ...popularPages.map(p => tmdbService.discoverByGenreIds('tv', ids, p, 'popularity.desc').then(recs => recs.forEach(r => addCandidate(r.tmdbId, 'tv', r.title, r.year)))),
+          ...ratedPages.map(p => tmdbService.discoverByGenreIds('tv', ids, p, 'vote_average.desc').then(recs => recs.forEach(r => addCandidate(r.tmdbId, 'tv', r.title, r.year)))),
+        ];
       }),
     ];
   }
 
-  // 4. Trending movies + TV
-  const trendingMoviePromise = tmdbService.getTrending('movie')
-    .then(recs => recs.forEach(r => addCandidate(r.tmdbId, 'movie', r.title, r.year)));
-  const trendingTvPromise = tmdbService.getTrending('tv')
-    .then(recs => recs.forEach(r => addCandidate(r.tmdbId, 'tv', r.title, r.year)));
+  // 4. Trending movies + TV (5 pages each)
+  const trendingMoviePromise = Promise.all([1,2,3,4,5].map(p => tmdbService.getTrending('movie', p)))
+    .then(pages => pages.flat().forEach(r => addCandidate(r.tmdbId, 'movie', r.title, r.year)));
+  const trendingTvPromise = Promise.all([1,2,3,4,5].map(p => tmdbService.getTrending('tv', p)))
+    .then(pages => pages.flat().forEach(r => addCandidate(r.tmdbId, 'tv', r.title, r.year)));
 
-  // 5. Anime discover (2 pages)
-  const animePromise = Promise.all([
-    tmdbService.discoverAnime(1),
-    tmdbService.discoverAnime(2),
-  ]).then(([p1, p2]) => [...p1, ...p2].forEach(r => addCandidate(r.tmdbId, 'tv', r.title, r.year)));
+  // 5. Anime discover (8 pages)
+  const animePromise = Promise.all([1,2,3,4,5,6,7,8].map(p => tmdbService.discoverAnime(p)))
+    .then(pages => pages.flat().forEach(r => addCandidate(r.tmdbId, 'tv', r.title, r.year)));
 
-  // 6. Person-based candidates: titles from top actors and directors
+  // 6. Person-based candidates: top 20 actors + top 12 directors (movie + TV)
   let personPromises = [];
   if (profile) {
     const topActors = [...profile.actorWeights.entries()]
-      .sort((a, b) => b[1] - a[1]).slice(0, 3).map(([name]) => name);
+      .sort((a, b) => b[1] - a[1]).slice(0, 20).map(([name]) => name);
     const topDirectors = [...profile.directorWeights.entries()]
-      .sort((a, b) => b[1] - a[1]).slice(0, 2).map(([name]) => name);
+      .sort((a, b) => b[1] - a[1]).slice(0, 12).map(([name]) => name);
 
     personPromises = [
       ...topActors.map(name =>
@@ -331,13 +341,32 @@ async function buildDiscoverPools(userId, userToken) {
       ...topDirectors.map(name =>
         tmdbService.getPersonCandidates(name, 'movie').then(recs => recs.forEach(r => addCandidate(r.tmdbId, 'movie', r.title, r.year)))
       ),
-      ...topActors.slice(0, 2).map(name =>
+      ...topActors.slice(0, 12).map(name =>
+        tmdbService.getPersonCandidates(name, 'tv').then(recs => recs.forEach(r => addCandidate(r.tmdbId, 'tv', r.title, r.year)))
+      ),
+      ...topDirectors.slice(0, 6).map(name =>
         tmdbService.getPersonCandidates(name, 'tv').then(recs => recs.forEach(r => addCandidate(r.tmdbId, 'tv', r.title, r.year)))
       ),
     ];
   }
 
-  await Promise.all([...movieRecPromises, ...movieSimPromises, ...tvRecPromises, ...tvSimPromises, ...genreDiscoverPromises, trendingMoviePromise, trendingTvPromise, animePromise, ...personPromises]);
+  // 7. Keyword-based discovery — top 20 keywords, pages 1+2+3 each
+  // Very targeted: surfaces content matching specific themes you've enjoyed
+  let keywordPromises = [];
+  if (profile?.keywordIdWeights?.size) {
+    const topKeywords = [...profile.keywordIdWeights.entries()]
+      .sort((a, b) => b[1].weight - a[1].weight).slice(0, 20);
+    keywordPromises = topKeywords.flatMap(([id]) => [
+      tmdbService.discoverByKeywordId('movie', id, 1).then(recs => recs.forEach(r => addCandidate(r.tmdbId, 'movie', r.title, r.year))),
+      tmdbService.discoverByKeywordId('movie', id, 2).then(recs => recs.forEach(r => addCandidate(r.tmdbId, 'movie', r.title, r.year))),
+      tmdbService.discoverByKeywordId('movie', id, 3).then(recs => recs.forEach(r => addCandidate(r.tmdbId, 'movie', r.title, r.year))),
+      tmdbService.discoverByKeywordId('tv', id, 1).then(recs => recs.forEach(r => addCandidate(r.tmdbId, 'tv', r.title, r.year))),
+      tmdbService.discoverByKeywordId('tv', id, 2).then(recs => recs.forEach(r => addCandidate(r.tmdbId, 'tv', r.title, r.year))),
+      tmdbService.discoverByKeywordId('tv', id, 3).then(recs => recs.forEach(r => addCandidate(r.tmdbId, 'tv', r.title, r.year))),
+    ]);
+  }
+
+  await Promise.all([...movieRecPromises, ...movieSimPromises, ...tvRecPromises, ...tvSimPromises, ...genreDiscoverPromises, trendingMoviePromise, trendingTvPromise, animePromise, ...personPromises, ...keywordPromises]);
 
   // ── Fetch details for all candidates ────────────────────────────────────
   const candidates = [...candidateSet.values()];
@@ -401,16 +430,51 @@ async function buildDiscoverPools(userId, userToken) {
   };
 }
 
+function scheduleRebuild(userId, userToken) {
+  const userIdStr = String(userId);
+  if (rebuildInProgress.has(userIdStr)) return;
+  rebuildInProgress.add(userIdStr);
+  buildDiscoverPools(userId, userToken)
+    .then(pools => {
+      const builtAt = Date.now();
+      discoverCache.set(userIdStr, { pools, builtAt });
+      db.setDiscoverPool(userIdStr, pools, builtAt);
+      console.log(`[discover] Pool rebuilt for user ${userIdStr}`);
+    })
+    .catch(err => console.error(`[discover] Background rebuild failed for ${userIdStr}:`, err.message))
+    .finally(() => rebuildInProgress.delete(userIdStr));
+}
+
 async function getDiscoverRecommendations(userId, userToken, { mature = false } = {}) {
   const userIdStr = String(userId);
-  const cached = discoverCache.get(userIdStr);
+
+  // 1. Check in-memory cache
+  let cached = discoverCache.get(userIdStr);
+
+  // 2. Fall back to DB cache (survives server restarts)
+  if (!cached) {
+    const dbCached = db.getDiscoverPool(userIdStr);
+    if (dbCached?.pools && dbCached.builtAt) {
+      cached = dbCached;
+      discoverCache.set(userIdStr, dbCached);
+    }
+  }
+
+  const isStale = !cached || Date.now() - cached.builtAt > CACHE_TTL;
 
   let pools;
-  if (cached && Date.now() - cached.builtAt < CACHE_TTL) {
+  if (cached?.pools && Object.keys(cached.pools).length > 0) {
+    // Serve existing cache immediately (fresh or stale)
     pools = cached.pools;
+    // Kick off background rebuild if stale
+    if (isStale) scheduleRebuild(userId, userToken);
   } else {
+    // No cache at all — must build synchronously (first time only)
+    console.log(`[discover] No cache for user ${userIdStr}, building now...`);
     pools = await buildDiscoverPools(userId, userToken);
-    discoverCache.set(userIdStr, { pools, builtAt: Date.now() });
+    const builtAt = Date.now();
+    discoverCache.set(userIdStr, { pools, builtAt });
+    db.setDiscoverPool(userIdStr, pools, builtAt);
   }
 
   // Sample fresh results from pools on every call
@@ -436,4 +500,5 @@ module.exports = {
   getDiscoverRecommendations,
   invalidateUserCache,
   invalidateAllCaches,
+  scheduleRebuild,
 };

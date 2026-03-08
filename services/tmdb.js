@@ -47,6 +47,7 @@ function normalizeMovie(details, credits) {
     isAnime: false,
     adult: details.adult || false,
     keywords: (details.keywords?.keywords || []).map(k => k.name),
+    keywordIds: (details.keywords?.keywords || []).slice(0, 20).map(k => ({ id: k.id, name: k.name })),
     collection: details.belongs_to_collection?.id || null,
     collectionName: details.belongs_to_collection?.name || null,
     trailerKey: (details.videos?.results || [])
@@ -82,6 +83,7 @@ function normalizeTV(details, credits) {
     isAnime,
     adult: details.adult || isExplicit,
     keywords: (details.keywords?.results || []).map(k => k.name),
+    keywordIds: (details.keywords?.results || []).slice(0, 20).map(k => ({ id: k.id, name: k.name })),
     trailerKey: (details.videos?.results || [])
       .filter(v => v.site === 'YouTube' && v.type === 'Trailer')
       .sort((a, b) => (b.official ? 1 : 0) - (a.official ? 1 : 0))[0]?.key || null,
@@ -114,11 +116,11 @@ async function getItemDetails(tmdbId, mediaType) {
   }
 }
 
-async function getRecommendations(tmdbId, mediaType) {
+async function getRecommendations(tmdbId, mediaType, page = 1) {
   try {
-    const json = await tmdbFetch(`/${mediaType}/${tmdbId}/recommendations?page=1`);
+    const json = await tmdbFetch(`/${mediaType}/${tmdbId}/recommendations?page=${page}`);
     if (!json) return [];
-    return (json.results || []).slice(0, 20).map(r => ({
+    return (json.results || []).map(r => ({
       tmdbId: r.id,
       mediaType: r.media_type || mediaType,
       title: r.title || r.name,
@@ -129,11 +131,11 @@ async function getRecommendations(tmdbId, mediaType) {
   }
 }
 
-async function getSimilar(tmdbId, mediaType) {
+async function getSimilar(tmdbId, mediaType, page = 1) {
   try {
-    const json = await tmdbFetch(`/${mediaType}/${tmdbId}/similar?page=1`);
+    const json = await tmdbFetch(`/${mediaType}/${tmdbId}/similar?page=${page}`);
     if (!json) return [];
-    return (json.results || []).slice(0, 20).map(r => ({
+    return (json.results || []).map(r => ({
       tmdbId: r.id,
       mediaType,
       title: r.title || r.name,
@@ -184,14 +186,13 @@ async function getPersonCandidates(name, mediaType) {
   }
 }
 
-// Discover movies/TV by genre IDs, sorted by popularity (not vote_average — avoids returning
-// all-time classics that are almost certainly already in the library)
-async function discoverByGenreIds(mediaType, genreIds, page = 1) {
+// Discover movies/TV by genre IDs with configurable sort
+async function discoverByGenreIds(mediaType, genreIds, page = 1, sortBy = 'popularity.desc') {
   if (!genreIds || genreIds.length === 0) return [];
   try {
     const genreParam = genreIds.join(',');
     const json = await tmdbFetch(
-      `/discover/${mediaType}?with_genres=${genreParam}&sort_by=popularity.desc&vote_average.gte=6.5&vote_count.gte=50&include_adult=false&page=${page}`
+      `/discover/${mediaType}?with_genres=${genreParam}&sort_by=${sortBy}&vote_average.gte=6.5&vote_count.gte=50&include_adult=false&page=${page}`
     );
     if (!json) return [];
     return (json.results || []).map(r => ({
@@ -223,10 +224,28 @@ async function discoverAnime(page = 1) {
   }
 }
 
-// Trending movies or TV this week
-async function getTrending(mediaType) {
+// Discover by keyword ID (e.g. "time loop", "based on novel") — highly targeted
+async function discoverByKeywordId(mediaType, keywordId, page = 1) {
   try {
-    const json = await tmdbFetch(`/trending/${mediaType}/week?page=1&include_adult=false`);
+    const json = await tmdbFetch(
+      `/discover/${mediaType}?with_keywords=${keywordId}&sort_by=popularity.desc&vote_average.gte=6.0&vote_count.gte=30&include_adult=false&page=${page}`
+    );
+    if (!json) return [];
+    return (json.results || []).map(r => ({
+      tmdbId: r.id,
+      mediaType,
+      title: r.title || r.name,
+      year: parseInt((r.release_date || r.first_air_date || '').slice(0, 4)) || 0,
+    }));
+  } catch {
+    return [];
+  }
+}
+
+// Trending movies or TV this week
+async function getTrending(mediaType, page = 1) {
+  try {
+    const json = await tmdbFetch(`/trending/${mediaType}/week?page=${page}&include_adult=false`);
     if (!json) return [];
     return (json.results || []).map(r => ({
       tmdbId: r.id,
@@ -282,7 +301,7 @@ const TV_GENRE_MAP = {
 
 module.exports = {
   getItemDetails, getRecommendations, getSimilar, getPersonCandidates,
-  discoverByGenreIds, discoverAnime, getTrending,
+  discoverByGenreIds, discoverByKeywordId, discoverAnime, getTrending,
   batchGetDetails, testApiKey, posterUrl,
   tmdbFetchPublic: tmdbFetch,
   MOVIE_GENRE_MAP, TV_GENRE_MAP,

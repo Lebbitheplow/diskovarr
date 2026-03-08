@@ -77,6 +77,12 @@ db.exec(`
     fetched_at INTEGER NOT NULL,
     PRIMARY KEY (tmdb_id, media_type)
   );
+
+  CREATE TABLE IF NOT EXISTS discover_pool_cache (
+    user_id TEXT PRIMARY KEY,
+    pools TEXT NOT NULL,
+    built_at INTEGER NOT NULL
+  );
 `);
 
 const stmtAdd = db.prepare(
@@ -545,6 +551,23 @@ function getRequestedTmdbIds(userId) {
   return new Set(rows.map(r => `${r.tmdb_id}:${r.media_type}`));
 }
 
+// ── Discover pool cache (persists across restarts) ────────────────────────────
+
+function getDiscoverPool(userId) {
+  const row = db.prepare('SELECT pools, built_at FROM discover_pool_cache WHERE user_id = ?').get(String(userId));
+  if (!row) return null;
+  try { return { pools: JSON.parse(row.pools), builtAt: row.built_at }; } catch { return null; }
+}
+
+function setDiscoverPool(userId, pools, builtAt) {
+  db.prepare('INSERT OR REPLACE INTO discover_pool_cache (user_id, pools, built_at) VALUES (?, ?, ?)')
+    .run(String(userId), JSON.stringify(pools), builtAt);
+}
+
+function getKnownUserIds() {
+  return db.prepare('SELECT DISTINCT user_id FROM discover_pool_cache').all().map(r => r.user_id);
+}
+
 module.exports = {
   addDismissal, getDismissals, removeDismissal,
   addToWatchlistDb, removeFromWatchlistDb, getWatchlistFromDb,
@@ -564,4 +587,5 @@ module.exports = {
   getLibraryTmdbIds, getLibraryTitleYearSet,
   addDiscoverRequest, getRequestedTmdbIds,
   addExploreDismissal, getExploreDismissedIds,
+  getDiscoverPool, setDiscoverPool, getKnownUserIds,
 };
