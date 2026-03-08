@@ -24,6 +24,16 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_dismissals_user ON dismissals(plex_user_id);
 
+  CREATE TABLE IF NOT EXISTS explore_dismissals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    plex_user_id TEXT NOT NULL,
+    tmdb_id TEXT NOT NULL,
+    media_type TEXT NOT NULL,
+    dismissed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(plex_user_id, tmdb_id, media_type)
+  );
+  CREATE INDEX IF NOT EXISTS idx_explore_dismissals_user ON explore_dismissals(plex_user_id);
+
   CREATE TABLE IF NOT EXISTS library_items (
     rating_key TEXT PRIMARY KEY,
     section_id TEXT NOT NULL,
@@ -90,6 +100,18 @@ function getDismissals(userId) {
 
 function removeDismissal(userId, ratingKey) {
   stmtRemove.run(String(userId), String(ratingKey));
+}
+
+// ── Explore dismissals (by TMDB ID) ──────────────────────────────────────────
+
+function addExploreDismissal(userId, tmdbId, mediaType) {
+  db.prepare('INSERT OR IGNORE INTO explore_dismissals (plex_user_id, tmdb_id, media_type) VALUES (?, ?, ?)')
+    .run(String(userId), String(tmdbId), String(mediaType));
+}
+
+function getExploreDismissedIds(userId) {
+  const rows = db.prepare('SELECT tmdb_id, media_type FROM explore_dismissals WHERE plex_user_id = ?').all(String(userId));
+  return new Set(rows.map(r => `${r.tmdb_id}:${r.media_type}`));
 }
 
 // ── Migrate: add columns if this is an existing DB ────────────────────────────
@@ -539,4 +561,5 @@ module.exports = {
   getTmdbCache, setTmdbCache,
   getLibraryTmdbIds, getLibraryTitleYearSet,
   addDiscoverRequest, getRequestedTmdbIds,
+  addExploreDismissal, getExploreDismissedIds,
 };

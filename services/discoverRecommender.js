@@ -347,18 +347,19 @@ async function getDiscoverRecommendations(userId, userToken) {
 
   // Sample fresh results from pools on every call
   const requestedIds = db.getRequestedTmdbIds(userId);
-  function markRequested(items) {
-    return items.map(item => ({
-      ...item,
-      isRequested: requestedIds.has(`${item.tmdbId}:${item.mediaType}`),
-    }));
+  const dismissedIds = db.getExploreDismissedIds(userId);
+
+  function filterAndMark(items) {
+    return items
+      .filter(item => !dismissedIds.has(`${item.tmdbId}:${item.mediaType}`))
+      .map(item => ({ ...item, isRequested: requestedIds.has(`${item.tmdbId}:${item.mediaType}`) }));
   }
 
   return {
-    topPicks: markRequested(partialShuffle(pools.topPicks, Math.min(72, pools.topPicks.length))),
-    movies: markRequested(tieredSample(pools.movies, 60)),
-    tvShows: markRequested(tieredSample(pools.tvShows, 60)),
-    anime: markRequested(tieredSample(pools.anime, 60)),
+    topPicks: filterAndMark(partialShuffle(pools.topPicks, Math.min(72, pools.topPicks.length))),
+    movies: filterAndMark(tieredSample(pools.movies, 60)),
+    tvShows: filterAndMark(tieredSample(pools.tvShows, 60)),
+    anime: filterAndMark(tieredSample(pools.anime, 60)),
   };
 }
 

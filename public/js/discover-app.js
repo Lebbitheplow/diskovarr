@@ -19,6 +19,37 @@
     t._timer = setTimeout(function () { t.classList.remove('wl-toast-show'); }, 4000);
   }
 
+  // ── Dismiss (Not Interested) ──────────────────────────────────────────────
+
+  async function dismissItem(item, cardEl) {
+    try {
+      var r = await fetch('/api/explore/dismiss', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tmdbId: item.tmdbId, mediaType: item.mediaType }),
+      });
+      if (!r.ok) throw new Error('Dismiss failed');
+
+      // Remove from all carousel states and re-render affected sections
+      for (var sid in carouselState) {
+        var state = carouselState[sid];
+        var idx = state.items.findIndex(function (i) { return i.tmdbId === item.tmdbId && i.mediaType === item.mediaType; });
+        if (idx === -1) continue;
+        state.items.splice(idx, 1);
+        state.pages = Math.ceil(state.items.length / state.cpp) || 1;
+        if (state.page > state.pages) state.page = state.pages;
+        var section = document.getElementById(sid);
+        var gridId = section ? section.querySelector('.card-grid')?.id : null;
+        if (gridId) {
+          renderPage(sid, gridId);
+          updateControls(sid, section);
+        }
+      }
+    } catch (err) {
+      showToast('Could not dismiss: ' + err.message, 'error');
+    }
+  }
+
   // ── Request dialog ────────────────────────────────────────────────────────
 
   var pendingRequest = null;
@@ -243,6 +274,15 @@
       });
       actEl.appendChild(reqBtn);
     }
+    var notInterestedBtn = document.createElement('button');
+    notInterestedBtn.className = 'modal-btn modal-btn-dismiss';
+    notInterestedBtn.textContent = '✕ Not Interested';
+    notInterestedBtn.addEventListener('click', function () {
+      closeDetailModal();
+      dismissItem(item, null);
+    });
+    actEl.appendChild(notInterestedBtn);
+
     var tmdbLink = document.createElement('a');
     tmdbLink.className = 'btn-tmdb-link';
     tmdbLink.href = 'https://www.themoviedb.org/' + item.mediaType + '/' + item.tmdbId;
@@ -325,6 +365,15 @@
       });
       overlay.appendChild(reqBtn);
     }
+    var dismissCardBtn = document.createElement('button');
+    dismissCardBtn.className = 'btn-icon btn-dismiss';
+    dismissCardBtn.textContent = '✕';
+    dismissCardBtn.title = 'Not Interested';
+    dismissCardBtn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      dismissItem(item, card);
+    });
+    overlay.appendChild(dismissCardBtn);
     posterWrap.appendChild(overlay);
 
     card.appendChild(posterWrap);

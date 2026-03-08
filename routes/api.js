@@ -300,6 +300,18 @@ router.get('/explore/recommendations', async (req, res) => {
   }
 });
 
+// POST /api/explore/dismiss — body: { tmdbId, mediaType }
+router.post('/explore/dismiss', (req, res) => {
+  const { tmdbId, mediaType } = req.body;
+  if (!tmdbId || !mediaType) return res.status(400).json({ error: 'tmdbId and mediaType required' });
+  if (!['movie', 'tv'].includes(mediaType)) return res.status(400).json({ error: 'Invalid mediaType' });
+  if (!/^\d+$/.test(String(tmdbId))) return res.status(400).json({ error: 'Invalid tmdbId' });
+
+  const { id: userId } = req.session.plexUser;
+  db.addExploreDismissal(userId, tmdbId, mediaType);
+  res.json({ success: true });
+});
+
 // POST /api/request — submit a request via Overseerr, Radarr, or Sonarr
 router.post('/request', async (req, res) => {
   if (!db.isDiscoverEnabled() || !db.hasTmdbKey()) {
