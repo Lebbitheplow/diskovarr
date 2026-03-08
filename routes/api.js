@@ -4,9 +4,37 @@ const requireAuth = require('../middleware/requireAuth');
 const plexService = require('../services/plex');
 const recommender = require('../services/recommender');
 const discoverRecommender = require('../services/discoverRecommender');
+const tmdbService = require('../services/tmdb');
 const db = require('../db/database');
 
 router.use(requireAuth);
+
+// GET /api/trailer?tmdbId=X&mediaType=movie|tv
+// Lazy-fetches and caches trailer key from TMDB. Works for both library and explore items.
+router.get('/trailer', async (req, res) => {
+  const { tmdbId, mediaType } = req.query;
+  if (!tmdbId || !['movie', 'tv'].includes(mediaType)) return res.json({ trailerKey: null });
+  try {
+    // Check existing DB cache first
+    const cached = db.getTmdbCache(tmdbId, mediaType);
+    if (cached && cached.trailerKey !== undefined) return res.json({ trailerKey: cached.trailerKey });
+
+    // Fetch just the videos endpoint to get trailer key without re-fetching full details
+    const json = await tmdbService.tmdbFetchPublic(`/${mediaType}/${tmdbId}/videos`);
+    const trailerKey = (json?.results || [])
+      .filter(v => v.site === 'YouTube' && v.type === 'Trailer')
+      .sort((a, b) => (b.official ? 1 : 0) - (a.official ? 1 : 0))[0]?.key || null;
+
+    // Patch the cache entry if it exists so future calls are instant
+    if (cached) {
+      cached.trailerKey = trailerKey;
+      db.setTmdbCache(tmdbId, mediaType, cached);
+    }
+    res.json({ trailerKey });
+  } catch {
+    res.json({ trailerKey: null });
+  }
+});
 
 // GET /api/recommendations
 router.get('/recommendations', async (req, res) => {

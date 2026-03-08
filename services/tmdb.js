@@ -49,6 +49,9 @@ function normalizeMovie(details, credits) {
     keywords: (details.keywords?.keywords || []).map(k => k.name),
     collection: details.belongs_to_collection?.id || null,
     collectionName: details.belongs_to_collection?.name || null,
+    trailerKey: (details.videos?.results || [])
+      .filter(v => v.site === 'YouTube' && v.type === 'Trailer')
+      .sort((a, b) => (b.official ? 1 : 0) - (a.official ? 1 : 0))[0]?.key || null,
   };
 }
 
@@ -79,6 +82,9 @@ function normalizeTV(details, credits) {
     isAnime,
     adult: details.adult || isExplicit,
     keywords: (details.keywords?.results || []).map(k => k.name),
+    trailerKey: (details.videos?.results || [])
+      .filter(v => v.site === 'YouTube' && v.type === 'Trailer')
+      .sort((a, b) => (b.official ? 1 : 0) - (a.official ? 1 : 0))[0]?.key || null,
   };
 }
 
@@ -88,8 +94,8 @@ async function getItemDetails(tmdbId, mediaType) {
 
   try {
     const detailsPath = mediaType === 'tv'
-      ? `/tv/${tmdbId}?append_to_response=content_ratings,keywords`
-      : `/movie/${tmdbId}?append_to_response=keywords`;
+      ? `/tv/${tmdbId}?append_to_response=content_ratings,keywords,videos`
+      : `/movie/${tmdbId}?append_to_response=keywords,videos`;
     const [details, credits] = await Promise.all([
       tmdbFetch(detailsPath),
       tmdbFetch(`/${mediaType}/${tmdbId}/credits`),
@@ -278,5 +284,6 @@ module.exports = {
   getItemDetails, getRecommendations, getSimilar, getPersonCandidates,
   discoverByGenreIds, discoverAnime, getTrending,
   batchGetDetails, testApiKey, posterUrl,
+  tmdbFetchPublic: tmdbFetch,
   MOVIE_GENRE_MAP, TV_GENRE_MAP,
 };

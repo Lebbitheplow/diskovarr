@@ -50,6 +50,7 @@ function parseMediaItem(video) {
     title: video.title,
     year,
     thumb: video.thumb || null,
+    art: video.art || null,
     type: video.type, // 'movie' or 'show'
     genres,
     directors,
@@ -437,6 +438,8 @@ async function removeFromPlexTvWatchlist(userToken, plexGuid) {
 }
 
 module.exports = {
+  get MOVIES_SECTION() { return getMoviesSection(); },
+  get TV_SECTION()     { return getTvSection(); },
   getLibraryItems,
   getLibraryMap,
   getWatchedKeys,

@@ -181,9 +181,19 @@
 
     // Hero backdrop
     var hero = document.getElementById('detail-modal-hero');
+    var modalBody = hero ? hero.parentElement.querySelector('.detail-modal-body') : null;
+    var modalInfo = hero ? hero.parentElement.querySelector('.detail-modal-info') : null;
     if (hero) {
-      hero.style.backgroundImage = item.backdropUrl ? 'url(' + item.backdropUrl + ')' : 'none';
-      hero.style.display = item.backdropUrl ? '' : 'none';
+      if (item.backdropUrl) {
+        hero.style.backgroundImage = 'url(' + item.backdropUrl + ')';
+        hero.style.display = '';
+        if (modalBody) { modalBody.style.marginTop = ''; modalBody.style.paddingTop = ''; }
+        if (modalInfo) modalInfo.style.paddingTop = '';
+      } else {
+        hero.style.display = 'none';
+        if (modalBody) { modalBody.style.marginTop = '0'; modalBody.style.paddingTop = '22px'; }
+        if (modalInfo) modalInfo.style.paddingTop = '0';
+      }
     }
 
     // Poster
@@ -194,6 +204,31 @@
       posterEl.style.display = '';
     } else {
       posterEl.style.display = 'none';
+    }
+
+    // Trailer — lazy fetch then inject autoplay muted iframe
+    var trailerEl = document.getElementById('detail-modal-trailer');
+    if (trailerEl) {
+      trailerEl.innerHTML = '';
+      trailerEl.classList.remove('active');
+      var trailerTmdbId = item.tmdbId;
+      var trailerMediaType = item.mediaType || 'movie';
+      if (trailerTmdbId) {
+        fetch('/api/trailer?tmdbId=' + trailerTmdbId + '&mediaType=' + trailerMediaType)
+          .then(function (r) { return r.json(); })
+          .then(function (data) {
+            if (!data.trailerKey || !trailerEl.isConnected) return;
+            var iframe = document.createElement('iframe');
+            iframe.src = 'https://www.youtube.com/embed/' + data.trailerKey +
+              '?autoplay=1&mute=1&rel=0&modestbranding=1&playsinline=1';
+            iframe.setAttribute('allow', 'autoplay; encrypted-media; fullscreen');
+            iframe.setAttribute('allowfullscreen', '');
+            trailerEl.innerHTML = '';
+            trailerEl.appendChild(iframe);
+            trailerEl.classList.add('active');
+          })
+          .catch(function () {});
+      }
     }
 
     // Title
@@ -301,6 +336,9 @@
     modal.classList.remove('open');
     modal.setAttribute('aria-hidden', 'true');
     document.body.style.overflow = '';
+    // Clear iframe to stop playback
+    var trailerEl = document.getElementById('detail-modal-trailer');
+    if (trailerEl) { trailerEl.innerHTML = ''; trailerEl.classList.remove('active'); }
   }
 
   document.addEventListener('DOMContentLoaded', function () {

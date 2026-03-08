@@ -1665,6 +1665,22 @@ img {
   border: 2px solid var(--border);
   align-self: flex-start;
 }
+.detail-modal-trailer {
+  display: none;
+  width: 100%;
+  aspect-ratio: 16/9;
+  background: #000;
+  line-height: 0;
+}
+.detail-modal-trailer.active {
+  display: block;
+}
+.detail-modal-trailer iframe {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: none;
+}
 .detail-modal-info {
   flex: 1;
   min-width: 0;

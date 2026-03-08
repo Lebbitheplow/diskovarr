@@ -19,28 +19,29 @@
   function ensureModal() {
     if (modalEl) return;
     modalEl = document.createElement('div');
-    modalEl.className = 'modal-backdrop';
+    modalEl.className = 'detail-modal-wrap';
+    modalEl.setAttribute('aria-hidden', 'true');
     modalEl.innerHTML = `
-      <div class="modal-card" role="dialog" aria-modal="true">
-        <button class="modal-close" id="modal-close" aria-label="Close">✕</button>
-        <div class="modal-body">
-          <div class="modal-poster-wrap">
-            <img class="modal-poster" id="modal-poster" src="" alt="">
-            <div class="modal-poster-placeholder" id="modal-poster-ph" style="display:none">🎬</div>
-          </div>
-          <div class="modal-info">
-            <h2 class="modal-title" id="modal-title"></h2>
-            <div class="modal-meta" id="modal-meta"></div>
-            <div class="modal-ratings" id="modal-ratings"></div>
-            <div class="modal-genres" id="modal-genres"></div>
-            <p class="modal-summary" id="modal-summary"></p>
-            <div class="modal-credits" id="modal-credits"></div>
-            <div class="modal-actions" id="modal-actions"></div>
+      <div class="detail-modal-card" role="dialog" aria-modal="true">
+        <button class="detail-modal-close" id="lib-modal-close" aria-label="Close">✕</button>
+        <div class="detail-modal-hero" id="lib-modal-hero"></div>
+        <div class="detail-modal-body" id="lib-modal-body">
+          <img class="detail-modal-poster" id="lib-modal-poster" src="" alt="">
+          <div class="detail-modal-info" id="lib-modal-info">
+            <div class="detail-modal-title" id="lib-modal-title"></div>
+            <div class="detail-modal-meta" id="lib-modal-meta"></div>
+            <div id="lib-modal-ratings"></div>
+            <div class="detail-modal-reasons" id="lib-modal-reasons"></div>
+            <div class="detail-modal-genres" id="lib-modal-genres"></div>
+            <p class="detail-modal-overview" id="lib-modal-overview"></p>
+            <div class="detail-modal-credits" id="lib-modal-credits"></div>
+            <div class="detail-modal-actions" id="lib-modal-actions"></div>
           </div>
         </div>
+        <div class="detail-modal-trailer" id="lib-modal-trailer"></div>
       </div>`;
     document.body.appendChild(modalEl);
-    document.getElementById('modal-close').addEventListener('click', closeModal);
+    document.getElementById('lib-modal-close').addEventListener('click', closeModal);
     modalEl.addEventListener('click', function (e) {
       if (e.target === modalEl) closeModal();
     });
@@ -52,53 +53,73 @@
   function closeModal() {
     if (!modalEl) return;
     modalEl.classList.remove('open');
+    modalEl.setAttribute('aria-hidden', 'true');
     document.body.style.overflow = '';
+    const t = document.getElementById('lib-modal-trailer');
+    if (t) { t.innerHTML = ''; t.classList.remove('active'); }
   }
 
   function openModal(item) {
     ensureModal();
 
+    // Hero backdrop — use art (backdrop) if available, fallback to thumb
+    const heroEl = document.getElementById('lib-modal-hero');
+    const bodyEl = document.getElementById('lib-modal-body');
+    const infoEl = document.getElementById('lib-modal-info');
+    const bgPath = item.art || item.thumb;
+    if (heroEl) {
+      if (bgPath) {
+        heroEl.style.backgroundImage = 'url(' + posterUrl(bgPath) + ')';
+        heroEl.style.display = '';
+        if (bodyEl) { bodyEl.style.marginTop = ''; bodyEl.style.paddingTop = ''; }
+        if (infoEl) infoEl.style.paddingTop = '';
+      } else {
+        heroEl.style.display = 'none';
+        if (bodyEl) { bodyEl.style.marginTop = '0'; bodyEl.style.paddingTop = '22px'; }
+        if (infoEl) infoEl.style.paddingTop = '0';
+      }
+    }
+
     // Poster
-    const posterImg = document.getElementById('modal-poster');
-    const posterPh = document.getElementById('modal-poster-ph');
-    if (item.thumb) {
-      posterImg.src = posterUrl(item.thumb);
-      posterImg.alt = item.title;
-      posterImg.style.display = '';
-      posterPh.style.display = 'none';
-      posterImg.onerror = function () {
-        this.style.display = 'none';
-        posterPh.style.display = 'flex';
-      };
-    } else {
-      posterImg.style.display = 'none';
-      posterPh.style.display = 'flex';
+    const posterEl = document.getElementById('lib-modal-poster');
+    if (posterEl) {
+      if (item.thumb) {
+        posterEl.src = posterUrl(item.thumb);
+        posterEl.alt = item.title;
+        posterEl.style.display = '';
+        posterEl.onerror = function () { this.style.display = 'none'; };
+      } else {
+        posterEl.style.display = 'none';
+      }
     }
 
     // Title
-    document.getElementById('modal-title').textContent = item.title;
+    document.getElementById('lib-modal-title').textContent = item.title;
 
     // Meta row: year · type · content rating
     const metaParts = [];
     if (item.year) metaParts.push(item.year);
     if (item.type) metaParts.push(item.type === 'movie' ? 'Movie' : 'TV Show');
     if (item.contentRating) metaParts.push(item.contentRating);
-    document.getElementById('modal-meta').textContent = metaParts.join(' · ');
+    document.getElementById('lib-modal-meta').textContent = metaParts.join(' · ');
 
-    // Ratings
-    const ratingsEl = document.getElementById('modal-ratings');
+    // Ratings (RT badges)
+    const ratingsEl = document.getElementById('lib-modal-ratings');
     ratingsEl.innerHTML = '';
     const criticScore = item.rating ? Math.round(item.rating * 10) : null;
     const audienceScore = item.audienceRating ? Math.round(item.audienceRating * 10) : null;
     const isFresh = item.ratingImage && item.ratingImage.includes('.ripe');
     const isUpright = item.audienceRatingImage && item.audienceRatingImage.includes('.upright');
     const isRT = item.ratingImage && item.ratingImage.includes('rottentomatoes');
-
     if (criticScore || audienceScore) {
+      ratingsEl.style.display = 'flex';
+      ratingsEl.style.gap = '8px';
+      ratingsEl.style.flexWrap = 'wrap';
+      ratingsEl.style.marginBottom = '8px';
       if (criticScore && isRT) {
         const b = document.createElement('div');
         b.className = 'rating-badge rating-critic' + (isFresh ? ' fresh' : ' rotten');
-        b.innerHTML = '<span class="rating-icon">' + (isFresh ? '🍅' : '🍅') + '</span>'
+        b.innerHTML = '<span class="rating-icon">🍅</span>'
           + '<span class="rating-label">Tomatometer</span>'
           + '<span class="rating-score">' + criticScore + '%</span>';
         ratingsEl.appendChild(b);
@@ -111,41 +132,57 @@
           + '<span class="rating-score">' + audienceScore + '%</span>';
         ratingsEl.appendChild(b);
       }
+    } else {
+      ratingsEl.style.display = 'none';
     }
 
-    // Genres
-    const genresEl = document.getElementById('modal-genres');
+    // Reason tags
+    const reasonsEl = document.getElementById('lib-modal-reasons');
+    reasonsEl.innerHTML = '';
+    (item.reasons || []).forEach(function (r) {
+      const tag = document.createElement('span');
+      tag.className = 'reason-tag';
+      tag.textContent = r;
+      reasonsEl.appendChild(tag);
+    });
+
+    // Genre chips
+    const genresEl = document.getElementById('lib-modal-genres');
     genresEl.innerHTML = '';
-    (item.genres || []).forEach(function (g) {
+    (item.genres || []).slice(0, 5).forEach(function (g) {
       const chip = document.createElement('span');
-      chip.className = 'modal-genre-chip';
+      chip.className = 'genre-tag';
       chip.textContent = g;
       genresEl.appendChild(chip);
     });
 
-    // Summary
-    document.getElementById('modal-summary').textContent = item.summary || '';
+    // Overview / Summary
+    document.getElementById('lib-modal-overview').textContent = item.summary || '';
 
     // Credits
-    const creditsEl = document.getElementById('modal-credits');
+    const creditsEl = document.getElementById('lib-modal-credits');
     creditsEl.innerHTML = '';
     if (item.directors && item.directors.length) {
       const d = document.createElement('div');
-      d.className = 'modal-credit-row';
-      d.innerHTML = '<span class="modal-credit-label">Director</span> '
-        + escHtml(item.directors.join(', '));
+      d.className = 'detail-credit-row';
+      d.innerHTML = '<span class="detail-credit-label">Director:</span> ' + escHtml(item.directors.join(', '));
       creditsEl.appendChild(d);
     }
     if (item.cast && item.cast.length) {
       const c = document.createElement('div');
-      c.className = 'modal-credit-row';
-      c.innerHTML = '<span class="modal-credit-label">Cast</span> '
-        + escHtml(item.cast.slice(0, 6).join(', '));
+      c.className = 'detail-credit-row';
+      c.innerHTML = '<span class="detail-credit-label">Cast:</span> ' + escHtml(item.cast.slice(0, 6).join(', '));
       creditsEl.appendChild(c);
+    }
+    if (item.studio) {
+      const s = document.createElement('div');
+      s.className = 'detail-credit-row';
+      s.innerHTML = '<span class="detail-credit-label">Studio:</span> ' + escHtml(item.studio);
+      creditsEl.appendChild(s);
     }
 
     // Actions
-    const actionsEl = document.getElementById('modal-actions');
+    const actionsEl = document.getElementById('lib-modal-actions');
     actionsEl.innerHTML = '';
 
     const wlBtn = document.createElement('button');
@@ -153,7 +190,6 @@
     wlBtn.textContent = item.isInWatchlist ? '✓ In Watchlist' : '+ Watchlist';
     wlBtn.addEventListener('click', function () {
       window.Watchlist.toggle(wlBtn, item);
-      // Sync state back to card in the grid
       const card = document.querySelector('[data-rating-key="' + item.ratingKey + '"]');
       if (card) {
         const cardWlBtn = card.querySelector('.btn-watchlist');
@@ -175,7 +211,32 @@
     });
     actionsEl.appendChild(dismissBtn);
 
+    // Trailer — lazy fetch, autoplay muted
+    const trailerEl = document.getElementById('lib-modal-trailer');
+    if (trailerEl) {
+      trailerEl.innerHTML = '';
+      trailerEl.classList.remove('active');
+      if (item.tmdbId) {
+        const mediaType = item.type === 'movie' ? 'movie' : 'tv';
+        fetch('/api/trailer?tmdbId=' + item.tmdbId + '&mediaType=' + mediaType)
+          .then(r => r.json())
+          .then(data => {
+            if (!data.trailerKey || !trailerEl.isConnected) return;
+            const iframe = document.createElement('iframe');
+            iframe.src = 'https://www.youtube.com/embed/' + data.trailerKey +
+              '?autoplay=1&mute=1&rel=0&modestbranding=1&playsinline=1';
+            iframe.setAttribute('allow', 'autoplay; encrypted-media; fullscreen');
+            iframe.setAttribute('allowfullscreen', '');
+            trailerEl.innerHTML = '';
+            trailerEl.appendChild(iframe);
+            trailerEl.classList.add('active');
+          })
+          .catch(() => {});
+      }
+    }
+
     modalEl.classList.add('open');
+    modalEl.setAttribute('aria-hidden', 'false');
     document.body.style.overflow = 'hidden';
   }
 

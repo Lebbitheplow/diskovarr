@@ -121,6 +121,7 @@ function getExploreDismissedIds(userId) {
   "ALTER TABLE library_items ADD COLUMN audience_rating_image TEXT DEFAULT ''",
   "ALTER TABLE library_items ADD COLUMN studio TEXT DEFAULT ''",
   'ALTER TABLE library_items ADD COLUMN tmdb_id TEXT DEFAULT NULL',
+  'ALTER TABLE library_items ADD COLUMN art TEXT DEFAULT NULL',
 ].forEach(sql => { try { db.exec(sql); } catch (e) { if (!e.message.includes('duplicate column')) throw e; } });
 
 // User ratings table (Plex star ratings, per user)
@@ -137,17 +138,17 @@ db.exec(`
 
 const stmtUpsertItem = db.prepare(`
   INSERT OR REPLACE INTO library_items
-    (rating_key, section_id, title, year, thumb, type, genres, directors, cast,
+    (rating_key, section_id, title, year, thumb, art, type, genres, directors, cast,
      audience_rating, content_rating, added_at, summary, synced_at,
      rating, rating_image, audience_rating_image, studio, tmdb_id)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
 
 function upsertManyItems(items) {
   withTransaction(() => {
     for (const item of items) {
       stmtUpsertItem.run(
-        item.ratingKey, item.sectionId, item.title, item.year, item.thumb, item.type,
+        item.ratingKey, item.sectionId, item.title, item.year, item.thumb, item.art || null, item.type,
         JSON.stringify(item.genres), JSON.stringify(item.directors), JSON.stringify(item.cast),
         item.audienceRating, item.contentRating, item.addedAt, item.summary,
         Math.floor(Date.now() / 1000),
@@ -165,6 +166,7 @@ function rowToItem(r) {
     title: r.title,
     year: r.year,
     thumb: r.thumb,
+    art: r.art || null,
     type: r.type,
     genres: JSON.parse(r.genres || '[]'),
     directors: JSON.parse(r.directors || '[]'),
