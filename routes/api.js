@@ -373,7 +373,11 @@ router.post('/request', async (req, res) => {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
         },
-        body: JSON.stringify({ mediaType, mediaId: Number(tmdbId) }),
+        body: JSON.stringify({
+          mediaType,
+          mediaId: Number(tmdbId),
+          ...(mediaType === 'tv' ? { seasons: 'all' } : {}),
+        }),
         signal: AbortSignal.timeout(10000),
       });
       if (!r.ok) {
@@ -450,6 +454,11 @@ router.post('/request', async (req, res) => {
       if (!qualityProfileId || !rootFolderPath) {
         return res.status(500).json({ error: 'Could not determine Sonarr quality profile or root folder' });
       }
+      const externalIds = await tmdbService.tmdbFetchPublic(`/tv/${tmdbId}/external_ids`).catch(() => ({}));
+      const tvdbId = externalIds?.tvdb_id;
+      if (!tvdbId) {
+        return res.status(400).json({ error: 'Could not resolve TVDB ID for this show. TMDB may not have a TVDB mapping yet.' });
+      }
       const r = await fetch(`${c.sonarrUrl.replace(/\/$/, '')}/api/v3/series`, {
         method: 'POST',
         headers: {
@@ -457,15 +466,13 @@ router.post('/request', async (req, res) => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          tvdbId: 0, // Sonarr v4 accepts tmdbId lookup, fallback gracefully
+          tvdbId,
           title: title || '',
           qualityProfileId,
           languageProfileId,
           rootFolderPath,
           monitored: true,
           addOptions: { searchForMissingEpisodes: true },
-          // Sonarr v4 supports tmdbId directly
-          ...(Number(tmdbId) ? { tmdbId: Number(tmdbId) } : {}),
         }),
         signal: AbortSignal.timeout(10000),
       });
