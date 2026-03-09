@@ -35,7 +35,7 @@ function isRealGenre(g) {
  */
 function scoreTmdbItem(item, profile) {
   const { genreWeights, directorWeights, actorWeights, studioWeights, decadeWeights,
-          keywordWeights, collectionWeights, tmdbSimilarMap,
+          keywordWeights, collectionWeights, tmdbSimilarMap, interestSimilarMap, dismissalProfile,
           directorTriggers, actorTriggers, studioTriggers } = profile;
 
   const signals = [];
@@ -53,6 +53,17 @@ function scoreTmdbItem(item, profile) {
           : `Similar to ${entry.sourceTitle}`;
         signals.push({ pts: similarPts, reason, type: 'similar' });
       }
+    }
+  }
+
+  // ── Interest signals (watchlist + request seeds, max 14pts) ─────────────
+  // Lighter than watch-history signals — user hasn't seen the source yet.
+  let interestSimilarPts = 0;
+  if (interestSimilarMap && item.tmdbId) {
+    const entry = interestSimilarMap.get(Number(item.tmdbId));
+    if (entry) {
+      interestSimilarPts = 14;
+      signals.push({ pts: interestSimilarPts, reason: `Because you're interested in ${entry.sourceTitle}`, type: 'similar' });
     }
   }
 
@@ -161,7 +172,17 @@ function scoreTmdbItem(item, profile) {
     signals.push({ pts: ratingBonus, reason: 'Highly Rated', type: 'rating' });
   }
 
-  const score = similarPts + dirPts + actPts + kwPts + collectionPts + genrePts + studioPts + decadePts + ratingBonus;
+  // ── Dismissal penalty (max -20pts) ───────────────────────────────────────
+  let dismissPenalty = 0;
+  if (dismissalProfile) {
+    const { genreWeights: dgw, directorWeights: ddw, actorWeights: daw } = dismissalProfile;
+    for (const g of (item.genres || []))           dismissPenalty += (dgw.get(g) || 0) * 2;
+    for (const d of (item.directors || []))        dismissPenalty += (ddw.get(d) || 0) * 3;
+    for (const a of (item.cast || []).slice(0, 5)) dismissPenalty += (daw.get(a) || 0) * 2;
+    dismissPenalty = Math.min(dismissPenalty, 8);
+  }
+
+  const score = similarPts + interestSimilarPts + dirPts + actPts + kwPts + collectionPts + genrePts + studioPts + decadePts + ratingBonus - dismissPenalty;
 
   signals.sort((a, b) => {
     const ra = SIGNAL_TYPE_RANK[a.type] ?? 50;
@@ -359,6 +380,18 @@ async function buildDiscoverPools(userId, userToken) {
         ];
       }),
     ];
+  }
+
+  // 3b. Interest seeds: TMDB recs for watchlisted items + recent requests
+  // Items the user has explicitly shown interest in act as additional seed sources.
+  // Uses the interestSimilarMap built in buildPreferenceProfile (already cached).
+  let interestSeedPromises = [];
+  if (profile?.interestSimilarMap?.size) {
+    // The interestSimilarMap already contains the recommended tmdbIds — add them directly
+    for (const [tmdbId, entry] of profile.interestSimilarMap) {
+      addCandidate(tmdbId, entry.mediaType || 'movie', null, null);
+    }
+    console.log(`[discoverRec] Added ${profile.interestSimilarMap.size} interest-seeded candidates for user ${userId}`);
   }
 
   // 4. Trending movies + TV (5 pages each)

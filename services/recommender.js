@@ -162,32 +162,144 @@ async function buildPreferenceProfile(userId, libraryMap) {
   const similarSeeds = seedsWithImportance.slice(0, 20).map(s => s.item);
   const seedImportanceMap = new Map(seedsWithImportance.map(s => [s.item.ratingKey, s.importance]));
 
+  // ── Interest seeds: watchlisted + requested items not yet watched ───────────
+  // These give the "Because you're interested in [X]" signal.
+  const watchedFromDb = db.getWatchedKeysFromDb(userId);
+  const watchlistRatingKeys = db.getWatchlistFromDb(userId); // array of ratingKeys
+  const recentRequests = db.getRecentRequests(userId, 15);   // [{tmdb_id, media_type, title}]
+
+  // Build tmdbId→ratingKey map for checking if a requested item has since been watched
+  const tmdbToRatingKey = new Map();
+  for (const [ratingKey, item] of libraryMap) {
+    if (item.tmdbId) tmdbToRatingKey.set(String(item.tmdbId), ratingKey);
+  }
+
+  // Watchlisted library items not yet watched (capped at 10)
+  const interestLibSeeds = watchlistRatingKeys
+    .filter(key => !watchedFromDb.has(key))
+    .map(key => libraryMap.get(key))
+    .filter(Boolean)
+    .slice(0, 10);
+
+  // Requested external items not yet watched in the library (capped at 8)
+  const interestReqSeeds = recentRequests.filter(r => {
+    const libKey = tmdbToRatingKey.get(String(r.tmdb_id));
+    return !(libKey && watchedFromDb.has(libKey));
+  }).slice(0, 8);
+
+  // ── Dismissal penalty profile ─────────────────────────────────────────────
+  // Extract genre/director/actor patterns from items the user has dismissed
+  // so content similar to those patterns gets down-ranked.
+  const dismissalPenaltyGenres    = new Map();
+  const dismissalPenaltyDirs      = new Map();
+  const dismissalPenaltyActors    = new Map();
+  for (const key of db.getDismissals(userId)) {
+    const item = libraryMap.get(key);
+    if (!item) continue;
+    for (const g of item.genres)    dismissalPenaltyGenres.set(g,  (dismissalPenaltyGenres.get(g)  || 0) + 1);
+    for (const d of item.directors) dismissalPenaltyDirs.set(d,    (dismissalPenaltyDirs.get(d)    || 0) + 1);
+    for (const a of item.cast)      dismissalPenaltyActors.set(a,  (dismissalPenaltyActors.get(a)  || 0) + 1);
+  }
+  const dismissalProfile = {
+    genreWeights:    normalizeMap(dismissalPenaltyGenres),
+    directorWeights: normalizeMap(dismissalPenaltyDirs),
+    actorWeights:    normalizeMap(dismissalPenaltyActors),
+  };
+
   const tmdbSimilarMap = new Map();
-  await Promise.all(similarSeeds.map(async item => {
-    const mt = item.type === 'movie' ? 'movie' : 'tv';
-    const seedWeight = seedImportanceMap.get(item.ratingKey) || 1;
-    const [recs, similar] = await Promise.all([
-      tmdbService.getRecommendations(item.tmdbId, mt).catch(() => []),
-      tmdbService.getSimilar(item.tmdbId, mt).catch(() => []),
-    ]);
-    // Recommendations get "watchers liked" label; similar gets "Similar to"
-    const recSet = new Set(recs.map(r => Number(r.tmdbId)));
-    for (const r of [...recs, ...similar]) {
-      const rid = Number(r.tmdbId);
-      const fromRec = recSet.has(rid);
-      const existing = tmdbSimilarMap.get(rid);
-      if (existing) {
-        existing.weight += seedWeight;
-        if (seedWeight > (existing._bestWeight || 0)) {
-          existing.sourceTitle = item.title;
-          existing.fromRec = fromRec;
-          existing._bestWeight = seedWeight;
+  const plexRelatedMap = new Map(); // ratingKey (string) -> { sourceTitle, weight }
+  const interestSimilarMap     = new Map(); // numericTmdbId -> { sourceTitle, mediaType }
+  const interestPlexRelatedMap = new Map(); // ratingKey (string) -> { sourceTitle }
+
+  await Promise.all([
+    // TMDB recommendations + similar
+    Promise.all(similarSeeds.map(async item => {
+      const mt = item.type === 'movie' ? 'movie' : 'tv';
+      const seedWeight = seedImportanceMap.get(item.ratingKey) || 1;
+      const [recs, similar] = await Promise.all([
+        tmdbService.getRecommendations(item.tmdbId, mt).catch(() => []),
+        tmdbService.getSimilar(item.tmdbId, mt).catch(() => []),
+      ]);
+      // Recommendations get "watchers liked" label; similar gets "Similar to"
+      const recSet = new Set(recs.map(r => Number(r.tmdbId)));
+      for (const r of [...recs, ...similar]) {
+        const rid = Number(r.tmdbId);
+        const fromRec = recSet.has(rid);
+        const existing = tmdbSimilarMap.get(rid);
+        if (existing) {
+          existing.weight += seedWeight;
+          if (seedWeight > (existing._bestWeight || 0)) {
+            existing.sourceTitle = item.title;
+            existing.fromRec = fromRec;
+            existing._bestWeight = seedWeight;
+          }
+        } else {
+          tmdbSimilarMap.set(rid, { weight: seedWeight, sourceTitle: item.title, fromRec, _bestWeight: seedWeight });
         }
-      } else {
-        tmdbSimilarMap.set(rid, { weight: seedWeight, sourceTitle: item.title, fromRec, _bestWeight: seedWeight });
       }
-    }
-  }));
+    })),
+
+    // Plex /related — surfaces unwatched library items Plex considers related
+    // to watched seeds. All hub types used; labeled "[sourceTitle] watchers liked".
+    Promise.all(similarSeeds.slice(0, 12).map(async seedItem => {
+      const seedWeight = seedImportanceMap.get(seedItem.ratingKey) || 1;
+      const hubs = await plexService.getRelated(seedItem.ratingKey).catch(() => []);
+      for (const hub of hubs) {
+        for (const relItem of hub.items) {
+          const key = String(relItem.ratingKey);
+          if (key === String(seedItem.ratingKey)) continue; // skip the seed itself
+          const existing = plexRelatedMap.get(key);
+          if (existing) {
+            existing.weight += seedWeight;
+            if (seedWeight > (existing._bestWeight || 0)) {
+              existing.sourceTitle = seedItem.title;
+              existing._bestWeight = seedWeight;
+            }
+          } else {
+            plexRelatedMap.set(key, { sourceTitle: seedItem.title, weight: seedWeight, _bestWeight: seedWeight });
+          }
+        }
+      }
+    })),
+
+    // ── Interest: TMDB recs from watchlisted library items ───────────────────
+    Promise.all(interestLibSeeds.filter(i => i.tmdbId).map(async item => {
+      const mt = item.type === 'movie' ? 'movie' : 'tv';
+      const recs = await tmdbService.getRecommendations(item.tmdbId, mt).catch(() => []);
+      for (const r of recs) {
+        const rid = Number(r.tmdbId);
+        if (!interestSimilarMap.has(rid)) {
+          interestSimilarMap.set(rid, { sourceTitle: item.title, mediaType: mt });
+        }
+      }
+    })),
+
+    // ── Interest: TMDB recs from requested external items ────────────────────
+    Promise.all(interestReqSeeds.map(async req => {
+      const mt = req.media_type === 'tv' ? 'tv' : 'movie';
+      const recs = await tmdbService.getRecommendations(Number(req.tmdb_id), mt).catch(() => []);
+      for (const r of recs) {
+        const rid = Number(r.tmdbId);
+        if (!interestSimilarMap.has(rid)) {
+          interestSimilarMap.set(rid, { sourceTitle: req.title, mediaType: mt });
+        }
+      }
+    })),
+
+    // ── Interest: Plex /related from watchlisted library items ───────────────
+    Promise.all(interestLibSeeds.slice(0, 6).map(async seedItem => {
+      const hubs = await plexService.getRelated(seedItem.ratingKey).catch(() => []);
+      for (const hub of hubs) {
+        for (const relItem of hub.items) {
+          const key = String(relItem.ratingKey);
+          if (key === String(seedItem.ratingKey)) continue;
+          if (!interestPlexRelatedMap.has(key)) {
+            interestPlexRelatedMap.set(key, { sourceTitle: seedItem.title });
+          }
+        }
+      }
+    })),
+  ]);
 
   for (const entry of history) {
     const item = libraryMap.get(entry.rating_key);
@@ -271,6 +383,10 @@ async function buildPreferenceProfile(userId, libraryMap) {
     keywordIdWeights,
     collectionWeights: normalizeMap(collectionWeights),
     tmdbSimilarMap,
+    plexRelatedMap,
+    interestSimilarMap,
+    interestPlexRelatedMap,
+    dismissalProfile,
     directorTriggers,
     actorTriggers,
     studioTriggers,
@@ -302,7 +418,8 @@ function scoreItem(item, profile, dismissedKeys, watchedKeys, tmdbEnrich) {
   if (watchedKeys.has(item.ratingKey)) return null;
 
   const { genreWeights, directorWeights, actorWeights, studioWeights, decadeWeights,
-          keywordWeights, collectionWeights, tmdbSimilarMap,
+          keywordWeights, collectionWeights, tmdbSimilarMap, plexRelatedMap,
+          interestSimilarMap, interestPlexRelatedMap, dismissalProfile,
           directorTriggers, actorTriggers, studioTriggers } = profile;
 
   const signals = []; // { pts, reason, type }
@@ -324,6 +441,44 @@ function scoreItem(item, profile, dismissedKeys, watchedKeys, tmdbEnrich) {
           : `Similar to ${entry.sourceTitle}`;
         signals.push({ pts: similarPts, reason, type: 'similar' });
       }
+    }
+  }
+
+  // ── Plex /related (max 30pts) ────────────────────────────────────────────
+  // Library items returned by Plex's own /related hubs for items the user has watched.
+  // Labelled "[sourceTitle] watchers liked" since Plex curates these as related picks.
+  let plexRelatedPts = 0;
+  if (plexRelatedMap) {
+    const entry = plexRelatedMap.get(item.ratingKey);
+    if (entry) {
+      plexRelatedPts = Math.min(entry.weight * 7, 30);
+      if (plexRelatedPts > 3) {
+        signals.push({ pts: plexRelatedPts, reason: `${entry.sourceTitle} watchers liked`, type: 'similar' });
+      }
+    }
+  }
+
+  // ── Interest signals (watchlist + request seeds, max 14pts) ─────────────
+  // Items TMDB recommends based on things the user has watchlisted or requested.
+  // Intentionally lighter than watch-history signals (user hasn't seen these yet)
+  // — enough to surface relevant results but won't crowd out director/actor/etc.
+  let interestSimilarPts = 0;
+  if (interestSimilarMap && numericTmdbId) {
+    const entry = interestSimilarMap.get(numericTmdbId);
+    if (entry) {
+      interestSimilarPts = 14;
+      signals.push({ pts: interestSimilarPts, reason: `Because you're interested in ${entry.sourceTitle}`, type: 'similar' });
+    }
+  }
+
+  // Plex /related for watchlisted items — library items Plex considers related
+  // to something the user has explicitly added to their watchlist.
+  let interestPlexRelatedPts = 0;
+  if (interestPlexRelatedMap && !interestSimilarPts) {
+    const entry = interestPlexRelatedMap.get(item.ratingKey);
+    if (entry) {
+      interestPlexRelatedPts = 11;
+      signals.push({ pts: interestPlexRelatedPts, reason: `Because you're interested in ${entry.sourceTitle}`, type: 'similar' });
     }
   }
 
@@ -448,7 +603,21 @@ function scoreItem(item, profile, dismissedKeys, watchedKeys, tmdbEnrich) {
   const newBonus = (item.addedAt && item.addedAt > sevenDaysAgo) ? 3 : 0;
   if (newBonus) signals.push({ pts: newBonus, reason: 'Recently Added', type: 'new' });
 
-  const score = similarPts + dirPts + actPts + kwPts + collectionPts + genrePts + studioPts + decadePts + ratingBonus + newBonus;
+  // ── Dismissal penalty (max -20pts) ───────────────────────────────────────
+  // Down-rank content whose genres/directors/actors match patterns from dismissed items.
+  // This doesn't exclude the item — it just lowers its score relative to others.
+  let dismissPenalty = 0;
+  if (dismissalProfile) {
+    const { genreWeights: dgw, directorWeights: ddw, actorWeights: daw } = dismissalProfile;
+    for (const g of item.genres)           dismissPenalty += (dgw.get(g) || 0) * 2;
+    for (const d of item.directors)        dismissPenalty += (ddw.get(d) || 0) * 3;
+    for (const a of item.cast.slice(0, 5)) dismissPenalty += (daw.get(a) || 0) * 2;
+    dismissPenalty = Math.min(dismissPenalty, 8);
+  }
+
+  const score = similarPts + plexRelatedPts + interestSimilarPts + interestPlexRelatedPts +
+                dirPts + actPts + kwPts + collectionPts + genrePts + studioPts + decadePts +
+                ratingBonus + newBonus - dismissPenalty;
 
   // Sort signals: specific signals (director/actor/studio/rating) always before genre,
   // so "Because you like Comedy" never crowds out "Directed by X" or "Starring Y"

@@ -252,6 +252,7 @@ const CONNECTION_KEYS = [
   'overseerr_url', 'overseerr_api_key', 'overseerr_enabled',
   'radarr_url', 'radarr_api_key', 'radarr_enabled', 'radarr_quality_profile_id',
   'sonarr_url', 'sonarr_api_key', 'sonarr_enabled', 'sonarr_quality_profile_id',
+  'default_request_service',
 ];
 
 router.post('/connections/save', requireAdmin, (req, res) => {

@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/style.css">
-  <link rel="stylesheet" href="/css/admin.css?v=8">
+  <link rel="stylesheet" href="/css/admin.css?v=9">
   <link rel="stylesheet" href="/theme.css?c=<%= themeParam %>" id="theme-css">
 </head>
 <body>
@@ -368,12 +368,36 @@
           </div>
         </div>
 
+        <!-- Default request service toggle — only shown when both sides are configured -->
+        <% const hasBothSides = connections.overseerrEnabled && connections.overseerrUrl &&
+             ((connections.radarrEnabled && connections.radarrUrl) || (connections.sonarrEnabled && connections.sonarrUrl)); %>
+        <div class="conn-block" id="default-service-block" style="<%= hasBothSides ? '' : 'display:none' %>">
+          <div class="conn-block-header" style="border-bottom:none;padding-bottom:0">
+            <div class="conn-block-meta">
+              <span class="conn-block-name">Default app for requests</span>
+              <span class="conn-block-desc" id="default-service-desc">
+                <%= (connections.defaultRequestService === 'direct') ? 'Sonarr/Radarr is the default' : 'Overseerr is the default' %>
+              </span>
+            </div>
+            <div class="conn-toggle-wrap" style="gap:10px;align-items:center">
+              <span style="font-size:0.8rem;color:var(--text-secondary)">Overseerr</span>
+              <label class="slide-toggle">
+                <input type="checkbox" id="toggle-default-service"
+                  <%= (connections.defaultRequestService === 'direct') ? 'checked' : '' %>
+                  onchange="onDefaultServiceChange(this.checked)">
+                <span class="slide-track"></span>
+              </label>
+              <span style="font-size:0.8rem;color:var(--text-secondary)">Sonarr/Radarr</span>
+            </div>
+          </div>
+        </div>
+
         <!-- Overseerr -->
         <div class="conn-block">
           <div class="conn-block-header">
             <div class="conn-block-meta">
               <span class="conn-block-name">Overseerr</span>
-              <span class="conn-block-desc">Media request management — preferred request service</span>
+              <span class="conn-block-desc">Media request management</span>
             </div>
             <div class="conn-toggle-wrap">
               <span class="conn-toggle-label" id="lbl-overseerr"><%= connections.overseerrEnabled ? 'Enabled' : 'Disabled' %></span>
@@ -818,11 +842,21 @@
         var lbl = document.getElementById('lbl-' + service);
         if (lbl) lbl.textContent = checked ? 'Enabled' : 'Disabled';
         showToast(name + (checked ? ' enabled' : ' disabled'));
+        // Show/hide default service block when relevant toggles change
+        if (['overseerr', 'radarr', 'sonarr'].includes(service)) refreshDefaultServiceBlock();
       } else {
         // Revert toggle
         toggle.checked = !checked;
         showToast('Save failed', true);
       }
+    }
+
+    function refreshDefaultServiceBlock() {
+      var osOn  = document.getElementById('toggle-overseerr')?.checked && document.getElementById('conn-overseerr-url')?.value;
+      var rrOn  = document.getElementById('toggle-radarr')?.checked   && document.getElementById('conn-radarr-url')?.value;
+      var snOn  = document.getElementById('toggle-sonarr')?.checked   && document.getElementById('conn-sonarr-url')?.value;
+      var block = document.getElementById('default-service-block');
+      if (block) block.style.display = (osOn && (rrOn || snOn)) ? '' : 'none';
     }
 
     // ── Password field eye / copy ───────────────────────────────────
@@ -933,6 +967,19 @@
         body: JSON.stringify(payload),
       }).then(r => r.json());
       showToast(d.message, !d.ok);
+    }
+
+    // ── Default request service toggle ──────────────────────────
+    async function onDefaultServiceChange(isDirect) {
+      var value = isDirect ? 'direct' : 'overseerr';
+      var desc = document.getElementById('default-service-desc');
+      desc.textContent = isDirect ? 'Sonarr/Radarr is the default' : 'Overseerr is the default';
+      var d = await fetch('/admin/connections/save', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ default_request_service: value }),
+      }).then(r => r.json());
+      if (d.success) showToast('Default request service saved');
+      else showToast('Save failed', true);
     }
 
     // ── Advanced settings panels ────────────────────────────────

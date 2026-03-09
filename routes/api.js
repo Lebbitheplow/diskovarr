@@ -303,11 +303,13 @@ router.delete('/dismiss', (req, res) => {
 // GET /api/explore/services — which request services are enabled
 router.get('/explore/services', (req, res) => {
   const c = db.getConnectionSettings();
-  res.json({
-    overseerr: c.overseerrEnabled && !!c.overseerrUrl,
-    radarr: c.radarrEnabled && !!c.radarrUrl,
-    sonarr: c.sonarrEnabled && !!c.sonarrUrl,
-  });
+  const hasOverseerr = c.overseerrEnabled && !!c.overseerrUrl;
+  const hasRadarr    = c.radarrEnabled    && !!c.radarrUrl;
+  const hasSonarr    = c.sonarrEnabled    && !!c.sonarrUrl;
+  // Default only applies when both sides are configured; otherwise the available service wins
+  const hasBothSides = hasOverseerr && (hasRadarr || hasSonarr);
+  const defaultService = hasBothSides ? (c.defaultRequestService || 'overseerr') : null;
+  res.json({ overseerr: hasOverseerr, radarr: hasRadarr, sonarr: hasSonarr, defaultService });
 });
 
 // GET /api/explore/recommendations
