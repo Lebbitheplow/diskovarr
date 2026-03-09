@@ -177,9 +177,10 @@ function scoreTmdbItem(item, profile) {
  */
 async function getTopWatchedTmdbIds(userId) {
   const history = await tautulliService.getFullHistory(userId);
-  if (!history.length) return { topMovieIds: [], topTvIds: [] };
+  // user_watched is the union of Plex + Tautulli + onDeck — more complete than Tautulli alone
+  const dbWatchedKeys = db.getWatchedKeysFromDb(userId);
 
-  // Count watches per rating key
+  // Count watches per rating key from Tautulli (has recency + frequency data)
   const counts = new Map();
   const latestAt = new Map();
   for (const e of history) {
@@ -188,12 +189,21 @@ async function getTopWatchedTmdbIds(userId) {
     if (e.watched_at > cur) latestAt.set(e.rating_key, e.watched_at);
   }
 
-  // Score: watch count × 1 + recency bonus
+  // Union: user_watched captures items Tautulli may have missed
+  // This catches pre-Tautulli watches, items manually marked as watched in Plex, etc.
+  const allKeys = new Set([...counts.keys(), ...dbWatchedKeys]);
+  if (!allKeys.size) return { topMovieIds: [], topTvIds: [] };
+
+  // Score: Tautulli-known items get count + recency bonus; db-only items get base score of 1
   const now = Math.floor(Date.now() / 1000);
-  const scored = [...counts.entries()].map(([key, count]) => {
-    const agedays = (now - (latestAt.get(key) || 0)) / 86400;
-    const recency = agedays < 30 ? 3 : agedays < 90 ? 2 : agedays < 365 ? 1 : 0;
-    return { key, score: count + recency };
+  const scored = [...allKeys].map(key => {
+    const count = counts.get(key);
+    if (count) {
+      const agedays = (now - (latestAt.get(key) || 0)) / 86400;
+      const recency = agedays < 30 ? 3 : agedays < 90 ? 2 : agedays < 365 ? 1 : 0;
+      return { key, score: count + recency };
+    }
+    return { key, score: 1 };
   }).sort((a, b) => b.score - a.score);
 
   // Look up TMDB IDs from library DB
