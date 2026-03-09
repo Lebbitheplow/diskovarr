@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/style.css">
-  <link rel="stylesheet" href="/css/admin.css?v=7">
+  <link rel="stylesheet" href="/css/admin.css?v=8">
   <link rel="stylesheet" href="/theme.css?c=<%= themeParam %>" id="theme-css">
 </head>
 <body>
@@ -440,6 +440,25 @@
             </div>
             <button class="btn-admin" onclick="testConnection('radarr')">Test</button>
           </div>
+          <div class="conn-advanced-toggle" onclick="toggleAdvanced('radarr')">
+            <span class="conn-advanced-arrow" id="adv-arrow-radarr">▶</span>
+            <span>Advanced Settings</span>
+          </div>
+          <div class="conn-advanced-panel" id="adv-panel-radarr">
+            <div class="conn-advanced-row">
+              <label class="conn-advanced-label" for="radarr-quality-profile">Quality Profile</label>
+              <div class="conn-advanced-field">
+                <select id="radarr-quality-profile" class="conn-select" onchange="">
+                  <option value="">— load profiles —</option>
+                  <% if (connections.radarrQualityProfileId) { %>
+                    <option value="<%= connections.radarrQualityProfileId %>" selected>(saved: id <%= connections.radarrQualityProfileId %>)</option>
+                  <% } %>
+                </select>
+                <button class="btn-admin btn-admin-sm" onclick="loadQualityProfiles('radarr')">Refresh</button>
+                <button class="btn-admin btn-admin-sm btn-admin-save" onclick="saveQualityProfile('radarr')">Save</button>
+              </div>
+            </div>
+          </div>
         </div>
 
         <!-- Sonarr -->
@@ -476,6 +495,25 @@
               </div>
             </div>
             <button class="btn-admin" onclick="testConnection('sonarr')">Test</button>
+          </div>
+          <div class="conn-advanced-toggle" onclick="toggleAdvanced('sonarr')">
+            <span class="conn-advanced-arrow" id="adv-arrow-sonarr">▶</span>
+            <span>Advanced Settings</span>
+          </div>
+          <div class="conn-advanced-panel" id="adv-panel-sonarr">
+            <div class="conn-advanced-row">
+              <label class="conn-advanced-label" for="sonarr-quality-profile">Quality Profile</label>
+              <div class="conn-advanced-field">
+                <select id="sonarr-quality-profile" class="conn-select" onchange="">
+                  <option value="">— load profiles —</option>
+                  <% if (connections.sonarrQualityProfileId) { %>
+                    <option value="<%= connections.sonarrQualityProfileId %>" selected>(saved: id <%= connections.sonarrQualityProfileId %>)</option>
+                  <% } %>
+                </select>
+                <button class="btn-admin btn-admin-sm" onclick="loadQualityProfiles('sonarr')">Refresh</button>
+                <button class="btn-admin btn-admin-sm btn-admin-save" onclick="saveQualityProfile('sonarr')">Save</button>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -895,6 +933,51 @@
         body: JSON.stringify(payload),
       }).then(r => r.json());
       showToast(d.message, !d.ok);
+    }
+
+    // ── Advanced settings panels ────────────────────────────────
+    function toggleAdvanced(service) {
+      var panel = document.getElementById('adv-panel-' + service);
+      var arrow = document.getElementById('adv-arrow-' + service);
+      var open = panel.classList.toggle('open');
+      arrow.textContent = open ? '▼' : '▶';
+      if (open) loadQualityProfiles(service);
+    }
+
+    async function loadQualityProfiles(service) {
+      var select = document.getElementById(service + '-quality-profile');
+      select.disabled = true;
+      select.innerHTML = '<option value="">Loading…</option>';
+      var d = await fetch('/admin/connections/quality-profiles/' + service).then(r => r.json());
+      if (!d.ok) {
+        select.innerHTML = '<option value="">' + (d.message || 'Failed to load') + '</option>';
+        select.disabled = false;
+        return;
+      }
+      var savedId = '<%= connections.radarrQualityProfileId %>';
+      if (service === 'sonarr') savedId = '<%= connections.sonarrQualityProfileId %>';
+      select.innerHTML = '<option value="">— select a profile —</option>' +
+        d.profiles.map(function(p) {
+          var sel = String(p.id) === String(savedId) ? ' selected' : '';
+          return '<option value="' + p.id + '"' + sel + '>' + p.name + '</option>';
+        }).join('');
+      select.disabled = false;
+    }
+
+    async function saveQualityProfile(service) {
+      var select = document.getElementById(service + '-quality-profile');
+      var profileId = select.value;
+      var body = {};
+      body[service + '_quality_profile_id'] = profileId;
+      var d = await fetch('/admin/connections/save', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }).then(r => r.json());
+      if (d.success) {
+        showToast((service === 'radarr' ? 'Radarr' : 'Sonarr') + ' quality profile saved');
+      } else {
+        showToast('Save failed', true);
+      }
     }
 
   </script>

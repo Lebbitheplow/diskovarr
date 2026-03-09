@@ -395,7 +395,10 @@ router.post('/request', async (req, res) => {
       ]);
       const profiles = await profilesRes.json();
       const folders = await foldersRes.json();
-      const qualityProfileId = profiles[0]?.id;
+      const savedProfileId = Number(db.getSetting('radarr_quality_profile_id', '')) || null;
+      const qualityProfileId = (savedProfileId && profiles.some(p => p.id === savedProfileId))
+        ? savedProfileId
+        : profiles[0]?.id;
       const rootFolderPath = folders[0]?.path;
       if (!qualityProfileId || !rootFolderPath) {
         return res.status(500).json({ error: 'Could not determine Radarr quality profile or root folder' });
@@ -438,7 +441,10 @@ router.post('/request', async (req, res) => {
       const profiles = await profilesRes.json();
       const folders = await foldersRes.json();
       const langs = langRes.ok ? await langRes.json() : [];
-      const qualityProfileId = profiles[0]?.id;
+      const savedSonarrProfileId = Number(db.getSetting('sonarr_quality_profile_id', '')) || null;
+      const qualityProfileId = (savedSonarrProfileId && profiles.some(p => p.id === savedSonarrProfileId))
+        ? savedSonarrProfileId
+        : profiles[0]?.id;
       const rootFolderPath = folders[0]?.path;
       const languageProfileId = langs[0]?.id || 1;
       if (!qualityProfileId || !rootFolderPath) {
