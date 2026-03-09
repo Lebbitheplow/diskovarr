@@ -494,9 +494,11 @@ function getConnectionSettings() {
     radarrUrl: getSetting('radarr_url', ''),
     radarrApiKey: getSetting('radarr_api_key', ''),
     radarrEnabled: getSetting('radarr_enabled', '0') === '1',
+    radarrQualityProfileId: getSetting('radarr_quality_profile_id', ''),
     sonarrUrl: getSetting('sonarr_url', ''),
     sonarrApiKey: getSetting('sonarr_api_key', ''),
     sonarrEnabled: getSetting('sonarr_enabled', '0') === '1',
+    sonarrQualityProfileId: getSetting('sonarr_quality_profile_id', ''),
   };
 }
 

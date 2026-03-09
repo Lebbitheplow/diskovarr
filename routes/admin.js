@@ -250,8 +250,8 @@ const CONNECTION_KEYS = [
   'tautulli_url', 'tautulli_api_key',
   'tmdb_api_key', 'discover_enabled',
   'overseerr_url', 'overseerr_api_key', 'overseerr_enabled',
-  'radarr_url', 'radarr_api_key', 'radarr_enabled',
-  'sonarr_url', 'sonarr_api_key', 'sonarr_enabled',
+  'radarr_url', 'radarr_api_key', 'radarr_enabled', 'radarr_quality_profile_id',
+  'sonarr_url', 'sonarr_api_key', 'sonarr_enabled', 'sonarr_quality_profile_id',
 ];
 
 router.post('/connections/save', requireAdmin, (req, res) => {
@@ -333,6 +333,25 @@ router.post('/connections/test/sonarr', requireAdmin, async (req, res) => {
     if (!r.ok) return res.json({ ok: false, message: `Sonarr returned ${r.status}` });
     const data = await r.json();
     res.json({ ok: true, message: `Connected to Sonarr v${data.version || '?'}` });
+  } catch (err) {
+    res.json({ ok: false, message: err.message });
+  }
+});
+
+router.get('/connections/quality-profiles/:service', requireAdmin, async (req, res) => {
+  const { service } = req.params;
+  if (!['radarr', 'sonarr'].includes(service)) return res.status(400).json({ ok: false, message: 'Invalid service' });
+  const url = db.getSetting(`${service}_url`, '');
+  const apiKey = db.getSetting(`${service}_api_key`, '');
+  if (!url || !apiKey) return res.json({ ok: false, message: 'Service not configured — save URL and API key first' });
+  try {
+    const r = await fetch(`${url.replace(/\/$/, '')}/api/v3/qualityprofile`, {
+      headers: { 'X-Api-Key': apiKey, 'Accept': 'application/json' },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!r.ok) return res.json({ ok: false, message: `${service} returned ${r.status}` });
+    const profiles = await r.json();
+    res.json({ ok: true, profiles: profiles.map(p => ({ id: p.id, name: p.name })) });
   } catch (err) {
     res.json({ ok: false, message: err.message });
   }
