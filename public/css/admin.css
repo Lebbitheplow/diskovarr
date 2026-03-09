@@ -521,6 +521,87 @@
   align-items: center;
 }
 
+/* ── Advanced settings panel ─────────────────────────────────── */
+
+.conn-advanced-toggle {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 14px;
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+  width: fit-content;
+}
+
+.conn-advanced-toggle:hover { color: var(--text-secondary); }
+
+.conn-advanced-arrow {
+  font-size: 0.6rem;
+  transition: transform 0.2s;
+}
+
+.conn-advanced-panel {
+  display: none;
+  margin-top: 12px;
+  padding: 14px 16px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+
+.conn-advanced-panel.open { display: block; }
+
+.conn-advanced-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.conn-advanced-label {
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  min-width: 110px;
+  flex-shrink: 0;
+}
+
+.conn-advanced-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  flex-wrap: wrap;
+}
+
+.conn-select {
+  flex: 1;
+  min-width: 180px;
+  padding: 8px 14px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  font-family: inherit;
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.conn-select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+.btn-admin-sm {
+  padding: 6px 14px;
+  font-size: 0.78rem;
+}
+
 /* ── Styled text inputs ──────────────────────────────────────── */
 
 .conn-input {
