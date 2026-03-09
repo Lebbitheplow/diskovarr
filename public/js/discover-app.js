@@ -387,6 +387,7 @@
     var card = document.createElement('div');
     card.className = 'card explore-card';
     card.dataset.tmdbId = item.tmdbId;
+    if (item.adult) card.dataset.adult = 'true';
 
     // Poster container — same aspect-ratio structure as home cards so card-info is visible
     var posterWrap = document.createElement('div');
@@ -531,6 +532,7 @@
     slice.forEach(function (item) {
       grid.appendChild(renderCard(item));
     });
+    applyMatureFilter();
   }
 
   function updateControls(sectionId, section) {
@@ -642,7 +644,7 @@
   async function fetchAndRender(shuffle) {
     if (shuffle) showSkeletons();
     try {
-      var url = '/api/explore/recommendations' + (isMatureEnabled() ? '?mature=true' : '');
+      var url = '/api/explore/recommendations?mature=true';
       var r = await fetch(url);
       var data = await r.json();
 
@@ -678,14 +680,20 @@
     }
   }
 
+  function applyMatureFilter() {
+    var show = isMatureEnabled();
+    document.querySelectorAll('.explore-card[data-adult="true"]').forEach(function (card) {
+      card.style.display = show ? '' : 'none';
+    });
+  }
+
   document.addEventListener('DOMContentLoaded', function () {
     var toggle = document.getElementById('mature-toggle');
     if (toggle) {
       toggle.checked = isMatureEnabled();
       toggle.addEventListener('change', function () {
         localStorage.setItem('matureEnabled', toggle.checked ? 'true' : 'false');
-        showSkeletons();
-        fetchAndRender(false);
+        applyMatureFilter();
       });
     }
     fetchAndRender(false);
