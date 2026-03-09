@@ -266,7 +266,15 @@
     if (item.year) metaParts.push(item.year);
     metaParts.push(item.mediaType === 'movie' ? 'Movie' : (item.isAnime ? 'Anime' : 'TV Show'));
     if (item.voteAverage && item.voteAverage > 0) metaParts.push('★ ' + item.voteAverage.toFixed(1));
-    document.getElementById('detail-modal-meta').textContent = metaParts.join(' · ');
+    var metaEl = document.getElementById('detail-modal-meta');
+    metaEl.textContent = metaParts.join(' · ');
+    if (item.contentRating) {
+      var ratingBadge = document.createElement('span');
+      ratingBadge.className = 'content-rating-badge rating-' + item.contentRating.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase();
+      ratingBadge.textContent = item.contentRating;
+      metaEl.appendChild(document.createTextNode(' · '));
+      metaEl.appendChild(ratingBadge);
+    }
 
     // Reason tags (why it's recommended)
     var reasonsEl = document.getElementById('detail-modal-reasons');

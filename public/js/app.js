@@ -100,8 +100,15 @@
     const metaParts = [];
     if (item.year) metaParts.push(item.year);
     if (item.type) metaParts.push(item.type === 'movie' ? 'Movie' : 'TV Show');
-    if (item.contentRating) metaParts.push(item.contentRating);
-    document.getElementById('lib-modal-meta').textContent = metaParts.join(' · ');
+    const metaEl = document.getElementById('lib-modal-meta');
+    metaEl.textContent = metaParts.join(' · ');
+    if (item.contentRating) {
+      const badge = document.createElement('span');
+      badge.className = 'content-rating-badge rating-' + item.contentRating.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase();
+      badge.textContent = item.contentRating;
+      metaEl.appendChild(document.createTextNode(' · '));
+      metaEl.appendChild(badge);
+    }
 
     // Ratings (RT badges)
     const ratingsEl = document.getElementById('lib-modal-ratings');

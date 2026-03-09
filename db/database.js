@@ -140,6 +140,13 @@ db.exec(`CREATE TABLE IF NOT EXISTS migrations (name TEXT PRIMARY KEY, ran_at IN
       db.prepare('DELETE FROM discover_pool_cache').run();
     },
   },
+  {
+    name: 'content_rating_field_v1',
+    sql: () => {
+      db.prepare('DELETE FROM tmdb_cache').run();
+      db.prepare('DELETE FROM discover_pool_cache').run();
+    },
+  },
 ].forEach(({ name, sql }) => {
   const already = db.prepare('SELECT 1 FROM migrations WHERE name = ?').get(name);
   if (!already) {
