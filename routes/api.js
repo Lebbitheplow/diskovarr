@@ -395,7 +395,10 @@ router.post('/request', async (req, res) => {
       ]);
       const profiles = await profilesRes.json();
       const folders = await foldersRes.json();
-      const qualityProfileId = profiles[0]?.id;
+      const savedRadarrProfileId = Number(db.getSetting('radarr_quality_profile_id', '')) || null;
+      const qualityProfileId = (savedRadarrProfileId && profiles.some(p => p.id === savedRadarrProfileId))
+        ? savedRadarrProfileId
+        : profiles[0]?.id;
       const rootFolderPath = folders[0]?.path;
       if (!qualityProfileId || !rootFolderPath) {
         return res.status(500).json({ error: 'Could not determine Radarr quality profile or root folder' });
@@ -438,11 +441,19 @@ router.post('/request', async (req, res) => {
       const profiles = await profilesRes.json();
       const folders = await foldersRes.json();
       const langs = langRes.ok ? await langRes.json() : [];
-      const qualityProfileId = profiles[0]?.id;
+      const savedSonarrProfileId = Number(db.getSetting('sonarr_quality_profile_id', '')) || null;
+      const qualityProfileId = (savedSonarrProfileId && profiles.some(p => p.id === savedSonarrProfileId))
+        ? savedSonarrProfileId
+        : profiles[0]?.id;
       const rootFolderPath = folders[0]?.path;
       const languageProfileId = langs[0]?.id || 1;
       if (!qualityProfileId || !rootFolderPath) {
         return res.status(500).json({ error: 'Could not determine Sonarr quality profile or root folder' });
+      }
+      const externalIds = await tmdbService.tmdbFetchPublic(`/tv/${tmdbId}/external_ids`).catch(() => ({}));
+      const tvdbId = externalIds?.tvdb_id;
+      if (!tvdbId) {
+        return res.status(400).json({ error: 'Could not resolve TVDB ID for this show. TMDB may not have a TVDB mapping yet.' });
       }
       const r = await fetch(`${c.sonarrUrl.replace(/\/$/, '')}/api/v3/series`, {
         method: 'POST',
@@ -451,15 +462,13 @@ router.post('/request', async (req, res) => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          tvdbId: 0, // Sonarr v4 accepts tmdbId lookup, fallback gracefully
+          tvdbId,
           title: title || '',
           qualityProfileId,
           languageProfileId,
           rootFolderPath,
           monitored: true,
           addOptions: { searchForMissingEpisodes: true },
-          // Sonarr v4 supports tmdbId directly
-          ...(Number(tmdbId) ? { tmdbId: Number(tmdbId) } : {}),
         }),
         signal: AbortSignal.timeout(10000),
       });
