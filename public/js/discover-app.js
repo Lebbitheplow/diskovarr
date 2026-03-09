@@ -92,14 +92,64 @@
 
     var isMovie = item.mediaType === 'movie';
     var s = cfg.services;
-    var overseerr = s.overseerr;
-    var relevant = isMovie ? s.radarr : s.sonarr;
-    var serviceName = isMovie ? 'Radarr' : 'Sonarr';
+    var hasOverseerr = s.overseerr;
+    var hasDirect    = isMovie ? s.radarr : s.sonarr;
+    var directName   = isMovie ? 'Radarr' : 'Sonarr';
+    var directSvc    = isMovie ? 'radarr' : 'sonarr';
 
     subEl.textContent = item.year ? item.year + ' · ' + (isMovie ? 'Movie' : 'TV Show') : (isMovie ? 'Movie' : 'TV Show');
 
-    // Build action buttons
+    // Determine default service for this item type
+    var hasBothSides = hasOverseerr && hasDirect;
+    var defaultSvc;
+    if (hasBothSides) {
+      defaultSvc = (s.defaultService === 'direct') ? directSvc : 'overseerr';
+    } else {
+      defaultSvc = hasOverseerr ? 'overseerr' : directSvc;
+    }
+
+    // Clear and rebuild dialog body (below sub-title)
     actionsEl.innerHTML = '';
+
+    // Advanced override section (only shown when both sides configured)
+    var dialogBox = dialog.querySelector('.request-dialog-box') || dialog.firstElementChild;
+    var existingAdv = dialog.querySelector('.request-dialog-advanced');
+    if (existingAdv) existingAdv.remove();
+
+    if (hasBothSides) {
+      var altSvc  = (defaultSvc === 'overseerr') ? directSvc : 'overseerr';
+      var altName = (defaultSvc === 'overseerr') ? directName : 'Overseerr';
+
+      var advWrap = document.createElement('div');
+      advWrap.className = 'request-dialog-advanced';
+
+      var advToggle = document.createElement('button');
+      advToggle.className = 'request-dialog-adv-toggle';
+      advToggle.textContent = 'Advanced ▸';
+      advToggle.type = 'button';
+
+      var advPanel = document.createElement('div');
+      advPanel.className = 'request-dialog-adv-panel';
+      advPanel.style.display = 'none';
+
+      var altBtn = document.createElement('button');
+      altBtn.className = 'btn-dialog-alt';
+      altBtn.textContent = 'Send to ' + altName + ' instead';
+      altBtn.type = 'button';
+      altBtn.onclick = function () { submitRequest(item, altSvc); };
+      advPanel.appendChild(altBtn);
+
+      advToggle.onclick = function () {
+        var open = advPanel.style.display === 'none';
+        advPanel.style.display = open ? '' : 'none';
+        advToggle.textContent = open ? 'Advanced ▾' : 'Advanced ▸';
+      };
+
+      advWrap.appendChild(advToggle);
+      advWrap.appendChild(advPanel);
+      // Insert above the actions row
+      actionsEl.parentNode.insertBefore(advWrap, actionsEl);
+    }
 
     var cancelBtn = document.createElement('button');
     cancelBtn.className = 'btn-dialog-cancel';
@@ -107,28 +157,11 @@
     cancelBtn.onclick = closeRequestDialog;
     actionsEl.appendChild(cancelBtn);
 
-    if (overseerr && relevant) {
-      // Both Overseerr and direct service available — let user choose
-      var osBtn = document.createElement('button');
-      osBtn.className = 'btn-dialog-confirm';
-      osBtn.textContent = 'Overseerr';
-      osBtn.onclick = function () { submitRequest(item, 'overseerr'); };
-      actionsEl.appendChild(osBtn);
-
-      var svcBtn = document.createElement('button');
-      svcBtn.className = 'btn-dialog-confirm';
-      svcBtn.textContent = serviceName;
-      svcBtn.onclick = function () { submitRequest(item, isMovie ? 'radarr' : 'sonarr'); };
-      actionsEl.appendChild(svcBtn);
-    } else {
-      // Only one service available
-      var confirmBtn = document.createElement('button');
-      confirmBtn.className = 'btn-dialog-confirm';
-      confirmBtn.textContent = 'Request';
-      var svc = overseerr ? 'overseerr' : (isMovie ? 'radarr' : 'sonarr');
-      confirmBtn.onclick = function () { submitRequest(item, svc); };
-      actionsEl.appendChild(confirmBtn);
-    }
+    var confirmBtn = document.createElement('button');
+    confirmBtn.className = 'btn-dialog-confirm';
+    confirmBtn.textContent = 'Request';
+    confirmBtn.onclick = function () { submitRequest(item, defaultSvc); };
+    actionsEl.appendChild(confirmBtn);
 
     dialog.classList.add('open');
     dialog.setAttribute('aria-hidden', 'false');

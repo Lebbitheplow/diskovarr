@@ -1684,6 +1684,32 @@ img {
   background: var(--accent-hover);
 }
 
+.request-dialog-advanced {
+  padding: 0 0 4px;
+}
+.request-dialog-adv-toggle {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  cursor: pointer;
+  padding: 2px 0;
+  transition: color 0.15s;
+}
+.request-dialog-adv-toggle:hover { color: var(--text-secondary); }
+.request-dialog-adv-panel { margin-top: 6px; }
+.btn-dialog-alt {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  padding: 6px 14px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.btn-dialog-alt:hover { background: var(--bg-card-hover); color: var(--text-primary); }
+
 /* ── Detail modal ──────────────────────────────────────────────────────────── */
 .detail-modal-wrap {
   display: none;
