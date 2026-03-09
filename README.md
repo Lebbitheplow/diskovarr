@@ -28,7 +28,7 @@ Sign in with your Plex account and Diskovarr surfaces what to watch next — sco
 
 ## Requirements
 
-- Docker (recommended) **or** Node.js >= 20
+- Docker (recommended) **or** Node.js >= 23.4.0
 - Plex Media Server (local network access)
 - Tautulli (for watch history used in preference scoring)
 
@@ -39,10 +39,13 @@ Sign in with your Plex account and Diskovarr surfaces what to watch next — sco
 ### Docker (recommended)
 
 ```bash
-git clone https://github.com/Lebbitheplow/diskovarr
-cd diskovarr
-cp docker-compose.yml docker-compose.override.yml
-# Edit docker-compose.override.yml with your values
+# 1. Download the compose file
+curl -o docker-compose.yml https://raw.githubusercontent.com/Lebbitheplow/diskovarr/master/docker-compose.yml
+
+# 2. Edit the environment variables
+nano docker-compose.yml
+
+# 3. Start
 docker compose up -d
 ```
 
@@ -55,10 +58,7 @@ The library syncs from Plex on first startup (30–60 seconds depending on libra
 #### Updating
 
 ```bash
-docker compose pull   # if using a pre-built image
-# or
-docker compose build  # if building locally
-docker compose up -d
+docker compose pull && docker compose up -d
 ```
 
 ### Bare metal (Node.js)
@@ -199,12 +199,10 @@ Recommendations are sourced from TMDB based on your top watched movies and shows
 |---|---|
 | `express` | Web framework and routing |
 | `express-session` | Session middleware |
-| `connect-sqlite3` | SQLite-backed session store |
-| `better-sqlite3` | Synchronous SQLite for library/watched/settings data |
 | `ejs` | Server-side HTML templating |
 | `dotenv` | Environment variable loading |
 
-All HTTP requests to Plex, Tautulli, and TMDB use Node.js 20's built-in `fetch`.
+SQLite, fetch, and session storage use Node.js 23's built-in APIs — no native addons required.
 
 ## Development
 

@@ -1,8 +1,6 @@
 services:
   diskovarr:
-    build: .
-    # Alternatively, pull a pre-built image:
-    # image: ghcr.io/lebbitheplow/diskovarr:latest
+    image: lebbi/diskovarr:latest
     container_name: diskovarr
     restart: unless-stopped
     ports:
