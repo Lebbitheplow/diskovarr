@@ -170,17 +170,21 @@ async function buildPreferenceProfile(userId, libraryMap) {
       tmdbService.getRecommendations(item.tmdbId, mt).catch(() => []),
       tmdbService.getSimilar(item.tmdbId, mt).catch(() => []),
     ]);
+    // Recommendations get "watchers liked" label; similar gets "Similar to"
+    const recSet = new Set(recs.map(r => Number(r.tmdbId)));
     for (const r of [...recs, ...similar]) {
       const rid = Number(r.tmdbId);
+      const fromRec = recSet.has(rid);
       const existing = tmdbSimilarMap.get(rid);
       if (existing) {
         existing.weight += seedWeight;
         if (seedWeight > (existing._bestWeight || 0)) {
           existing.sourceTitle = item.title;
+          existing.fromRec = fromRec;
           existing._bestWeight = seedWeight;
         }
       } else {
-        tmdbSimilarMap.set(rid, { weight: seedWeight, sourceTitle: item.title, _bestWeight: seedWeight });
+        tmdbSimilarMap.set(rid, { weight: seedWeight, sourceTitle: item.title, fromRec, _bestWeight: seedWeight });
       }
     }
   }));
@@ -315,7 +319,10 @@ function scoreItem(item, profile, dismissedKeys, watchedKeys, tmdbEnrich) {
     if (entry) {
       similarPts = Math.min(entry.weight * 8, 40);
       if (similarPts > 3) {
-        signals.push({ pts: similarPts, reason: `Similar to ${entry.sourceTitle}`, type: 'similar' });
+        const reason = entry.fromRec
+          ? `${entry.sourceTitle} watchers liked`
+          : `Similar to ${entry.sourceTitle}`;
+        signals.push({ pts: similarPts, reason, type: 'similar' });
       }
     }
   }

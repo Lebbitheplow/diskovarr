@@ -1791,6 +1791,23 @@ img {
   color: var(--text-secondary);
   margin-bottom: 10px;
 }
+.content-rating-badge {
+  display: inline-block;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 3px;
+  border: 1.5px solid currentColor;
+  letter-spacing: 0.03em;
+  vertical-align: middle;
+  position: relative;
+  top: -1px;
+}
+.rating-g, .rating-tv-g, .rating-tv-y    { color: #4caf50; }
+.rating-pg, .rating-tv-pg, .rating-tv-y7  { color: #64b5f6; }
+.rating-pg-13, .rating-tv-14              { color: #ffa726; }
+.rating-r, .rating-tv-ma                  { color: #ef5350; }
+.rating-nc-17                             { color: #b71c1c; }
 .detail-modal-reasons {
   display: flex;
   flex-wrap: wrap;

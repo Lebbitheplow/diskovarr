@@ -48,7 +48,10 @@ function scoreTmdbItem(item, profile) {
     if (entry) {
       similarPts = Math.min(entry.weight * 8, 40);
       if (similarPts > 3) {
-        signals.push({ pts: similarPts, reason: `Similar to ${entry.sourceTitle}`, type: 'similar' });
+        const reason = entry.fromRec
+          ? `${entry.sourceTitle} watchers liked`
+          : `Similar to ${entry.sourceTitle}`;
+        signals.push({ pts: similarPts, reason, type: 'similar' });
       }
     }
   }
@@ -206,17 +209,22 @@ async function getTopWatchedTmdbIds(userId) {
     return { key, score: 1 };
   }).sort((a, b) => b.score - a.score);
 
-  // Look up TMDB IDs from library DB
-  const topMovieIds = [], topTvIds = [];
+  // Look up TMDB IDs from library DB; also keep top ratingKeys for Plex /related seeding
+  const topMovieIds = [], topTvIds = [], topMovieKeys = [], topTvKeys = [];
   for (const { key } of scored) {
-    if (topMovieIds.length >= 30 && topTvIds.length >= 20) break;
+    if (topMovieIds.length >= 35 && topTvIds.length >= 25) break;
     const item = db.getLibraryItemByKey(key);
     if (!item?.tmdbId) continue;
-    if (item.type === 'movie' && topMovieIds.length < 30) topMovieIds.push(item.tmdbId);
-    else if (item.type === 'show' && topTvIds.length < 20) topTvIds.push(item.tmdbId);
+    if (item.type === 'movie' && topMovieIds.length < 35) {
+      topMovieIds.push(item.tmdbId);
+      topMovieKeys.push(key);
+    } else if (item.type === 'show' && topTvIds.length < 25) {
+      topTvIds.push(item.tmdbId);
+      topTvKeys.push(key);
+    }
   }
 
-  return { topMovieIds, topTvIds };
+  return { topMovieIds, topTvIds, topMovieKeys, topTvKeys };
 }
 
 async function buildDiscoverPools(userId, userToken) {
@@ -227,7 +235,7 @@ async function buildDiscoverPools(userId, userToken) {
   ]);
 
   const libraryMap = new Map([...movies, ...tv].map(i => [i.ratingKey, i]));
-  const [profile, { topMovieIds, topTvIds }] = await Promise.all([
+  const [profile, { topMovieIds, topTvIds, topMovieKeys, topTvKeys }] = await Promise.all([
     buildPreferenceProfile(userId, libraryMap),
     getTopWatchedTmdbIds(userId),
   ]);
@@ -274,9 +282,8 @@ async function buildDiscoverPools(userId, userToken) {
   }
 
   // 1. TMDB recommendations + similar for user's top watched movies
-  // Top 10 seeds get pages 1-3, next 20 get pages 1-2, rest page 1
-  const movieRecPromises = topMovieIds.slice(0, 30).flatMap((id, i) => {
-    const pages = i < 10 ? [1, 2, 3] : i < 25 ? [1, 2] : [1];
+  const movieRecPromises = topMovieIds.slice(0, 35).flatMap((id, i) => {
+    const pages = i < 10 ? [1, 2, 3, 4, 5] : i < 25 ? [1, 2, 3] : [1, 2];
     return pages.map(p => tmdbService.getRecommendations(id, 'movie', p).then(recs => recs.forEach(r => addCandidate(r.tmdbId, 'movie', r.title, r.year))));
   });
   const movieSimPromises = topMovieIds.slice(0, 25).flatMap((id, i) => {
@@ -285,8 +292,8 @@ async function buildDiscoverPools(userId, userToken) {
   });
 
   // 2. TMDB recommendations + similar for user's top watched shows
-  const tvRecPromises = topTvIds.slice(0, 20).flatMap((id, i) => {
-    const pages = i < 15 ? [1, 2] : [1];
+  const tvRecPromises = topTvIds.slice(0, 25).flatMap((id, i) => {
+    const pages = i < 10 ? [1, 2, 3, 4] : i < 20 ? [1, 2, 3] : [1, 2];
     return pages.map(p => tmdbService.getRecommendations(id, 'tv', p).then(recs => recs.forEach(r => addCandidate(r.tmdbId, 'tv', r.title, r.year))));
   });
   const tvSimPromises = topTvIds.slice(0, 20).flatMap((id, i) => {
@@ -294,7 +301,35 @@ async function buildDiscoverPools(userId, userToken) {
     return pages.map(p => tmdbService.getSimilar(id, 'tv', p).then(recs => recs.forEach(r => addCandidate(r.tmdbId, 'tv', r.title, r.year))));
   });
 
-  // 3. Genre-based discovery — top 8 genres, 10 pages popularity + 5 pages by rating
+  // 3. Plex /related seeds — uses same.director and same.actor hubs from the user's top watched
+  // items to find second-hop library items, then pulls TMDB recommendations from those too.
+  // Capped at top 8 movies + 5 shows to avoid excessive API calls.
+  const plexRelatedPromise = (async () => {
+    const relatedSeeds = new Set();
+    const relatedKeys = [...topMovieKeys.slice(0, 8), ...topTvKeys.slice(0, 5)];
+    const hubs = await Promise.all(relatedKeys.map(k => plexService.getRelated(k)));
+    for (const itemHubs of hubs) {
+      for (const hub of itemHubs) {
+        if (!hub.context.includes('same.director') && !hub.context.includes('same.actor')) continue;
+        for (const relItem of hub.items) {
+          if (!relItem.ratingKey) continue;
+          const libItem = db.getLibraryItemByKey(relItem.ratingKey);
+          if (libItem?.tmdbId) relatedSeeds.add(`${libItem.tmdbId}:${libItem.type === 'movie' ? 'movie' : 'tv'}`);
+        }
+      }
+    }
+    const relatedPromises = [...relatedSeeds].flatMap(seed => {
+      const [tmdbId, mt] = seed.split(':');
+      return [
+        tmdbService.getRecommendations(Number(tmdbId), mt, 1).then(recs => recs.forEach(r => addCandidate(r.tmdbId, mt, r.title, r.year))),
+        tmdbService.getRecommendations(Number(tmdbId), mt, 2).then(recs => recs.forEach(r => addCandidate(r.tmdbId, mt, r.title, r.year))),
+      ];
+    });
+    await Promise.all(relatedPromises);
+    console.log(`[discoverRec] Plex /related added ${relatedSeeds.size} second-hop seeds for user ${userId}`);
+  })();
+
+  // 4. Genre-based discovery — top 8 genres, 10 pages popularity + 5 pages by rating
   // Two passes per genre: popularity (mainstream) + vote_average (hidden gems)
   let genreDiscoverPromises = [];
   if (profile) {
@@ -376,7 +411,7 @@ async function buildDiscoverPools(userId, userToken) {
     ]);
   }
 
-  await Promise.all([...movieRecPromises, ...movieSimPromises, ...tvRecPromises, ...tvSimPromises, ...genreDiscoverPromises, trendingMoviePromise, trendingTvPromise, animePromise, ...personPromises, ...keywordPromises]);
+  await Promise.all([...movieRecPromises, ...movieSimPromises, ...tvRecPromises, ...tvSimPromises, ...genreDiscoverPromises, trendingMoviePromise, trendingTvPromise, animePromise, ...personPromises, ...keywordPromises, plexRelatedPromise]);
 
   // ── Fetch details for all candidates ────────────────────────────────────
   const candidates = [...candidateSet.values()];

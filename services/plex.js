@@ -370,6 +370,37 @@ async function removeFromWatchlist(userToken, playlistId, playlistItemId) {
   return true;
 }
 
+/**
+ * Fetch Plex's /related hubs for a library item.
+ * Returns an array of { context, title, items: [{ ratingKey, tmdbId, title, year, type }] }
+ * Useful contexts: hub.movie.same.director, hub.movie.same.actor, hub.tv.same.director, etc.
+ */
+async function getRelated(ratingKey) {
+  try {
+    const url = `${getPlexUrl()}/library/metadata/${ratingKey}/related?X-Plex-Token=${getPlexToken()}`;
+    const res = await fetch(url, {
+      headers: { Accept: 'application/json', ...PLEX_HEADERS },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!res.ok) return [];
+    const json = await res.json();
+    const hubs = json.MediaContainer?.Hub || [];
+    return hubs.map(hub => ({
+      context: hub.context || '',
+      title: hub.title || '',
+      items: (hub.Metadata || []).map(m => ({
+        ratingKey: m.ratingKey,
+        title: m.title || m.name,
+        year: m.year || null,
+        type: m.type,
+      })),
+    }));
+  } catch (err) {
+    console.warn('[plex] getRelated error:', err.message);
+    return [];
+  }
+}
+
 function getDeepLink(ratingKey) {
   return `https://app.plex.tv/desktop#!/server/${getPlexServerId()}/details?key=/library/metadata/${ratingKey}`;
 }
@@ -454,6 +485,7 @@ module.exports = {
   addToPlexTvWatchlistByGuid,
   removeFromPlexTvWatchlist,
   resolvePlaylistKey,
+  getRelated,
   getDeepLink,
   getPlexUrl,
   getPlexToken,
