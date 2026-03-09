@@ -27,6 +27,10 @@ function posterUrl(path, size = 'w342') {
 }
 
 function normalizeMovie(details, credits) {
+  // Check US certification for R / NC-17
+  const usRelease = (details.release_dates?.results || []).find(r => r.iso_3166_1 === 'US');
+  const usCert = (usRelease?.release_dates || []).map(r => r.certification).find(c => c);
+  const isMatureRated = usCert === 'R' || usCert === 'NC-17';
   return {
     tmdbId: details.id,
     mediaType: 'movie',
@@ -45,7 +49,7 @@ function normalizeMovie(details, credits) {
     studio: (details.production_companies || []).map(c => c.name).slice(0, 2).join(', ') || '',
     originCountry: (details.production_countries || []).map(c => c.iso_3166_1),
     isAnime: false,
-    adult: details.adult || false,
+    adult: details.adult || isMatureRated,
     keywords: (details.keywords?.keywords || []).map(k => k.name),
     keywordIds: (details.keywords?.keywords || []).slice(0, 20).map(k => ({ id: k.id, name: k.name })),
     collection: details.belongs_to_collection?.id || null,
@@ -60,9 +64,10 @@ function normalizeTV(details, credits) {
   const originCountries = details.origin_country || [];
   const isAnime = originCountries.includes('JP') &&
     (details.genres || []).some(g => g.id === 16); // Animation genre
-  // Check content ratings for explicit material (Rx = hentai on TMDB)
+  // Check content ratings for explicit material (Rx = hentai) or TV-MA (mature but not explicit)
   const contentRatings = (details.content_ratings?.results || []);
   const isExplicit = contentRatings.some(r => r.rating === 'Rx');
+  const isTvMa = contentRatings.some(r => r.iso_3166_1 === 'US' && r.rating === 'TV-MA');
   return {
     tmdbId: details.id,
     mediaType: 'tv',
@@ -81,7 +86,7 @@ function normalizeTV(details, credits) {
     studio: (details.networks || []).map(n => n.name).slice(0, 2).join(', ') || '',
     originCountry: originCountries,
     isAnime,
-    adult: details.adult || isExplicit,
+    adult: details.adult || isExplicit || isTvMa,
     keywords: (details.keywords?.results || []).map(k => k.name),
     keywordIds: (details.keywords?.results || []).slice(0, 20).map(k => ({ id: k.id, name: k.name })),
     trailerKey: (details.videos?.results || [])
@@ -97,7 +102,7 @@ async function getItemDetails(tmdbId, mediaType) {
   try {
     const detailsPath = mediaType === 'tv'
       ? `/tv/${tmdbId}?append_to_response=content_ratings,keywords,videos`
-      : `/movie/${tmdbId}?append_to_response=keywords,videos`;
+      : `/movie/${tmdbId}?append_to_response=release_dates,keywords,videos`;
     const [details, credits] = await Promise.all([
       tmdbFetch(detailsPath),
       tmdbFetch(`/${mediaType}/${tmdbId}/credits`),

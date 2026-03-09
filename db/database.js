@@ -130,6 +130,25 @@ function getExploreDismissedIds(userId) {
   'ALTER TABLE library_items ADD COLUMN art TEXT DEFAULT NULL',
 ].forEach(sql => { try { db.exec(sql); } catch (e) { if (!e.message.includes('duplicate column')) throw e; } });
 
+// ── One-time migrations (tracked by a migrations table) ───────────────────────
+db.exec(`CREATE TABLE IF NOT EXISTS migrations (name TEXT PRIMARY KEY, ran_at INTEGER)`);
+[
+  {
+    name: 'mature_rating_filter_v1',
+    sql: () => {
+      db.prepare('DELETE FROM tmdb_cache').run();
+      db.prepare('DELETE FROM discover_pool_cache').run();
+    },
+  },
+].forEach(({ name, sql }) => {
+  const already = db.prepare('SELECT 1 FROM migrations WHERE name = ?').get(name);
+  if (!already) {
+    sql();
+    db.prepare('INSERT INTO migrations (name, ran_at) VALUES (?, ?)').run(name, Date.now());
+    console.log(`[db] Migration applied: ${name}`);
+  }
+});
+
 // User ratings table (Plex star ratings, per user)
 db.exec(`
   CREATE TABLE IF NOT EXISTS user_ratings (
