@@ -82,20 +82,16 @@
       });
       if (!r.ok) throw new Error('Dismiss failed');
 
-      // Remove from all carousel states and re-render affected sections
-      for (var sid in carouselState) {
-        var state = carouselState[sid];
-        var idx = state.items.findIndex(function (i) { return i.tmdbId === item.tmdbId && i.mediaType === item.mediaType; });
-        if (idx === -1) continue;
-        state.items.splice(idx, 1);
-        state.pages = Math.ceil(state.items.length / state.cpp) || 1;
-        if (state.page > state.pages) state.page = state.pages;
-        var section = document.getElementById(sid);
-        var gridId = section ? section.querySelector('.card-grid')?.id : null;
-        if (gridId) {
-          renderPage(sid, gridId);
-          updateControls(sid, section);
-        }
+      // Remove dismissed item from all stores and animate card out
+      if (cardEl) {
+        cardEl.style.transition = 'opacity 0.25s, transform 0.25s';
+        cardEl.style.opacity = '0';
+        cardEl.style.transform = 'scale(0.88)';
+        setTimeout(function () { cardEl.remove(); }, 260);
+      }
+      for (var sid in itemStore) {
+        var idx = itemStore[sid].findIndex(function (i) { return i.tmdbId === item.tmdbId && i.mediaType === item.mediaType; });
+        if (idx !== -1) itemStore[sid].splice(idx, 1);
       }
     } catch (err) {
       showToast('Could not dismiss: ' + err.message, 'error');
@@ -482,9 +478,11 @@
     // Hover overlay lives inside poster wrap (covers only poster, not card-info)
     var overlay = document.createElement('div');
     overlay.className = 'card-overlay';
+    var overlayActions = document.createElement('div');
+    overlayActions.className = 'card-overlay-actions';
     if (cfg.hasAnyService) {
       var reqBtn = document.createElement('button');
-      reqBtn.className = 'btn-request' + (item.isRequested ? ' btn-request-sent' : '');
+      reqBtn.className = 'btn-icon btn-request' + (item.isRequested ? ' btn-request-sent' : '');
       reqBtn.setAttribute('data-request-tmdb', String(item.tmdbId));
       reqBtn.textContent = item.isRequested ? 'Requested ✓' : 'Request';
       reqBtn.disabled = item.isRequested;
@@ -492,7 +490,7 @@
         e.stopPropagation();
         if (!item.isRequested) openRequestDialog(item);
       });
-      overlay.appendChild(reqBtn);
+      overlayActions.appendChild(reqBtn);
     }
     var dismissCardBtn = document.createElement('button');
     dismissCardBtn.className = 'btn-icon btn-dismiss';
@@ -507,7 +505,8 @@
         dismissItem(item, card);
       }
     });
-    overlay.appendChild(dismissCardBtn);
+    overlayActions.appendChild(dismissCardBtn);
+    overlay.appendChild(overlayActions);
     posterWrap.appendChild(overlay);
 
     card.appendChild(posterWrap);
@@ -550,87 +549,50 @@
 
   // ── Carousel rendering ────────────────────────────────────────────────────
 
-  var ROWS = 2;
-
-  function cardsPerPage(grid) {
-    var computed = window.getComputedStyle(grid);
-    var cols = computed.gridTemplateColumns.split(' ').length || 4;
-    return cols * ROWS;
-  }
-
-  var carouselState = {}; // sectionId -> { items, page, pages, cpp }
+  // itemStore: sectionId -> items[] (for dismiss re-render)
+  var itemStore = {};
 
   function renderCarousel(sectionId, gridId, items) {
-    var section = document.getElementById(sectionId);
-    var grid = document.getElementById(gridId);
-    if (!grid || !items.length) return;
-
-    // Remove skeleton
-    grid.classList.remove('skeleton-grid');
-    grid.innerHTML = '';
-
-    var cpp = cardsPerPage(grid) || 8;
-    var totalPages = Math.ceil(items.length / cpp);
-    var page = 1;
-
-    carouselState[sectionId] = { items, page, pages: totalPages, cpp };
-
-    renderPage(sectionId, gridId);
-    updateControls(sectionId, section);
-  }
-
-  function renderPage(sectionId, gridId) {
-    var state = carouselState[sectionId];
-    if (!state) return;
-
     var grid = document.getElementById(gridId);
     if (!grid) return;
 
+    grid.classList.remove('skeleton-grid');
     grid.innerHTML = '';
-    var start = (state.page - 1) * state.cpp;
-    var slice = state.items.slice(start, start + state.cpp);
-    slice.forEach(function (item) {
-      grid.appendChild(renderCard(item));
-    });
+
+    if (!items.length) return;
+
+    itemStore[sectionId] = items;
+    var frag = document.createDocumentFragment();
+    items.forEach(function (item) { frag.appendChild(renderCard(item)); });
+    grid.appendChild(frag);
+    grid.scrollLeft = 0;
     applyMatureFilter();
+    if (grid._updateArrows) grid._updateArrows();
   }
 
-  function updateControls(sectionId, section) {
-    var state = carouselState[sectionId];
-    if (!state) return;
+  function initCarouselArrows() {
+    document.querySelectorAll('.carousel-wrap').forEach(function (wrap) {
+      var grid = wrap.querySelector('.card-grid');
+      var btnPrev = wrap.querySelector('.carousel-arrow-prev');
+      var btnNext = wrap.querySelector('.carousel-arrow-next');
+      if (!grid || !btnPrev || !btnNext) return;
 
-    var prevBtn = section.querySelector('.carousel-btn-prev');
-    var nextBtn = section.querySelector('.carousel-btn-next');
-    var counter = section.querySelector('.carousel-counter');
+      function updateArrows() {
+        btnPrev.disabled = grid.scrollLeft <= 2;
+        btnNext.disabled = grid.scrollLeft + grid.clientWidth >= grid.scrollWidth - 2;
+      }
 
-    if (prevBtn) prevBtn.hidden = state.page <= 1;
-    if (nextBtn) nextBtn.hidden = state.page >= state.pages;
-    if (counter) {
-      counter.textContent = state.pages > 1 ? state.page + ' / ' + state.pages : '';
-    }
+      btnPrev.onclick = function () { grid.scrollBy({ left: -grid.clientWidth, behavior: 'smooth' }); };
+      btnNext.onclick = function () { grid.scrollBy({ left: grid.clientWidth, behavior: 'smooth' }); };
+      grid.addEventListener('scroll', updateArrows, { passive: true });
+      grid._updateArrows = updateArrows;
+      updateArrows();
+    });
   }
 
   function attachCarouselListeners(sectionId, gridId) {
     var section = document.getElementById(sectionId);
     if (!section) return;
-
-    section.querySelector('.carousel-btn-prev')?.addEventListener('click', function () {
-      var state = carouselState[sectionId];
-      if (state && state.page > 1) {
-        state.page--;
-        renderPage(sectionId, gridId);
-        updateControls(sectionId, section);
-      }
-    });
-
-    section.querySelector('.carousel-btn-next')?.addEventListener('click', function () {
-      var state = carouselState[sectionId];
-      if (state && state.page < state.pages) {
-        state.page++;
-        renderPage(sectionId, gridId);
-        updateControls(sectionId, section);
-      }
-    });
 
     section.querySelector('.carousel-btn-shuffle')?.addEventListener('click', function (e) {
       var btn = e.currentTarget;
@@ -746,6 +708,10 @@
       card.style.display = show ? '' : 'none';
     });
   }
+
+  document.addEventListener('DOMContentLoaded', function () {
+    initCarouselArrows();
+  });
 
   document.addEventListener('DOMContentLoaded', function () {
     var toggle = document.getElementById('mature-toggle');

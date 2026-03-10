@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/style.css">
-  <link rel="stylesheet" href="/css/admin.css?v=14">
+  <link rel="stylesheet" href="/css/admin.css?v=17">
   <link rel="stylesheet" href="/theme.css?c=<%= themeParam %>" id="theme-css">
 </head>
 <body>
@@ -64,9 +64,18 @@
       <section class="admin-section">
         <div class="admin-section-header">
           <h2 class="section-title">Library Sync</h2>
-          <div id="sync-status-badge" class="status-badge <%= syncInProgress ? 'status-syncing' : 'status-idle' %>">
-            <% if (syncInProgress) { %><span class="sync-spinner"></span><% } %>
-            <span id="sync-status-text"><%= syncInProgress ? 'Syncing…' : 'Idle' %></span>
+          <div style="display:flex;align-items:center;gap:16px">
+            <div class="conn-toggle-row" style="margin:0">
+              <span class="conn-toggle-sublabel" style="color:#fff;font-size:12px">Auto-Sync (every 2h)</span>
+              <label class="slide-toggle">
+                <input type="checkbox" id="autosync-toggle" <%= autoSyncEnabled ? 'checked' : '' %> onchange="onAutoSyncChange(this.checked)">
+                <span class="slide-track"></span>
+              </label>
+            </div>
+            <div id="sync-status-badge" class="status-badge <%= syncInProgress ? 'status-syncing' : 'status-idle' %>">
+              <% if (syncInProgress) { %><span class="sync-spinner"></span><% } %>
+              <span id="sync-status-text"><%= syncInProgress ? 'Syncing…' : 'Idle' %></span>
+            </div>
           </div>
         </div>
 
@@ -85,15 +94,6 @@
               Last sync: <span id="stat-tv-sync"><%= stats.library.lastSyncTV ? relativeTime(stats.library.lastSyncTV) : 'Never' %></span>
             </div>
           </div>
-          <div class="stat-card">
-            <div class="stat-label">Auto-Sync (every 2h)</div>
-            <div class="stat-value" id="stat-autosync">
-              <span id="autosync-text" style="color: <%= autoSyncEnabled ? 'var(--accent)' : 'var(--text-muted)' %>">
-                <%= autoSyncEnabled ? 'Enabled' : 'Disabled' %>
-              </span>
-            </div>
-            <div class="stat-sub">Controls scheduled background sync</div>
-          </div>
         </div>
 
         <div id="sync-progress-msg" class="sync-progress-msg" style="display:<%= syncInProgress ? 'block' : 'none' %>">
@@ -103,9 +103,6 @@
         <div class="admin-actions">
           <button class="btn-admin btn-primary" id="btn-sync-now" onclick="syncLibrary()" <%= syncInProgress ? 'disabled' : '' %>>
             <span>↻</span> Sync Library Now
-          </button>
-          <button class="btn-admin" id="btn-toggle-autosync" data-enabled="<%= autoSyncEnabled %>">
-            <span id="autosync-btn-text"><%= autoSyncEnabled ? '⏸ Disable Auto-Sync' : '▶ Enable Auto-Sync' %></span>
           </button>
         </div>
 
@@ -194,12 +191,9 @@
       <section class="admin-section">
         <div class="admin-section-header">
           <h2 class="section-title">Server Owner &amp; Watchlist Mode</h2>
-          <div class="status-badge <%= watchlistMode === 'playlist' ? 'status-syncing' : 'status-idle' %>" style="font-size:0.78rem;padding:4px 10px">
-            <span><%= watchlistMode === 'playlist' ? 'Playlist mode' : 'Watchlist mode' %></span>
-          </div>
         </div>
         <p class="section-desc" style="margin-bottom:20px">
-          Select which Plex account is the server owner. The owner can use <strong>Playlist mode</strong>, which syncs watchlist items to a private "Diskovarr" server playlist instead of the native Plex.tv Watchlist — useful if your Watchlist triggers download automation (e.g. pd_zurg). All other users always use the Plex.tv Watchlist.
+          Select which Plex account is the server owner. The owner can use <strong>Diskovarr Playlist mode</strong>, which syncs watchlist items to a private "Diskovarr" server playlist instead of the native Plex.tv Watchlist — useful if your Watchlist triggers download automation (e.g. pd_zurg). All other users always use the Plex.tv Watchlist.
         </p>
 
         <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;flex-wrap:wrap">
@@ -220,22 +214,15 @@
           <% } %>
         </div>
 
-        <div class="admin-grid" style="margin-bottom:20px">
-          <div class="stat-card" style="<%= watchlistMode !== 'playlist' ? 'border-color:var(--accent-border)' : '' %>">
-            <div class="stat-label">Watchlist mode <% if (watchlistMode !== 'playlist') { %><span style="color:var(--accent)">✓ active</span><% } %></div>
-            <div class="stat-value" style="font-size:1.05rem">Plex.tv Watchlist</div>
-            <div class="stat-sub">Items appear in the Plex app under Discover → Watchlist. Default.</div>
-          </div>
-          <div class="stat-card" style="<%= watchlistMode === 'playlist' ? 'border-color:var(--accent-border)' : '' %>">
-            <div class="stat-label">Playlist mode <% if (watchlistMode === 'playlist') { %><span style="color:var(--accent)">✓ active</span><% } %></div>
-            <div class="stat-value" style="font-size:1.05rem">Server Playlist</div>
-            <div class="stat-sub">Items go into a private "Diskovarr" server playlist. Use with pd_zurg.</div>
-          </div>
-        </div>
-        <div class="admin-actions">
-          <button class="btn-admin btn-primary" id="btn-watchlist-mode" data-mode="<%= watchlistMode %>">
-            <span id="watchlist-mode-btn-text"><%= watchlistMode === 'playlist' ? '▶ Switch to Watchlist mode' : '▶ Switch to Playlist mode' %></span>
-          </button>
+        <div style="display:flex;align-items:center;gap:12px">
+          <span id="lbl-watchlist-opt" class="<%= watchlistMode !== 'playlist' ? 'service-label-active' : 'service-label-inactive' %>">Plex Watchlist</span>
+          <label class="slide-toggle slide-toggle-choice">
+            <input type="checkbox" id="toggle-watchlist-mode"
+              <%= watchlistMode === 'playlist' ? 'checked' : '' %>
+              onchange="onWatchlistModeChange(this.checked)">
+            <span class="slide-track"></span>
+          </label>
+          <span id="lbl-playlist-opt" class="<%= watchlistMode === 'playlist' ? 'service-label-active' : 'service-label-inactive' %>">Diskovarr Playlist</span>
         </div>
       </section>
 
@@ -360,12 +347,27 @@
           </div>
         </div>
 
-        <!-- TMDB -->
+        <!-- TMDB + Diskovarr Requests toggle -->
         <div class="conn-block">
           <div class="conn-block-header">
             <div class="conn-block-meta">
               <span class="conn-block-name">TMDB</span>
               <span class="conn-block-desc">The Movie Database — metadata source for Diskovarr Requests</span>
+            </div>
+            <div class="conn-toggle-wrap">
+              <div class="conn-toggle-stack">
+                <span class="conn-toggle-sublabel" style="color:#fff">Diskovarr Requests Tab</span>
+                <div class="conn-toggle-row">
+                  <span class="conn-toggle-label" id="lbl-discover"><%= connections.discoverEnabled ? 'Enabled' : 'Disabled' %></span>
+                  <label class="slide-toggle" title="<%= !connections.tmdbApiKey ? 'Save a TMDB API key first' : '' %>">
+                    <input type="checkbox" id="toggle-discover"
+                      <%= connections.discoverEnabled ? 'checked' : '' %>
+                      <%= !connections.tmdbApiKey ? 'disabled' : '' %>
+                      onchange="onToggleChange('discover')">
+                    <span class="slide-track"></span>
+                  </label>
+                </div>
+              </div>
             </div>
           </div>
           <div class="conn-block-fields">
@@ -384,26 +386,6 @@
             </div>
             <button class="btn-admin conn-action-btn" onclick="testConnection('tmdb')">Test</button>
             <button class="btn-admin btn-primary conn-action-btn" onclick="saveTmdbKey()">Save Key</button>
-          </div>
-        </div>
-
-        <!-- Diskovarr Requests -->
-        <div class="conn-block">
-          <div class="conn-block-header">
-            <div class="conn-block-meta">
-              <span class="conn-block-name">Diskovarr Requests</span>
-              <span class="conn-block-desc">Show the Requests tab to all users — requires TMDB to be configured</span>
-            </div>
-            <div class="conn-toggle-wrap">
-              <span class="conn-toggle-label" id="lbl-discover"><%= connections.discoverEnabled ? 'Enabled' : 'Disabled' %></span>
-              <label class="slide-toggle" title="<%= !connections.tmdbApiKey ? 'Save a TMDB API key first' : '' %>">
-                <input type="checkbox" id="toggle-discover"
-                  <%= connections.discoverEnabled ? 'checked' : '' %>
-                  <%= !connections.tmdbApiKey ? 'disabled' : '' %>
-                  onchange="onToggleChange('discover')">
-                <span class="slide-track"></span>
-              </label>
-            </div>
           </div>
         </div>
 
@@ -708,11 +690,10 @@
     }
 
     // ── Auto-sync toggle ───────────────────────────────────────────
-    document.getElementById('btn-toggle-autosync').addEventListener('click', async function () {
-      const isEnabled = this.dataset.enabled === 'true';
-      await apiFetch('/admin/sync/auto/' + (isEnabled ? 'disable' : 'enable'));
-      window.location.reload();
-    });
+    async function onAutoSyncChange(enable) {
+      await apiFetch('/admin/sync/auto/' + (enable ? 'enable' : 'disable'));
+      showToast('Auto-sync ' + (enable ? 'enabled' : 'disabled'));
+    }
 
     // ── Watched sync ───────────────────────────────────────────────
     async function syncWatched(userId) {
@@ -833,15 +814,24 @@
     }
 
     // ── Watchlist mode ─────────────────────────────────────────────
-    document.getElementById('btn-watchlist-mode').addEventListener('click', async function () {
-      const newMode = this.dataset.mode === 'playlist' ? 'watchlist' : 'playlist';
+    async function onWatchlistModeChange(isPlaylist) {
+      const newMode = isPlaylist ? 'playlist' : 'watchlist';
+      const lblW = document.getElementById('lbl-watchlist-opt');
+      const lblP = document.getElementById('lbl-playlist-opt');
+      if (lblW) lblW.className = isPlaylist ? 'service-label-inactive' : 'service-label-active';
+      if (lblP) lblP.className = isPlaylist ? 'service-label-active' : 'service-label-inactive';
       const d = await fetch('/admin/settings/watchlist-mode', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ mode: newMode }),
       }).then(r => r.json());
-      if (d.success) { showToast('Watchlist mode set to: ' + newMode); window.location.reload(); }
-      else showToast(d.error || 'Failed to update watchlist mode', true);
-    });
+      if (d.success) showToast('Switched to ' + (isPlaylist ? 'Diskovarr Playlist' : 'Plex Watchlist') + ' mode');
+      else {
+        document.getElementById('toggle-watchlist-mode').checked = !isPlaylist;
+        if (lblW) lblW.className = isPlaylist ? 'service-label-active' : 'service-label-inactive';
+        if (lblP) lblP.className = isPlaylist ? 'service-label-inactive' : 'service-label-active';
+        showToast(d.error || 'Failed to update watchlist mode', true);
+      }
+    }
 
     // ── Connections ────────────────────────────────────────────────
 

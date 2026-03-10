@@ -686,6 +686,27 @@
   text-align: right;
 }
 
+.conn-toggle-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.conn-toggle-sublabel {
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: #ffffff;
+}
+
+.conn-toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .slide-toggle {
   position: relative;
   display: inline-block;
