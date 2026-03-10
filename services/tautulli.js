@@ -1,4 +1,5 @@
 const db = require('../db/database');
+const log = require('../utils/logger').child('[tautulli]');
 
 function getTautulliUrl() {
   return db.getSetting('tautulli_url', null) || process.env.TAUTULLI_URL;
@@ -43,7 +44,7 @@ async function getWatchedMovieKeys(userId) {
     }
     return keys;
   } catch (err) {
-    console.warn('getWatchedMovieKeys error:', err.message);
+    log.warn('getWatchedMovieKeys error:', err.message);
     return new Set();
   }
 }
@@ -67,7 +68,7 @@ async function getWatchedShowKeys(userId) {
     }
     return keys;
   } catch (err) {
-    console.warn('getWatchedShowKeys error:', err.message);
+    log.warn('getWatchedShowKeys error:', err.message);
     return new Set();
   }
 }
@@ -122,7 +123,7 @@ async function getFullHistory(userId) {
 
     return [...movies, ...shows];
   } catch (err) {
-    console.warn('getFullHistory error:', err.message);
+    log.warn('getFullHistory error:', err.message);
     return [];
   }
 }

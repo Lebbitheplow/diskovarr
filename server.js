@@ -3,6 +3,8 @@ const express = require('express');
 const session = require('express-session');
 const path = require('path');
 const fs = require('fs');
+const log = require('./utils/logger').child('[server]');
+const httpLog = require('./utils/logger').child('[http]');
 
 // Ensure data directory exists
 const dataDir = path.join(__dirname, 'data');
@@ -86,6 +88,17 @@ app.use(session({
   },
 }));
 
+// HTTP request logging
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    const ms = Date.now() - start;
+    const level = res.statusCode >= 500 ? 'error' : res.statusCode >= 400 ? 'warn' : 'debug';
+    httpLog[level](`${req.method} ${req.path} ${res.statusCode} ${ms}ms`);
+  });
+  next();
+});
+
 // Routes
 app.use('/auth', require('./routes/auth'));
 app.use('/api', require('./routes/api'));
@@ -119,13 +132,13 @@ app.use((req, res) => {
 
 // Error handler
 app.use((err, req, res, next) => {
-  console.error(err.stack);
+  log.error(err);
   res.status(500).json({ error: 'Internal server error' });
 });
 
 const PORT = process.env.PORT || 3232;
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Diskovarr running on http://0.0.0.0:${PORT}`);
+  log.info(`Diskovarr running on http://0.0.0.0:${PORT}`);
 
   const plexService = require('./services/plex');
   const REFRESH_INTERVAL = 2 * 60 * 60 * 1000; // 2 hours
@@ -134,15 +147,15 @@ app.listen(PORT, '0.0.0.0', () => {
 
   async function refreshLibrarySync() {
     if (!adminRoute.shouldAutoSync()) {
-      console.log('Auto-sync skipped (disabled by admin)');
+      log.info('Auto-sync skipped (disabled by admin)');
       return;
     }
     try {
       plexService.invalidateCache();
       await plexService.warmCache();
-      console.log(`[${new Date().toISOString()}] Library synced`);
+      log.info('Library synced');
     } catch (err) {
-      console.warn('Library sync failed:', err.message);
+      log.warn('Library sync failed:', err.message);
     }
   }
 

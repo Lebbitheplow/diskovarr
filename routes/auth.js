@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const rateLimit = require('express-rate-limit');
 const db = require('../db/database');
+const log = require('../utils/logger').child('[auth]');
 
 const checkPinLimiter = rateLimit({
   windowMs: 60 * 1000,
@@ -72,6 +73,7 @@ router.get('/check-pin', checkPinLimiter, async (req, res) => {
 
     const serverResource = resources.find(r => r.clientIdentifier === PLEX_SERVER_ID);
     if (!serverResource) {
+      log.warn(`User ${userData.id} denied — not a member of server ${PLEX_SERVER_ID}`);
       return res.json({ status: 'no_access' });
     }
 
@@ -82,7 +84,7 @@ router.get('/check-pin', checkPinLimiter, async (req, res) => {
     // This is what Plex apps actually use for server API calls (not the main OAuth token).
     // Without it, Friend tokens are rejected by the server for write operations like playlists.
     const serverToken = serverResource.accessToken || userToken;
-    console.log(`[auth] user ${userData.id} serverToken=${serverToken ? 'found' : 'missing (fallback to userToken)'}`);
+    log.debug(`User ${userData.id} serverToken=${serverToken ? 'found' : 'missing (fallback to userToken)'}`);
 
     const rawName = userData.username || userData.friendlyName || 'Plex User';
     const username = rawName.replace(/&#(\d+);/g, (_, c) => String.fromCharCode(c))
@@ -106,16 +108,19 @@ router.get('/check-pin', checkPinLimiter, async (req, res) => {
     delete req.session.plexPinId;
     delete req.session.plexPinCode;
 
+    log.info(`Session started for user ${userData.id} (${username})`);
     return res.json({ status: 'authorized' });
   } catch (err) {
-    console.error('check-pin error:', err);
+    log.error('check-pin error:', err);
     return res.json({ status: 'error', message: err.message });
   }
 });
 
 // GET /auth/logout
 router.get('/logout', (req, res) => {
+  const userId = req.session.plexUser?.id;
   req.session.destroy(() => {
+    if (userId) log.info(`Session ended for user ${userId}`);
     res.redirect('/login');
   });
 });

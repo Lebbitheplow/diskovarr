@@ -6,6 +6,7 @@ const plexService = require('../services/plex');
 const recommender = require('../services/recommender');
 const discoverRecommender = require('../services/discoverRecommender');
 const { version: APP_VERSION } = require('../package.json');
+const log = require('../utils/logger').child('[admin]');
 
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -88,9 +89,11 @@ router.post('/login', loginLimiter, (req, res) => {
     require('crypto').timingSafeEqual(a, b);
 
   if (!match) {
+    log.warn('Admin login failed — incorrect password');
     return res.render('admin/login', { error: 'Incorrect password' });
   }
 
+  log.info('Admin session started');
   req.session.isAdmin = true;
   res.redirect('/admin');
 });
@@ -149,10 +152,10 @@ router.post('/sync/library', requireAdmin, async (req, res) => {
     await plexService.warmCache();
     recommender.invalidateAllCaches();
     discoverRecommender.invalidateAllCaches();
-    console.log('[Admin] Manual library sync completed');
+    log.info('Manual library sync completed');
   } catch (err) {
     lastSyncError = err.message;
-    console.error('[Admin] Library sync error:', err.message);
+    log.error('Library sync error:', err);
   } finally {
     syncInProgress = false;
   }
@@ -160,11 +163,13 @@ router.post('/sync/library', requireAdmin, async (req, res) => {
 
 router.post('/sync/auto/enable', requireAdmin, (req, res) => {
   autoSyncEnabled = true;
+  log.info('Auto-sync enabled');
   res.json({ success: true, autoSyncEnabled });
 });
 
 router.post('/sync/auto/disable', requireAdmin, (req, res) => {
   autoSyncEnabled = false;
+  log.info('Auto-sync disabled');
   res.json({ success: true, autoSyncEnabled });
 });
 
@@ -198,9 +203,9 @@ router.post('/sync/watched/:userId', requireAdmin, async (req, res) => {
   try {
     await plexService.syncUserWatched(userId, userToken);
     recommender.invalidateUserCache(userId);
-    console.log(`[Admin] Watched sync completed for user ${userId}`);
+    log.info(`Watched sync completed for user ${userId}`);
   } catch (err) {
-    console.error(`[Admin] Watched sync error for ${userId}:`, err.message);
+    log.error(`Watched sync error for ${userId}:`, err);
   }
 });
 

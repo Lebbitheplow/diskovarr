@@ -3,6 +3,7 @@ const tautulliService = require('./tautulli');
 const tmdbService = require('./tmdb');
 const { buildPreferenceProfile, partialShuffle, tieredSample } = require('./recommender');
 const db = require('../db/database');
+const log = require('../utils/logger').child('[discover]');
 
 const CACHE_TTL = 6 * 60 * 60 * 1000; // 6 hours
 const POOL_SIZES = { topPicks: 300, movies: 400, tvShows: 300, anime: 150 };
@@ -326,7 +327,7 @@ async function buildDiscoverPools(userId, userToken) {
       ];
     });
     await Promise.all(relatedPromises);
-    console.log(`[discoverRec] Plex /related added ${relatedSeeds.size} second-hop seeds for user ${userId}`);
+    log.debug(`Plex /related added ${relatedSeeds.size} second-hop seeds for user ${userId}`);
   })();
 
   // 4. Genre-based discovery — top 8 genres, 10 pages popularity + 5 pages by rating
@@ -415,7 +416,7 @@ async function buildDiscoverPools(userId, userToken) {
 
   // ── Fetch details for all candidates ────────────────────────────────────
   const candidates = [...candidateSet.values()];
-  console.log(`[discoverRec] Fetching details for ${candidates.length} candidates for user ${userId}`);
+  log.info(`Fetching details for ${candidates.length} candidates for user ${userId}`);
 
   // Fetch in batches of 10 to be rate-limit friendly, with small delays for uncached items
   const detailedItems = [];
@@ -484,9 +485,9 @@ function scheduleRebuild(userId, userToken) {
       const builtAt = Date.now();
       discoverCache.set(userIdStr, { pools, builtAt });
       db.setDiscoverPool(userIdStr, pools, builtAt);
-      console.log(`[discover] Pool rebuilt for user ${userIdStr}`);
+      log.info(`Pool rebuilt for user ${userIdStr}`);
     })
-    .catch(err => console.error(`[discover] Background rebuild failed for ${userIdStr}:`, err.message))
+    .catch(err => log.error(`Background rebuild failed for ${userIdStr}:`, err))
     .finally(() => rebuildInProgress.delete(userIdStr));
 }
 
@@ -515,7 +516,7 @@ async function getDiscoverRecommendations(userId, userToken, { mature = false } 
     if (isStale) scheduleRebuild(userId, userToken);
   } else {
     // No cache at all — kick off background build and signal client to poll
-    console.log(`[discover] No cache for user ${userIdStr}, building in background...`);
+    log.info(`No cache for user ${userIdStr}, building in background...`);
     scheduleRebuild(userId, userToken);
     return { status: 'building' };
   }

@@ -1,4 +1,5 @@
 const db = require('../db/database');
+const log = require('../utils/logger').child('[tmdb]');
 
 const BASE = 'https://api.themoviedb.org/3';
 const IMAGE_BASE = 'https://image.tmdb.org/t/p';
@@ -118,7 +119,7 @@ async function getItemDetails(tmdbId, mediaType) {
     db.setTmdbCache(tmdbId, mediaType, item);
     return item;
   } catch (err) {
-    console.warn(`[tmdb] getItemDetails(${tmdbId}, ${mediaType}) failed:`, err.message);
+    log.warn(`getItemDetails(${tmdbId}, ${mediaType}) failed:`, err.message);
     return null;
   }
 }

@@ -204,13 +204,58 @@ Recommendations are sourced from TMDB based on your top watched movies and shows
 
 SQLite, fetch, and session storage use Node.js 23's built-in APIs — no native addons required.
 
+## Logging
+
+Diskovarr writes structured logs to stdout, which are captured by Docker or your process manager.
+
+### Log levels
+
+| Level | What you see |
+|---|---|
+| `ERROR` | Unhandled exceptions and failures that need immediate attention — always includes the full stack trace |
+| `WARN` | Recoverable problems: API failures, stale fallbacks, auth denials, sync errors |
+| `INFO` | Normal operations: startup, library syncs, session start/end, watchlist changes, pool builds |
+| `DEBUG` | High-frequency detail: every HTTP request/response, cache hits/misses, Plex API calls, scoring duration |
+
+The default level is `INFO`, which gives a clear picture of what the app is doing without flooding the log with HTTP traffic.
+
+Set `LOG_LEVEL=DEBUG` when you need to trace a specific problem. Set `LOG_LEVEL=WARN` to see only actionable issues in production.
+
+### Setting the log level
+
+**Docker (docker-compose.yml):**
+
+```yaml
+services:
+  diskovarr:
+    environment:
+      - LOG_LEVEL=DEBUG   # or ERROR, WARN, INFO
+```
+
+**Bare metal / development (.env):**
+
+```env
+LOG_LEVEL=DEBUG
+```
+
+### Viewing logs
+
+```bash
+# Docker — follow live
+docker compose logs -f diskovarr
+
+# Docker — last 100 lines
+docker compose logs --tail=100 diskovarr
+
+# systemd
+journalctl -u diskovarr -f
+```
+
 ## Development
 
 ```bash
 npm run dev    # node --watch server.js (auto-restarts on file changes)
 ```
-
-Logs go to stdout. In production (Docker), use `docker compose logs -f diskovarr`. With systemd, use `journalctl -u diskovarr -f`.
 
 ## License
 

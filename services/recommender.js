@@ -2,6 +2,7 @@ const plexService = require('./plex');
 const tautulliService = require('./tautulli');
 const tmdbService = require('./tmdb');
 const db = require('../db/database');
+const log = require('../utils/logger').child('[recommender]');
 
 // Signal type priority for reason display — genre always shows after specific signals
 const SIGNAL_TYPE_RANK = { collection: 0, director: 1, similar: 2, actor: 3, keyword: 4, studio: 5, rating: 6, new: 7, genre: 99 };
@@ -539,8 +540,10 @@ async function getRecommendations(userId, userToken) {
   let pools;
   if (cached && cached.pools && Date.now() - cached.builtAt < REC_CACHE_TTL) {
     // Pools already built — just re-sample (fast, no Plex/Tautulli calls)
+    log.debug(`Cache hit for user ${userIdStr}`);
     pools = cached.pools;
   } else {
+    log.debug(`Cache miss for user ${userIdStr} — building recommendation pools`);
     // Fetch library + watched keys in parallel (library from DB/cache, watched from DB)
     const [movies, tv, watchedKeys, dismissedKeys] = await Promise.all([
       plexService.getLibraryItems(getMoviesSection()),
@@ -619,6 +622,7 @@ async function getRecommendations(userId, userToken) {
     };
 
     recCache.set(userIdStr, { pools, builtAt: Date.now() });
+    log.info(`Recommendation pools built for user ${userIdStr} — movies: ${pools.movies.length}, tv: ${pools.tvShows.length}, anime: ${pools.anime.length}`);
   }
 
   // Sample fresh results from the pools on every call — this is what creates variety

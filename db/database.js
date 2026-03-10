@@ -1,6 +1,7 @@
 const { DatabaseSync } = require('node:sqlite');
 const path = require('path');
 const fs = require('fs');
+const log = require('../utils/logger').child('[db]');
 
 const dataDir = path.join(__dirname, '..', 'data');
 if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
@@ -152,7 +153,7 @@ db.exec(`CREATE TABLE IF NOT EXISTS migrations (name TEXT PRIMARY KEY, ran_at IN
   if (!already) {
     sql();
     db.prepare('INSERT INTO migrations (name, ran_at) VALUES (?, ?)').run(name, Date.now());
-    console.log(`[db] Migration applied: ${name}`);
+    log.info(`Migration applied: ${name}`);
   }
 });
 

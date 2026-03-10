@@ -1,5 +1,6 @@
 const db = require('../db/database');
 const tautulliService = require('./tautulli');
+const log = require('../utils/logger').child('[plex]');
 
 function getPlexUrl()      { return db.getSetting('plex_url', null)   || process.env.PLEX_URL; }
 function getPlexToken()    { return db.getSetting('plex_token', null) || process.env.PLEX_TOKEN; }
@@ -32,6 +33,7 @@ async function plexFetch(path, token) {
   const headers = { ...PLEX_HEADERS, 'X-Plex-Token': token || getPlexToken() };
   const timeout = path.includes('/sections/') ? 180000 : 15000;
   const res = await fetch(url, { headers, signal: AbortSignal.timeout(timeout) });
+  log.debug(`GET ${path.split('?')[0]} ${res.status}`);
   if (!res.ok) throw new Error(`Plex API error ${res.status} for ${path}`);
   return res.json();
 }
@@ -80,7 +82,7 @@ async function fetchSection(sectionId) {
     const items = db.getLibraryItemsFromDb(sectionId);
     if (items.length > 0) {
       libraryCache.set(sectionId, { data: items, fetchedAt: Date.now() });
-      console.log(`Loaded ${items.length} items for section ${sectionId} from DB (age: ${Math.round(dbAge/60)}m)`);
+      log.info(`Loaded ${items.length} items for section ${sectionId} from DB (age: ${Math.round(dbAge/60)}m)`);
       return items;
     }
   }
@@ -91,7 +93,7 @@ async function fetchSection(sectionId) {
       .catch(err => {
         const stale = db.getLibraryItemsFromDb(sectionId);
         if (stale.length > 0) {
-          console.warn(`Sync failed for section ${sectionId} (${err.message}), serving ${stale.length} stale items from DB`);
+          log.warn(`Sync failed for section ${sectionId} (${err.message}), serving ${stale.length} stale items from DB`);
           libraryCache.set(sectionId, { data: stale, fetchedAt: Date.now() - CACHE_TTL + 5 * 60 * 1000 }); // retry in 5 min
           return stale;
         }
@@ -104,7 +106,7 @@ async function fetchSection(sectionId) {
 }
 
 async function syncLibrarySection(sectionId) {
-  console.log(`Syncing library section ${sectionId} from Plex...`);
+  log.info(`Syncing library section ${sectionId} from Plex...`);
   const json = await plexFetch(
     `/library/sections/${sectionId}/all?X-Plex-Container-Size=99999&includeGuids=1&X-Plex-Token=${getPlexToken()}`
   );
@@ -118,7 +120,7 @@ async function syncLibrarySection(sectionId) {
 
   // Update in-memory cache
   libraryCache.set(sectionId, { data: items, fetchedAt: Date.now() });
-  console.log(`Synced ${items.length} items for section ${sectionId} to DB`);
+  log.info(`Synced ${items.length} items for section ${sectionId} to DB`);
   return items;
 }
 
@@ -154,7 +156,7 @@ async function syncUserWatched(userId, userToken) {
       fetch(url, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(timeoutMs) })
         .then(r => r.ok ? r.json() : { MediaContainer: {} })
         .catch(err => {
-          console.warn(`syncUserWatched fetch failed (${err.message}): ${url.split('?')[0]}`);
+          log.warn(`syncUserWatched fetch failed (${err.message}): ${url.split('?')[0]}`);
           return { MediaContainer: {} };
         });
 
@@ -206,14 +208,14 @@ async function syncUserWatched(userId, userToken) {
     }
     if (ratedItems.length > 0) {
       db.upsertUserRatings(userId, ratedItems);
-      console.log(`Stored ${ratedItems.length} user ratings for user ${userId}`);
+      log.debug(`Stored ${ratedItems.length} user ratings for user ${userId}`);
     }
 
     const plexMovieCount = (plexMoviesJson.MediaContainer?.Metadata || []).length;
     const plexTVCount = (plexTVJson.MediaContainer?.Metadata || []).length;
-    console.log(`Synced ${watchedKeys.size} watched items for user ${userId} (Plex movies: ${plexMovieCount}, Plex TV: ${plexTVCount}, Tautulli movies: ${tautulliMovieKeys.size}, Tautulli shows: ${tautulliShowKeys.size})`);
+    log.info(`Synced ${watchedKeys.size} watched items for user ${userId} (Plex movies: ${plexMovieCount}, Plex TV: ${plexTVCount}, Tautulli movies: ${tautulliMovieKeys.size}, Tautulli shows: ${tautulliShowKeys.size})`);
   } catch (err) {
-    console.warn(`syncUserWatched(${userId}) error:`, err.message);
+    log.warn(`syncUserWatched(${userId}) error:`, err.message);
   } finally {
     watchedSyncInProgress.delete(userId);
   }
@@ -297,7 +299,7 @@ async function getDiskovarrPlaylist(userToken) {
       items,
     };
   } catch (err) {
-    console.warn('getDiskovarrPlaylist error:', err.message);
+    log.warn('getDiskovarrPlaylist error:', err.message);
     return null;
   }
 }
@@ -367,6 +369,7 @@ async function removeFromWatchlist(userToken, playlistId, playlistItemId) {
     signal: AbortSignal.timeout(10000),
   });
   if (!res.ok) throw new Error(`Failed to remove from playlist: ${res.status}`);
+  log.info('Playlist item removed:', playlistItemId);
   return true;
 }
 
@@ -396,7 +399,7 @@ async function getRelated(ratingKey) {
       })),
     }));
   } catch (err) {
-    console.warn('[plex] getRelated error:', err.message);
+    log.warn('getRelated error:', err.message);
     return [];
   }
 }
@@ -423,7 +426,7 @@ async function getPlexGuid(ratingKey) {
     const hash = guid.split('/').pop();
     return hash || null;
   } catch (err) {
-    console.warn('[plexGuid] fetch error:', err.message);
+    log.warn('getPlexGuid fetch error:', err.message);
     return null;
   }
 }
@@ -451,6 +454,7 @@ async function addToPlexTvWatchlistByGuid(userToken, guid) {
     signal: AbortSignal.timeout(10000),
   });
   if (!res.ok) throw new Error(`Plex.tv watchlist add failed: ${res.status}`);
+  log.info('plex.tv watchlist add succeeded for guid', guid);
   return guid;
 }
 

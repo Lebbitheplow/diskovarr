@@ -6,6 +6,7 @@ const recommender = require('../services/recommender');
 const discoverRecommender = require('../services/discoverRecommender');
 const tmdbService = require('../services/tmdb');
 const db = require('../db/database');
+const log = require('../utils/logger').child('[api]');
 
 router.use(requireAuth);
 
@@ -43,7 +44,7 @@ router.get('/recommendations', async (req, res) => {
     const data = await recommender.getRecommendations(userId, userToken);
     res.json(data);
   } catch (err) {
-    console.error('recommendations error:', err);
+    log.error('recommendations error:', err);
     res.status(500).json({ error: 'Failed to fetch recommendations' });
   }
 });
@@ -71,7 +72,7 @@ router.get('/poster', async (req, res) => {
     const buffer = await imgRes.arrayBuffer();
     res.send(Buffer.from(buffer));
   } catch (err) {
-    console.error('poster proxy error:', err);
+    log.error('poster proxy error:', err);
     res.status(500).send('Failed to fetch poster');
   }
 });
@@ -107,17 +108,17 @@ router.post('/watchlist/add', (req, res) => {
         if (!playlist.playlistId) return;
         const item = playlist.items.find(i => i.ratingKey === playlistKey);
         if (item) db.updateWatchlistPlexIds(userId, ratingKey, playlist.playlistId, item.playlistItemId);
-        console.log(`Plex playlist synced for user ${userId}: added ratingKey ${ratingKey}`);
+        log.info(`Plex playlist synced for user ${userId}: added ratingKey ${ratingKey}`);
       })
-      .catch(err => console.warn(`Plex playlist add failed for user ${userId}:`, err.message));
+      .catch(err => log.warn(`Plex playlist add failed for user ${userId}:`, err.message));
   } else {
     // All other users (and admin in watchlist mode): add to plex.tv Watchlist
     plexService.addToPlexTvWatchlist(userToken, String(ratingKey))
       .then(guid => {
         db.updateWatchlistPlexGuid(userId, ratingKey, guid);
-        console.log(`Plex.tv watchlist synced for user ${userId}: added ratingKey ${ratingKey} (guid ${guid})`);
+        log.info(`Plex.tv watchlist synced for user ${userId}: added ratingKey ${ratingKey} (guid ${guid})`);
       })
-      .catch(err => console.warn(`Plex.tv watchlist add failed for user ${userId}:`, err.message));
+      .catch(err => log.warn(`Plex.tv watchlist add failed for user ${userId}:`, err.message));
   }
 });
 
@@ -140,7 +141,7 @@ router.post('/watchlist/remove', (req, res) => {
     const plexToken = serverToken || userToken;
     if (plexIds?.plex_playlist_id && plexIds?.plex_item_id) {
       plexService.removeFromWatchlist(plexToken, plexIds.plex_playlist_id, plexIds.plex_item_id)
-        .catch(err => console.warn(`Plex playlist remove failed for user ${userId}:`, err.message));
+        .catch(err => log.warn(`Plex playlist remove failed for user ${userId}:`, err.message));
     } else {
       Promise.all([
         plexService.getWatchlist(plexToken),
@@ -151,12 +152,12 @@ router.post('/watchlist/remove', (req, res) => {
           const item = playlist.items.find(i => i.ratingKey === playlistKey);
           if (item) return plexService.removeFromWatchlist(plexToken, playlist.playlistId, item.playlistItemId);
         })
-        .catch(err => console.warn(`Plex playlist remove failed for user ${userId}:`, err.message));
+        .catch(err => log.warn(`Plex playlist remove failed for user ${userId}:`, err.message));
     }
   } else {
     // All other users (and admin in watchlist mode): remove from plex.tv Watchlist using stored guid
     plexService.removeFromPlexTvWatchlist(userToken, plexIds?.plex_guid)
-      .catch(err => console.warn(`Plex.tv watchlist remove failed for user ${userId}:`, err.message));
+      .catch(err => log.warn(`Plex.tv watchlist remove failed for user ${userId}:`, err.message));
   }
 });
 
@@ -252,7 +253,7 @@ router.get('/discover', async (req, res) => {
       availableGenres: allGenres,
     });
   } catch (err) {
-    console.error('discover error:', err);
+    log.error('discover error:', err);
     res.status(500).json({ error: 'Failed to fetch discover results' });
   }
 });
@@ -324,7 +325,7 @@ router.get('/explore/recommendations', async (req, res) => {
     const data = await discoverRecommender.getDiscoverRecommendations(userId, userToken, { mature });
     res.json(data);
   } catch (err) {
-    console.error('explore/recommendations error:', err);
+    log.error('explore/recommendations error:', err);
     res.status(500).json({ error: 'Failed to fetch discover recommendations' });
   }
 });
@@ -523,7 +524,7 @@ router.post('/request', async (req, res) => {
 
     res.json({ success: true });
   } catch (err) {
-    console.error('request error:', err);
+    log.error('request error:', err);
     res.status(500).json({ error: 'Request failed: ' + err.message });
   }
 });
