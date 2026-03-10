@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/style.css?v=20">
+  <link rel="stylesheet" href="/css/style.css?v=24">
   <link rel="stylesheet" href="/theme.css?c=<%= themeParam %>">
 </head>
 <body>
@@ -18,12 +18,23 @@
     <div class="hero">
       <h1 class="hero-title">Diskovarr <span class="accent">Requests</span></h1>
       <p class="hero-sub">Everything here is <strong>not yet in the library</strong> — picked for your taste based on your watch history. <em style="opacity:0.6;font-size:0.9em">Your first visit may take a minute to process.</em></p>
-      <div class="hero-controls">
+      <div class="hero-controls hero-controls-split">
         <label class="toggle-label">
           <input type="checkbox" id="mature-toggle" class="toggle-checkbox">
           <span class="toggle-switch"></span>
           <span class="toggle-text">Show mature content <span style="opacity:0.55;font-size:0.82em;font-weight:400">(R &amp; TV-MA)</span></span>
         </label>
+        <div class="hero-search-wrap" id="hero-search-wrap">
+          <div class="hero-search-input-wrap">
+            <svg class="hero-search-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" width="15" height="15" fill="none" aria-hidden="true">
+              <circle cx="8.5" cy="8.5" r="5.5" stroke="currentColor" stroke-width="1.8"/>
+              <line x1="12.5" y1="12.5" x2="17" y2="17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+            <input type="search" id="hero-search" class="hero-search" placeholder="Search movies &amp; shows…" autocomplete="off" spellcheck="false">
+            <button type="button" class="hero-search-clear" id="hero-search-clear" aria-label="Clear" style="display:none">✕</button>
+          </div>
+          <div class="hero-search-dropdown" id="hero-search-dropdown" role="listbox" aria-label="Search suggestions"></div>
+        </div>
       </div>
       <% if (!hasAnyService) { %>
         <p class="hero-sub" style="margin-top:8px;color:var(--text-muted);font-size:0.85rem;background:var(--bg-secondary);display:inline-block;padding:6px 14px;border-radius:8px;border:1px solid var(--border)">
@@ -175,8 +186,9 @@
         sonarr: <%= services.sonarr ? 'true' : 'false' %>,
       },
       hasAnyService: <%= hasAnyService ? 'true' : 'false' %>,
+      individualSeasonsEnabled: <%= individualSeasonsEnabled ? 'true' : 'false' %>,
     };
   </script>
-  <script src="/js/discover-app.js?v=17"></script>
+  <script src="/js/discover-app.js?v=19"></script>
 </body>
 </html>

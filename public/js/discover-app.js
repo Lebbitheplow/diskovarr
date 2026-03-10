@@ -102,6 +102,87 @@
 
   var pendingRequest = null;
 
+  // Season picker state per dialog open
+  var _seasonSelection = ['all']; // 'all' or array of numbers as strings
+
+  function buildSeasonPicker(tmdbId, onReady) {
+    var wrap = document.createElement('div');
+    wrap.className = 'season-picker-wrap';
+
+    var label = document.createElement('div');
+    label.className = 'season-picker-label';
+    label.textContent = 'Seasons:';
+    wrap.appendChild(label);
+
+    var chipRow = document.createElement('div');
+    chipRow.className = 'season-chips';
+    wrap.appendChild(chipRow);
+
+    // Loading state
+    var loading = document.createElement('span');
+    loading.className = 'season-loading';
+    loading.textContent = 'Loading seasons…';
+    chipRow.appendChild(loading);
+
+    _seasonSelection = ['all'];
+
+    fetch('/api/search/seasons?tmdbId=' + tmdbId)
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        chipRow.innerHTML = '';
+        var seasonNums = data.seasons || [];
+
+        function renderChips() {
+          chipRow.innerHTML = '';
+          var allChip = document.createElement('button');
+          allChip.type = 'button';
+          allChip.className = 'season-chip' + (_seasonSelection[0] === 'all' ? ' active' : '');
+          allChip.textContent = 'All';
+          allChip.addEventListener('click', function () {
+            _seasonSelection = ['all'];
+            renderChips();
+          });
+          chipRow.appendChild(allChip);
+
+          seasonNums.forEach(function (n) {
+            var chip = document.createElement('button');
+            chip.type = 'button';
+            var isActive = _seasonSelection[0] !== 'all' && _seasonSelection.includes(String(n));
+            chip.className = 'season-chip' + (isActive ? ' active' : '');
+            chip.textContent = String(n);
+            chip.addEventListener('click', function () {
+              if (_seasonSelection[0] === 'all') {
+                _seasonSelection = [String(n)];
+              } else {
+                var idx = _seasonSelection.indexOf(String(n));
+                if (idx === -1) {
+                  _seasonSelection.push(String(n));
+                } else {
+                  _seasonSelection.splice(idx, 1);
+                  if (_seasonSelection.length === 0) _seasonSelection = ['all'];
+                }
+              }
+              renderChips();
+            });
+            chipRow.appendChild(chip);
+          });
+        }
+        renderChips();
+        if (onReady) onReady();
+      })
+      .catch(function () {
+        chipRow.innerHTML = '<span class="season-loading">Could not load seasons</span>';
+        if (onReady) onReady();
+      });
+
+    return wrap;
+  }
+
+  function getSelectedSeasons() {
+    if (_seasonSelection[0] === 'all') return null;
+    return _seasonSelection.map(Number);
+  }
+
   function openRequestDialog(item) {
     pendingRequest = item;
     var dialog = document.getElementById('request-dialog');
@@ -120,7 +201,6 @@
 
     subEl.textContent = item.year ? item.year + ' · ' + (isMovie ? 'Movie' : 'TV Show') : (isMovie ? 'Movie' : 'TV Show');
 
-    // Determine default service for this item type
     var hasBothSides = hasOverseerr && hasDirect;
     var defaultSvc;
     if (hasBothSides) {
@@ -129,13 +209,20 @@
       defaultSvc = hasOverseerr ? 'overseerr' : directSvc;
     }
 
-    // Clear and rebuild dialog body (below sub-title)
     actionsEl.innerHTML = '';
 
-    // Advanced override section (only shown when both sides configured)
     var dialogBox = dialog.querySelector('.request-dialog-box') || dialog.firstElementChild;
     var existingAdv = dialog.querySelector('.request-dialog-advanced');
     if (existingAdv) existingAdv.remove();
+    var existingSeason = dialog.querySelector('.season-picker-wrap');
+    if (existingSeason) existingSeason.remove();
+
+    // Season picker (TV shows + individual seasons enabled)
+    var showSeasonPicker = !isMovie && cfg.individualSeasonsEnabled;
+    if (showSeasonPicker) {
+      var pickerEl = buildSeasonPicker(item.tmdbId, null);
+      actionsEl.parentNode.insertBefore(pickerEl, actionsEl);
+    }
 
     if (hasBothSides) {
       var altSvc  = (defaultSvc === 'overseerr') ? directSvc : 'overseerr';
@@ -157,7 +244,7 @@
       altBtn.className = 'btn-dialog-alt';
       altBtn.textContent = 'Send to ' + altName + ' instead';
       altBtn.type = 'button';
-      altBtn.onclick = function () { submitRequest(item, altSvc); };
+      altBtn.onclick = function () { submitRequest(item, altSvc, showSeasonPicker ? getSelectedSeasons() : null); };
       advPanel.appendChild(altBtn);
 
       advToggle.onclick = function () {
@@ -168,7 +255,6 @@
 
       advWrap.appendChild(advToggle);
       advWrap.appendChild(advPanel);
-      // Insert above the actions row
       actionsEl.parentNode.insertBefore(advWrap, actionsEl);
     }
 
@@ -181,7 +267,7 @@
     var confirmBtn = document.createElement('button');
     confirmBtn.className = 'btn-dialog-confirm';
     confirmBtn.textContent = 'Request';
-    confirmBtn.onclick = function () { submitRequest(item, defaultSvc); };
+    confirmBtn.onclick = function () { submitRequest(item, defaultSvc, showSeasonPicker ? getSelectedSeasons() : null); };
     actionsEl.appendChild(confirmBtn);
 
     dialog.classList.add('open');
@@ -195,10 +281,9 @@
     pendingRequest = null;
   }
 
-  async function submitRequest(item, service) {
+  async function submitRequest(item, service, seasons) {
     closeRequestDialog();
 
-    // Find all request buttons for this item and disable them
     var btns = document.querySelectorAll('[data-request-tmdb="' + item.tmdbId + '"]');
     btns.forEach(function (btn) {
       btn.disabled = true;
@@ -216,6 +301,7 @@
           title: item.title,
           year: item.year || null,
           service,
+          seasons: seasons || null,
         }),
       });
       var data = await r.json();
@@ -223,7 +309,6 @@
         throw new Error(data.error || 'Request failed');
       }
 
-      // Mark all cards for this item as requested
       btns.forEach(function (btn) {
         btn.textContent = 'Requested ✓';
         btn.disabled = true;
@@ -722,7 +807,165 @@
         applyMatureFilter();
       });
     }
+    initHeroSearch();
     fetchAndRender(false);
   });
+
+  // ── Hero search bar + autocomplete ────────────────────────────────────────
+
+  function initHeroSearch() {
+    var input = document.getElementById('hero-search');
+    var clearBtn = document.getElementById('hero-search-clear');
+    var dropdown = document.getElementById('hero-search-dropdown');
+    if (!input || !dropdown) return;
+
+    var suggestTimer = null;
+    var activeIdx = -1;
+    var suggestions = [];
+
+    function showClear(v) { if (clearBtn) clearBtn.style.display = v ? 'block' : 'none'; }
+
+    function closeDropdown() {
+      dropdown.innerHTML = '';
+      dropdown.classList.remove('open');
+      activeIdx = -1;
+      suggestions = [];
+    }
+
+    function navigateTo(q) {
+      closeDropdown();
+      window.location.href = '/search?q=' + encodeURIComponent(q);
+    }
+
+    function renderDropdown(results) {
+      dropdown.innerHTML = '';
+      if (!results.length) { closeDropdown(); return; }
+      suggestions = results;
+      activeIdx = -1;
+
+      results.forEach(function (item, idx) {
+        var row = document.createElement('div');
+        row.className = 'hero-suggest-row';
+        row.setAttribute('role', 'option');
+        row.setAttribute('tabindex', '-1');
+
+        var poster = document.createElement('div');
+        poster.className = 'hero-suggest-poster';
+        if (item.posterUrl) {
+          var img = document.createElement('img');
+          img.src = item.posterUrl;
+          img.alt = '';
+          img.loading = 'lazy';
+          poster.appendChild(img);
+        } else {
+          poster.textContent = (item.title || '?').charAt(0);
+        }
+
+        var text = document.createElement('div');
+        text.className = 'hero-suggest-text';
+
+        var titleSpan = document.createElement('span');
+        titleSpan.className = 'hero-suggest-title';
+        titleSpan.textContent = item.title;
+
+        var metaSpan = document.createElement('span');
+        metaSpan.className = 'hero-suggest-meta';
+        var metaParts = [];
+        if (item.year) metaParts.push(item.year);
+        metaParts.push(item.mediaType === 'movie' ? 'Movie' : 'TV Show');
+        metaSpan.textContent = metaParts.join(' · ');
+
+        text.appendChild(titleSpan);
+        text.appendChild(metaSpan);
+        row.appendChild(poster);
+        row.appendChild(text);
+
+        row.addEventListener('mousedown', function (e) {
+          e.preventDefault(); // prevent blur before click
+          navigateTo(item.title);
+        });
+
+        dropdown.appendChild(row);
+      });
+
+      // "See all results" row
+      var allRow = document.createElement('div');
+      allRow.className = 'hero-suggest-row hero-suggest-all';
+      allRow.setAttribute('role', 'option');
+      allRow.textContent = 'See all results for "' + input.value.trim() + '"';
+      allRow.addEventListener('mousedown', function (e) {
+        e.preventDefault();
+        navigateTo(input.value.trim());
+      });
+      dropdown.appendChild(allRow);
+
+      dropdown.classList.add('open');
+    }
+
+    function setActive(idx) {
+      var rows = dropdown.querySelectorAll('.hero-suggest-row');
+      rows.forEach(function (r) { r.classList.remove('active'); });
+      activeIdx = idx;
+      if (idx >= 0 && idx < rows.length) rows[idx].classList.add('active');
+    }
+
+    async function fetchSuggestions(q) {
+      try {
+        var r = await fetch('/api/search/suggest?q=' + encodeURIComponent(q));
+        if (!r.ok) return;
+        var data = await r.json();
+        if (input.value.trim() === q) renderDropdown(data.results || []);
+      } catch { /* ignore */ }
+    }
+
+    input.addEventListener('input', function () {
+      var q = input.value.trim();
+      showClear(q.length > 0);
+      clearTimeout(suggestTimer);
+      if (q.length < 2) { closeDropdown(); return; }
+      suggestTimer = setTimeout(function () { fetchSuggestions(q); }, 280);
+    });
+
+    input.addEventListener('keydown', function (e) {
+      var rows = dropdown.querySelectorAll('.hero-suggest-row');
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setActive(Math.min(activeIdx + 1, rows.length - 1));
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setActive(Math.max(activeIdx - 1, -1));
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        if (activeIdx >= 0 && activeIdx < suggestions.length) {
+          navigateTo(suggestions[activeIdx].title);
+        } else {
+          var q = input.value.trim();
+          if (q) navigateTo(q);
+        }
+      } else if (e.key === 'Escape') {
+        closeDropdown();
+        input.blur();
+      }
+    });
+
+    input.addEventListener('blur', function () {
+      // Delay so mousedown on dropdown fires first
+      setTimeout(closeDropdown, 150);
+    });
+
+    if (clearBtn) {
+      clearBtn.addEventListener('click', function () {
+        input.value = '';
+        showClear(false);
+        closeDropdown();
+        input.focus();
+      });
+    }
+
+    // Close dropdown on outside click
+    document.addEventListener('click', function (e) {
+      if (!document.getElementById('hero-search-wrap')?.contains(e.target)) closeDropdown();
+    });
+  }
 
 })();

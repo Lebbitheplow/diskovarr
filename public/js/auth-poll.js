@@ -21,7 +21,7 @@
         if (data.status === 'authorized') {
           statusEl.textContent = 'Authorized!';
           subEl.textContent = 'Redirecting...';
-          window.location.href = '/?welcome=1';
+          window.location.href = data.landingUrl || '/?welcome=1';
         } else if (data.status === 'no_access') {
           statusEl.textContent = 'Access denied';
           subEl.textContent = "Your Plex account doesn't have access to this server.";

@@ -603,6 +603,14 @@ function getKnownUserIds() {
   return db.prepare('SELECT DISTINCT user_id FROM discover_pool_cache').all().map(r => r.user_id);
 }
 
+function isIndividualSeasonsEnabled() {
+  return getSetting('individual_seasons_enabled', '0') === '1';
+}
+
+function getLandingPage() {
+  return getSetting('landing_page', 'home'); // 'home' or 'explore'
+}
+
 module.exports = {
   addDismissal, getDismissals, removeDismissal,
   addToWatchlistDb, removeFromWatchlistDb, getWatchlistFromDb,
@@ -623,4 +631,6 @@ module.exports = {
   addDiscoverRequest, getRequestedTmdbIds, getRecentRequests,
   addExploreDismissal, getExploreDismissedIds,
   getDiscoverPool, setDiscoverPool, getKnownUserIds,
+  isIndividualSeasonsEnabled,
+  getLandingPage,
 };

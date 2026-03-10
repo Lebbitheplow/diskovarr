@@ -14,7 +14,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/style.css?v=20">
+  <link rel="stylesheet" href="/css/style.css?v=24">
   <link rel="stylesheet" href="/theme.css?c=<%= themeParam %>">
 </head>
 <body>
@@ -24,6 +24,13 @@
     <div class="hero">
       <h1 class="hero-title">Welcome back, <span class="accent"><%= username %></span></h1>
       <p class="hero-sub">Personalized picks based on your watch history</p>
+      <div class="hero-controls">
+        <label class="toggle-label">
+          <input type="checkbox" id="mature-toggle" class="toggle-checkbox">
+          <span class="toggle-switch"></span>
+          <span class="toggle-text">Show mature content <span style="opacity:0.55;font-size:0.82em;font-weight:400">(R &amp; TV-MA)</span></span>
+        </label>
+      </div>
     </div>
 
     <!-- Top Picks -->
@@ -150,6 +157,6 @@
     }
   </script>
   <script src="/js/watchlist.js?v=8"></script>
-  <script src="/js/app.js?v=16"></script>
+  <script src="/js/app.js?v=18"></script>
 </body>
 </html>
