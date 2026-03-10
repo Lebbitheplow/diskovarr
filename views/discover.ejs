@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/style.css?v=18">
-  <link rel="stylesheet" href="/css/discover.css?v=3">
+  <link rel="stylesheet" href="/css/discover.css?v=4">
   <link rel="stylesheet" href="/theme.css?c=<%= themeParam %>">
 </head>
 <body>
@@ -25,6 +25,15 @@
 
     <!-- ── Filters ─────────────────────────────────────────────────── -->
     <div class="filter-bar" id="filter-bar">
+
+      <!-- Search -->
+      <div class="filter-group">
+        <div class="search-input-wrap">
+          <svg class="search-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5" stroke="currentColor" stroke-width="1.8"/><line x1="12.5" y1="12.5" x2="17" y2="17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          <input type="search" id="filter-search" class="filter-search" placeholder="Search titles in library…" autocomplete="off" spellcheck="false">
+          <button class="search-clear" id="search-clear" aria-label="Clear search">✕</button>
+        </div>
+      </div>
 
       <!-- Type -->
       <div class="filter-group">
@@ -112,6 +121,6 @@
   </script>
   <script src="/js/watchlist.js?v=8"></script>
   <script src="/js/app.js?v=11"></script>
-  <script src="/js/discover.js?v=4"></script>
+  <script src="/js/discover.js?v=5"></script>
 </body>
 </html>

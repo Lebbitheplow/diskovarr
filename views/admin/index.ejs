@@ -16,7 +16,16 @@
   <nav class="nav">
     <div class="nav-inner">
       <a href="/" class="nav-logo">
-        <span class="logo-icon">◈</span>
+        <span class="logo-icon">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="1em" height="1em" fill="none" aria-hidden="true">
+            <rect x="0.5" y="17.5" width="13" height="1.5" rx="0.5" fill="currentColor"/>
+            <rect x="1" y="8.5" width="2.5" height="9" rx="0.4" fill="currentColor"/>
+            <rect x="4.5" y="11" width="3" height="6.5" rx="0.4" fill="currentColor"/>
+            <rect x="8.5" y="10" width="2.5" height="7.5" rx="0.4" fill="currentColor"/>
+            <circle cx="15" cy="9" r="5" stroke="currentColor" stroke-width="2"/>
+            <line x1="18.5" y1="12.5" x2="22" y2="16" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+          </svg>
+        </span>
         <span class="logo-text">Diskovarr</span>
         <span class="admin-badge">admin</span>
       </a>
@@ -223,6 +232,55 @@
             <span class="slide-track"></span>
           </label>
           <span id="lbl-playlist-opt" class="<%= watchlistMode === 'playlist' ? 'service-label-active' : 'service-label-inactive' %>">Diskovarr Playlist</span>
+        </div>
+      </section>
+
+      <!-- ── App Options ───────────────────────────────────── -->
+      <section class="admin-section">
+        <div class="admin-section-header">
+          <h2 class="section-title">App Options</h2>
+        </div>
+        <p class="section-desc" style="margin-bottom:20px">
+          Controls app-wide behavior and navigation defaults.
+        </p>
+        <div style="display:flex;align-items:center;gap:16px">
+          <span class="conn-toggle-sublabel" style="color:#fff;font-size:13px;font-weight:500">Diskovarr</span>
+          <label class="slide-toggle">
+            <input type="checkbox" id="toggle-landing-page"
+              <%= landingPage === 'explore' ? 'checked' : '' %>
+              onchange="onLandingPageChange(this.checked)">
+            <span class="slide-track"></span>
+          </label>
+          <span class="conn-toggle-sublabel" style="color:#fff;font-size:13px;font-weight:500">Diskovarr Requests</span>
+        </div>
+        <p class="section-desc" style="margin-top:10px;font-size:0.82rem">
+          Sets which page users land on after signing in. Diskovarr = personalized recommendation feed. Diskovarr Requests = content not yet in the library.
+        </p>
+      </section>
+
+      <!-- ── Request Options ────────────────────────────────── -->
+      <section class="admin-section">
+        <div class="admin-section-header">
+          <h2 class="section-title">Request Options</h2>
+        </div>
+        <p class="section-desc" style="margin-bottom:20px">
+          Controls behavior when users submit requests for TV shows on the Requests and Search pages.
+        </p>
+        <div style="display:flex;align-items:flex-start;gap:16px;flex-direction:column">
+          <div style="display:flex;align-items:center;gap:16px">
+            <div class="conn-toggle-row" style="margin:0">
+              <span class="conn-toggle-sublabel" style="color:#fff;font-size:13px;font-weight:500">Individual Season Requests</span>
+              <label class="slide-toggle">
+                <input type="checkbox" id="toggle-individual-seasons"
+                  <%= individualSeasonsEnabled ? 'checked' : '' %>
+                  onchange="onIndividualSeasonsChange(this.checked)">
+                <span class="slide-track"></span>
+              </label>
+            </div>
+          </div>
+          <p class="section-desc" style="margin:0;font-size:0.82rem">
+            When enabled, requesting a TV show presents a season selector — users can choose specific seasons (e.g. 1, 3, 5) or request all at once. Works with both Overseerr and Sonarr.
+          </p>
         </div>
       </section>
 
@@ -833,6 +891,31 @@
       }
     }
 
+    // ── Individual season requests ─────────────────────────────────
+    async function onLandingPageChange(explore) {
+      const body = { landing_page: explore ? 'explore' : 'home' };
+      try {
+        const r = await fetch('/admin/connections/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        const data = await r.json();
+        if (data.success) showToast(explore ? 'Landing page set to Diskovarr Requests' : 'Landing page set to Diskovarr');
+        else showToast('Save failed', true);
+      } catch (err) {
+        showToast('Save failed: ' + err.message, true);
+      }
+    }
+
+    async function onIndividualSeasonsChange(enabled) {
+      const body = { individual_seasons_enabled: enabled ? '1' : '0' };
+      try {
+        const r = await fetch('/admin/connections/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        const data = await r.json();
+        if (data.success) showToast(enabled ? 'Individual season requests enabled' : 'Individual season requests disabled');
+        else showToast('Save failed', true);
+      } catch (err) {
+        showToast('Save failed: ' + err.message, true);
+      }
+    }
+
     // ── Connections ────────────────────────────────────────────────
 
     function combineUrl(host, port) {
@@ -1173,6 +1256,24 @@
       }
     }
 
+  </script>
+  <script>
+    (function () {
+      var accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#e5a00d';
+      var svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="-3 -3 30 30">'
+        + '<rect x="-3" y="-3" width="30" height="30" rx="5" fill="#0f0f0f"/>'
+        + '<rect x="0.5" y="17.5" width="13" height="1.5" rx="0.5" fill="' + accent + '"/>'
+        + '<rect x="1" y="8.5" width="2.5" height="9" rx="0.4" fill="' + accent + '"/>'
+        + '<rect x="4.5" y="11" width="3" height="6.5" rx="0.4" fill="' + accent + '"/>'
+        + '<rect x="8.5" y="10" width="2.5" height="7.5" rx="0.4" fill="' + accent + '"/>'
+        + '<circle cx="15" cy="9" r="5" fill="none" stroke="' + accent + '" stroke-width="2"/>'
+        + '<line x1="18.5" y1="12.5" x2="22" y2="16" stroke="' + accent + '" stroke-width="2.5" stroke-linecap="round"/>'
+        + '</svg>';
+      var blob = new Blob([svg], { type: 'image/svg+xml' });
+      var url = URL.createObjectURL(blob);
+      var link = document.querySelector('link[rel*="icon"]');
+      if (link) link.href = url;
+    })();
   </script>
 </body>
 </html>

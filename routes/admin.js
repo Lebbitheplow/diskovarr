@@ -118,6 +118,8 @@ router.get('/', requireAdmin, async (req, res) => {
     appVersion: APP_VERSION,
     latestVersion,
     updateAvailable: isNewerVersion(latestVersion, APP_VERSION),
+    individualSeasonsEnabled: db.isIndividualSeasonsEnabled(),
+    landingPage: db.getLandingPage(),
   });
 });
 
@@ -129,6 +131,7 @@ router.get('/status', requireAdmin, (req, res) => {
     stats, autoSyncEnabled, syncInProgress, lastSyncError,
     watchlistMode: db.getAdminWatchlistMode(),
     discoverEnabled: db.isDiscoverEnabled(),
+    individualSeasonsEnabled: db.isIndividualSeasonsEnabled(),
   });
 });
 
@@ -253,6 +256,8 @@ const CONNECTION_KEYS = [
   'radarr_url', 'radarr_api_key', 'radarr_enabled', 'radarr_quality_profile_id',
   'sonarr_url', 'sonarr_api_key', 'sonarr_enabled', 'sonarr_quality_profile_id',
   'default_request_service',
+  'individual_seasons_enabled',
+  'landing_page',
 ];
 
 router.post('/connections/save', requireAdmin, (req, res) => {

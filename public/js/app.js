@@ -232,6 +232,74 @@
     });
     actionsEl.appendChild(wlBtn);
 
+    // Cast button + inline client picker
+    const castWrap = document.createElement('div');
+    castWrap.className = 'modal-cast-wrap';
+
+    const castBtn = document.createElement('button');
+    castBtn.className = 'modal-btn modal-btn-cast';
+    castBtn.textContent = '▶ Cast to TV';
+    castWrap.appendChild(castBtn);
+
+    const clientPicker = document.createElement('div');
+    clientPicker.className = 'modal-cast-picker';
+    clientPicker.style.display = 'none';
+    castWrap.appendChild(clientPicker);
+    actionsEl.appendChild(castWrap);
+
+    castBtn.addEventListener('click', async function () {
+      if (clientPicker.style.display !== 'none') {
+        clientPicker.style.display = 'none';
+        return;
+      }
+      castBtn.textContent = '…';
+      castBtn.disabled = true;
+      try {
+        const data = await fetch('/api/clients').then(r => r.json());
+        clientPicker.innerHTML = '';
+        if (!data.clients || data.clients.length === 0) {
+          clientPicker.innerHTML = '<span class="cast-no-clients">No Plex clients found.<br>Open your Plex app on your TV first.</span>';
+        } else {
+          data.clients.forEach(function (client) {
+            const btn = document.createElement('button');
+            btn.className = 'cast-client-btn';
+            btn.textContent = client.name + (client.product ? ' · ' + client.product : '');
+            btn.addEventListener('click', async function () {
+              btn.textContent = 'Casting…';
+              btn.disabled = true;
+              try {
+                const r = await fetch('/api/cast', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ ratingKey: item.ratingKey, clientId: client.machineIdentifier }),
+                });
+                const result = await r.json();
+                if (result.success) {
+                  showToast('Playing on ' + client.name);
+                  clientPicker.style.display = 'none';
+                } else {
+                  showToast(result.error || 'Cast failed', true);
+                  btn.textContent = client.name;
+                  btn.disabled = false;
+                }
+              } catch {
+                showToast('Cast failed', true);
+                btn.textContent = client.name;
+                btn.disabled = false;
+              }
+            });
+            clientPicker.appendChild(btn);
+          });
+        }
+        clientPicker.style.display = 'block';
+      } catch {
+        showToast('Could not fetch clients', true);
+      } finally {
+        castBtn.textContent = '▶ Cast to TV';
+        castBtn.disabled = false;
+      }
+    });
+
     const dismissBtn = document.createElement('button');
     dismissBtn.className = 'modal-btn modal-btn-dismiss';
     dismissBtn.textContent = '✕ Not Interested';
@@ -277,10 +345,29 @@
   // Card rendering
   // ----------------------------------------------------------------
 
+  const MATURE_RATINGS = new Set(['r', 'tv-ma', 'nc-17', 'x', 'nr']);
+
+  function isMatureEnabled() {
+    return localStorage.getItem('matureEnabled') === 'true';
+  }
+
+  function applyMatureFilter() {
+    const show = isMatureEnabled();
+    document.querySelectorAll('.card[data-adult="true"]').forEach(function (card) {
+      card.style.display = show ? '' : 'none';
+    });
+    document.querySelectorAll('.carousel-wrap .card-grid').forEach(function (grid) {
+      if (grid._updateArrows) grid._updateArrows();
+    });
+  }
+
   function renderCard(item) {
     const card = document.createElement('div');
     card.className = 'card';
     card.dataset.ratingKey = item.ratingKey;
+    if (item.contentRating && MATURE_RATINGS.has(item.contentRating.toLowerCase())) {
+      card.dataset.adult = 'true';
+    }
 
     // --- Poster (opens detail modal on click) ---
     const posterLink = document.createElement('button');
@@ -444,6 +531,7 @@
     grid.appendChild(frag);
     grid.scrollLeft = 0;
     if (grid._updateArrows) grid._updateArrows();
+    applyMatureFilter();
   }
 
   function initCarouselArrows() {
@@ -520,6 +608,16 @@
 
   document.addEventListener('DOMContentLoaded', function () {
     initCarouselArrows();
+
+    // Mature content toggle
+    const matureToggle = document.getElementById('mature-toggle');
+    if (matureToggle) {
+      matureToggle.checked = isMatureEnabled();
+      matureToggle.addEventListener('change', function () {
+        localStorage.setItem('matureEnabled', matureToggle.checked ? 'true' : 'false');
+        applyMatureFilter();
+      });
+    }
 
     // Wire shuffle buttons
     document.querySelectorAll('.carousel-btn-shuffle').forEach(function (btn) {
