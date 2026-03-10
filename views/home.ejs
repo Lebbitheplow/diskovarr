@@ -14,7 +14,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/style.css?v=18">
+  <link rel="stylesheet" href="/css/style.css?v=20">
   <link rel="stylesheet" href="/theme.css?c=<%= themeParam %>">
 </head>
 <body>
@@ -33,21 +33,22 @@
         <span class="section-badge">Personalized</span>
         <div class="carousel-controls">
           <button class="carousel-btn carousel-btn-shuffle" aria-label="Shuffle" title="Show different picks">↺</button>
-          <button class="carousel-btn carousel-btn-prev" aria-label="Previous page" hidden>❮</button>
-          <span class="carousel-counter"></span>
-          <button class="carousel-btn carousel-btn-next" aria-label="Next page" hidden>❯</button>
         </div>
       </div>
-      <div class="card-grid skeleton-grid" id="grid-top-picks">
-        <% for(let i = 0; i < 12; i++) { %>
-          <div class="card card-skeleton">
-            <div class="skeleton-poster shimmer"></div>
-            <div class="skeleton-info">
-              <div class="skeleton-line shimmer" style="width:80%"></div>
-              <div class="skeleton-line shimmer" style="width:50%"></div>
+      <div class="carousel-wrap">
+        <button class="carousel-arrow carousel-arrow-prev" aria-label="Previous" disabled>❮</button>
+        <div class="card-grid skeleton-grid" id="grid-top-picks">
+          <% for(let i = 0; i < 12; i++) { %>
+            <div class="card card-skeleton">
+              <div class="skeleton-poster shimmer"></div>
+              <div class="skeleton-info">
+                <div class="skeleton-line shimmer" style="width:80%"></div>
+                <div class="skeleton-line shimmer" style="width:50%"></div>
+              </div>
             </div>
-          </div>
-        <% } %>
+          <% } %>
+        </div>
+        <button class="carousel-arrow carousel-arrow-next" aria-label="Next">❯</button>
       </div>
     </section>
 
@@ -57,21 +58,22 @@
         <h2 class="section-title">Movies</h2>
         <div class="carousel-controls">
           <button class="carousel-btn carousel-btn-shuffle" aria-label="Shuffle" title="Show different picks">↺</button>
-          <button class="carousel-btn carousel-btn-prev" aria-label="Previous page" hidden>❮</button>
-          <span class="carousel-counter"></span>
-          <button class="carousel-btn carousel-btn-next" aria-label="Next page" hidden>❯</button>
         </div>
       </div>
-      <div class="card-grid skeleton-grid" id="grid-movies">
-        <% for(let i = 0; i < 12; i++) { %>
-          <div class="card card-skeleton">
-            <div class="skeleton-poster shimmer"></div>
-            <div class="skeleton-info">
-              <div class="skeleton-line shimmer" style="width:70%"></div>
-              <div class="skeleton-line shimmer" style="width:40%"></div>
+      <div class="carousel-wrap">
+        <button class="carousel-arrow carousel-arrow-prev" aria-label="Previous" disabled>❮</button>
+        <div class="card-grid skeleton-grid" id="grid-movies">
+          <% for(let i = 0; i < 12; i++) { %>
+            <div class="card card-skeleton">
+              <div class="skeleton-poster shimmer"></div>
+              <div class="skeleton-info">
+                <div class="skeleton-line shimmer" style="width:70%"></div>
+                <div class="skeleton-line shimmer" style="width:40%"></div>
+              </div>
             </div>
-          </div>
-        <% } %>
+          <% } %>
+        </div>
+        <button class="carousel-arrow carousel-arrow-next" aria-label="Next">❯</button>
       </div>
     </section>
 
@@ -81,21 +83,22 @@
         <h2 class="section-title">TV Shows</h2>
         <div class="carousel-controls">
           <button class="carousel-btn carousel-btn-shuffle" aria-label="Shuffle" title="Show different picks">↺</button>
-          <button class="carousel-btn carousel-btn-prev" aria-label="Previous page" hidden>❮</button>
-          <span class="carousel-counter"></span>
-          <button class="carousel-btn carousel-btn-next" aria-label="Next page" hidden>❯</button>
         </div>
       </div>
-      <div class="card-grid skeleton-grid" id="grid-tv">
-        <% for(let i = 0; i < 12; i++) { %>
-          <div class="card card-skeleton">
-            <div class="skeleton-poster shimmer"></div>
-            <div class="skeleton-info">
-              <div class="skeleton-line shimmer" style="width:75%"></div>
-              <div class="skeleton-line shimmer" style="width:45%"></div>
+      <div class="carousel-wrap">
+        <button class="carousel-arrow carousel-arrow-prev" aria-label="Previous" disabled>❮</button>
+        <div class="card-grid skeleton-grid" id="grid-tv">
+          <% for(let i = 0; i < 12; i++) { %>
+            <div class="card card-skeleton">
+              <div class="skeleton-poster shimmer"></div>
+              <div class="skeleton-info">
+                <div class="skeleton-line shimmer" style="width:75%"></div>
+                <div class="skeleton-line shimmer" style="width:45%"></div>
+              </div>
             </div>
-          </div>
-        <% } %>
+          <% } %>
+        </div>
+        <button class="carousel-arrow carousel-arrow-next" aria-label="Next">❯</button>
       </div>
     </section>
 
@@ -105,21 +108,22 @@
         <h2 class="section-title">Anime</h2>
         <div class="carousel-controls">
           <button class="carousel-btn carousel-btn-shuffle" aria-label="Shuffle" title="Show different picks">↺</button>
-          <button class="carousel-btn carousel-btn-prev" aria-label="Previous page" hidden>❮</button>
-          <span class="carousel-counter"></span>
-          <button class="carousel-btn carousel-btn-next" aria-label="Next page" hidden>❯</button>
         </div>
       </div>
-      <div class="card-grid skeleton-grid" id="grid-anime">
-        <% for(let i = 0; i < 12; i++) { %>
-          <div class="card card-skeleton">
-            <div class="skeleton-poster shimmer"></div>
-            <div class="skeleton-info">
-              <div class="skeleton-line shimmer" style="width:65%"></div>
-              <div class="skeleton-line shimmer" style="width:35%"></div>
+      <div class="carousel-wrap">
+        <button class="carousel-arrow carousel-arrow-prev" aria-label="Previous" disabled>❮</button>
+        <div class="card-grid skeleton-grid" id="grid-anime">
+          <% for(let i = 0; i < 12; i++) { %>
+            <div class="card card-skeleton">
+              <div class="skeleton-poster shimmer"></div>
+              <div class="skeleton-info">
+                <div class="skeleton-line shimmer" style="width:65%"></div>
+                <div class="skeleton-line shimmer" style="width:35%"></div>
+              </div>
             </div>
-          </div>
-        <% } %>
+          <% } %>
+        </div>
+        <button class="carousel-arrow carousel-arrow-next" aria-label="Next">❯</button>
       </div>
     </section>
   </main>
@@ -146,6 +150,6 @@
     }
   </script>
   <script src="/js/watchlist.js?v=8"></script>
-  <script src="/js/app.js?v=15"></script>
+  <script src="/js/app.js?v=16"></script>
 </body>
 </html>

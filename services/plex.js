@@ -197,9 +197,9 @@ async function syncUserWatched(userId, userToken) {
     db.replaceWatchedBatch(userId, watchedKeys);
     db.setSyncTime(syncKey);
 
-    // Extract star ratings from Plex watched movies for recommendation weighting
+    // Extract star ratings from Plex watched movies + TV shows for recommendation weighting
     const ratedItems = [];
-    for (const item of (plexMoviesJson.MediaContainer?.Metadata || [])) {
+    for (const item of [...(plexMoviesJson.MediaContainer?.Metadata || []), ...(plexTVJson.MediaContainer?.Metadata || [])]) {
       if (item.userRating) {
         ratedItems.push({ ratingKey: String(item.ratingKey), userRating: parseFloat(item.userRating) });
       }

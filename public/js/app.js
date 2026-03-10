@@ -428,9 +428,8 @@
   // ----------------------------------------------------------------
 
   function renderCarousel(sectionId, items) {
-    const section = document.getElementById('section-' + sectionId);
     const grid = document.getElementById('grid-' + sectionId);
-    if (!grid || !section) return;
+    if (!grid) return;
 
     grid.innerHTML = '';
     grid.classList.remove('skeleton-grid');
@@ -440,48 +439,31 @@
       return;
     }
 
-    // Probe column count by briefly rendering one card
-    const probe = renderCard(items[0]);
-    grid.appendChild(probe);
-    const cols = window.getComputedStyle(grid).gridTemplateColumns.split(' ').length;
-    grid.innerHTML = '';
+    const frag = document.createDocumentFragment();
+    items.forEach(item => frag.appendChild(renderCard(item)));
+    grid.appendChild(frag);
+    grid.scrollLeft = 0;
+    if (grid._updateArrows) grid._updateArrows();
+  }
 
-    const pageSize = Math.max(cols * 2, 4);
-    const pages = [];
-    for (let i = 0; i < items.length; i += pageSize) {
-      pages.push(items.slice(i, i + pageSize));
-    }
+  function initCarouselArrows() {
+    document.querySelectorAll('.carousel-wrap').forEach(function (wrap) {
+      const grid = wrap.querySelector('.card-grid');
+      const btnPrev = wrap.querySelector('.carousel-arrow-prev');
+      const btnNext = wrap.querySelector('.carousel-arrow-next');
+      if (!grid || !btnPrev || !btnNext) return;
 
-    const btnPrev = section.querySelector('.carousel-btn-prev');
-    const btnNext = section.querySelector('.carousel-btn-next');
-    const counter = section.querySelector('.carousel-counter');
-    let currentPage = 0;
-
-    function showPage(p) {
-      grid.innerHTML = '';
-      const frag = document.createDocumentFragment();
-      pages[p].forEach(item => frag.appendChild(renderCard(item)));
-      grid.appendChild(frag);
-      currentPage = p;
-      if (pages.length > 1) {
-        counter.textContent = p + 1 + ' / ' + pages.length;
-        btnPrev.disabled = p === 0;
-        btnNext.disabled = p === pages.length - 1;
+      function updateArrows() {
+        btnPrev.disabled = grid.scrollLeft <= 2;
+        btnNext.disabled = grid.scrollLeft + grid.clientWidth >= grid.scrollWidth - 2;
       }
-    }
 
-    if (pages.length > 1) {
-      btnPrev.hidden = false;
-      btnNext.hidden = false;
-      btnPrev.addEventListener('click', function () {
-        if (currentPage > 0) showPage(currentPage - 1);
-      });
-      btnNext.addEventListener('click', function () {
-        if (currentPage < pages.length - 1) showPage(currentPage + 1);
-      });
-    }
-
-    showPage(0);
+      btnPrev.onclick = function () { grid.scrollBy({ left: -grid.clientWidth, behavior: 'smooth' }); };
+      btnNext.onclick = function () { grid.scrollBy({ left: grid.clientWidth, behavior: 'smooth' }); };
+      grid.addEventListener('scroll', updateArrows, { passive: true });
+      grid._updateArrows = updateArrows;
+      updateArrows();
+    });
   }
 
   // Expose renderCard globally for discover.js
@@ -537,6 +519,8 @@
   // ----------------------------------------------------------------
 
   document.addEventListener('DOMContentLoaded', function () {
+    initCarouselArrows();
+
     // Wire shuffle buttons
     document.querySelectorAll('.carousel-btn-shuffle').forEach(function (btn) {
       btn.addEventListener('click', function () { shuffleAll(btn); });

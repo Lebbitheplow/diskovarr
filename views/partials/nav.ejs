@@ -1,7 +1,16 @@
 <nav class="nav">
   <div class="nav-inner">
     <a href="/" class="nav-logo">
-      <span class="logo-icon">◈</span>
+      <span class="logo-icon">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="1em" height="1em" fill="none" aria-hidden="true">
+          <rect x="0.5" y="17.5" width="13" height="1.5" rx="0.5" fill="currentColor"/>
+          <rect x="1" y="8.5" width="2.5" height="9" rx="0.4" fill="currentColor"/>
+          <rect x="4.5" y="11" width="3" height="6.5" rx="0.4" fill="currentColor"/>
+          <rect x="8.5" y="10" width="2.5" height="7.5" rx="0.4" fill="currentColor"/>
+          <circle cx="15" cy="9" r="5" stroke="currentColor" stroke-width="2"/>
+          <line x1="18.5" y1="12.5" x2="22" y2="16" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+        </svg>
+      </span>
       <span class="logo-text">Diskovarr</span>
     </a>
 
@@ -62,7 +71,16 @@
   <div class="info-modal-card" role="dialog" aria-modal="true">
     <button class="info-modal-close" id="info-modal-close" aria-label="Close">✕</button>
     <div class="info-modal-logo">
-      <span class="logo-icon">◈</span>
+      <span class="logo-icon">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="1em" height="1em" fill="none" aria-hidden="true">
+          <rect x="0.5" y="17.5" width="13" height="1.5" rx="0.5" fill="currentColor"/>
+          <rect x="1" y="8.5" width="2.5" height="9" rx="0.4" fill="currentColor"/>
+          <rect x="4.5" y="11" width="3" height="6.5" rx="0.4" fill="currentColor"/>
+          <rect x="8.5" y="10" width="2.5" height="7.5" rx="0.4" fill="currentColor"/>
+          <circle cx="15" cy="9" r="5" stroke="currentColor" stroke-width="2"/>
+          <line x1="18.5" y1="12.5" x2="22" y2="16" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+        </svg>
+      </span>
       <span class="logo-text">Diskovarr</span>
       <span class="info-modal-version">v<%= appVersion %></span>
     </div>
@@ -91,6 +109,25 @@
 </div>
 
 <script>
+  // ── Dynamic favicon — reflects current accent color ───────────────
+  (function () {
+    var accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#e5a00d';
+    var svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="-3 -3 30 30">'
+      + '<rect x="-3" y="-3" width="30" height="30" rx="5" fill="#0f0f0f"/>'
+      + '<rect x="0.5" y="17.5" width="13" height="1.5" rx="0.5" fill="' + accent + '"/>'
+      + '<rect x="1" y="8.5" width="2.5" height="9" rx="0.4" fill="' + accent + '"/>'
+      + '<rect x="4.5" y="11" width="3" height="6.5" rx="0.4" fill="' + accent + '"/>'
+      + '<rect x="8.5" y="10" width="2.5" height="7.5" rx="0.4" fill="' + accent + '"/>'
+      + '<circle cx="15" cy="9" r="5" fill="none" stroke="' + accent + '" stroke-width="2"/>'
+      + '<line x1="18.5" y1="12.5" x2="22" y2="16" stroke="' + accent + '" stroke-width="2.5" stroke-linecap="round"/>'
+      + '</svg>';
+    var blob = new Blob([svg], { type: 'image/svg+xml' });
+    var url = URL.createObjectURL(blob);
+    var link = document.querySelector('link[rel*="icon"]');
+    if (link) link.href = url;
+  })();
+
+  // ── Mobile FAB menu ────────────────────────────────────────────────
   (function () {
     var fab = document.getElementById('nav-fab');
     var menu = document.getElementById('nav-fab-menu');
