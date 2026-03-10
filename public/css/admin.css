@@ -554,6 +554,49 @@
 
 .conn-advanced-panel.open { display: block; }
 
+/* ── Inline quality profile row (shown after successful test) ─── */
+
+.conn-quality-row {
+  display: none;
+  margin-top: 12px;
+  padding: 14px 16px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+
+.conn-quality-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.conn-quality-label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.conn-quality-required {
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  background: var(--accent-dim);
+  border: 1px solid var(--accent-border);
+  border-radius: 99px;
+  padding: 1px 7px;
+}
+
+.conn-quality-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .conn-advanced-row {
   display: flex;
   align-items: center;
@@ -701,6 +744,39 @@
   cursor: not-allowed;
 }
 
+/* Choice toggle variant — both positions accent-colored (A/B, not on/off) */
+.slide-toggle-choice .slide-track {
+  background: var(--accent-dim);
+  border-color: var(--accent-border);
+}
+.slide-toggle-choice .slide-track::before {
+  background: var(--accent);
+}
+.slide-toggle-choice input:checked + .slide-track {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+}
+.slide-toggle-choice input:checked + .slide-track::before {
+  background: var(--accent);
+}
+
+/* Active/inactive labels flanking a choice toggle */
+.service-label-active {
+  color: var(--accent);
+  background: var(--accent-dim);
+  border: 1px solid var(--accent-border);
+  border-radius: 99px;
+  padding: 2px 10px;
+  font-weight: 600;
+  font-size: 0.8rem;
+  transition: color 0.2s, background 0.2s, border-color 0.2s;
+}
+.service-label-inactive {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  transition: color 0.2s;
+}
+
 /* ── Password field wrap (eye + copy buttons) ────────────────── */
 
 .conn-input-wrap {
@@ -742,4 +818,67 @@
 .conn-input-icon-btn:hover {
   color: var(--text-primary);
   background: rgba(255, 255, 255, 0.08);
+}
+
+/* ── Field groups with labels ───────────────────────────── */
+
+.conn-block-fields {
+  align-items: flex-end;
+}
+
+.conn-field-group {
+  min-width: 0;
+}
+
+.conn-field-host { flex: 1; min-width: 160px; }
+.conn-field-port { width: 96px; flex-shrink: 0; }
+.conn-field-key  { flex: 1; min-width: 160px; }
+
+.conn-field-label {
+  display: block;
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-muted);
+  white-space: nowrap;
+  margin-bottom: 5px;
+}
+
+.conn-field-group > .conn-input {
+  display: block;
+  width: 100%;
+  min-width: 0 !important;
+  box-sizing: border-box;
+  flex: none;
+}
+
+.conn-field-group > .conn-input-wrap {
+  width: 100%;
+  min-width: 0 !important;
+  box-sizing: border-box;
+  flex: none;
+}
+
+.conn-field-optional {
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  font-style: italic;
+  color: var(--text-muted);
+  opacity: 0.45;
+}
+
+.conn-action-btn {
+  align-self: flex-end;
+}
+
+/* Hide number input spin buttons */
+.conn-input-port::-webkit-outer-spin-button,
+.conn-input-port::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.conn-input-port[type=number] {
+  -moz-appearance: textfield;
 }

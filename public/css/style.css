@@ -720,8 +720,23 @@ img {
   line-height: 1.4;
   white-space: nowrap;
   overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 100%;
+  max-width: min(100%, 220px);
+}
+
+.reason-tag-text {
+  display: inline-block;
+  white-space: nowrap;
+}
+
+.reason-tag-scroll .reason-tag-text {
+  animation: reason-tag-scroll var(--tag-scroll-duration, 5s) linear infinite;
+}
+
+@keyframes reason-tag-scroll {
+  0%, 15%  { transform: translateX(0); }
+  70%, 85% { transform: translateX(var(--tag-scroll-dist)); }
+  99%      { transform: translateX(var(--tag-scroll-dist)); }
+  100%     { transform: translateX(0); }
 }
 
 /* Missing poster placeholder */

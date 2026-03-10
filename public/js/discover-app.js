@@ -3,6 +3,31 @@
 
   var cfg = window.EXPLORE_CONFIG || { services: {}, hasAnyService: false };
 
+  // ── Helpers ───────────────────────────────────────────────────────────────
+
+  function makeReasonTag(text) {
+    var tag = document.createElement('span');
+    tag.className = 'reason-tag';
+    var inner = document.createElement('span');
+    inner.className = 'reason-tag-text';
+    inner.textContent = text;
+    tag.appendChild(inner);
+    setTimeout(function () {
+      var cs = getComputedStyle(tag);
+      var tagExtra = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight) +
+                     parseFloat(cs.borderLeftWidth) + parseFloat(cs.borderRightWidth);
+      var overflow = inner.getBoundingClientRect().width - (tag.getBoundingClientRect().width - tagExtra);
+      if (overflow > 1) {
+        var dist = Math.ceil(overflow) + 6;
+        var dur = Math.max(3, (dist / 40 + 2)).toFixed(1) + 's';
+        tag.style.setProperty('--tag-scroll-dist', '-' + dist + 'px');
+        tag.style.setProperty('--tag-scroll-duration', dur);
+        tag.classList.add('reason-tag-scroll');
+      }
+    }, 50);
+    return tag;
+  }
+
   // ── Toast ─────────────────────────────────────────────────────────────────
 
   function showToast(msg, type) {
@@ -314,10 +339,7 @@
     reasonsEl.innerHTML = '';
     if (item.reasons && item.reasons.length > 0) {
       item.reasons.forEach(function (r) {
-        var tag = document.createElement('span');
-        tag.className = 'reason-tag';
-        tag.textContent = r;
-        reasonsEl.appendChild(tag);
+        reasonsEl.appendChild(makeReasonTag(r));
       });
     }
 
@@ -511,10 +533,7 @@
       var reasons = document.createElement('div');
       reasons.className = 'card-reasons';
       item.reasons.slice(0, 2).forEach(function (r) {
-        var tag = document.createElement('span');
-        tag.className = 'reason-tag';
-        tag.textContent = r;
-        reasons.appendChild(tag);
+        reasons.appendChild(makeReasonTag(r));
       });
       info.appendChild(reasons);
     }
