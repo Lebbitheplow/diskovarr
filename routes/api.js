@@ -283,6 +283,7 @@ router.post('/dismiss', (req, res) => {
   const { id: userId } = req.session.plexUser;
   db.addDismissal(userId, ratingKey);
   recommender.invalidateUserCache(userId);
+  log.info(`Dismissed by user ${userId}: ratingKey ${ratingKey}`);
   res.json({ success: true });
 });
 
@@ -296,6 +297,7 @@ router.delete('/dismiss', (req, res) => {
 
   const { id: userId } = req.session.plexUser;
   db.removeDismissal(userId, ratingKey);
+  log.info(`Dismiss removed by user ${userId}: ratingKey ${ratingKey}`);
   res.json({ success: true });
 });
 
@@ -339,6 +341,7 @@ router.post('/explore/dismiss', (req, res) => {
 
   const { id: userId } = req.session.plexUser;
   db.addExploreDismissal(userId, tmdbId, mediaType);
+  log.info(`Explore dismissed by user ${userId}: tmdbId ${tmdbId} (${mediaType})`);
   res.json({ success: true });
 });
 
@@ -482,6 +485,8 @@ router.post('/request', async (req, res) => {
         return res.status(r.status).json({ error: `Sonarr error: ${body}` });
       }
     }
+
+    log.info(`Request submitted by user ${userId}: "${title || tmdbId}" (${mediaType}, tmdbId ${tmdbId}) via ${service}`);
 
     // Log the request so it shows as "Already Requested" in the UI
     db.addDiscoverRequest(userId, tmdbId, mediaType, title || '', service);
