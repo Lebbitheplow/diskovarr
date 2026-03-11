@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const rateLimit = require('express-rate-limit');
 const db = require('../db/database');
+const logger = require('../services/logger');
 
 const checkPinLimiter = rateLimit({
   windowMs: 60 * 1000,
@@ -72,6 +73,7 @@ router.get('/check-pin', checkPinLimiter, async (req, res) => {
 
     const serverResource = resources.find(r => r.clientIdentifier === PLEX_SERVER_ID);
     if (!serverResource) {
+      logger.warn(`Plex login denied: user ${userData.id} (${userData.username}) has no access to this server`);
       return res.json({ status: 'no_access' });
     }
 
@@ -82,8 +84,6 @@ router.get('/check-pin', checkPinLimiter, async (req, res) => {
     // This is what Plex apps actually use for server API calls (not the main OAuth token).
     // Without it, Friend tokens are rejected by the server for write operations like playlists.
     const serverToken = serverResource.accessToken || userToken;
-    console.log(`[auth] user ${userData.id} serverToken=${serverToken ? 'found' : 'missing (fallback to userToken)'}`);
-
     const rawName = userData.username || userData.friendlyName || 'Plex User';
     const username = rawName.replace(/&#(\d+);/g, (_, c) => String.fromCharCode(c))
                             .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
@@ -106,17 +106,20 @@ router.get('/check-pin', checkPinLimiter, async (req, res) => {
     delete req.session.plexPinId;
     delete req.session.plexPinCode;
 
+    logger.info(`Plex login success: user=${userData.id} username="${username}" ip=${req.ip}`);
     const landingPage = db.getLandingPage();
     const landingUrl = (landingPage === 'explore') ? '/explore?welcome=1' : '/?welcome=1';
     return res.json({ status: 'authorized', landingUrl });
   } catch (err) {
-    console.error('check-pin error:', err);
+    logger.error(`Plex auth error: ${err.message}`);
     return res.json({ status: 'error', message: err.message });
   }
 });
 
 // GET /auth/logout
 router.get('/logout', (req, res) => {
+  const user = req.session.plexUser;
+  if (user) logger.info(`Plex logout: user=${user.id} username="${user.username}"`);
   req.session.destroy(() => {
     res.redirect('/login');
   });

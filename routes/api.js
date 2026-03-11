@@ -7,6 +7,7 @@ const discoverRecommender = require('../services/discoverRecommender');
 const tmdbService = require('../services/tmdb');
 const overseerrService = require('../services/overseerr');
 const db = require('../db/database');
+const logger = require('../services/logger');
 
 router.use(requireAuth);
 
@@ -56,7 +57,7 @@ router.get('/recommendations', async (req, res) => {
       anime:    addDeepLinks(data.anime    || []),
     });
   } catch (err) {
-    console.error('recommendations error:', err);
+    logger.error('recommendations error:', err.message);
     res.status(500).json({ error: 'Failed to fetch recommendations' });
   }
 });
@@ -557,7 +558,7 @@ router.get('/explore/recommendations', async (req, res) => {
     const data = await discoverRecommender.getDiscoverRecommendations(userId, userToken, { mature });
     res.json(data);
   } catch (err) {
-    console.error('explore/recommendations error:', err);
+    logger.error('explore/recommendations error:', err.message);
     res.status(500).json({ error: 'Failed to fetch discover recommendations' });
   }
 });
@@ -777,6 +778,7 @@ router.post('/request', async (req, res) => {
       ? (Array.isArray(seasons) && seasons.length > 0 ? seasons.length : 1)
       : 1;
     db.addDiscoverRequest(userId, tmdbId, mediaType, title || '', service, seasonsCount);
+    logger.info(`Request submitted: user=${userId} tmdbId=${tmdbId} type=${mediaType} title="${title}" service=${service}`);
 
     // Add the item to the user's native Plex.tv Watchlist so they can track it
     // in the Plex app while waiting for the download.

@@ -16,7 +16,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/style.css">
-  <link rel="stylesheet" href="/css/admin.css?v=18">
+  <link rel="stylesheet" href="/css/admin.css?v=22">
   <link rel="stylesheet" href="/theme.css?c=<%= themeParam %>" id="theme-css">
 </head>
 <body>
@@ -87,14 +87,14 @@
           Controls app-wide behavior and navigation defaults.
         </p>
         <div style="display:flex;align-items:center;gap:16px">
-          <span class="conn-toggle-sublabel" style="color:#fff;font-size:13px;font-weight:500">Diskovarr</span>
-          <label class="slide-toggle">
+          <span id="lbl-landing-home" class="<%= landingPage !== 'explore' ? 'service-label-active' : 'service-label-inactive' %>">Diskovarr</span>
+          <label class="slide-toggle slide-toggle-choice">
             <input type="checkbox" id="toggle-landing-page"
               <%= landingPage === 'explore' ? 'checked' : '' %>
               onchange="onLandingPageChange(this.checked)">
             <span class="slide-track"></span>
           </label>
-          <span class="conn-toggle-sublabel" style="color:#fff;font-size:13px;font-weight:500">Diskovarr Requests</span>
+          <span id="lbl-landing-explore" class="<%= landingPage === 'explore' ? 'service-label-active' : 'service-label-inactive' %>">Diskovarr Requests</span>
         </div>
         <p class="section-desc" style="margin-top:10px;font-size:0.82rem">
           Sets which page users land on after signing in. Diskovarr = personalized recommendation feed. Diskovarr Requests = content not yet in the library.
@@ -192,6 +192,27 @@
         </div>
       </section>
 
+      <!-- ── Logging ───────────────────────────────────────────── -->
+      <section class="admin-section">
+        <div class="admin-section-header">
+          <div>
+            <h2 class="section-title">Logging</h2>
+            <p class="section-desc" style="margin-top:4px">
+              When enabled, Diskovarr writes timestamped logs to stdout/stderr.<br>
+              View with: <code style="font-size:0.78rem;background:var(--bg-elevated);padding:1px 5px;border-radius:4px;border:1px solid var(--border)">sudo journalctl -u diskovarr -f</code>
+              &nbsp;or&nbsp;
+              <code style="font-size:0.78rem;background:var(--bg-elevated);padding:1px 5px;border-radius:4px;border:1px solid var(--border)">docker logs diskovarr -f</code>
+            </p>
+          </div>
+          <label class="slide-toggle" style="flex-shrink:0">
+            <input type="checkbox" id="logging-toggle"
+              <%= loggingEnabled ? 'checked' : '' %>
+              onchange="onLoggingChange(this.checked)">
+            <span class="slide-track"></span>
+          </label>
+        </div>
+      </section>
+
     </div><!-- /panel-settings -->
 
     <!-- ══════════════════════════════════════════════════════════ -->
@@ -257,29 +278,12 @@
             </div>
             <span class="section-desc" style="margin:0;font-size:0.82rem">When enabled, TV show requests present a season selector instead of requesting all seasons at once.</span>
           </div>
-          <% if (connections.overseerrEnabled && (connections.radarrEnabled || connections.sonarrEnabled)) { %>
-          <div style="padding-top:6px">
-            <p style="font-size:0.72rem;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:#fff;margin:0 0 10px">Alternate Request App Access</p>
-            <div style="display:flex;align-items:center;gap:16px">
-              <div class="conn-toggle-row" style="margin:0">
-                <span id="lbl-direct-all" class="<%= directRequestAccess !== 'admin' ? 'service-label-active' : 'service-label-inactive' %>">All Users</span>
-                <label class="slide-toggle slide-toggle-choice">
-                  <input type="checkbox" id="toggle-direct-request-access"
-                    <%= directRequestAccess === 'admin' ? 'checked' : '' %>
-                    onchange="onDirectRequestAccessChange(this.checked)">
-                  <span class="slide-track"></span>
-                </label>
-                <span id="lbl-direct-admin" class="<%= directRequestAccess === 'admin' ? 'service-label-active' : 'service-label-inactive' %>">Admin</span>
-              </div>
-              <span class="section-desc" style="margin:0;font-size:0.82rem">Controls who can see the secondary request service (Advanced button). "Admin" hides it from regular users — only the server owner sees the option.</span>
-            </div>
-          </div>
-          <% } %>
         </div>
 
         <% if (stats.users.length === 0) { %>
           <p class="empty-state" style="padding:20px 0">No users have synced yet.</p>
         <% } else { %>
+          <div class="user-table-wrap">
           <div class="user-table" style="<%= connections.discoverEnabled ? 'grid-template-columns: minmax(140px,1fr) 110px 120px 1fr 180px' : '' %>">
             <div class="user-table-header" style="<%= connections.discoverEnabled ? 'grid-template-columns: minmax(140px,1fr) 110px 120px 1fr 180px' : '' %>">
               <span>User</span>
@@ -325,6 +329,7 @@
               </div>
             <% } %>
           </div>
+          </div><!-- /.user-table-wrap -->
         <% } %>
 
         <div class="admin-actions" style="margin-top:16px">
@@ -354,7 +359,7 @@
           <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
             <span style="min-width:84px;font-size:0.9rem;color:#fff;font-weight:500">Movies</span>
             <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:0.88rem;color:var(--text-secondary);user-select:none">
-              <input type="checkbox" id="limit-movie-unlimited"
+              <input type="checkbox" class="themed-checkbox" id="limit-movie-unlimited"
                 <%= globalLimits.movieLimit === 0 ? 'checked' : '' %>
                 onchange="onMovieUnlimitedChange(this.checked)">
               Unlimited
@@ -373,7 +378,7 @@
           <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
             <span style="min-width:84px;font-size:0.9rem;color:#fff;font-weight:500">TV Seasons</span>
             <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:0.88rem;color:var(--text-secondary);user-select:none">
-              <input type="checkbox" id="limit-season-unlimited"
+              <input type="checkbox" class="themed-checkbox" id="limit-season-unlimited"
                 <%= globalLimits.seasonLimit === 0 ? 'checked' : '' %>
                 onchange="onSeasonUnlimitedChange(this.checked)">
               Unlimited
@@ -408,7 +413,7 @@
           <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
             <span style="min-width:84px;font-size:0.9rem;color:#fff;font-weight:500">Movies</span>
             <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:0.88rem;color:var(--text-secondary);user-select:none">
-              <input type="checkbox" id="user-limit-movie-unlimited" onchange="onUserMovieUnlimitedChange(this.checked)">
+              <input type="checkbox" class="themed-checkbox" id="user-limit-movie-unlimited" onchange="onUserMovieUnlimitedChange(this.checked)">
               Unlimited
             </label>
             <div id="user-limit-movie-fields" style="display:flex;align-items:center;gap:8px">
@@ -423,7 +428,7 @@
           <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
             <span style="min-width:84px;font-size:0.9rem;color:#fff;font-weight:500">TV Seasons</span>
             <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:0.88rem;color:var(--text-secondary);user-select:none">
-              <input type="checkbox" id="user-limit-season-unlimited" onchange="onUserSeasonUnlimitedChange(this.checked)">
+              <input type="checkbox" class="themed-checkbox" id="user-limit-season-unlimited" onchange="onUserSeasonUnlimitedChange(this.checked)">
               Unlimited
             </label>
             <div id="user-limit-season-fields" style="display:flex;align-items:center;gap:8px">
@@ -603,6 +608,22 @@
                 <span class="slide-track"></span>
               </label>
               <span id="lbl-sonarr-opt" class="<%= (connections.defaultRequestService === 'direct') ? 'service-label-active' : 'service-label-inactive' %>">Sonarr/Radarr</span>
+            </div>
+          </div>
+          <div class="conn-block-header" style="border-bottom:none;padding-top:10px;margin-top:10px;border-top:1px solid var(--border)">
+            <div class="conn-block-meta">
+              <span class="conn-block-name" style="font-size:0.88rem">Alternate Request App Access</span>
+              <span class="conn-block-desc">Controls who can see the secondary request service (Advanced button). "Admin" hides it from regular users.</span>
+            </div>
+            <div class="conn-toggle-wrap" style="gap:10px;align-items:center">
+              <span id="lbl-direct-all" class="<%= directRequestAccess !== 'admin' ? 'service-label-active' : 'service-label-inactive' %>">All Users</span>
+              <label class="slide-toggle slide-toggle-choice">
+                <input type="checkbox" id="toggle-direct-request-access"
+                  <%= directRequestAccess === 'admin' ? 'checked' : '' %>
+                  onchange="onDirectRequestAccessChange(this.checked)">
+                <span class="slide-track"></span>
+              </label>
+              <span id="lbl-direct-admin" class="<%= directRequestAccess === 'admin' ? 'service-label-active' : 'service-label-inactive' %>">Admin</span>
             </div>
           </div>
         </div>
@@ -883,6 +904,12 @@
       }
     }
 
+    // ── Logging toggle ─────────────────────────────────────────────
+    async function onLoggingChange(enable) {
+      await apiFetch('/admin/settings/logging', 'POST', { enabled: enable });
+      showToast('Logging ' + (enable ? 'enabled' : 'disabled'));
+    }
+
     // ── Auto-sync toggle ───────────────────────────────────────────
     async function onAutoSyncChange(enable) {
       await apiFetch('/admin/sync/auto/' + (enable ? 'enable' : 'disable'));
@@ -1029,6 +1056,10 @@
 
     // ── Individual season requests ─────────────────────────────────
     async function onLandingPageChange(explore) {
+      const lblHome    = document.getElementById('lbl-landing-home');
+      const lblExplore = document.getElementById('lbl-landing-explore');
+      if (lblHome)    lblHome.className    = explore ? 'service-label-inactive' : 'service-label-active';
+      if (lblExplore) lblExplore.className = explore ? 'service-label-active'   : 'service-label-inactive';
       const body = { landing_page: explore ? 'explore' : 'home' };
       try {
         const r = await fetch('/admin/connections/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
