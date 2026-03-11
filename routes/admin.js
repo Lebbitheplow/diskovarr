@@ -5,6 +5,7 @@ const db = require('../db/database');
 const plexService = require('../services/plex');
 const recommender = require('../services/recommender');
 const discoverRecommender = require('../services/discoverRecommender');
+const logger = require('../services/logger');
 const { version: APP_VERSION } = require('../package.json');
 
 const loginLimiter = rateLimit({
@@ -88,9 +89,11 @@ router.post('/login', loginLimiter, (req, res) => {
     require('crypto').timingSafeEqual(a, b);
 
   if (!match) {
+    logger.warn(`Admin login failed: incorrect password from ip=${req.ip}`);
     return res.render('admin/login', { error: 'Incorrect password' });
   }
 
+  logger.info(`Admin login success: ip=${req.ip}`);
   req.session.isAdmin = true;
   res.redirect('/admin');
 });
@@ -123,6 +126,7 @@ router.get('/', requireAdmin, async (req, res) => {
     directRequestAccess: db.getDirectRequestAccess(),
     globalLimits: db.getGlobalRequestLimits(),
     userLimitOverrides: db.getAllUserRequestLimitOverrides(),
+    loggingEnabled: db.getSetting('logging_enabled', '0') === '1',
   });
 });
 
@@ -238,6 +242,16 @@ router.post('/settings/watchlist-mode', requireAdmin, (req, res) => {
   }
   db.setAdminWatchlistMode(mode);
   res.json({ success: true, mode });
+});
+
+// ── Logging toggle ────────────────────────────────────────────────────────────
+
+router.post('/settings/logging', requireAdmin, (req, res) => {
+  const enabled = req.body.enabled === true || req.body.enabled === 'true';
+  db.setSetting('logging_enabled', enabled ? '1' : '0');
+  logger.setEnabled(enabled);
+  logger.info(`Logging ${enabled ? 'enabled' : 'disabled'} by admin`);
+  res.json({ success: true, enabled });
 });
 
 // ── Request limits ────────────────────────────────────────────────────────────

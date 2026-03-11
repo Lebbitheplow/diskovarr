@@ -393,13 +393,118 @@
   cursor: pointer;
 }
 
+/* ── Mobile ──────────────────────────────────────────────────── */
+
 @media (max-width: 700px) {
+
+  /* Tabs: scrollable row, smaller text */
+  .admin-tabs {
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    gap: 0;
+    flex-wrap: nowrap;
+  }
+  .admin-tab {
+    padding: 10px 14px;
+    font-size: 0.82rem;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  /* Admin section headers */
+  .admin-section-header {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  /* User table: horizontal scroll with fixed column widths */
+  .user-table-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+  /* Remove double border when wrap exists */
+  .user-table-wrap .user-table {
+    border: none;
+    border-radius: 0;
+    min-width: 700px;
+  }
   .user-table-header,
   .user-table-row {
-    grid-template-columns: 1fr;
+    /* Keep grid columns intact — table scrolls horizontally */
+    min-width: 700px;
   }
-  .user-table-header { display: none; }
-  .user-table-row { gap: 6px; }
+
+  /* Reduce section padding */
+  .admin-section {
+    padding: 16px;
+  }
+
+  /* Connections block */
+  .conn-block {
+    overflow: hidden;
+  }
+  .conn-block-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  .conn-toggle-wrap {
+    flex-wrap: wrap;
+    width: 100%;
+  }
+  .conn-block-fields {
+    flex-direction: column;
+    align-items: stretch;
+    width: 100%;
+  }
+  .conn-field-group {
+    width: 100%;
+    min-width: 0;
+  }
+  .conn-field-host,
+  .conn-field-port,
+  .conn-field-key {
+    width: 100%;
+    min-width: 0;
+  }
+  .conn-input,
+  .conn-select {
+    min-width: 0 !important;
+    width: 100%;
+    box-sizing: border-box;
+  }
+  .conn-input-wrap {
+    min-width: 0 !important;
+    width: 100%;
+  }
+  .conn-action-btn {
+    width: 100%;
+    align-self: stretch;
+  }
+  .conn-advanced-row {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .conn-quality-field {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  /* Actions: wrap buttons */
+  .admin-actions {
+    flex-wrap: wrap;
+  }
+  .user-actions {
+    flex-wrap: wrap;
+  }
+
+  /* Stats grid: single column */
+  .stats-grid {
+    grid-template-columns: 1fr 1fr !important;
+  }
 }
 
 /* ── Version strip ───────────────────────────────────────────── */
@@ -892,6 +997,50 @@
 
 .conn-action-btn {
   align-self: flex-end;
+}
+
+/* ── Themed checkbox ─────────────────────────────────────────────────────── */
+
+.themed-checkbox {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  min-width: 16px;
+  border: 1.5px solid var(--border-hover);
+  border-radius: 4px;
+  background: var(--bg-elevated);
+  cursor: pointer;
+  position: relative;
+  transition: border-color 0.15s, background 0.15s;
+  vertical-align: middle;
+}
+
+.themed-checkbox:hover {
+  border-color: var(--accent-border);
+}
+
+.themed-checkbox:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.themed-checkbox:checked::after {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 1px;
+  width: 5px;
+  height: 9px;
+  border: 2px solid #000;
+  border-top: none;
+  border-left: none;
+  transform: rotate(45deg);
+}
+
+.themed-checkbox:focus-visible {
+  outline: 2px solid var(--accent-border);
+  outline-offset: 2px;
 }
 
 /* Hide number input spin buttons */

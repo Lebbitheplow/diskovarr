@@ -3,10 +3,18 @@ const express = require('express');
 const session = require('express-session');
 const path = require('path');
 const fs = require('fs');
+const logger = require('./services/logger');
 
 // Ensure data directory exists
 const dataDir = path.join(__dirname, 'data');
 if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
+
+// Initialize logger state from DB (DB module self-initializes, safe to require here)
+// We do this after data dir exists but before routes load
+{
+  const db = require('./db/database');
+  logger.setEnabled(db.getSetting('logging_enabled', '0') === '1');
+}
 
 const { DatabaseSync } = require('node:sqlite');
 
@@ -73,6 +81,13 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// HTTP request logger (only active when logging enabled)
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => logger.http(req, res, Date.now() - start));
+  next();
+});
+
 // Session
 app.use(session({
   store: new SQLiteStore({ db: 'sessions.db', dir: dataDir }),
@@ -119,13 +134,14 @@ app.use((req, res) => {
 
 // Error handler
 app.use((err, req, res, next) => {
-  console.error(err.stack);
+  logger.error(err.stack || err.message);
   res.status(500).json({ error: 'Internal server error' });
 });
 
 const PORT = process.env.PORT || 3232;
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Diskovarr running on http://0.0.0.0:${PORT}`);
+  process.stdout.write(`Diskovarr running on http://0.0.0.0:${PORT}\n`);
+  logger.info(`Logging enabled. Diskovarr v${require('./package.json').version} started on port ${PORT}`);
 
   const plexService = require('./services/plex');
   const REFRESH_INTERVAL = 2 * 60 * 60 * 1000; // 2 hours
@@ -134,15 +150,15 @@ app.listen(PORT, '0.0.0.0', () => {
 
   async function refreshLibrarySync() {
     if (!adminRoute.shouldAutoSync()) {
-      console.log('Auto-sync skipped (disabled by admin)');
+      logger.info('Auto-sync skipped (disabled by admin)');
       return;
     }
     try {
       plexService.invalidateCache();
       await plexService.warmCache();
-      console.log(`[${new Date().toISOString()}] Library synced`);
+      logger.info('Library synced successfully');
     } catch (err) {
-      console.warn('Library sync failed:', err.message);
+      logger.warn('Library sync failed:', err.message);
     }
   }
 
