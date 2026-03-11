@@ -405,6 +405,13 @@ function getDeepLink(ratingKey) {
   return `https://app.plex.tv/desktop#!/server/${getPlexServerId()}/details?key=/library/metadata/${ratingKey}`;
 }
 
+// Returns a plex:// URI that triggers the native Plex app to open the item.
+// Key is fully URL-encoded so plex://preplay can parse it correctly.
+function getAppLink(ratingKey) {
+  const key = encodeURIComponent('/library/metadata/' + ratingKey);
+  return `plex://preplay?server=${getPlexServerId()}&key=${key}`;
+}
+
 /**
  * Fetch the plex:// GUID for a server item (e.g. "plex://movie/5d7768ba...").
  * Returns the hash portion needed for plex.tv Watchlist API calls.
@@ -487,6 +494,7 @@ module.exports = {
   resolvePlaylistKey,
   getRelated,
   getDeepLink,
+  getAppLink,
   getPlexUrl,
   getPlexToken,
   getPlexServerId,

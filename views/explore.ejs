@@ -5,10 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Diskovarr Requests</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <%- include('partials/pwa-head') %>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/style.css?v=24">
+  <link rel="stylesheet" href="/css/style.css?v=27">
   <link rel="stylesheet" href="/theme.css?c=<%= themeParam %>">
 </head>
 <body>
@@ -24,16 +25,19 @@
           <span class="toggle-switch"></span>
           <span class="toggle-text">Show mature content <span style="opacity:0.55;font-size:0.82em;font-weight:400">(R &amp; TV-MA)</span></span>
         </label>
-        <div class="hero-search-wrap" id="hero-search-wrap">
-          <div class="hero-search-input-wrap">
-            <svg class="hero-search-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" width="15" height="15" fill="none" aria-hidden="true">
-              <circle cx="8.5" cy="8.5" r="5.5" stroke="currentColor" stroke-width="1.8"/>
-              <line x1="12.5" y1="12.5" x2="17" y2="17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-            </svg>
-            <input type="search" id="hero-search" class="hero-search" placeholder="Search movies &amp; shows…" autocomplete="off" spellcheck="false">
-            <button type="button" class="hero-search-clear" id="hero-search-clear" aria-label="Clear" style="display:none">✕</button>
+        <div class="hero-right-controls">
+          <button type="button" id="btn-shuffle-all" class="btn-shuffle-all" title="Refresh picks">↺</button>
+          <div class="hero-search-wrap" id="hero-search-wrap">
+            <div class="hero-search-input-wrap">
+              <svg class="hero-search-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" width="15" height="15" fill="none" aria-hidden="true">
+                <circle cx="8.5" cy="8.5" r="5.5" stroke="currentColor" stroke-width="1.8"/>
+                <line x1="12.5" y1="12.5" x2="17" y2="17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+              </svg>
+              <input type="search" id="hero-search" class="hero-search" placeholder="Search movies &amp; shows…" autocomplete="off" spellcheck="false">
+              <button type="button" class="hero-search-clear" id="hero-search-clear" aria-label="Clear" style="display:none">✕</button>
+            </div>
+            <div class="hero-search-dropdown" id="hero-search-dropdown" role="listbox" aria-label="Search suggestions"></div>
           </div>
-          <div class="hero-search-dropdown" id="hero-search-dropdown" role="listbox" aria-label="Search suggestions"></div>
         </div>
       </div>
       <% if (!hasAnyService) { %>
@@ -48,9 +52,7 @@
       <div class="section-header">
         <h2 class="section-title">Top Picks for You</h2>
         <span class="section-badge">Outside Your Library</span>
-        <div class="carousel-controls">
-          <button class="carousel-btn carousel-btn-shuffle" aria-label="Shuffle" title="Show different picks">↺</button>
-        </div>
+        
       </div>
       <div class="carousel-wrap">
         <button class="carousel-arrow carousel-arrow-prev" aria-label="Previous" disabled>❮</button>
@@ -73,9 +75,7 @@
     <section class="section" id="section-movies">
       <div class="section-header">
         <h2 class="section-title">Movies</h2>
-        <div class="carousel-controls">
-          <button class="carousel-btn carousel-btn-shuffle" aria-label="Shuffle" title="Show different picks">↺</button>
-        </div>
+        
       </div>
       <div class="carousel-wrap">
         <button class="carousel-arrow carousel-arrow-prev" aria-label="Previous" disabled>❮</button>
@@ -98,9 +98,7 @@
     <section class="section" id="section-tv">
       <div class="section-header">
         <h2 class="section-title">TV Shows</h2>
-        <div class="carousel-controls">
-          <button class="carousel-btn carousel-btn-shuffle" aria-label="Shuffle" title="Show different picks">↺</button>
-        </div>
+        
       </div>
       <div class="carousel-wrap">
         <button class="carousel-arrow carousel-arrow-prev" aria-label="Previous" disabled>❮</button>
@@ -123,9 +121,7 @@
     <section class="section" id="section-anime">
       <div class="section-header">
         <h2 class="section-title">Anime</h2>
-        <div class="carousel-controls">
-          <button class="carousel-btn carousel-btn-shuffle" aria-label="Shuffle" title="Show different picks">↺</button>
-        </div>
+
       </div>
       <div class="carousel-wrap">
         <button class="carousel-arrow carousel-arrow-prev" aria-label="Previous" disabled>❮</button>
@@ -140,6 +136,32 @@
             </div>
           <% } %>
         </div>
+        <button class="carousel-arrow carousel-arrow-next" aria-label="Next">❯</button>
+      </div>
+    </section>
+
+    <!-- Trending Movies -->
+    <section class="section" id="section-trending-movies" style="display:none">
+      <div class="section-header">
+        <h2 class="section-title">Trending Movies</h2>
+        <span class="section-badge">Outside Your Library</span>
+      </div>
+      <div class="carousel-wrap">
+        <button class="carousel-arrow carousel-arrow-prev" aria-label="Previous" disabled>❮</button>
+        <div class="card-grid" id="grid-trending-movies"></div>
+        <button class="carousel-arrow carousel-arrow-next" aria-label="Next">❯</button>
+      </div>
+    </section>
+
+    <!-- Trending TV Shows -->
+    <section class="section" id="section-trending-tv" style="display:none">
+      <div class="section-header">
+        <h2 class="section-title">Trending TV Shows</h2>
+        <span class="section-badge">Outside Your Library</span>
+      </div>
+      <div class="carousel-wrap">
+        <button class="carousel-arrow carousel-arrow-prev" aria-label="Previous" disabled>❮</button>
+        <div class="card-grid" id="grid-trending-tv"></div>
         <button class="carousel-arrow carousel-arrow-next" aria-label="Next">❯</button>
       </div>
     </section>
@@ -169,11 +191,14 @@
   <!-- Request confirm dialog -->
   <div class="request-dialog-backdrop" id="request-dialog" aria-hidden="true">
     <div class="request-dialog-card" role="dialog" aria-modal="true">
-      <div class="request-dialog-title" id="request-dialog-title">Request this title?</div>
-      <div class="request-dialog-sub" id="request-dialog-sub"></div>
-      <div class="request-dialog-actions" id="request-dialog-actions">
-        <button class="btn-dialog-cancel" id="request-dialog-cancel">Cancel</button>
+      <div class="request-dialog-body">
+        <div class="request-dialog-title" id="request-dialog-title">Request this title?</div>
+        <div class="request-dialog-sub" id="request-dialog-sub"></div>
+        <div class="request-dialog-actions" id="request-dialog-actions">
+          <button class="btn-dialog-cancel" id="request-dialog-cancel">Cancel</button>
+        </div>
       </div>
+      <img class="request-dialog-poster" id="request-dialog-poster" src="" alt="" aria-hidden="true">
     </div>
   </div>
 
@@ -187,8 +212,10 @@
       },
       hasAnyService: <%= hasAnyService ? 'true' : 'false' %>,
       individualSeasonsEnabled: <%= individualSeasonsEnabled ? 'true' : 'false' %>,
+      directRequestAccess: "<%= directRequestAccess %>",
+      isOwner: <%= isOwner ? 'true' : 'false' %>,
     };
   </script>
-  <script src="/js/discover-app.js?v=19"></script>
+  <script src="/js/discover-app.js?v=23"></script>
 </body>
 </html>

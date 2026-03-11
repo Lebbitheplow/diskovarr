@@ -5,6 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Diskovarr Admin</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#0f0f0f" id="meta-theme-color">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Diskovarr">
+  <link rel="apple-touch-icon" href="/icons/icon.svg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -72,6 +79,8 @@
       var url = URL.createObjectURL(blob);
       var link = document.querySelector('link[rel*="icon"]');
       if (link) link.href = url;
+      var m = document.getElementById('meta-theme-color'); if (m) m.content = accent;
+      if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(function(){});
     })();
   </script>
 </body>

@@ -5,11 +5,18 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Diskovarr — Admin</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#0f0f0f" id="meta-theme-color">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Diskovarr">
+  <link rel="apple-touch-icon" href="/icons/icon.svg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/style.css">
-  <link rel="stylesheet" href="/css/admin.css?v=17">
+  <link rel="stylesheet" href="/css/admin.css?v=18">
   <link rel="stylesheet" href="/theme.css?c=<%= themeParam %>" id="theme-css">
 </head>
 <body>
@@ -60,14 +67,57 @@
 
     <!-- ── Tab navigation ───────────────────────────────────────── -->
     <div class="admin-tabs">
-      <button class="admin-tab active" data-tab="settings">Settings</button>
+      <button class="admin-tab active" data-tab="settings">General</button>
+      <button class="admin-tab" data-tab="users">Users</button>
       <button class="admin-tab" data-tab="connections">Connections</button>
     </div>
 
     <!-- ══════════════════════════════════════════════════════════ -->
-    <!-- SETTINGS TAB                                               -->
+    <!-- GENERAL TAB                                                -->
     <!-- ══════════════════════════════════════════════════════════ -->
     <div class="admin-tab-panel" id="panel-settings">
+
+      <!-- ── App Options ───────────────────────────────────── -->
+      <section class="admin-section">
+        <div class="admin-section-header">
+          <h2 class="section-title">App Options</h2>
+        </div>
+        <p style="font-size:0.72rem;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:#fff;margin-bottom:8px">Set Landing Page</p>
+        <p class="section-desc" style="margin-bottom:20px">
+          Controls app-wide behavior and navigation defaults.
+        </p>
+        <div style="display:flex;align-items:center;gap:16px">
+          <span class="conn-toggle-sublabel" style="color:#fff;font-size:13px;font-weight:500">Diskovarr</span>
+          <label class="slide-toggle">
+            <input type="checkbox" id="toggle-landing-page"
+              <%= landingPage === 'explore' ? 'checked' : '' %>
+              onchange="onLandingPageChange(this.checked)">
+            <span class="slide-track"></span>
+          </label>
+          <span class="conn-toggle-sublabel" style="color:#fff;font-size:13px;font-weight:500">Diskovarr Requests</span>
+        </div>
+        <p class="section-desc" style="margin-top:10px;font-size:0.82rem">
+          Sets which page users land on after signing in. Diskovarr = personalized recommendation feed. Diskovarr Requests = content not yet in the library.
+        </p>
+      </section>
+
+      <!-- ── Theme Color ────────────────────────────────────── -->
+      <section class="admin-section">
+        <div class="admin-section-header">
+          <h2 class="section-title">Theme Color</h2>
+        </div>
+        <p class="section-desc" style="margin-bottom:20px">
+          Pick an accent color. Changes apply immediately across the whole app.
+        </p>
+        <div class="color-picker-row">
+          <div class="color-preview-strip" id="color-swatches"></div>
+          <div class="color-wheel-wrap">
+            <label for="custom-color-input">Custom</label>
+            <input type="color" id="custom-color-input" title="Pick any color">
+          </div>
+          <button class="btn-admin btn-primary" id="btn-apply-color" onclick="applyColor()">Apply</button>
+        </div>
+      </section>
 
       <!-- ── Library Sync ─────────────────────────────────────── -->
       <section class="admin-section">
@@ -120,81 +170,34 @@
         <% } %>
       </section>
 
-      <!-- ── Users & Watch Sync ─────────────────────────────── -->
+
+      <!-- ── Stats ─────────────────────────────────────────── -->
       <section class="admin-section">
         <div class="admin-section-header">
-          <h2 class="section-title">Users &amp; Watch Sync</h2>
+          <h2 class="section-title">Stats</h2>
         </div>
-
-        <% if (stats.users.length === 0) { %>
-          <p class="empty-state" style="padding:20px 0">No users have synced yet.</p>
-        <% } else { %>
-          <div class="user-table">
-            <div class="user-table-header">
-              <span>User</span>
-              <span>Watched Items</span>
-              <span>Last Sync</span>
-              <span>Actions</span>
-            </div>
-            <% for (const user of stats.users) { %>
-              <div class="user-table-row" id="user-row-<%= user.user_id %>">
-                <span class="user-id">
-                  <% if (user.thumb) { %>
-                    <img src="<%= user.thumb %>" class="user-avatar-sm" alt="" onerror="this.style.display='none'">
-                  <% } %>
-                  <span><%= user.username %></span>
-                  <span class="user-id-sub"><%= user.user_id %></span>
-                </span>
-                <span class="watched-count-cell" data-count="<%= user.watched_count %>"><%= user.watched_count.toLocaleString() %> items</span>
-                <span><%= user.last_sync ? relativeTime(user.last_sync) : 'Never' %></span>
-                <div class="user-actions">
-                  <button class="btn-admin btn-sm" onclick="syncWatched('<%= user.user_id %>')">↻ Re-sync Watched</button>
-                  <button class="btn-admin btn-sm btn-danger" onclick="clearWatched('<%= user.user_id %>')">✕ Clear Watched</button>
-                  <button class="btn-admin btn-sm btn-danger" onclick="clearDismissals('<%= user.user_id %>')">✕ Clear Dismissals</button>
-                </div>
-              </div>
-            <% } %>
+        <div class="admin-grid">
+          <div class="stat-card">
+            <div class="stat-label">Total Library Items</div>
+            <div class="stat-value"><%= (stats.library.movies + stats.library.tv).toLocaleString() %></div>
           </div>
-        <% } %>
-
-        <div class="admin-actions" style="margin-top:16px">
-          <button class="btn-admin btn-danger" onclick="confirmAction('Clear ALL watched caches for all users?', clearAllWatched)">
-            Clear All Watched Caches
-          </button>
-          <button class="btn-admin btn-danger" onclick="confirmAction('Clear ALL dismissals for all users?', clearAllDismissals)">
-            Clear All Dismissals
-          </button>
-        </div>
-      </section>
-
-      <!-- ── Recommendation Cache ───────────────────────────── -->
-      <section class="admin-section">
-        <div class="admin-section-header">
-          <h2 class="section-title">Recommendation Cache</h2>
-        </div>
-        <p class="section-desc">In-memory scored recommendation cache. Cleared automatically when library syncs or dismissals change. 30-minute TTL per user.</p>
-        <div class="admin-actions" style="margin-top:16px">
-          <button class="btn-admin" onclick="clearRecCache()">↺ Clear Rec Cache (All Users)</button>
-        </div>
-      </section>
-
-      <!-- ── Theme Color ────────────────────────────────────── -->
-      <section class="admin-section">
-        <div class="admin-section-header">
-          <h2 class="section-title">Theme Color</h2>
-        </div>
-        <p class="section-desc" style="margin-bottom:20px">
-          Pick an accent color. Changes apply immediately across the whole app.
-        </p>
-        <div class="color-picker-row">
-          <div class="color-preview-strip" id="color-swatches"></div>
-          <div class="color-wheel-wrap">
-            <label for="custom-color-input">Custom</label>
-            <input type="color" id="custom-color-input" title="Pick any color">
+          <div class="stat-card">
+            <div class="stat-label">Total Dismissals</div>
+            <div class="stat-value" id="stat-dismissals"><%= stats.dismissals.toLocaleString() %></div>
           </div>
-          <button class="btn-admin btn-primary" id="btn-apply-color" onclick="applyColor()">Apply</button>
+          <div class="stat-card">
+            <div class="stat-label">Active Users (synced)</div>
+            <div class="stat-value"><%= stats.users.length %></div>
+          </div>
         </div>
       </section>
+
+    </div><!-- /panel-settings -->
+
+    <!-- ══════════════════════════════════════════════════════════ -->
+    <!-- USERS TAB                                                  -->
+    <!-- ══════════════════════════════════════════════════════════ -->
+    <div class="admin-tab-panel" id="panel-users" hidden>
 
       <!-- ── Server Owner & Watchlist Mode ─────────────────── -->
       <section class="admin-section">
@@ -235,41 +238,16 @@
         </div>
       </section>
 
-      <!-- ── App Options ───────────────────────────────────── -->
+      <!-- ── Users & Watch Sync ─────────────────────────────── -->
       <section class="admin-section">
         <div class="admin-section-header">
-          <h2 class="section-title">App Options</h2>
+          <h2 class="section-title">Users &amp; Watch Sync</h2>
         </div>
-        <p class="section-desc" style="margin-bottom:20px">
-          Controls app-wide behavior and navigation defaults.
-        </p>
-        <div style="display:flex;align-items:center;gap:16px">
-          <span class="conn-toggle-sublabel" style="color:#fff;font-size:13px;font-weight:500">Diskovarr</span>
-          <label class="slide-toggle">
-            <input type="checkbox" id="toggle-landing-page"
-              <%= landingPage === 'explore' ? 'checked' : '' %>
-              onchange="onLandingPageChange(this.checked)">
-            <span class="slide-track"></span>
-          </label>
-          <span class="conn-toggle-sublabel" style="color:#fff;font-size:13px;font-weight:500">Diskovarr Requests</span>
-        </div>
-        <p class="section-desc" style="margin-top:10px;font-size:0.82rem">
-          Sets which page users land on after signing in. Diskovarr = personalized recommendation feed. Diskovarr Requests = content not yet in the library.
-        </p>
-      </section>
 
-      <!-- ── Request Options ────────────────────────────────── -->
-      <section class="admin-section">
-        <div class="admin-section-header">
-          <h2 class="section-title">Request Options</h2>
-        </div>
-        <p class="section-desc" style="margin-bottom:20px">
-          Controls behavior when users submit requests for TV shows on the Requests and Search pages.
-        </p>
-        <div style="display:flex;align-items:flex-start;gap:16px;flex-direction:column">
+        <div style="display:flex;flex-direction:column;gap:14px;margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid var(--border)">
           <div style="display:flex;align-items:center;gap:16px">
             <div class="conn-toggle-row" style="margin:0">
-              <span class="conn-toggle-sublabel" style="color:#fff;font-size:13px;font-weight:500">Individual Season Requests</span>
+              <span class="conn-toggle-sublabel" style="color:#fff;font-size:13px;font-weight:500">Individual Requests</span>
               <label class="slide-toggle">
                 <input type="checkbox" id="toggle-individual-seasons"
                   <%= individualSeasonsEnabled ? 'checked' : '' %>
@@ -277,35 +255,193 @@
                 <span class="slide-track"></span>
               </label>
             </div>
+            <span class="section-desc" style="margin:0;font-size:0.82rem">When enabled, TV show requests present a season selector instead of requesting all seasons at once.</span>
           </div>
-          <p class="section-desc" style="margin:0;font-size:0.82rem">
-            When enabled, requesting a TV show presents a season selector — users can choose specific seasons (e.g. 1, 3, 5) or request all at once. Works with both Overseerr and Sonarr.
-          </p>
+          <% if (connections.overseerrEnabled && (connections.radarrEnabled || connections.sonarrEnabled)) { %>
+          <div style="padding-top:6px">
+            <p style="font-size:0.72rem;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:#fff;margin:0 0 10px">Alternate Request App Access</p>
+            <div style="display:flex;align-items:center;gap:16px">
+              <div class="conn-toggle-row" style="margin:0">
+                <span id="lbl-direct-all" class="<%= directRequestAccess !== 'admin' ? 'service-label-active' : 'service-label-inactive' %>">All Users</span>
+                <label class="slide-toggle slide-toggle-choice">
+                  <input type="checkbox" id="toggle-direct-request-access"
+                    <%= directRequestAccess === 'admin' ? 'checked' : '' %>
+                    onchange="onDirectRequestAccessChange(this.checked)">
+                  <span class="slide-track"></span>
+                </label>
+                <span id="lbl-direct-admin" class="<%= directRequestAccess === 'admin' ? 'service-label-active' : 'service-label-inactive' %>">Admin</span>
+              </div>
+              <span class="section-desc" style="margin:0;font-size:0.82rem">Controls who can see the secondary request service (Advanced button). "Admin" hides it from regular users — only the server owner sees the option.</span>
+            </div>
+          </div>
+          <% } %>
+        </div>
+
+        <% if (stats.users.length === 0) { %>
+          <p class="empty-state" style="padding:20px 0">No users have synced yet.</p>
+        <% } else { %>
+          <div class="user-table" style="<%= connections.discoverEnabled ? 'grid-template-columns: minmax(140px,1fr) 110px 120px 1fr 180px' : '' %>">
+            <div class="user-table-header" style="<%= connections.discoverEnabled ? 'grid-template-columns: minmax(140px,1fr) 110px 120px 1fr 180px' : '' %>">
+              <span>User</span>
+              <span>Watched Items</span>
+              <span>Last Sync</span>
+              <span>Actions</span>
+              <% if (connections.discoverEnabled) { %><span>Override Global Limits</span><% } %>
+            </div>
+            <% for (const user of stats.users) { %>
+              <div class="user-table-row" id="user-row-<%= user.user_id %>" style="<%= connections.discoverEnabled ? 'grid-template-columns: minmax(140px,1fr) 110px 120px 1fr 180px' : '' %>">
+                <span class="user-id">
+                  <% if (user.thumb) { %>
+                    <img src="<%= user.thumb %>" class="user-avatar-sm" alt="" onerror="this.style.display='none'">
+                  <% } %>
+                  <span><%= user.username %></span>
+                  <span class="user-id-sub"><%= user.user_id %></span>
+                </span>
+                <span class="watched-count-cell" data-count="<%= user.watched_count %>"><%= user.watched_count.toLocaleString() %> items</span>
+                <span><%= user.last_sync ? relativeTime(user.last_sync) : 'Never' %></span>
+                <div class="user-actions">
+                  <button class="btn-admin btn-sm" onclick="syncWatched('<%= user.user_id %>')">↻ Re-sync Watched</button>
+                  <button class="btn-admin btn-sm btn-danger" onclick="clearWatched('<%= user.user_id %>')">✕ Clear Watched</button>
+                  <button class="btn-admin btn-sm btn-danger" onclick="clearDismissals('<%= user.user_id %>')">✕ Clear Dismissals</button>
+                </div>
+                <% if (connections.discoverEnabled) { %>
+                  <%
+                    const uOverride = userLimitOverrides[user.user_id];
+                    const uOverrideOn = uOverride && uOverride.overrideEnabled;
+                  %>
+                  <div style="display:flex;align-items:center;gap:8px">
+                    <label class="slide-toggle">
+                      <input type="checkbox" id="user-override-toggle-<%= user.user_id %>"
+                        <%= uOverrideOn ? 'checked' : '' %>
+                        onchange="onUserOverrideToggle('<%= user.user_id %>', '<%= user.username %>', this.checked)">
+                      <span class="slide-track"></span>
+                    </label>
+                    <button id="user-limits-btn-<%= user.user_id %>"
+                      class="btn-admin btn-sm"
+                      style="<%= uOverrideOn ? '' : 'display:none' %>"
+                      onclick="openLimitsModal('<%= user.user_id %>', '<%= user.username %>')">⚙ Set Limits</button>
+                  </div>
+                <% } %>
+              </div>
+            <% } %>
+          </div>
+        <% } %>
+
+        <div class="admin-actions" style="margin-top:16px">
+          <button class="btn-admin btn-danger" onclick="confirmAction('Clear ALL watched caches for all users?', clearAllWatched)">
+            Clear All Watched Caches
+          </button>
+          <button class="btn-admin btn-danger" onclick="confirmAction('Clear ALL dismissals for all users?', clearAllDismissals)">
+            Clear All Dismissals
+          </button>
+          <button class="btn-admin" onclick="clearRecCache()">↺ Clear Rec Cache (All Users)</button>
         </div>
       </section>
 
-      <!-- ── Stats ─────────────────────────────────────────── -->
-      <section class="admin-section">
+      <% if (connections.discoverEnabled) { %>
+      <!-- ── Global Request Limits ─────────────────────────────── -->
+      <section class="admin-section" id="section-request-limits">
         <div class="admin-section-header">
-          <h2 class="section-title">Stats</h2>
+          <h2 class="section-title">Global Request Limits</h2>
         </div>
-        <div class="admin-grid">
-          <div class="stat-card">
-            <div class="stat-label">Total Library Items</div>
-            <div class="stat-value"><%= (stats.library.movies + stats.library.tv).toLocaleString() %></div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-label">Total Dismissals</div>
-            <div class="stat-value" id="stat-dismissals"><%= stats.dismissals.toLocaleString() %></div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-label">Active Users (synced)</div>
-            <div class="stat-value"><%= stats.users.length %></div>
-          </div>
-        </div>
-      </section>
+        <p class="section-desc" style="margin-bottom:20px">
+          Default limits applied to each user individually. Users with the override toggle enabled above can have custom limits set via <strong>⚙ Set Limits</strong>.
+        </p>
 
-    </div><!-- /panel-settings -->
+        <div style="display:flex;flex-direction:column;gap:14px;margin-bottom:20px">
+
+          <!-- Movies row -->
+          <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+            <span style="min-width:84px;font-size:0.9rem;color:#fff;font-weight:500">Movies</span>
+            <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:0.88rem;color:var(--text-secondary);user-select:none">
+              <input type="checkbox" id="limit-movie-unlimited"
+                <%= globalLimits.movieLimit === 0 ? 'checked' : '' %>
+                onchange="onMovieUnlimitedChange(this.checked)">
+              Unlimited
+            </label>
+            <div id="limit-movie-fields" style="display:<%= globalLimits.movieLimit === 0 ? 'none' : 'flex' %>;align-items:center;gap:8px">
+              <input type="number" id="limit-movie-count" min="1" max="9999" class="btn-admin limit-num"
+                value="<%= globalLimits.movieLimit || 1 %>">
+              <span style="font-size:0.88rem;color:var(--text-secondary)">movies per</span>
+              <input type="number" id="limit-movie-days" min="1" max="365" class="btn-admin limit-num"
+                value="<%= globalLimits.movieWindowDays %>">
+              <span style="font-size:0.88rem;color:var(--text-secondary)">days</span>
+            </div>
+          </div>
+
+          <!-- TV Seasons row -->
+          <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+            <span style="min-width:84px;font-size:0.9rem;color:#fff;font-weight:500">TV Seasons</span>
+            <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:0.88rem;color:var(--text-secondary);user-select:none">
+              <input type="checkbox" id="limit-season-unlimited"
+                <%= globalLimits.seasonLimit === 0 ? 'checked' : '' %>
+                onchange="onSeasonUnlimitedChange(this.checked)">
+              Unlimited
+            </label>
+            <div id="limit-season-fields" style="display:<%= globalLimits.seasonLimit === 0 ? 'none' : 'flex' %>;align-items:center;gap:8px">
+              <input type="number" id="limit-season-count" min="1" max="9999" class="btn-admin limit-num"
+                value="<%= globalLimits.seasonLimit || 1 %>">
+              <span style="font-size:0.88rem;color:var(--text-secondary)">seasons per</span>
+              <input type="number" id="limit-season-days" min="1" max="365" class="btn-admin limit-num"
+                value="<%= globalLimits.seasonWindowDays %>">
+              <span style="font-size:0.88rem;color:var(--text-secondary)">days</span>
+            </div>
+          </div>
+
+        </div>
+        <button class="btn-admin btn-primary" onclick="saveGlobalLimits()">Save</button>
+      </section>
+      <% } %>
+
+    </div><!-- /panel-users -->
+
+    <!-- Per-user limits modal -->
+    <div id="user-limits-modal" style="display:none;position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,0.7);align-items:center;justify-content:center">
+      <div style="background:var(--bg-secondary);border-radius:14px;padding:28px;width:min(480px,90vw);border:1px solid var(--border);position:relative">
+        <button onclick="closeLimitsModal()" style="position:absolute;top:14px;right:16px;background:none;border:none;color:var(--text-secondary);font-size:1.3rem;cursor:pointer">✕</button>
+        <h3 style="margin:0 0 4px;font-size:1.05rem">Custom Request Limits</h3>
+        <p id="user-limits-modal-name" style="margin:0 0 20px;color:var(--text-secondary);font-size:0.88rem"></p>
+
+        <div style="display:flex;flex-direction:column;gap:14px;margin-bottom:24px">
+
+          <!-- Movies row -->
+          <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+            <span style="min-width:84px;font-size:0.9rem;color:#fff;font-weight:500">Movies</span>
+            <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:0.88rem;color:var(--text-secondary);user-select:none">
+              <input type="checkbox" id="user-limit-movie-unlimited" onchange="onUserMovieUnlimitedChange(this.checked)">
+              Unlimited
+            </label>
+            <div id="user-limit-movie-fields" style="display:flex;align-items:center;gap:8px">
+              <input type="number" id="user-limit-movie-count" min="1" max="9999" class="btn-admin limit-num" value="1">
+              <span style="font-size:0.88rem;color:var(--text-secondary)">movies per</span>
+              <input type="number" id="user-limit-movie-days" min="1" max="365" class="btn-admin limit-num" value="7">
+              <span style="font-size:0.88rem;color:var(--text-secondary)">days</span>
+            </div>
+          </div>
+
+          <!-- TV Seasons row -->
+          <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+            <span style="min-width:84px;font-size:0.9rem;color:#fff;font-weight:500">TV Seasons</span>
+            <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:0.88rem;color:var(--text-secondary);user-select:none">
+              <input type="checkbox" id="user-limit-season-unlimited" onchange="onUserSeasonUnlimitedChange(this.checked)">
+              Unlimited
+            </label>
+            <div id="user-limit-season-fields" style="display:flex;align-items:center;gap:8px">
+              <input type="number" id="user-limit-season-count" min="1" max="9999" class="btn-admin limit-num" value="1">
+              <span style="font-size:0.88rem;color:var(--text-secondary)">seasons per</span>
+              <input type="number" id="user-limit-season-days" min="1" max="365" class="btn-admin limit-num" value="7">
+              <span style="font-size:0.88rem;color:var(--text-secondary)">days</span>
+            </div>
+          </div>
+
+        </div>
+
+        <div style="display:flex;gap:10px;justify-content:flex-end">
+          <button class="btn-admin" onclick="closeLimitsModal()">Cancel</button>
+          <button class="btn-admin btn-primary" onclick="saveUserLimits()">Save</button>
+        </div>
+      </div>
+    </div>
 
     <!-- ══════════════════════════════════════════════════════════ -->
     <!-- CONNECTIONS TAB                                            -->
@@ -916,6 +1052,151 @@
       }
     }
 
+    async function onDirectRequestAccessChange(adminOnly) {
+      const lblAll   = document.getElementById('lbl-direct-all');
+      const lblAdmin = document.getElementById('lbl-direct-admin');
+      if (lblAll)   lblAll.className   = adminOnly ? 'service-label-inactive' : 'service-label-active';
+      if (lblAdmin) lblAdmin.className = adminOnly ? 'service-label-active'   : 'service-label-inactive';
+      const body = { direct_request_access: adminOnly ? 'admin' : 'all' };
+      try {
+        const r = await fetch('/admin/connections/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        const data = await r.json();
+        if (data.success) showToast(adminOnly ? 'Secondary request service visible to Admin only' : 'Secondary request service visible to all users');
+        else showToast('Save failed', true);
+      } catch (err) {
+        showToast('Save failed: ' + err.message, true);
+      }
+    }
+
+    // ── Request limits ─────────────────────────────────────────────
+
+    function onMovieUnlimitedChange(checked) {
+      document.getElementById('limit-movie-fields').style.display = checked ? 'none' : 'flex';
+    }
+    function onSeasonUnlimitedChange(checked) {
+      document.getElementById('limit-season-fields').style.display = checked ? 'none' : 'flex';
+    }
+
+    async function saveGlobalLimits() {
+      const movieUnlimited = document.getElementById('limit-movie-unlimited').checked;
+      const movieLimit     = movieUnlimited ? 0 : (parseInt(document.getElementById('limit-movie-count').value) || 1);
+      const movieWindowDays = movieUnlimited ? 7 : (parseInt(document.getElementById('limit-movie-days').value) || 7);
+      const seasonUnlimited = document.getElementById('limit-season-unlimited').checked;
+      const seasonLimit     = seasonUnlimited ? 0 : (parseInt(document.getElementById('limit-season-count').value) || 1);
+      const seasonWindowDays = seasonUnlimited ? 7 : (parseInt(document.getElementById('limit-season-days').value) || 7);
+      try {
+        const r = await fetch('/admin/request-limits/global', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled: '1', movieLimit, movieWindowDays, seasonLimit, seasonWindowDays }),
+        });
+        const data = await r.json();
+        if (data.success) showToast('Request limits saved');
+        else showToast('Save failed', true);
+      } catch (err) {
+        showToast('Save failed: ' + err.message, true);
+      }
+    }
+
+    let _limitsModalUserId = null;
+    const _userOverrides = <%- JSON.stringify(userLimitOverrides) %>;
+
+    async function onUserOverrideToggle(userId, username, enabled) {
+      // Immediately persist the override_enabled state
+      const override = _userOverrides[userId] || { movieLimit: 0, movieWindowDays: 7, seasonLimit: 0, seasonWindowDays: 7 };
+      try {
+        const r = await fetch('/admin/request-limits/user', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            userId,
+            overrideEnabled: enabled ? '1' : '0',
+            movieLimit: override.movieLimit,
+            movieWindowDays: override.movieWindowDays,
+            seasonLimit: override.seasonLimit,
+            seasonWindowDays: override.seasonWindowDays,
+          }),
+        });
+        const data = await r.json();
+        if (data.success) {
+          _userOverrides[userId] = { ...override, overrideEnabled: enabled };
+          const btn = document.getElementById('user-limits-btn-' + userId);
+          if (btn) btn.style.display = enabled ? '' : 'none';
+          showToast(enabled ? username + ': custom limits enabled' : username + ': using global limits');
+        } else {
+          showToast('Save failed', true);
+          // Revert toggle
+          const toggle = document.getElementById('user-override-toggle-' + userId);
+          if (toggle) toggle.checked = !enabled;
+        }
+      } catch (err) {
+        showToast('Save failed: ' + err.message, true);
+        const toggle = document.getElementById('user-override-toggle-' + userId);
+        if (toggle) toggle.checked = !enabled;
+      }
+    }
+
+    function openLimitsModal(userId, username) {
+      _limitsModalUserId = userId;
+      document.getElementById('user-limits-modal-name').textContent = username + ' (' + userId + ')';
+      const override = _userOverrides[userId] || null;
+      const movieLimit = override?.movieLimit ?? 0;
+      const seasonLimit = override?.seasonLimit ?? 0;
+      document.getElementById('user-limit-movie-unlimited').checked = (movieLimit === 0);
+      document.getElementById('user-limit-movie-fields').style.display = (movieLimit === 0) ? 'none' : 'flex';
+      document.getElementById('user-limit-movie-count').value = movieLimit || 1;
+      document.getElementById('user-limit-movie-days').value  = override?.movieWindowDays ?? 7;
+      document.getElementById('user-limit-season-unlimited').checked = (seasonLimit === 0);
+      document.getElementById('user-limit-season-fields').style.display = (seasonLimit === 0) ? 'none' : 'flex';
+      document.getElementById('user-limit-season-count').value = seasonLimit || 1;
+      document.getElementById('user-limit-season-days').value  = override?.seasonWindowDays ?? 7;
+      document.getElementById('user-limits-modal').style.display = 'flex';
+    }
+
+    function closeLimitsModal() {
+      document.getElementById('user-limits-modal').style.display = 'none';
+      _limitsModalUserId = null;
+    }
+
+    function onUserMovieUnlimitedChange(checked) {
+      document.getElementById('user-limit-movie-fields').style.display = checked ? 'none' : 'flex';
+    }
+    function onUserSeasonUnlimitedChange(checked) {
+      document.getElementById('user-limit-season-fields').style.display = checked ? 'none' : 'flex';
+    }
+
+    async function saveUserLimits() {
+      if (!_limitsModalUserId) return;
+      const movieUnlimited  = document.getElementById('user-limit-movie-unlimited').checked;
+      const movieLimit      = movieUnlimited ? 0 : (parseInt(document.getElementById('user-limit-movie-count').value) || 1);
+      const movieWindowDays = movieUnlimited ? 7 : (parseInt(document.getElementById('user-limit-movie-days').value) || 7);
+      const seasonUnlimited  = document.getElementById('user-limit-season-unlimited').checked;
+      const seasonLimit      = seasonUnlimited ? 0 : (parseInt(document.getElementById('user-limit-season-count').value) || 1);
+      const seasonWindowDays = seasonUnlimited ? 7 : (parseInt(document.getElementById('user-limit-season-days').value) || 7);
+      const overrideEnabled  = _userOverrides[_limitsModalUserId]?.overrideEnabled ?? true;
+      try {
+        const r = await fetch('/admin/request-limits/user', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            userId: _limitsModalUserId,
+            overrideEnabled: overrideEnabled ? '1' : '0',
+            movieLimit, movieWindowDays, seasonLimit, seasonWindowDays,
+          }),
+        });
+        const data = await r.json();
+        if (data.success) {
+          _userOverrides[_limitsModalUserId] = { overrideEnabled, movieLimit, movieWindowDays, seasonLimit, seasonWindowDays };
+          showToast('Custom limits saved');
+          closeLimitsModal();
+        } else {
+          showToast('Save failed', true);
+        }
+      } catch (err) {
+        showToast('Save failed: ' + err.message, true);
+      }
+    }
+
     // ── Connections ────────────────────────────────────────────────
 
     function combineUrl(host, port) {
@@ -1273,6 +1554,8 @@
       var url = URL.createObjectURL(blob);
       var link = document.querySelector('link[rel*="icon"]');
       if (link) link.href = url;
+      var m = document.getElementById('meta-theme-color'); if (m) m.content = accent;
+      if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(function(){});
     })();
   </script>
 </body>

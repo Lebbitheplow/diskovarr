@@ -120,6 +120,120 @@ function getExploreDismissedIds(userId) {
   return new Set(rows.map(r => `${r.tmdb_id}:${r.media_type}`));
 }
 
+// ── Request limits ────────────────────────────────────────────────────────────
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS global_request_limits (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    enabled INTEGER DEFAULT 0,
+    movie_limit INTEGER DEFAULT 0,
+    movie_window_days INTEGER DEFAULT 7,
+    season_limit INTEGER DEFAULT 0,
+    season_window_days INTEGER DEFAULT 7
+  );
+  INSERT OR IGNORE INTO global_request_limits (id) VALUES (1);
+
+  CREATE TABLE IF NOT EXISTS user_request_limits (
+    user_id TEXT PRIMARY KEY,
+    override_enabled INTEGER DEFAULT 0,
+    movie_limit INTEGER DEFAULT 0,
+    movie_window_days INTEGER DEFAULT 7,
+    season_limit INTEGER DEFAULT 0,
+    season_window_days INTEGER DEFAULT 7
+  );
+`);
+
+function getGlobalRequestLimits() {
+  const row = db.prepare('SELECT * FROM global_request_limits WHERE id = 1').get();
+  return {
+    enabled: row ? !!row.enabled : false,
+    movieLimit: row?.movie_limit ?? 0,
+    movieWindowDays: row?.movie_window_days ?? 7,
+    seasonLimit: row?.season_limit ?? 0,
+    seasonWindowDays: row?.season_window_days ?? 7,
+  };
+}
+
+function setGlobalRequestLimits({ enabled, movieLimit, movieWindowDays, seasonLimit, seasonWindowDays }) {
+  db.prepare(`
+    INSERT OR REPLACE INTO global_request_limits (id, enabled, movie_limit, movie_window_days, season_limit, season_window_days)
+    VALUES (1, ?, ?, ?, ?, ?)
+  `).run(enabled ? 1 : 0, Number(movieLimit) || 0, Number(movieWindowDays) || 7,
+         Number(seasonLimit) || 0, Number(seasonWindowDays) || 7);
+}
+
+function getUserRequestLimitOverride(userId) {
+  const row = db.prepare('SELECT * FROM user_request_limits WHERE user_id = ?').get(String(userId));
+  if (!row) return null;
+  return {
+    overrideEnabled: !!row.override_enabled,
+    movieLimit: row.movie_limit,
+    movieWindowDays: row.movie_window_days,
+    seasonLimit: row.season_limit,
+    seasonWindowDays: row.season_window_days,
+  };
+}
+
+function setUserRequestLimitOverride(userId, { overrideEnabled, movieLimit, movieWindowDays, seasonLimit, seasonWindowDays }) {
+  db.prepare(`
+    INSERT OR REPLACE INTO user_request_limits (user_id, override_enabled, movie_limit, movie_window_days, season_limit, season_window_days)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(String(userId), overrideEnabled ? 1 : 0, Number(movieLimit) || 0, Number(movieWindowDays) || 7,
+         Number(seasonLimit) || 0, Number(seasonWindowDays) || 7);
+}
+
+function getAllUserRequestLimitOverrides() {
+  const rows = db.prepare('SELECT * FROM user_request_limits').all();
+  const map = {};
+  for (const r of rows) {
+    map[r.user_id] = {
+      overrideEnabled: !!r.override_enabled,
+      movieLimit: r.movie_limit,
+      movieWindowDays: r.movie_window_days,
+      seasonLimit: r.season_limit,
+      seasonWindowDays: r.season_window_days,
+    };
+  }
+  return map;
+}
+
+// Returns the effective limits for a user (user override if active, else global).
+// 0 means unlimited for that type; enforcement checks > 0 per field.
+function getEffectiveLimits(userId) {
+  const global = getGlobalRequestLimits();
+  const override = getUserRequestLimitOverride(userId);
+  if (override && override.overrideEnabled) {
+    return {
+      movieLimit: override.movieLimit,
+      movieWindowDays: override.movieWindowDays,
+      seasonLimit: override.seasonLimit,
+      seasonWindowDays: override.seasonWindowDays,
+    };
+  }
+  return {
+    movieLimit: global.movieLimit,
+    movieWindowDays: global.movieWindowDays,
+    seasonLimit: global.seasonLimit,
+    seasonWindowDays: global.seasonWindowDays,
+  };
+}
+
+function countRecentMovieRequests(userId, windowDays) {
+  const since = Math.floor(Date.now() / 1000) - windowDays * 86400;
+  const row = db.prepare(
+    "SELECT COUNT(*) as cnt FROM discover_requests WHERE user_id = ? AND media_type = 'movie' AND requested_at > ?"
+  ).get(String(userId), since);
+  return row?.cnt || 0;
+}
+
+function countRecentSeasonRequests(userId, windowDays) {
+  const since = Math.floor(Date.now() / 1000) - windowDays * 86400;
+  const row = db.prepare(
+    "SELECT COALESCE(SUM(seasons_count), 0) as cnt FROM discover_requests WHERE user_id = ? AND media_type = 'tv' AND requested_at > ?"
+  ).get(String(userId), since);
+  return row?.cnt || 0;
+}
+
 // ── Migrate: add columns if this is an existing DB ────────────────────────────
 [
   'ALTER TABLE library_items ADD COLUMN rating REAL DEFAULT 0',
@@ -128,6 +242,7 @@ function getExploreDismissedIds(userId) {
   "ALTER TABLE library_items ADD COLUMN studio TEXT DEFAULT ''",
   'ALTER TABLE library_items ADD COLUMN tmdb_id TEXT DEFAULT NULL',
   'ALTER TABLE library_items ADD COLUMN art TEXT DEFAULT NULL',
+  'ALTER TABLE discover_requests ADD COLUMN seasons_count INTEGER DEFAULT 1',
 ].forEach(sql => { try { db.exec(sql); } catch (e) { if (!e.message.includes('duplicate column')) throw e; } });
 
 // ── One-time migrations (tracked by a migrations table) ───────────────────────
@@ -568,15 +683,22 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_discover_requests_user ON discover_requests(user_id);
 `);
 
-function addDiscoverRequest(userId, tmdbId, mediaType, title, service) {
+function addDiscoverRequest(userId, tmdbId, mediaType, title, service, seasonsCount) {
   db.prepare(`
-    INSERT INTO discover_requests (user_id, tmdb_id, media_type, title, service, requested_at)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).run(String(userId), Number(tmdbId), mediaType, title, service, Math.floor(Date.now() / 1000));
+    INSERT INTO discover_requests (user_id, tmdb_id, media_type, title, service, seasons_count, requested_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(String(userId), Number(tmdbId), mediaType, title, service,
+         (typeof seasonsCount === 'number' && seasonsCount > 0) ? seasonsCount : 1,
+         Math.floor(Date.now() / 1000));
 }
 
 function getRequestedTmdbIds(userId) {
   const rows = db.prepare('SELECT tmdb_id, media_type FROM discover_requests WHERE user_id = ?').all(String(userId));
+  return new Set(rows.map(r => `${r.tmdb_id}:${r.media_type}`));
+}
+
+function getAllRequestedTmdbIds() {
+  const rows = db.prepare('SELECT tmdb_id, media_type FROM discover_requests').all();
   return new Set(rows.map(r => `${r.tmdb_id}:${r.media_type}`));
 }
 
@@ -611,6 +733,10 @@ function getLandingPage() {
   return getSetting('landing_page', 'home'); // 'home' or 'explore'
 }
 
+function getDirectRequestAccess() {
+  return getSetting('direct_request_access', 'all'); // 'all' or 'admin'
+}
+
 module.exports = {
   addDismissal, getDismissals, removeDismissal,
   addToWatchlistDb, removeFromWatchlistDb, getWatchlistFromDb,
@@ -628,9 +754,13 @@ module.exports = {
   getSetting, setSetting, getConnectionSettings, isDiscoverEnabled, hasTmdbKey,
   getTmdbCache, setTmdbCache,
   getLibraryTmdbIds, getLibraryTitleYearSet,
-  addDiscoverRequest, getRequestedTmdbIds, getRecentRequests,
+  addDiscoverRequest, getRequestedTmdbIds, getAllRequestedTmdbIds, getRecentRequests,
   addExploreDismissal, getExploreDismissedIds,
   getDiscoverPool, setDiscoverPool, getKnownUserIds,
   isIndividualSeasonsEnabled,
   getLandingPage,
+  getDirectRequestAccess,
+  getGlobalRequestLimits, setGlobalRequestLimits,
+  getUserRequestLimitOverride, setUserRequestLimitOverride, getAllUserRequestLimitOverrides,
+  getEffectiveLimits, countRecentMovieRequests, countRecentSeasonRequests,
 };

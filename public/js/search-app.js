@@ -1,6 +1,7 @@
 (function () {
   'use strict';
 
+
   var cfg = window.SEARCH_CONFIG || { services: {}, hasAnyService: false, query: '' };
 
   // ── State ──────────────────────────────────────────────────────────────────
@@ -140,6 +141,13 @@
     var actionsEl = document.getElementById('request-dialog-actions');
 
     titleEl.textContent = 'Request "' + item.title + '"?';
+
+    var posterEl = document.getElementById('request-dialog-poster');
+    if (posterEl) {
+      if (item.posterUrl) { posterEl.src = item.posterUrl; posterEl.classList.add('visible'); }
+      else { posterEl.src = ''; posterEl.classList.remove('visible'); }
+    }
+
     var isMovie = item.mediaType === 'movie';
     var s = cfg.services;
     var hasOverseerr = s.overseerr;
@@ -167,7 +175,8 @@
       actionsEl.parentNode.insertBefore(pickerEl, actionsEl);
     }
 
-    if (hasBothSides) {
+    var canSeeAdvanced = hasBothSides && (cfg.directRequestAccess !== 'admin' || cfg.isOwner);
+    if (canSeeAdvanced) {
       var altSvc = defaultSvc === 'overseerr' ? directSvc : 'overseerr';
       var altName = defaultSvc === 'overseerr' ? directName : 'Overseerr';
       var advWrap = document.createElement('div');
@@ -444,15 +453,6 @@
       });
       actEl.appendChild(wlBtn);
 
-      if (item.deepLink) {
-        var plexBtn = document.createElement('a');
-        plexBtn.className = 'modal-btn modal-btn-plex';
-        plexBtn.href = item.deepLink;
-        plexBtn.target = '_blank';
-        plexBtn.rel = 'noopener';
-        plexBtn.textContent = '▶ Open in Plex';
-        actEl.appendChild(plexBtn);
-      }
 
       // Cast to TV
       if (!isBasic && item.ratingKey) {

@@ -120,6 +120,9 @@ router.get('/', requireAdmin, async (req, res) => {
     updateAvailable: isNewerVersion(latestVersion, APP_VERSION),
     individualSeasonsEnabled: db.isIndividualSeasonsEnabled(),
     landingPage: db.getLandingPage(),
+    directRequestAccess: db.getDirectRequestAccess(),
+    globalLimits: db.getGlobalRequestLimits(),
+    userLimitOverrides: db.getAllUserRequestLimitOverrides(),
   });
 });
 
@@ -237,6 +240,33 @@ router.post('/settings/watchlist-mode', requireAdmin, (req, res) => {
   res.json({ success: true, mode });
 });
 
+// ── Request limits ────────────────────────────────────────────────────────────
+
+router.post('/request-limits/global', requireAdmin, (req, res) => {
+  const { enabled, movieLimit, movieWindowDays, seasonLimit, seasonWindowDays } = req.body;
+  db.setGlobalRequestLimits({
+    enabled: enabled === '1' || enabled === true,
+    movieLimit: parseInt(movieLimit) || 0,
+    movieWindowDays: Math.max(1, parseInt(movieWindowDays) || 7),
+    seasonLimit: parseInt(seasonLimit) || 0,
+    seasonWindowDays: Math.max(1, parseInt(seasonWindowDays) || 7),
+  });
+  res.json({ success: true });
+});
+
+router.post('/request-limits/user', requireAdmin, (req, res) => {
+  const { userId, overrideEnabled, movieLimit, movieWindowDays, seasonLimit, seasonWindowDays } = req.body;
+  if (!userId) return res.status(400).json({ error: 'userId required' });
+  db.setUserRequestLimitOverride(userId, {
+    overrideEnabled: overrideEnabled === '1' || overrideEnabled === true,
+    movieLimit: parseInt(movieLimit) || 0,
+    movieWindowDays: Math.max(1, parseInt(movieWindowDays) || 7),
+    seasonLimit: parseInt(seasonLimit) || 0,
+    seasonWindowDays: Math.max(1, parseInt(seasonWindowDays) || 7),
+  });
+  res.json({ success: true });
+});
+
 router.post('/settings/owner-user', requireAdmin, (req, res) => {
   const { userId } = req.body;
   if (!userId || !/^\d+$/.test(String(userId))) {
@@ -258,6 +288,7 @@ const CONNECTION_KEYS = [
   'default_request_service',
   'individual_seasons_enabled',
   'landing_page',
+  'direct_request_access',
 ];
 
 router.post('/connections/save', requireAdmin, (req, res) => {

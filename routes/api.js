@@ -5,6 +5,7 @@ const plexService = require('../services/plex');
 const recommender = require('../services/recommender');
 const discoverRecommender = require('../services/discoverRecommender');
 const tmdbService = require('../services/tmdb');
+const overseerrService = require('../services/overseerr');
 const db = require('../db/database');
 
 router.use(requireAuth);
@@ -41,7 +42,19 @@ router.get('/recommendations', async (req, res) => {
   try {
     const { id: userId, token: userToken } = req.session.plexUser;
     const data = await recommender.getRecommendations(userId, userToken);
-    res.json(data);
+    // Attach deepLink to every item so the client can open them in Plex
+    const addDeepLinks = items => items.map(item => ({
+      ...item,
+      deepLink: item.ratingKey ? plexService.getDeepLink(item.ratingKey) : null,
+      plexAppLink: item.ratingKey ? plexService.getAppLink(item.ratingKey) : null,
+    }));
+    res.json({
+      ...data,
+      topPicks: addDeepLinks(data.topPicks || []),
+      movies:   addDeepLinks(data.movies   || []),
+      tvShows:  addDeepLinks(data.tvShows  || []),
+      anime:    addDeepLinks(data.anime    || []),
+    });
   } catch (err) {
     console.error('recommendations error:', err);
     res.status(500).json({ error: 'Failed to fetch recommendations' });
@@ -244,6 +257,7 @@ router.get('/discover', async (req, res) => {
     const itemsWithWatchlist = items.map(item => ({
       ...item,
       deepLink: plexService.getDeepLink(item.ratingKey),
+      plexAppLink: plexService.getAppLink(item.ratingKey),
       isInWatchlist: watchlistKeys.has(item.ratingKey),
     }));
 
@@ -412,7 +426,7 @@ router.get('/search/details', async (req, res) => {
 
     const libItem = libraryByTmdb.get(String(tmdbId));
     const watchlistKeys = new Set(db.getWatchlistFromDb(userId));
-    const requestedIds = db.getRequestedTmdbIds(userId);
+    const requestedIds = db.getAllRequestedTmdbIds();
     const isRequested = requestedIds.has(`${tmdbId}:${type}`);
 
     const result = {
@@ -420,6 +434,7 @@ router.get('/search/details', async (req, res) => {
       inLibrary: !!libItem,
       ratingKey: libItem?.ratingKey || null,
       deepLink: libItem ? plexService.getDeepLink(libItem.ratingKey) : null,
+      plexAppLink: libItem ? plexService.getAppLink(libItem.ratingKey) : null,
       isInWatchlist: libItem ? watchlistKeys.has(libItem.ratingKey) : false,
       isRequested,
     };
@@ -477,7 +492,7 @@ router.get('/search', async (req, res) => {
     }
 
     const watchlistKeys = new Set(db.getWatchlistFromDb(userId));
-    const requestedIds = db.getRequestedTmdbIds(userId);
+    const requestedIds = db.getAllRequestedTmdbIds();
 
     const results = (json?.results || [])
       .filter(r => r.media_type === 'movie' || r.media_type === 'tv')
@@ -495,6 +510,7 @@ router.get('/search', async (req, res) => {
           inLibrary: !!libItem,
           ratingKey: libItem?.ratingKey || null,
           deepLink: libItem ? plexService.getDeepLink(libItem.ratingKey) : null,
+          plexAppLink: libItem ? plexService.getAppLink(libItem.ratingKey) : null,
           isInWatchlist: libItem ? watchlistKeys.has(libItem.ratingKey) : false,
           isRequested: !libItem && requestedIds.has(`${r.id}:${r.media_type}`),
         };
@@ -578,10 +594,41 @@ router.post('/request', async (req, res) => {
   const { id: userId, token: userToken } = req.session.plexUser;
   const c = db.getConnectionSettings();
 
+  // Enforce per-user request limits (if enabled globally)
+  const limits = db.getEffectiveLimits(userId);
+  if (limits) {
+    if (mediaType === 'movie' && limits.movieLimit > 0) {
+      const recentCount = db.countRecentMovieRequests(userId, limits.movieWindowDays);
+      if (recentCount >= limits.movieLimit) {
+        return res.status(429).json({
+          error: `Movie request limit reached: ${limits.movieLimit} per ${limits.movieWindowDays} day${limits.movieWindowDays !== 1 ? 's' : ''}. Try again later.`,
+        });
+      }
+    }
+    if (mediaType === 'tv' && limits.seasonLimit > 0) {
+      const requestedSeasons = Array.isArray(seasons) && seasons.length > 0 ? seasons.length : 1;
+      const recentCount = db.countRecentSeasonRequests(userId, limits.seasonWindowDays);
+      if (recentCount + requestedSeasons > limits.seasonLimit) {
+        const remaining = Math.max(0, limits.seasonLimit - recentCount);
+        return res.status(429).json({
+          error: `Season request limit reached: ${limits.seasonLimit} per ${limits.seasonWindowDays} day${limits.seasonWindowDays !== 1 ? 's' : ''}. You can request ${remaining} more season${remaining !== 1 ? 's' : ''}.`,
+        });
+      }
+    }
+  }
+
   try {
     if (service === 'overseerr') {
       if (!c.overseerrEnabled || !c.overseerrUrl || !c.overseerrApiKey) {
         return res.status(400).json({ error: 'Overseerr not configured' });
+      }
+      // Ensure the "Diskovarr Agent" user exists and get its ID so requests
+      // are attributed to it rather than the admin account.
+      let agentUserId = null;
+      try {
+        agentUserId = await overseerrService.getOrCreateAgentUserId(c.overseerrUrl, c.overseerrApiKey);
+      } catch (e) {
+        console.warn('[overseerr] Could not resolve agent user, falling back to admin:', e.message);
       }
       const r = await fetch(`${c.overseerrUrl.replace(/\/$/, '')}/api/v1/request`, {
         method: 'POST',
@@ -593,6 +640,7 @@ router.post('/request', async (req, res) => {
         body: JSON.stringify({
           mediaType,
           mediaId: Number(tmdbId),
+          ...(agentUserId ? { userId: agentUserId } : {}),
           ...(mediaType === 'tv' ? { seasons: (Array.isArray(seasons) && seasons.length > 0) ? seasons.map(Number) : 'all' } : {}),
         }),
         signal: AbortSignal.timeout(10000),
@@ -722,9 +770,13 @@ router.post('/request', async (req, res) => {
       }
     }
 
-    // Log the request so it shows as "Already Requested" in the UI
-    db.addDiscoverRequest(userId, tmdbId, mediaType, title || '', service);
-    discoverRecommender.invalidateUserCache(userId);
+    // Log the request so it shows as "Already Requested" in the UI.
+    // No pool rebuild needed — isRequested is applied dynamically on every
+    // getDiscoverRecommendations() call by reading db.getAllRequestedTmdbIds().
+    const seasonsCount = mediaType === 'tv'
+      ? (Array.isArray(seasons) && seasons.length > 0 ? seasons.length : 1)
+      : 1;
+    db.addDiscoverRequest(userId, tmdbId, mediaType, title || '', service, seasonsCount);
 
     // Add the item to the user's native Plex.tv Watchlist so they can track it
     // in the Plex app while waiting for the download.
