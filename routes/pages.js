@@ -81,6 +81,25 @@ router.get('/explore', requireAuth, (req, res) => {
   res.render('explore', {
     ...pageLocals(), userId, username, thumb, currentPath: '/explore',
     services, hasAnyService,
+    individualSeasonsEnabled: db.isIndividualSeasonsEnabled(),
+  });
+});
+
+// Search results page — requires auth
+router.get('/search', requireAuth, (req, res) => {
+  const { id: userId, username, thumb } = req.session.plexUser;
+  const connections = db.getConnectionSettings();
+  const services = {
+    overseerr: connections.overseerrEnabled && !!connections.overseerrUrl,
+    radarr: connections.radarrEnabled && !!connections.radarrUrl,
+    sonarr: connections.sonarrEnabled && !!connections.sonarrUrl,
+  };
+  const hasAnyService = services.overseerr || services.radarr || services.sonarr;
+  const query = (req.query.q || '').trim();
+  res.render('search', {
+    ...pageLocals(), userId, username, thumb, currentPath: '/search',
+    query, services, hasAnyService,
+    individualSeasonsEnabled: db.isIndividualSeasonsEnabled(),
   });
 });
 

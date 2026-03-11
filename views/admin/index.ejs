@@ -9,14 +9,23 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/style.css">
-  <link rel="stylesheet" href="/css/admin.css?v=8">
+  <link rel="stylesheet" href="/css/admin.css?v=17">
   <link rel="stylesheet" href="/theme.css?c=<%= themeParam %>" id="theme-css">
 </head>
 <body>
   <nav class="nav">
     <div class="nav-inner">
       <a href="/" class="nav-logo">
-        <span class="logo-icon">◈</span>
+        <span class="logo-icon">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="1em" height="1em" fill="none" aria-hidden="true">
+            <rect x="0.5" y="17.5" width="13" height="1.5" rx="0.5" fill="currentColor"/>
+            <rect x="1" y="8.5" width="2.5" height="9" rx="0.4" fill="currentColor"/>
+            <rect x="4.5" y="11" width="3" height="6.5" rx="0.4" fill="currentColor"/>
+            <rect x="8.5" y="10" width="2.5" height="7.5" rx="0.4" fill="currentColor"/>
+            <circle cx="15" cy="9" r="5" stroke="currentColor" stroke-width="2"/>
+            <line x1="18.5" y1="12.5" x2="22" y2="16" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+          </svg>
+        </span>
         <span class="logo-text">Diskovarr</span>
         <span class="admin-badge">admin</span>
       </a>
@@ -64,9 +73,18 @@
       <section class="admin-section">
         <div class="admin-section-header">
           <h2 class="section-title">Library Sync</h2>
-          <div id="sync-status-badge" class="status-badge <%= syncInProgress ? 'status-syncing' : 'status-idle' %>">
-            <% if (syncInProgress) { %><span class="sync-spinner"></span><% } %>
-            <span id="sync-status-text"><%= syncInProgress ? 'Syncing…' : 'Idle' %></span>
+          <div style="display:flex;align-items:center;gap:16px">
+            <div class="conn-toggle-row" style="margin:0">
+              <span class="conn-toggle-sublabel" style="color:#fff;font-size:12px">Auto-Sync (every 2h)</span>
+              <label class="slide-toggle">
+                <input type="checkbox" id="autosync-toggle" <%= autoSyncEnabled ? 'checked' : '' %> onchange="onAutoSyncChange(this.checked)">
+                <span class="slide-track"></span>
+              </label>
+            </div>
+            <div id="sync-status-badge" class="status-badge <%= syncInProgress ? 'status-syncing' : 'status-idle' %>">
+              <% if (syncInProgress) { %><span class="sync-spinner"></span><% } %>
+              <span id="sync-status-text"><%= syncInProgress ? 'Syncing…' : 'Idle' %></span>
+            </div>
           </div>
         </div>
 
@@ -85,15 +103,6 @@
               Last sync: <span id="stat-tv-sync"><%= stats.library.lastSyncTV ? relativeTime(stats.library.lastSyncTV) : 'Never' %></span>
             </div>
           </div>
-          <div class="stat-card">
-            <div class="stat-label">Auto-Sync (every 2h)</div>
-            <div class="stat-value" id="stat-autosync">
-              <span id="autosync-text" style="color: <%= autoSyncEnabled ? 'var(--accent)' : 'var(--text-muted)' %>">
-                <%= autoSyncEnabled ? 'Enabled' : 'Disabled' %>
-              </span>
-            </div>
-            <div class="stat-sub">Controls scheduled background sync</div>
-          </div>
         </div>
 
         <div id="sync-progress-msg" class="sync-progress-msg" style="display:<%= syncInProgress ? 'block' : 'none' %>">
@@ -103,9 +112,6 @@
         <div class="admin-actions">
           <button class="btn-admin btn-primary" id="btn-sync-now" onclick="syncLibrary()" <%= syncInProgress ? 'disabled' : '' %>>
             <span>↻</span> Sync Library Now
-          </button>
-          <button class="btn-admin" id="btn-toggle-autosync" data-enabled="<%= autoSyncEnabled %>">
-            <span id="autosync-btn-text"><%= autoSyncEnabled ? '⏸ Disable Auto-Sync' : '▶ Enable Auto-Sync' %></span>
           </button>
         </div>
 
@@ -194,12 +200,9 @@
       <section class="admin-section">
         <div class="admin-section-header">
           <h2 class="section-title">Server Owner &amp; Watchlist Mode</h2>
-          <div class="status-badge <%= watchlistMode === 'playlist' ? 'status-syncing' : 'status-idle' %>" style="font-size:0.78rem;padding:4px 10px">
-            <span><%= watchlistMode === 'playlist' ? 'Playlist mode' : 'Watchlist mode' %></span>
-          </div>
         </div>
         <p class="section-desc" style="margin-bottom:20px">
-          Select which Plex account is the server owner. The owner can use <strong>Playlist mode</strong>, which syncs watchlist items to a private "Diskovarr" server playlist instead of the native Plex.tv Watchlist — useful if your Watchlist triggers download automation (e.g. pd_zurg). All other users always use the Plex.tv Watchlist.
+          Select which Plex account is the server owner. The owner can use <strong>Diskovarr Playlist mode</strong>, which syncs watchlist items to a private "Diskovarr" server playlist instead of the native Plex.tv Watchlist — useful if your Watchlist triggers download automation (e.g. pd_zurg). All other users always use the Plex.tv Watchlist.
         </p>
 
         <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;flex-wrap:wrap">
@@ -220,22 +223,64 @@
           <% } %>
         </div>
 
-        <div class="admin-grid" style="margin-bottom:20px">
-          <div class="stat-card" style="<%= watchlistMode !== 'playlist' ? 'border-color:var(--accent-border)' : '' %>">
-            <div class="stat-label">Watchlist mode <% if (watchlistMode !== 'playlist') { %><span style="color:var(--accent)">✓ active</span><% } %></div>
-            <div class="stat-value" style="font-size:1.05rem">Plex.tv Watchlist</div>
-            <div class="stat-sub">Items appear in the Plex app under Discover → Watchlist. Default.</div>
-          </div>
-          <div class="stat-card" style="<%= watchlistMode === 'playlist' ? 'border-color:var(--accent-border)' : '' %>">
-            <div class="stat-label">Playlist mode <% if (watchlistMode === 'playlist') { %><span style="color:var(--accent)">✓ active</span><% } %></div>
-            <div class="stat-value" style="font-size:1.05rem">Server Playlist</div>
-            <div class="stat-sub">Items go into a private "Diskovarr" server playlist. Use with pd_zurg.</div>
-          </div>
+        <div style="display:flex;align-items:center;gap:12px">
+          <span id="lbl-watchlist-opt" class="<%= watchlistMode !== 'playlist' ? 'service-label-active' : 'service-label-inactive' %>">Plex Watchlist</span>
+          <label class="slide-toggle slide-toggle-choice">
+            <input type="checkbox" id="toggle-watchlist-mode"
+              <%= watchlistMode === 'playlist' ? 'checked' : '' %>
+              onchange="onWatchlistModeChange(this.checked)">
+            <span class="slide-track"></span>
+          </label>
+          <span id="lbl-playlist-opt" class="<%= watchlistMode === 'playlist' ? 'service-label-active' : 'service-label-inactive' %>">Diskovarr Playlist</span>
         </div>
-        <div class="admin-actions">
-          <button class="btn-admin btn-primary" id="btn-watchlist-mode" data-mode="<%= watchlistMode %>">
-            <span id="watchlist-mode-btn-text"><%= watchlistMode === 'playlist' ? '▶ Switch to Watchlist mode' : '▶ Switch to Playlist mode' %></span>
-          </button>
+      </section>
+
+      <!-- ── App Options ───────────────────────────────────── -->
+      <section class="admin-section">
+        <div class="admin-section-header">
+          <h2 class="section-title">App Options</h2>
+        </div>
+        <p class="section-desc" style="margin-bottom:20px">
+          Controls app-wide behavior and navigation defaults.
+        </p>
+        <div style="display:flex;align-items:center;gap:16px">
+          <span class="conn-toggle-sublabel" style="color:#fff;font-size:13px;font-weight:500">Diskovarr</span>
+          <label class="slide-toggle">
+            <input type="checkbox" id="toggle-landing-page"
+              <%= landingPage === 'explore' ? 'checked' : '' %>
+              onchange="onLandingPageChange(this.checked)">
+            <span class="slide-track"></span>
+          </label>
+          <span class="conn-toggle-sublabel" style="color:#fff;font-size:13px;font-weight:500">Diskovarr Requests</span>
+        </div>
+        <p class="section-desc" style="margin-top:10px;font-size:0.82rem">
+          Sets which page users land on after signing in. Diskovarr = personalized recommendation feed. Diskovarr Requests = content not yet in the library.
+        </p>
+      </section>
+
+      <!-- ── Request Options ────────────────────────────────── -->
+      <section class="admin-section">
+        <div class="admin-section-header">
+          <h2 class="section-title">Request Options</h2>
+        </div>
+        <p class="section-desc" style="margin-bottom:20px">
+          Controls behavior when users submit requests for TV shows on the Requests and Search pages.
+        </p>
+        <div style="display:flex;align-items:flex-start;gap:16px;flex-direction:column">
+          <div style="display:flex;align-items:center;gap:16px">
+            <div class="conn-toggle-row" style="margin:0">
+              <span class="conn-toggle-sublabel" style="color:#fff;font-size:13px;font-weight:500">Individual Season Requests</span>
+              <label class="slide-toggle">
+                <input type="checkbox" id="toggle-individual-seasons"
+                  <%= individualSeasonsEnabled ? 'checked' : '' %>
+                  onchange="onIndividualSeasonsChange(this.checked)">
+                <span class="slide-track"></span>
+              </label>
+            </div>
+          </div>
+          <p class="section-desc" style="margin:0;font-size:0.82rem">
+            When enabled, requesting a TV show presents a season selector — users can choose specific seasons (e.g. 1, 3, 5) or request all at once. Works with both Overseerr and Sonarr.
+          </p>
         </div>
       </section>
 
@@ -265,6 +310,16 @@
     <!-- ══════════════════════════════════════════════════════════ -->
     <!-- CONNECTIONS TAB                                            -->
     <!-- ══════════════════════════════════════════════════════════ -->
+    <%
+      function svcHost(url) {
+        if (!url) return '';
+        try { const u = new URL(url); return u.protocol + '//' + u.hostname; } catch(e) { return url; }
+      }
+      function svcPort(url) {
+        if (!url) return '';
+        try { const u = new URL(url); return u.port || ''; } catch(e) { return ''; }
+      }
+    %>
     <div class="admin-tab-panel" id="panel-connections" hidden>
 
       <section class="admin-section">
@@ -281,20 +336,33 @@
             </div>
           </div>
           <div class="conn-block-fields">
-            <input type="url" id="conn-plex-url" class="conn-input"
-              placeholder="http://192.168.1.27:32400"
-              value="<%= connections.plexUrl %>">
-            <div class="conn-input-wrap">
-              <input type="password" id="conn-plex-token" class="conn-input"
-                placeholder="Plex Token"
-                value="<%= connections.plexToken ? '••••••••' : '' %>"
-                autocomplete="new-password">
-              <div class="conn-input-btns">
-                <button type="button" class="conn-input-icon-btn" onclick="toggleFieldVis('conn-plex-token', this)" title="Show / hide"></button>
+            <div class="conn-field-group conn-field-host">
+              <span class="conn-field-label">Address</span>
+              <input type="text" id="conn-plex-host" class="conn-input"
+                placeholder="http://localhost"
+                value="<%= svcHost(connections.plexUrl) %>">
+            </div>
+            <div class="conn-field-group conn-field-port">
+              <span class="conn-field-label">Port <span class="conn-field-optional">optional</span></span>
+              <input type="number" id="conn-plex-port" class="conn-input conn-input-port"
+                placeholder="32400" min="1" max="65535"
+                value="<%= svcPort(connections.plexUrl) %>"
+                oninput="this.value=this.value.replace(/[^0-9]/g,'')">
+            </div>
+            <div class="conn-field-group conn-field-key">
+              <span class="conn-field-label">Token</span>
+              <div class="conn-input-wrap">
+                <input type="password" id="conn-plex-token" class="conn-input"
+                  placeholder="Plex Token"
+                  value="<%= connections.plexToken ? '••••••••' : '' %>"
+                  autocomplete="new-password">
+                <div class="conn-input-btns">
+                  <button type="button" class="conn-input-icon-btn" onclick="toggleFieldVis('conn-plex-token', this)" title="Show / hide"></button>
+                </div>
               </div>
             </div>
-            <button class="btn-admin" onclick="testCoreService('plex')">Test</button>
-            <button class="btn-admin btn-primary" onclick="saveCoreService('plex')">Save</button>
+            <button class="btn-admin conn-action-btn" onclick="testCoreService('plex')">Test</button>
+            <button class="btn-admin btn-primary conn-action-btn" onclick="saveCoreService('plex')">Save</button>
           </div>
         </div>
 
@@ -307,63 +375,98 @@
             </div>
           </div>
           <div class="conn-block-fields">
-            <input type="url" id="conn-tautulli-url" class="conn-input"
-              placeholder="http://192.168.1.27:8181"
-              value="<%= connections.tautulliUrl %>">
-            <div class="conn-input-wrap">
-              <input type="password" id="conn-tautulli-key" class="conn-input"
-                placeholder="API Key"
-                value="<%= connections.tautulliApiKey ? '••••••••' : '' %>"
-                autocomplete="new-password">
-              <div class="conn-input-btns">
-                <button type="button" class="conn-input-icon-btn" onclick="toggleFieldVis('conn-tautulli-key', this)" title="Show / hide"></button>
+            <div class="conn-field-group conn-field-host">
+              <span class="conn-field-label">Address</span>
+              <input type="text" id="conn-tautulli-host" class="conn-input"
+                placeholder="http://localhost"
+                value="<%= svcHost(connections.tautulliUrl) %>">
+            </div>
+            <div class="conn-field-group conn-field-port">
+              <span class="conn-field-label">Port <span class="conn-field-optional">optional</span></span>
+              <input type="number" id="conn-tautulli-port" class="conn-input conn-input-port"
+                placeholder="8181" min="1" max="65535"
+                value="<%= svcPort(connections.tautulliUrl) %>"
+                oninput="this.value=this.value.replace(/[^0-9]/g,'')">
+            </div>
+            <div class="conn-field-group conn-field-key">
+              <span class="conn-field-label">API Key</span>
+              <div class="conn-input-wrap">
+                <input type="password" id="conn-tautulli-key" class="conn-input"
+                  placeholder="API Key"
+                  value="<%= connections.tautulliApiKey ? '••••••••' : '' %>"
+                  autocomplete="new-password">
+                <div class="conn-input-btns">
+                  <button type="button" class="conn-input-icon-btn" onclick="toggleFieldVis('conn-tautulli-key', this)" title="Show / hide"></button>
+                </div>
               </div>
             </div>
-            <button class="btn-admin" onclick="testCoreService('tautulli')">Test</button>
-            <button class="btn-admin btn-primary" onclick="saveCoreService('tautulli')">Save</button>
+            <button class="btn-admin conn-action-btn" onclick="testCoreService('tautulli')">Test</button>
+            <button class="btn-admin btn-primary conn-action-btn" onclick="saveCoreService('tautulli')">Save</button>
           </div>
         </div>
 
-        <!-- TMDB -->
+        <!-- TMDB + Diskovarr Requests toggle -->
         <div class="conn-block">
           <div class="conn-block-header">
             <div class="conn-block-meta">
               <span class="conn-block-name">TMDB</span>
               <span class="conn-block-desc">The Movie Database — metadata source for Diskovarr Requests</span>
             </div>
-          </div>
-          <div class="conn-block-fields">
-            <div class="conn-input-wrap">
-              <input type="password" id="conn-tmdb-key" class="conn-input"
-                placeholder="API Key (v3 auth)"
-                value="<%= connections.tmdbApiKey ? '••••••••' : '' %>"
-                autocomplete="new-password"
-                oninput="onFieldInput('discover')">
-              <div class="conn-input-btns">
-                <button type="button" class="conn-input-icon-btn" onclick="toggleFieldVis('conn-tmdb-key', this)" title="Show / hide"></button>
+            <div class="conn-toggle-wrap">
+              <div class="conn-toggle-stack">
+                <span class="conn-toggle-sublabel" style="color:#fff">Diskovarr Requests Tab</span>
+                <div class="conn-toggle-row">
+                  <span class="conn-toggle-label" id="lbl-discover"><%= connections.discoverEnabled ? 'Enabled' : 'Disabled' %></span>
+                  <label class="slide-toggle" title="<%= !connections.tmdbApiKey ? 'Save a TMDB API key first' : '' %>">
+                    <input type="checkbox" id="toggle-discover"
+                      <%= connections.discoverEnabled ? 'checked' : '' %>
+                      <%= !connections.tmdbApiKey ? 'disabled' : '' %>
+                      onchange="onToggleChange('discover')">
+                    <span class="slide-track"></span>
+                  </label>
+                </div>
               </div>
             </div>
-            <button class="btn-admin" onclick="testConnection('tmdb')">Test</button>
-            <button class="btn-admin btn-primary" onclick="saveTmdbKey()">Save Key</button>
+          </div>
+          <div class="conn-block-fields">
+            <div class="conn-field-group conn-field-key">
+              <span class="conn-field-label">API Key</span>
+              <div class="conn-input-wrap">
+                <input type="password" id="conn-tmdb-key" class="conn-input"
+                  placeholder="API Key (v3 auth)"
+                  value="<%= connections.tmdbApiKey ? '••••••••' : '' %>"
+                  autocomplete="new-password"
+                  oninput="onFieldInput('discover')">
+                <div class="conn-input-btns">
+                  <button type="button" class="conn-input-icon-btn" onclick="toggleFieldVis('conn-tmdb-key', this)" title="Show / hide"></button>
+                </div>
+              </div>
+            </div>
+            <button class="btn-admin conn-action-btn" onclick="testConnection('tmdb')">Test</button>
+            <button class="btn-admin btn-primary conn-action-btn" onclick="saveTmdbKey()">Save Key</button>
           </div>
         </div>
 
-        <!-- Diskovarr Requests -->
-        <div class="conn-block">
-          <div class="conn-block-header">
+        <!-- Default request service toggle — only shown when both sides are configured -->
+        <% const hasBothSides = connections.overseerrEnabled && connections.overseerrUrl &&
+             ((connections.radarrEnabled && connections.radarrUrl) || (connections.sonarrEnabled && connections.sonarrUrl)); %>
+        <div class="conn-block" id="default-service-block" style="<%= hasBothSides ? '' : 'display:none' %>">
+          <div class="conn-block-header" style="border-bottom:none;padding-bottom:0">
             <div class="conn-block-meta">
-              <span class="conn-block-name">Diskovarr Requests</span>
-              <span class="conn-block-desc">Show the Requests tab to all users — requires TMDB to be configured</span>
+              <span class="conn-block-name">Default app for requests</span>
+              <span class="conn-block-desc" id="default-service-desc">
+                <%= (connections.defaultRequestService === 'direct') ? 'Sonarr/Radarr is the default' : 'Overseerr is the default' %>
+              </span>
             </div>
-            <div class="conn-toggle-wrap">
-              <span class="conn-toggle-label" id="lbl-discover"><%= connections.discoverEnabled ? 'Enabled' : 'Disabled' %></span>
-              <label class="slide-toggle" title="<%= !connections.tmdbApiKey ? 'Save a TMDB API key first' : '' %>">
-                <input type="checkbox" id="toggle-discover"
-                  <%= connections.discoverEnabled ? 'checked' : '' %>
-                  <%= !connections.tmdbApiKey ? 'disabled' : '' %>
-                  onchange="onToggleChange('discover')">
+            <div class="conn-toggle-wrap" style="gap:10px;align-items:center">
+              <span id="lbl-overseerr-opt" class="<%= (connections.defaultRequestService !== 'direct') ? 'service-label-active' : 'service-label-inactive' %>">Overseerr</span>
+              <label class="slide-toggle slide-toggle-choice">
+                <input type="checkbox" id="toggle-default-service"
+                  <%= (connections.defaultRequestService === 'direct') ? 'checked' : '' %>
+                  onchange="onDefaultServiceChange(this.checked)">
                 <span class="slide-track"></span>
               </label>
+              <span id="lbl-sonarr-opt" class="<%= (connections.defaultRequestService === 'direct') ? 'service-label-active' : 'service-label-inactive' %>">Sonarr/Radarr</span>
             </div>
           </div>
         </div>
@@ -373,7 +476,7 @@
           <div class="conn-block-header">
             <div class="conn-block-meta">
               <span class="conn-block-name">Overseerr</span>
-              <span class="conn-block-desc">Media request management — preferred request service</span>
+              <span class="conn-block-desc">Media request management</span>
             </div>
             <div class="conn-toggle-wrap">
               <span class="conn-toggle-label" id="lbl-overseerr"><%= connections.overseerrEnabled ? 'Enabled' : 'Disabled' %></span>
@@ -387,21 +490,34 @@
             </div>
           </div>
           <div class="conn-block-fields">
-            <input type="url" id="conn-overseerr-url" class="conn-input"
-              placeholder="http://192.168.1.27:5055"
-              value="<%= connections.overseerrUrl %>"
-              oninput="onFieldInput('overseerr')">
-            <div class="conn-input-wrap">
-              <input type="password" id="conn-overseerr-key" class="conn-input"
-                placeholder="API Key"
-                value="<%= connections.overseerrApiKey ? '••••••••' : '' %>"
-                autocomplete="new-password"
+            <div class="conn-field-group conn-field-host">
+              <span class="conn-field-label">Address</span>
+              <input type="text" id="conn-overseerr-host" class="conn-input"
+                placeholder="http://localhost"
+                value="<%= svcHost(connections.overseerrUrl) %>"
                 oninput="onFieldInput('overseerr')">
-              <div class="conn-input-btns">
-                <button type="button" class="conn-input-icon-btn" onclick="toggleFieldVis('conn-overseerr-key', this)" title="Show / hide"></button>
+            </div>
+            <div class="conn-field-group conn-field-port">
+              <span class="conn-field-label">Port <span class="conn-field-optional">optional</span></span>
+              <input type="number" id="conn-overseerr-port" class="conn-input conn-input-port"
+                placeholder="5055" min="1" max="65535"
+                value="<%= svcPort(connections.overseerrUrl) %>"
+                oninput="this.value=this.value.replace(/[^0-9]/g,'');onFieldInput('overseerr')">
+            </div>
+            <div class="conn-field-group conn-field-key">
+              <span class="conn-field-label">API Key</span>
+              <div class="conn-input-wrap">
+                <input type="password" id="conn-overseerr-key" class="conn-input"
+                  placeholder="API Key"
+                  value="<%= connections.overseerrApiKey ? '••••••••' : '' %>"
+                  autocomplete="new-password"
+                  oninput="onFieldInput('overseerr')">
+                <div class="conn-input-btns">
+                  <button type="button" class="conn-input-icon-btn" onclick="toggleFieldVis('conn-overseerr-key', this)" title="Show / hide"></button>
+                </div>
               </div>
             </div>
-            <button class="btn-admin" onclick="testConnection('overseerr')">Test</button>
+            <button class="btn-admin conn-action-btn" onclick="testConnection('overseerr')">Test</button>
           </div>
         </div>
 
@@ -414,49 +530,57 @@
             </div>
             <div class="conn-toggle-wrap">
               <span class="conn-toggle-label" id="lbl-radarr"><%= connections.radarrEnabled ? 'Enabled' : 'Disabled' %></span>
-              <label class="slide-toggle" title="<%= (!connections.radarrUrl || !connections.radarrApiKey) ? 'Enter URL and API key first' : '' %>">
+              <label class="slide-toggle" title="<%= (!connections.radarrUrl || !connections.radarrApiKey) ? 'Enter URL and API key first' : (!connections.radarrQualityProfileId ? 'Test connection and select a quality profile first' : '') %>">
                 <input type="checkbox" id="toggle-radarr"
                   <%= connections.radarrEnabled ? 'checked' : '' %>
-                  <%= (!connections.radarrUrl || !connections.radarrApiKey) ? 'disabled' : '' %>
+                  <%= (!connections.radarrUrl || !connections.radarrApiKey || !connections.radarrQualityProfileId) ? 'disabled' : '' %>
                   onchange="onToggleChange('radarr')">
                 <span class="slide-track"></span>
               </label>
             </div>
           </div>
           <div class="conn-block-fields">
-            <input type="url" id="conn-radarr-url" class="conn-input"
-              placeholder="http://192.168.1.27:7878"
-              value="<%= connections.radarrUrl %>"
-              oninput="onFieldInput('radarr')">
-            <div class="conn-input-wrap">
-              <input type="password" id="conn-radarr-key" class="conn-input"
-                placeholder="API Key"
-                value="<%= connections.radarrApiKey ? '••••••••' : '' %>"
-                autocomplete="new-password"
+            <div class="conn-field-group conn-field-host">
+              <span class="conn-field-label">Address</span>
+              <input type="text" id="conn-radarr-host" class="conn-input"
+                placeholder="http://localhost"
+                value="<%= svcHost(connections.radarrUrl) %>"
                 oninput="onFieldInput('radarr')">
-              <div class="conn-input-btns">
-                <button type="button" class="conn-input-icon-btn" onclick="toggleFieldVis('conn-radarr-key', this)" title="Show / hide"></button>
+            </div>
+            <div class="conn-field-group conn-field-port">
+              <span class="conn-field-label">Port <span class="conn-field-optional">optional</span></span>
+              <input type="number" id="conn-radarr-port" class="conn-input conn-input-port"
+                placeholder="7878" min="1" max="65535"
+                value="<%= svcPort(connections.radarrUrl) %>"
+                oninput="this.value=this.value.replace(/[^0-9]/g,'');onFieldInput('radarr')">
+            </div>
+            <div class="conn-field-group conn-field-key">
+              <span class="conn-field-label">API Key</span>
+              <div class="conn-input-wrap">
+                <input type="password" id="conn-radarr-key" class="conn-input"
+                  placeholder="API Key"
+                  value="<%= connections.radarrApiKey ? '••••••••' : '' %>"
+                  autocomplete="new-password"
+                  oninput="onFieldInput('radarr')">
+                <div class="conn-input-btns">
+                  <button type="button" class="conn-input-icon-btn" onclick="toggleFieldVis('conn-radarr-key', this)" title="Show / hide"></button>
+                </div>
               </div>
             </div>
-            <button class="btn-admin" onclick="testConnection('radarr')">Test</button>
+            <button class="btn-admin conn-action-btn" onclick="testConnection('radarr')">Test</button>
           </div>
-          <div class="conn-advanced-toggle" onclick="toggleAdvanced('radarr')">
-            <span class="conn-advanced-arrow" id="adv-arrow-radarr">▶</span>
-            <span>Advanced Settings</span>
-          </div>
-          <div class="conn-advanced-panel" id="adv-panel-radarr">
-            <div class="conn-advanced-row">
-              <label class="conn-advanced-label" for="radarr-quality-profile">Quality Profile</label>
-              <div class="conn-advanced-field">
-                <select id="radarr-quality-profile" class="conn-select" onchange="">
-                  <option value="">— load profiles —</option>
-                  <% if (connections.radarrQualityProfileId) { %>
-                    <option value="<%= connections.radarrQualityProfileId %>" selected>(saved: id <%= connections.radarrQualityProfileId %>)</option>
-                  <% } %>
-                </select>
-                <button class="btn-admin btn-admin-sm" onclick="loadQualityProfiles('radarr')">Refresh</button>
-                <button class="btn-admin btn-admin-sm btn-admin-save" onclick="saveQualityProfile('radarr')">Save</button>
-              </div>
+          <div class="conn-quality-row" id="quality-row-radarr" style="<%= connections.radarrQualityProfileId ? 'display:block' : 'display:none' %>">
+            <div class="conn-quality-header">
+              <span class="conn-quality-label">Quality Profile</span>
+              <span class="conn-quality-required">required to enable</span>
+            </div>
+            <div class="conn-quality-field">
+              <select id="radarr-quality-profile" class="conn-select" onchange="onQualityProfileChange('radarr')">
+                <option value="">— select a profile —</option>
+                <% if (connections.radarrQualityProfileId) { %>
+                  <option value="<%= connections.radarrQualityProfileId %>" selected>(saved — re-test to reload list)</option>
+                <% } %>
+              </select>
             </div>
           </div>
         </div>
@@ -470,49 +594,57 @@
             </div>
             <div class="conn-toggle-wrap">
               <span class="conn-toggle-label" id="lbl-sonarr"><%= connections.sonarrEnabled ? 'Enabled' : 'Disabled' %></span>
-              <label class="slide-toggle" title="<%= (!connections.sonarrUrl || !connections.sonarrApiKey) ? 'Enter URL and API key first' : '' %>">
+              <label class="slide-toggle" title="<%= (!connections.sonarrUrl || !connections.sonarrApiKey) ? 'Enter URL and API key first' : (!connections.sonarrQualityProfileId ? 'Test connection and select a quality profile first' : '') %>">
                 <input type="checkbox" id="toggle-sonarr"
                   <%= connections.sonarrEnabled ? 'checked' : '' %>
-                  <%= (!connections.sonarrUrl || !connections.sonarrApiKey) ? 'disabled' : '' %>
+                  <%= (!connections.sonarrUrl || !connections.sonarrApiKey || !connections.sonarrQualityProfileId) ? 'disabled' : '' %>
                   onchange="onToggleChange('sonarr')">
                 <span class="slide-track"></span>
               </label>
             </div>
           </div>
           <div class="conn-block-fields">
-            <input type="url" id="conn-sonarr-url" class="conn-input"
-              placeholder="http://192.168.1.27:8989"
-              value="<%= connections.sonarrUrl %>"
-              oninput="onFieldInput('sonarr')">
-            <div class="conn-input-wrap">
-              <input type="password" id="conn-sonarr-key" class="conn-input"
-                placeholder="API Key"
-                value="<%= connections.sonarrApiKey ? '••••••••' : '' %>"
-                autocomplete="new-password"
+            <div class="conn-field-group conn-field-host">
+              <span class="conn-field-label">Address</span>
+              <input type="text" id="conn-sonarr-host" class="conn-input"
+                placeholder="http://localhost"
+                value="<%= svcHost(connections.sonarrUrl) %>"
                 oninput="onFieldInput('sonarr')">
-              <div class="conn-input-btns">
-                <button type="button" class="conn-input-icon-btn" onclick="toggleFieldVis('conn-sonarr-key', this)" title="Show / hide"></button>
+            </div>
+            <div class="conn-field-group conn-field-port">
+              <span class="conn-field-label">Port <span class="conn-field-optional">optional</span></span>
+              <input type="number" id="conn-sonarr-port" class="conn-input conn-input-port"
+                placeholder="8989" min="1" max="65535"
+                value="<%= svcPort(connections.sonarrUrl) %>"
+                oninput="this.value=this.value.replace(/[^0-9]/g,'');onFieldInput('sonarr')">
+            </div>
+            <div class="conn-field-group conn-field-key">
+              <span class="conn-field-label">API Key</span>
+              <div class="conn-input-wrap">
+                <input type="password" id="conn-sonarr-key" class="conn-input"
+                  placeholder="API Key"
+                  value="<%= connections.sonarrApiKey ? '••••••••' : '' %>"
+                  autocomplete="new-password"
+                  oninput="onFieldInput('sonarr')">
+                <div class="conn-input-btns">
+                  <button type="button" class="conn-input-icon-btn" onclick="toggleFieldVis('conn-sonarr-key', this)" title="Show / hide"></button>
+                </div>
               </div>
             </div>
-            <button class="btn-admin" onclick="testConnection('sonarr')">Test</button>
+            <button class="btn-admin conn-action-btn" onclick="testConnection('sonarr')">Test</button>
           </div>
-          <div class="conn-advanced-toggle" onclick="toggleAdvanced('sonarr')">
-            <span class="conn-advanced-arrow" id="adv-arrow-sonarr">▶</span>
-            <span>Advanced Settings</span>
-          </div>
-          <div class="conn-advanced-panel" id="adv-panel-sonarr">
-            <div class="conn-advanced-row">
-              <label class="conn-advanced-label" for="sonarr-quality-profile">Quality Profile</label>
-              <div class="conn-advanced-field">
-                <select id="sonarr-quality-profile" class="conn-select" onchange="">
-                  <option value="">— load profiles —</option>
-                  <% if (connections.sonarrQualityProfileId) { %>
-                    <option value="<%= connections.sonarrQualityProfileId %>" selected>(saved: id <%= connections.sonarrQualityProfileId %>)</option>
-                  <% } %>
-                </select>
-                <button class="btn-admin btn-admin-sm" onclick="loadQualityProfiles('sonarr')">Refresh</button>
-                <button class="btn-admin btn-admin-sm btn-admin-save" onclick="saveQualityProfile('sonarr')">Save</button>
-              </div>
+          <div class="conn-quality-row" id="quality-row-sonarr" style="<%= connections.sonarrQualityProfileId ? 'display:block' : 'display:none' %>">
+            <div class="conn-quality-header">
+              <span class="conn-quality-label">Quality Profile</span>
+              <span class="conn-quality-required">required to enable</span>
+            </div>
+            <div class="conn-quality-field">
+              <select id="sonarr-quality-profile" class="conn-select" onchange="onQualityProfileChange('sonarr')">
+                <option value="">— select a profile —</option>
+                <% if (connections.sonarrQualityProfileId) { %>
+                  <option value="<%= connections.sonarrQualityProfileId %>" selected>(saved — re-test to reload list)</option>
+                <% } %>
+              </select>
             </div>
           </div>
         </div>
@@ -616,11 +748,10 @@
     }
 
     // ── Auto-sync toggle ───────────────────────────────────────────
-    document.getElementById('btn-toggle-autosync').addEventListener('click', async function () {
-      const isEnabled = this.dataset.enabled === 'true';
-      await apiFetch('/admin/sync/auto/' + (isEnabled ? 'disable' : 'enable'));
-      window.location.reload();
-    });
+    async function onAutoSyncChange(enable) {
+      await apiFetch('/admin/sync/auto/' + (enable ? 'enable' : 'disable'));
+      showToast('Auto-sync ' + (enable ? 'enabled' : 'disabled'));
+    }
 
     // ── Watched sync ───────────────────────────────────────────────
     async function syncWatched(userId) {
@@ -741,35 +872,117 @@
     }
 
     // ── Watchlist mode ─────────────────────────────────────────────
-    document.getElementById('btn-watchlist-mode').addEventListener('click', async function () {
-      const newMode = this.dataset.mode === 'playlist' ? 'watchlist' : 'playlist';
+    async function onWatchlistModeChange(isPlaylist) {
+      const newMode = isPlaylist ? 'playlist' : 'watchlist';
+      const lblW = document.getElementById('lbl-watchlist-opt');
+      const lblP = document.getElementById('lbl-playlist-opt');
+      if (lblW) lblW.className = isPlaylist ? 'service-label-inactive' : 'service-label-active';
+      if (lblP) lblP.className = isPlaylist ? 'service-label-active' : 'service-label-inactive';
       const d = await fetch('/admin/settings/watchlist-mode', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ mode: newMode }),
       }).then(r => r.json());
-      if (d.success) { showToast('Watchlist mode set to: ' + newMode); window.location.reload(); }
-      else showToast(d.error || 'Failed to update watchlist mode', true);
-    });
+      if (d.success) showToast('Switched to ' + (isPlaylist ? 'Diskovarr Playlist' : 'Plex Watchlist') + ' mode');
+      else {
+        document.getElementById('toggle-watchlist-mode').checked = !isPlaylist;
+        if (lblW) lblW.className = isPlaylist ? 'service-label-active' : 'service-label-inactive';
+        if (lblP) lblP.className = isPlaylist ? 'service-label-inactive' : 'service-label-active';
+        showToast(d.error || 'Failed to update watchlist mode', true);
+      }
+    }
+
+    // ── Individual season requests ─────────────────────────────────
+    async function onLandingPageChange(explore) {
+      const body = { landing_page: explore ? 'explore' : 'home' };
+      try {
+        const r = await fetch('/admin/connections/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        const data = await r.json();
+        if (data.success) showToast(explore ? 'Landing page set to Diskovarr Requests' : 'Landing page set to Diskovarr');
+        else showToast('Save failed', true);
+      } catch (err) {
+        showToast('Save failed: ' + err.message, true);
+      }
+    }
+
+    async function onIndividualSeasonsChange(enabled) {
+      const body = { individual_seasons_enabled: enabled ? '1' : '0' };
+      try {
+        const r = await fetch('/admin/connections/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        const data = await r.json();
+        if (data.success) showToast(enabled ? 'Individual season requests enabled' : 'Individual season requests disabled');
+        else showToast('Save failed', true);
+      } catch (err) {
+        showToast('Save failed: ' + err.message, true);
+      }
+    }
 
     // ── Connections ────────────────────────────────────────────────
 
-    // Check if a service has required fields filled
+    function combineUrl(host, port) {
+      if (!host) return '';
+      if (!port) return host;
+      try { const u = new URL(host); u.port = port; return u.origin; }
+      catch(e) { return host.replace(/:\d+$/, '') + ':' + port; }
+    }
+    function getUrlValue(service) {
+      const hostEl = document.getElementById('conn-' + service + '-host');
+      const portEl = document.getElementById('conn-' + service + '-port');
+      if (!hostEl) return '';
+      return combineUrl(hostEl.value.trim(), portEl ? portEl.value.trim() : '');
+    }
+
+    // Track which services have passed a connection test this session
+    var _tested = {
+      radarr: <%= connections.radarrQualityProfileId ? 'true' : 'false' %>,
+      sonarr: <%= connections.sonarrQualityProfileId ? 'true' : 'false' %>,
+    };
+
+    // Check if a service has required fields filled (and passed test for radarr/sonarr)
     function serviceReady(service) {
       if (service === 'discover') {
         return document.getElementById('conn-tmdb-key').value.trim() !== '';
       }
-      const url = document.getElementById('conn-' + service + '-url');
+      const urlVal = getUrlValue(service);
       const key = document.getElementById('conn-' + service + '-key');
-      return url && url.value.trim() !== '' && key && key.value.trim() !== '';
+      if (!urlVal || !key || !key.value.trim()) return false;
+      if (service === 'radarr' || service === 'sonarr') {
+        const profile = document.getElementById(service + '-quality-profile');
+        return _tested[service] && profile && profile.value !== '';
+      }
+      return true;
     }
 
-    // Called when any field for a service changes — updates toggle disabled state
-    function onFieldInput(service) {
+    function getToggleHint(service) {
+      if (service === 'discover') return 'Enter TMDB API key first';
+      if (service === 'radarr' || service === 'sonarr') {
+        const urlVal = getUrlValue(service);
+        const key = document.getElementById('conn-' + service + '-key');
+        if (!urlVal || !key || !key.value.trim()) return 'Enter URL and API key first';
+        if (!_tested[service]) return 'Test the connection first';
+        const profile = document.getElementById(service + '-quality-profile');
+        if (!profile || !profile.value) return 'Select a quality profile first';
+        return '';
+      }
+      return 'Enter URL and API key first';
+    }
+
+    // Just re-evaluates toggle disabled/title without touching test state
+    function updateToggleState(service) {
       var toggle = document.getElementById('toggle-' + service);
       if (!toggle) return;
       var ready = serviceReady(service);
       toggle.disabled = !ready;
-      toggle.closest('.slide-toggle').title = ready ? '' : 'Enter ' + (service === 'discover' ? 'TMDB API key' : 'URL and API key') + ' first';
+      toggle.closest('.slide-toggle').title = ready ? '' : getToggleHint(service);
+    }
+
+    // Called when URL/key fields change — resets test state then updates toggle
+    function onFieldInput(service) {
+      if ((service === 'radarr' || service === 'sonarr') && _tested[service] !== undefined) {
+        _tested[service] = false;
+        var qRow = document.getElementById('quality-row-' + service);
+        if (qRow) qRow.style.display = 'none';
+      }
+      updateToggleState(service);
     }
 
     // Save TMDB key separately, then re-evaluate discover toggle
@@ -800,7 +1013,7 @@
       if (service === 'discover') {
         body.discover_enabled = checked ? '1' : '0';
       } else {
-        var urlVal = document.getElementById('conn-' + service + '-url').value;
+        var urlVal = getUrlValue(service);
         var keyVal = document.getElementById('conn-' + service + '-key').value;
         body[service + '_url'] = urlVal;
         if (keyVal !== '••••••••') body[service + '_api_key'] = keyVal;
@@ -818,11 +1031,21 @@
         var lbl = document.getElementById('lbl-' + service);
         if (lbl) lbl.textContent = checked ? 'Enabled' : 'Disabled';
         showToast(name + (checked ? ' enabled' : ' disabled'));
+        // Show/hide default service block when relevant toggles change
+        if (['overseerr', 'radarr', 'sonarr'].includes(service)) refreshDefaultServiceBlock();
       } else {
         // Revert toggle
         toggle.checked = !checked;
         showToast('Save failed', true);
       }
+    }
+
+    function refreshDefaultServiceBlock() {
+      var osOn  = document.getElementById('toggle-overseerr')?.checked && getUrlValue('overseerr');
+      var rrOn  = document.getElementById('toggle-radarr')?.checked   && getUrlValue('radarr');
+      var snOn  = document.getElementById('toggle-sonarr')?.checked   && getUrlValue('sonarr');
+      var block = document.getElementById('default-service-block');
+      if (block) block.style.display = (osOn && (rrOn || snOn)) ? '' : 'none';
     }
 
     // ── Password field eye / copy ───────────────────────────────────
@@ -860,6 +1083,10 @@
       btns.children[0].innerHTML = EYE_ICON;
     });
 
+    // Auto-load quality profiles on page load for already-configured services
+    <% if (connections.radarrQualityProfileId) { %>loadQualityProfiles('radarr');<% } %>
+    <% if (connections.sonarrQualityProfileId) { %>loadQualityProfiles('sonarr');<% } %>
+
     async function toggleFieldVis(id, btn) {
       var input = document.getElementById(id);
       var willShow = input.type === 'password';
@@ -873,12 +1100,12 @@
     async function saveCoreService(service) {
       var body = {};
       if (service === 'plex') {
-        var url = document.getElementById('conn-plex-url').value.trim();
+        var url = getUrlValue('plex');
         var token = document.getElementById('conn-plex-token').value;
         if (url) body.plex_url = url;
         if (token && token !== '••••••••') body.plex_token = token;
       } else if (service === 'tautulli') {
-        var url = document.getElementById('conn-tautulli-url').value.trim();
+        var url = getUrlValue('tautulli');
         var key = document.getElementById('conn-tautulli-key').value;
         if (url) body.tautulli_url = url;
         if (key && key !== '••••••••') body.tautulli_api_key = key;
@@ -899,11 +1126,11 @@
     async function testCoreService(service) {
       var payload = {};
       if (service === 'plex') {
-        payload.url = document.getElementById('conn-plex-url').value.trim();
+        payload.url = getUrlValue('plex');
         payload.token = await resolveFieldValue('conn-plex-token');
         if (!payload.url || !payload.token) { showToast('Enter URL and token first', true); return; }
       } else if (service === 'tautulli') {
-        payload.url = document.getElementById('conn-tautulli-url').value.trim();
+        payload.url = getUrlValue('tautulli');
         payload.apiKey = await resolveFieldValue('conn-tautulli-key');
         if (!payload.url || !payload.apiKey) { showToast('Enter URL and API key first', true); return; }
       }
@@ -920,7 +1147,7 @@
         payload.apiKey = document.getElementById('conn-tmdb-key').value;
         if (payload.apiKey === '••••••••') { showToast('Enter the actual key to test it', true); return; }
       } else {
-        payload.url = document.getElementById('conn-' + service + '-url').value;
+        payload.url = getUrlValue(service);
         payload.apiKey = document.getElementById('conn-' + service + '-key').value;
         if (payload.apiKey === '••••••••') {
           payload.apiKey = '<%= connections.overseerrApiKey %>';
@@ -933,6 +1160,39 @@
         body: JSON.stringify(payload),
       }).then(r => r.json());
       showToast(d.message, !d.ok);
+
+      // On success for radarr/sonarr: save URL+key to DB, then load quality profiles
+      if (d.ok && (service === 'radarr' || service === 'sonarr')) {
+        _tested[service] = true;
+        var saveBody = {};
+        saveBody[service + '_url'] = payload.url;
+        if (payload.apiKey) saveBody[service + '_api_key'] = payload.apiKey;
+        await fetch('/admin/connections/save', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(saveBody),
+        });
+        _revealedKeys = null;
+        var qRow = document.getElementById('quality-row-' + service);
+        if (qRow) qRow.style.display = 'block';
+        await loadQualityProfiles(service);
+      }
+    }
+
+    // ── Default request service toggle ──────────────────────────
+    async function onDefaultServiceChange(isDirect) {
+      var value = isDirect ? 'direct' : 'overseerr';
+      var desc = document.getElementById('default-service-desc');
+      desc.textContent = isDirect ? 'Sonarr/Radarr is the default' : 'Overseerr is the default';
+      var lblOs = document.getElementById('lbl-overseerr-opt');
+      var lblSn = document.getElementById('lbl-sonarr-opt');
+      if (lblOs) lblOs.className = isDirect ? 'service-label-inactive' : 'service-label-active';
+      if (lblSn) lblSn.className = isDirect ? 'service-label-active' : 'service-label-inactive';
+      var d = await fetch('/admin/connections/save', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ default_request_service: value }),
+      }).then(r => r.json());
+      if (d.success) showToast('Default request service saved');
+      else showToast('Save failed', true);
     }
 
     // ── Advanced settings panels ────────────────────────────────
@@ -946,6 +1206,7 @@
 
     async function loadQualityProfiles(service) {
       var select = document.getElementById(service + '-quality-profile');
+      if (!select) return;
       select.disabled = true;
       select.innerHTML = '<option value="">Loading…</option>';
       var d = await fetch('/admin/connections/quality-profiles/' + service).then(r => r.json());
@@ -962,6 +1223,21 @@
           return '<option value="' + p.id + '"' + sel + '>' + p.name + '</option>';
         }).join('');
       select.disabled = false;
+      updateToggleState(service);
+    }
+
+    async function onQualityProfileChange(service) {
+      var select = document.getElementById(service + '-quality-profile');
+      var profileId = select.value;
+      if (!profileId) { updateToggleState(service); return; }
+      var body = {};
+      body[service + '_quality_profile_id'] = profileId;
+      var d = await fetch('/admin/connections/save', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }).then(r => r.json());
+      if (d.success) showToast('Quality profile saved');
+      updateToggleState(service);
     }
 
     async function saveQualityProfile(service) {
@@ -980,6 +1256,24 @@
       }
     }
 
+  </script>
+  <script>
+    (function () {
+      var accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#e5a00d';
+      var svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="-3 -3 30 30">'
+        + '<rect x="-3" y="-3" width="30" height="30" rx="5" fill="#0f0f0f"/>'
+        + '<rect x="0.5" y="17.5" width="13" height="1.5" rx="0.5" fill="' + accent + '"/>'
+        + '<rect x="1" y="8.5" width="2.5" height="9" rx="0.4" fill="' + accent + '"/>'
+        + '<rect x="4.5" y="11" width="3" height="6.5" rx="0.4" fill="' + accent + '"/>'
+        + '<rect x="8.5" y="10" width="2.5" height="7.5" rx="0.4" fill="' + accent + '"/>'
+        + '<circle cx="15" cy="9" r="5" fill="none" stroke="' + accent + '" stroke-width="2"/>'
+        + '<line x1="18.5" y1="12.5" x2="22" y2="16" stroke="' + accent + '" stroke-width="2.5" stroke-linecap="round"/>'
+        + '</svg>';
+      var blob = new Blob([svg], { type: 'image/svg+xml' });
+      var url = URL.createObjectURL(blob);
+      var link = document.querySelector('link[rel*="icon"]');
+      if (link) link.href = url;
+    })();
   </script>
 </body>
 </html>

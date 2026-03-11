@@ -3,6 +3,31 @@
 
   var cfg = window.EXPLORE_CONFIG || { services: {}, hasAnyService: false };
 
+  // ── Helpers ───────────────────────────────────────────────────────────────
+
+  function makeReasonTag(text) {
+    var tag = document.createElement('span');
+    tag.className = 'reason-tag';
+    var inner = document.createElement('span');
+    inner.className = 'reason-tag-text';
+    inner.textContent = text;
+    tag.appendChild(inner);
+    setTimeout(function () {
+      var cs = getComputedStyle(tag);
+      var tagExtra = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight) +
+                     parseFloat(cs.borderLeftWidth) + parseFloat(cs.borderRightWidth);
+      var overflow = inner.getBoundingClientRect().width - (tag.getBoundingClientRect().width - tagExtra);
+      if (overflow > 1) {
+        var dist = Math.ceil(overflow) + 6;
+        var dur = Math.max(3, (dist / 40 + 2)).toFixed(1) + 's';
+        tag.style.setProperty('--tag-scroll-dist', '-' + dist + 'px');
+        tag.style.setProperty('--tag-scroll-duration', dur);
+        tag.classList.add('reason-tag-scroll');
+      }
+    }, 50);
+    return tag;
+  }
+
   // ── Toast ─────────────────────────────────────────────────────────────────
 
   function showToast(msg, type) {
@@ -57,20 +82,16 @@
       });
       if (!r.ok) throw new Error('Dismiss failed');
 
-      // Remove from all carousel states and re-render affected sections
-      for (var sid in carouselState) {
-        var state = carouselState[sid];
-        var idx = state.items.findIndex(function (i) { return i.tmdbId === item.tmdbId && i.mediaType === item.mediaType; });
-        if (idx === -1) continue;
-        state.items.splice(idx, 1);
-        state.pages = Math.ceil(state.items.length / state.cpp) || 1;
-        if (state.page > state.pages) state.page = state.pages;
-        var section = document.getElementById(sid);
-        var gridId = section ? section.querySelector('.card-grid')?.id : null;
-        if (gridId) {
-          renderPage(sid, gridId);
-          updateControls(sid, section);
-        }
+      // Remove dismissed item from all stores and animate card out
+      if (cardEl) {
+        cardEl.style.transition = 'opacity 0.25s, transform 0.25s';
+        cardEl.style.opacity = '0';
+        cardEl.style.transform = 'scale(0.88)';
+        setTimeout(function () { cardEl.remove(); }, 260);
+      }
+      for (var sid in itemStore) {
+        var idx = itemStore[sid].findIndex(function (i) { return i.tmdbId === item.tmdbId && i.mediaType === item.mediaType; });
+        if (idx !== -1) itemStore[sid].splice(idx, 1);
       }
     } catch (err) {
       showToast('Could not dismiss: ' + err.message, 'error');
@@ -80,6 +101,87 @@
   // ── Request dialog ────────────────────────────────────────────────────────
 
   var pendingRequest = null;
+
+  // Season picker state per dialog open
+  var _seasonSelection = ['all']; // 'all' or array of numbers as strings
+
+  function buildSeasonPicker(tmdbId, onReady) {
+    var wrap = document.createElement('div');
+    wrap.className = 'season-picker-wrap';
+
+    var label = document.createElement('div');
+    label.className = 'season-picker-label';
+    label.textContent = 'Seasons:';
+    wrap.appendChild(label);
+
+    var chipRow = document.createElement('div');
+    chipRow.className = 'season-chips';
+    wrap.appendChild(chipRow);
+
+    // Loading state
+    var loading = document.createElement('span');
+    loading.className = 'season-loading';
+    loading.textContent = 'Loading seasons…';
+    chipRow.appendChild(loading);
+
+    _seasonSelection = ['all'];
+
+    fetch('/api/search/seasons?tmdbId=' + tmdbId)
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        chipRow.innerHTML = '';
+        var seasonNums = data.seasons || [];
+
+        function renderChips() {
+          chipRow.innerHTML = '';
+          var allChip = document.createElement('button');
+          allChip.type = 'button';
+          allChip.className = 'season-chip' + (_seasonSelection[0] === 'all' ? ' active' : '');
+          allChip.textContent = 'All';
+          allChip.addEventListener('click', function () {
+            _seasonSelection = ['all'];
+            renderChips();
+          });
+          chipRow.appendChild(allChip);
+
+          seasonNums.forEach(function (n) {
+            var chip = document.createElement('button');
+            chip.type = 'button';
+            var isActive = _seasonSelection[0] !== 'all' && _seasonSelection.includes(String(n));
+            chip.className = 'season-chip' + (isActive ? ' active' : '');
+            chip.textContent = String(n);
+            chip.addEventListener('click', function () {
+              if (_seasonSelection[0] === 'all') {
+                _seasonSelection = [String(n)];
+              } else {
+                var idx = _seasonSelection.indexOf(String(n));
+                if (idx === -1) {
+                  _seasonSelection.push(String(n));
+                } else {
+                  _seasonSelection.splice(idx, 1);
+                  if (_seasonSelection.length === 0) _seasonSelection = ['all'];
+                }
+              }
+              renderChips();
+            });
+            chipRow.appendChild(chip);
+          });
+        }
+        renderChips();
+        if (onReady) onReady();
+      })
+      .catch(function () {
+        chipRow.innerHTML = '<span class="season-loading">Could not load seasons</span>';
+        if (onReady) onReady();
+      });
+
+    return wrap;
+  }
+
+  function getSelectedSeasons() {
+    if (_seasonSelection[0] === 'all') return null;
+    return _seasonSelection.map(Number);
+  }
 
   function openRequestDialog(item) {
     pendingRequest = item;
@@ -92,14 +194,69 @@
 
     var isMovie = item.mediaType === 'movie';
     var s = cfg.services;
-    var overseerr = s.overseerr;
-    var relevant = isMovie ? s.radarr : s.sonarr;
-    var serviceName = isMovie ? 'Radarr' : 'Sonarr';
+    var hasOverseerr = s.overseerr;
+    var hasDirect    = isMovie ? s.radarr : s.sonarr;
+    var directName   = isMovie ? 'Radarr' : 'Sonarr';
+    var directSvc    = isMovie ? 'radarr' : 'sonarr';
 
     subEl.textContent = item.year ? item.year + ' · ' + (isMovie ? 'Movie' : 'TV Show') : (isMovie ? 'Movie' : 'TV Show');
 
-    // Build action buttons
+    var hasBothSides = hasOverseerr && hasDirect;
+    var defaultSvc;
+    if (hasBothSides) {
+      defaultSvc = (s.defaultService === 'direct') ? directSvc : 'overseerr';
+    } else {
+      defaultSvc = hasOverseerr ? 'overseerr' : directSvc;
+    }
+
     actionsEl.innerHTML = '';
+
+    var dialogBox = dialog.querySelector('.request-dialog-box') || dialog.firstElementChild;
+    var existingAdv = dialog.querySelector('.request-dialog-advanced');
+    if (existingAdv) existingAdv.remove();
+    var existingSeason = dialog.querySelector('.season-picker-wrap');
+    if (existingSeason) existingSeason.remove();
+
+    // Season picker (TV shows + individual seasons enabled)
+    var showSeasonPicker = !isMovie && cfg.individualSeasonsEnabled;
+    if (showSeasonPicker) {
+      var pickerEl = buildSeasonPicker(item.tmdbId, null);
+      actionsEl.parentNode.insertBefore(pickerEl, actionsEl);
+    }
+
+    if (hasBothSides) {
+      var altSvc  = (defaultSvc === 'overseerr') ? directSvc : 'overseerr';
+      var altName = (defaultSvc === 'overseerr') ? directName : 'Overseerr';
+
+      var advWrap = document.createElement('div');
+      advWrap.className = 'request-dialog-advanced';
+
+      var advToggle = document.createElement('button');
+      advToggle.className = 'request-dialog-adv-toggle';
+      advToggle.textContent = 'Advanced ▸';
+      advToggle.type = 'button';
+
+      var advPanel = document.createElement('div');
+      advPanel.className = 'request-dialog-adv-panel';
+      advPanel.style.display = 'none';
+
+      var altBtn = document.createElement('button');
+      altBtn.className = 'btn-dialog-alt';
+      altBtn.textContent = 'Send to ' + altName + ' instead';
+      altBtn.type = 'button';
+      altBtn.onclick = function () { submitRequest(item, altSvc, showSeasonPicker ? getSelectedSeasons() : null); };
+      advPanel.appendChild(altBtn);
+
+      advToggle.onclick = function () {
+        var open = advPanel.style.display === 'none';
+        advPanel.style.display = open ? '' : 'none';
+        advToggle.textContent = open ? 'Advanced ▾' : 'Advanced ▸';
+      };
+
+      advWrap.appendChild(advToggle);
+      advWrap.appendChild(advPanel);
+      actionsEl.parentNode.insertBefore(advWrap, actionsEl);
+    }
 
     var cancelBtn = document.createElement('button');
     cancelBtn.className = 'btn-dialog-cancel';
@@ -107,28 +264,11 @@
     cancelBtn.onclick = closeRequestDialog;
     actionsEl.appendChild(cancelBtn);
 
-    if (overseerr && relevant) {
-      // Both Overseerr and direct service available — let user choose
-      var osBtn = document.createElement('button');
-      osBtn.className = 'btn-dialog-confirm';
-      osBtn.textContent = 'Overseerr';
-      osBtn.onclick = function () { submitRequest(item, 'overseerr'); };
-      actionsEl.appendChild(osBtn);
-
-      var svcBtn = document.createElement('button');
-      svcBtn.className = 'btn-dialog-confirm';
-      svcBtn.textContent = serviceName;
-      svcBtn.onclick = function () { submitRequest(item, isMovie ? 'radarr' : 'sonarr'); };
-      actionsEl.appendChild(svcBtn);
-    } else {
-      // Only one service available
-      var confirmBtn = document.createElement('button');
-      confirmBtn.className = 'btn-dialog-confirm';
-      confirmBtn.textContent = 'Request';
-      var svc = overseerr ? 'overseerr' : (isMovie ? 'radarr' : 'sonarr');
-      confirmBtn.onclick = function () { submitRequest(item, svc); };
-      actionsEl.appendChild(confirmBtn);
-    }
+    var confirmBtn = document.createElement('button');
+    confirmBtn.className = 'btn-dialog-confirm';
+    confirmBtn.textContent = 'Request';
+    confirmBtn.onclick = function () { submitRequest(item, defaultSvc, showSeasonPicker ? getSelectedSeasons() : null); };
+    actionsEl.appendChild(confirmBtn);
 
     dialog.classList.add('open');
     dialog.setAttribute('aria-hidden', 'false');
@@ -141,10 +281,9 @@
     pendingRequest = null;
   }
 
-  async function submitRequest(item, service) {
+  async function submitRequest(item, service, seasons) {
     closeRequestDialog();
 
-    // Find all request buttons for this item and disable them
     var btns = document.querySelectorAll('[data-request-tmdb="' + item.tmdbId + '"]');
     btns.forEach(function (btn) {
       btn.disabled = true;
@@ -162,6 +301,7 @@
           title: item.title,
           year: item.year || null,
           service,
+          seasons: seasons || null,
         }),
       });
       var data = await r.json();
@@ -169,7 +309,6 @@
         throw new Error(data.error || 'Request failed');
       }
 
-      // Mark all cards for this item as requested
       btns.forEach(function (btn) {
         btn.textContent = 'Requested ✓';
         btn.disabled = true;
@@ -281,10 +420,7 @@
     reasonsEl.innerHTML = '';
     if (item.reasons && item.reasons.length > 0) {
       item.reasons.forEach(function (r) {
-        var tag = document.createElement('span');
-        tag.className = 'reason-tag';
-        tag.textContent = r;
-        reasonsEl.appendChild(tag);
+        reasonsEl.appendChild(makeReasonTag(r));
       });
     }
 
@@ -427,9 +563,11 @@
     // Hover overlay lives inside poster wrap (covers only poster, not card-info)
     var overlay = document.createElement('div');
     overlay.className = 'card-overlay';
+    var overlayActions = document.createElement('div');
+    overlayActions.className = 'card-overlay-actions';
     if (cfg.hasAnyService) {
       var reqBtn = document.createElement('button');
-      reqBtn.className = 'btn-request' + (item.isRequested ? ' btn-request-sent' : '');
+      reqBtn.className = 'btn-icon btn-request' + (item.isRequested ? ' btn-request-sent' : '');
       reqBtn.setAttribute('data-request-tmdb', String(item.tmdbId));
       reqBtn.textContent = item.isRequested ? 'Requested ✓' : 'Request';
       reqBtn.disabled = item.isRequested;
@@ -437,7 +575,7 @@
         e.stopPropagation();
         if (!item.isRequested) openRequestDialog(item);
       });
-      overlay.appendChild(reqBtn);
+      overlayActions.appendChild(reqBtn);
     }
     var dismissCardBtn = document.createElement('button');
     dismissCardBtn.className = 'btn-icon btn-dismiss';
@@ -452,7 +590,8 @@
         dismissItem(item, card);
       }
     });
-    overlay.appendChild(dismissCardBtn);
+    overlayActions.appendChild(dismissCardBtn);
+    overlay.appendChild(overlayActions);
     posterWrap.appendChild(overlay);
 
     card.appendChild(posterWrap);
@@ -478,10 +617,7 @@
       var reasons = document.createElement('div');
       reasons.className = 'card-reasons';
       item.reasons.slice(0, 2).forEach(function (r) {
-        var tag = document.createElement('span');
-        tag.className = 'reason-tag';
-        tag.textContent = r;
-        reasons.appendChild(tag);
+        reasons.appendChild(makeReasonTag(r));
       });
       info.appendChild(reasons);
     }
@@ -498,87 +634,50 @@
 
   // ── Carousel rendering ────────────────────────────────────────────────────
 
-  var ROWS = 2;
-
-  function cardsPerPage(grid) {
-    var computed = window.getComputedStyle(grid);
-    var cols = computed.gridTemplateColumns.split(' ').length || 4;
-    return cols * ROWS;
-  }
-
-  var carouselState = {}; // sectionId -> { items, page, pages, cpp }
+  // itemStore: sectionId -> items[] (for dismiss re-render)
+  var itemStore = {};
 
   function renderCarousel(sectionId, gridId, items) {
-    var section = document.getElementById(sectionId);
-    var grid = document.getElementById(gridId);
-    if (!grid || !items.length) return;
-
-    // Remove skeleton
-    grid.classList.remove('skeleton-grid');
-    grid.innerHTML = '';
-
-    var cpp = cardsPerPage(grid) || 8;
-    var totalPages = Math.ceil(items.length / cpp);
-    var page = 1;
-
-    carouselState[sectionId] = { items, page, pages: totalPages, cpp };
-
-    renderPage(sectionId, gridId);
-    updateControls(sectionId, section);
-  }
-
-  function renderPage(sectionId, gridId) {
-    var state = carouselState[sectionId];
-    if (!state) return;
-
     var grid = document.getElementById(gridId);
     if (!grid) return;
 
+    grid.classList.remove('skeleton-grid');
     grid.innerHTML = '';
-    var start = (state.page - 1) * state.cpp;
-    var slice = state.items.slice(start, start + state.cpp);
-    slice.forEach(function (item) {
-      grid.appendChild(renderCard(item));
-    });
+
+    if (!items.length) return;
+
+    itemStore[sectionId] = items;
+    var frag = document.createDocumentFragment();
+    items.forEach(function (item) { frag.appendChild(renderCard(item)); });
+    grid.appendChild(frag);
+    grid.scrollLeft = 0;
     applyMatureFilter();
+    if (grid._updateArrows) grid._updateArrows();
   }
 
-  function updateControls(sectionId, section) {
-    var state = carouselState[sectionId];
-    if (!state) return;
+  function initCarouselArrows() {
+    document.querySelectorAll('.carousel-wrap').forEach(function (wrap) {
+      var grid = wrap.querySelector('.card-grid');
+      var btnPrev = wrap.querySelector('.carousel-arrow-prev');
+      var btnNext = wrap.querySelector('.carousel-arrow-next');
+      if (!grid || !btnPrev || !btnNext) return;
 
-    var prevBtn = section.querySelector('.carousel-btn-prev');
-    var nextBtn = section.querySelector('.carousel-btn-next');
-    var counter = section.querySelector('.carousel-counter');
+      function updateArrows() {
+        btnPrev.disabled = grid.scrollLeft <= 2;
+        btnNext.disabled = grid.scrollLeft + grid.clientWidth >= grid.scrollWidth - 2;
+      }
 
-    if (prevBtn) prevBtn.hidden = state.page <= 1;
-    if (nextBtn) nextBtn.hidden = state.page >= state.pages;
-    if (counter) {
-      counter.textContent = state.pages > 1 ? state.page + ' / ' + state.pages : '';
-    }
+      btnPrev.onclick = function () { grid.scrollBy({ left: -grid.clientWidth, behavior: 'smooth' }); };
+      btnNext.onclick = function () { grid.scrollBy({ left: grid.clientWidth, behavior: 'smooth' }); };
+      grid.addEventListener('scroll', updateArrows, { passive: true });
+      grid._updateArrows = updateArrows;
+      updateArrows();
+    });
   }
 
   function attachCarouselListeners(sectionId, gridId) {
     var section = document.getElementById(sectionId);
     if (!section) return;
-
-    section.querySelector('.carousel-btn-prev')?.addEventListener('click', function () {
-      var state = carouselState[sectionId];
-      if (state && state.page > 1) {
-        state.page--;
-        renderPage(sectionId, gridId);
-        updateControls(sectionId, section);
-      }
-    });
-
-    section.querySelector('.carousel-btn-next')?.addEventListener('click', function () {
-      var state = carouselState[sectionId];
-      if (state && state.page < state.pages) {
-        state.page++;
-        renderPage(sectionId, gridId);
-        updateControls(sectionId, section);
-      }
-    });
 
     section.querySelector('.carousel-btn-shuffle')?.addEventListener('click', function (e) {
       var btn = e.currentTarget;
@@ -696,6 +795,10 @@
   }
 
   document.addEventListener('DOMContentLoaded', function () {
+    initCarouselArrows();
+  });
+
+  document.addEventListener('DOMContentLoaded', function () {
     var toggle = document.getElementById('mature-toggle');
     if (toggle) {
       toggle.checked = isMatureEnabled();
@@ -704,7 +807,165 @@
         applyMatureFilter();
       });
     }
+    initHeroSearch();
     fetchAndRender(false);
   });
+
+  // ── Hero search bar + autocomplete ────────────────────────────────────────
+
+  function initHeroSearch() {
+    var input = document.getElementById('hero-search');
+    var clearBtn = document.getElementById('hero-search-clear');
+    var dropdown = document.getElementById('hero-search-dropdown');
+    if (!input || !dropdown) return;
+
+    var suggestTimer = null;
+    var activeIdx = -1;
+    var suggestions = [];
+
+    function showClear(v) { if (clearBtn) clearBtn.style.display = v ? 'block' : 'none'; }
+
+    function closeDropdown() {
+      dropdown.innerHTML = '';
+      dropdown.classList.remove('open');
+      activeIdx = -1;
+      suggestions = [];
+    }
+
+    function navigateTo(q) {
+      closeDropdown();
+      window.location.href = '/search?q=' + encodeURIComponent(q);
+    }
+
+    function renderDropdown(results) {
+      dropdown.innerHTML = '';
+      if (!results.length) { closeDropdown(); return; }
+      suggestions = results;
+      activeIdx = -1;
+
+      results.forEach(function (item, idx) {
+        var row = document.createElement('div');
+        row.className = 'hero-suggest-row';
+        row.setAttribute('role', 'option');
+        row.setAttribute('tabindex', '-1');
+
+        var poster = document.createElement('div');
+        poster.className = 'hero-suggest-poster';
+        if (item.posterUrl) {
+          var img = document.createElement('img');
+          img.src = item.posterUrl;
+          img.alt = '';
+          img.loading = 'lazy';
+          poster.appendChild(img);
+        } else {
+          poster.textContent = (item.title || '?').charAt(0);
+        }
+
+        var text = document.createElement('div');
+        text.className = 'hero-suggest-text';
+
+        var titleSpan = document.createElement('span');
+        titleSpan.className = 'hero-suggest-title';
+        titleSpan.textContent = item.title;
+
+        var metaSpan = document.createElement('span');
+        metaSpan.className = 'hero-suggest-meta';
+        var metaParts = [];
+        if (item.year) metaParts.push(item.year);
+        metaParts.push(item.mediaType === 'movie' ? 'Movie' : 'TV Show');
+        metaSpan.textContent = metaParts.join(' · ');
+
+        text.appendChild(titleSpan);
+        text.appendChild(metaSpan);
+        row.appendChild(poster);
+        row.appendChild(text);
+
+        row.addEventListener('mousedown', function (e) {
+          e.preventDefault(); // prevent blur before click
+          navigateTo(item.title);
+        });
+
+        dropdown.appendChild(row);
+      });
+
+      // "See all results" row
+      var allRow = document.createElement('div');
+      allRow.className = 'hero-suggest-row hero-suggest-all';
+      allRow.setAttribute('role', 'option');
+      allRow.textContent = 'See all results for "' + input.value.trim() + '"';
+      allRow.addEventListener('mousedown', function (e) {
+        e.preventDefault();
+        navigateTo(input.value.trim());
+      });
+      dropdown.appendChild(allRow);
+
+      dropdown.classList.add('open');
+    }
+
+    function setActive(idx) {
+      var rows = dropdown.querySelectorAll('.hero-suggest-row');
+      rows.forEach(function (r) { r.classList.remove('active'); });
+      activeIdx = idx;
+      if (idx >= 0 && idx < rows.length) rows[idx].classList.add('active');
+    }
+
+    async function fetchSuggestions(q) {
+      try {
+        var r = await fetch('/api/search/suggest?q=' + encodeURIComponent(q));
+        if (!r.ok) return;
+        var data = await r.json();
+        if (input.value.trim() === q) renderDropdown(data.results || []);
+      } catch { /* ignore */ }
+    }
+
+    input.addEventListener('input', function () {
+      var q = input.value.trim();
+      showClear(q.length > 0);
+      clearTimeout(suggestTimer);
+      if (q.length < 2) { closeDropdown(); return; }
+      suggestTimer = setTimeout(function () { fetchSuggestions(q); }, 280);
+    });
+
+    input.addEventListener('keydown', function (e) {
+      var rows = dropdown.querySelectorAll('.hero-suggest-row');
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setActive(Math.min(activeIdx + 1, rows.length - 1));
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setActive(Math.max(activeIdx - 1, -1));
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        if (activeIdx >= 0 && activeIdx < suggestions.length) {
+          navigateTo(suggestions[activeIdx].title);
+        } else {
+          var q = input.value.trim();
+          if (q) navigateTo(q);
+        }
+      } else if (e.key === 'Escape') {
+        closeDropdown();
+        input.blur();
+      }
+    });
+
+    input.addEventListener('blur', function () {
+      // Delay so mousedown on dropdown fires first
+      setTimeout(closeDropdown, 150);
+    });
+
+    if (clearBtn) {
+      clearBtn.addEventListener('click', function () {
+        input.value = '';
+        showClear(false);
+        closeDropdown();
+        input.focus();
+      });
+    }
+
+    // Close dropdown on outside click
+    document.addEventListener('click', function (e) {
+      if (!document.getElementById('hero-search-wrap')?.contains(e.target)) closeDropdown();
+    });
+  }
 
 })();

@@ -1,16 +1,25 @@
 <nav class="nav">
   <div class="nav-inner">
     <a href="/" class="nav-logo">
-      <span class="logo-icon">◈</span>
+      <span class="logo-icon">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="1em" height="1em" fill="none" aria-hidden="true">
+          <rect x="0.5" y="17.5" width="13" height="1.5" rx="0.5" fill="currentColor"/>
+          <rect x="1" y="8.5" width="2.5" height="9" rx="0.4" fill="currentColor"/>
+          <rect x="4.5" y="11" width="3" height="6.5" rx="0.4" fill="currentColor"/>
+          <rect x="8.5" y="10" width="2.5" height="7.5" rx="0.4" fill="currentColor"/>
+          <circle cx="15" cy="9" r="5" stroke="currentColor" stroke-width="2"/>
+          <line x1="18.5" y1="12.5" x2="22" y2="16" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+        </svg>
+      </span>
       <span class="logo-text">Diskovarr</span>
     </a>
 
     <div class="nav-tabs">
-      <a href="/" class="nav-tab <%= currentPath === '/' ? 'active' : '' %>">Home</a>
+      <a href="/" class="nav-tab <%= currentPath === '/' ? 'active' : '' %>">Diskovarr</a>
       <% if (typeof discoverEnabled !== 'undefined' && discoverEnabled) { %>
         <a href="/explore" class="nav-tab <%= currentPath === '/explore' ? 'active' : '' %>">Diskovarr Requests</a>
       <% } %>
-      <a href="/discover" class="nav-tab <%= currentPath === '/discover' ? 'active' : '' %>">🔍 Diskovarr View</a>
+      <a href="/discover" class="nav-tab <%= currentPath === '/discover' ? 'active' : '' %>"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="13" height="13" fill="none" aria-hidden="true" style="vertical-align:-1px;margin-right:4px"><line x1="2" y1="4" x2="14" y2="4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><line x1="4" y1="8" x2="12" y2="8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><line x1="6" y1="12" x2="10" y2="12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>Diskovarr Filter</a>
     </div>
 
     <!-- Desktop: full user row -->
@@ -62,18 +71,27 @@
   <div class="info-modal-card" role="dialog" aria-modal="true">
     <button class="info-modal-close" id="info-modal-close" aria-label="Close">✕</button>
     <div class="info-modal-logo">
-      <span class="logo-icon">◈</span>
+      <span class="logo-icon">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="1em" height="1em" fill="none" aria-hidden="true">
+          <rect x="0.5" y="17.5" width="13" height="1.5" rx="0.5" fill="currentColor"/>
+          <rect x="1" y="8.5" width="2.5" height="9" rx="0.4" fill="currentColor"/>
+          <rect x="4.5" y="11" width="3" height="6.5" rx="0.4" fill="currentColor"/>
+          <rect x="8.5" y="10" width="2.5" height="7.5" rx="0.4" fill="currentColor"/>
+          <circle cx="15" cy="9" r="5" stroke="currentColor" stroke-width="2"/>
+          <line x1="18.5" y1="12.5" x2="22" y2="16" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+        </svg>
+      </span>
       <span class="logo-text">Diskovarr</span>
       <span class="info-modal-version">v<%= appVersion %></span>
     </div>
     <p class="info-modal-tagline">Personalized Plex recommendations based on your watch history.</p>
     <div class="info-modal-sections">
       <div class="info-modal-section">
-        <div class="info-modal-section-title">🏠 Home</div>
+        <div class="info-modal-section-title">🏠 Diskovarr</div>
         <p>Your personalized recommendation feed. Diskovarr analyzes your Plex watch history — directors, actors, studios, and genres you enjoy — to surface content you haven't seen yet. Dismiss anything you're not interested in and it won't appear again.</p>
       </div>
       <div class="info-modal-section">
-        <div class="info-modal-section-title">🔍 Diskovarr View</div>
+        <div class="info-modal-section-title">🔍 Diskovarr Filter</div>
         <p>Browse the full library with filters for type (movies, TV, anime), genre, decade, and minimum rating. Sort by recommendation score, rating, year, or recently added.</p>
       </div>
       <div class="info-modal-section">
@@ -91,6 +109,25 @@
 </div>
 
 <script>
+  // ── Dynamic favicon — reflects current accent color ───────────────
+  (function () {
+    var accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#e5a00d';
+    var svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="-3 -3 30 30">'
+      + '<rect x="-3" y="-3" width="30" height="30" rx="5" fill="#0f0f0f"/>'
+      + '<rect x="0.5" y="17.5" width="13" height="1.5" rx="0.5" fill="' + accent + '"/>'
+      + '<rect x="1" y="8.5" width="2.5" height="9" rx="0.4" fill="' + accent + '"/>'
+      + '<rect x="4.5" y="11" width="3" height="6.5" rx="0.4" fill="' + accent + '"/>'
+      + '<rect x="8.5" y="10" width="2.5" height="7.5" rx="0.4" fill="' + accent + '"/>'
+      + '<circle cx="15" cy="9" r="5" fill="none" stroke="' + accent + '" stroke-width="2"/>'
+      + '<line x1="18.5" y1="12.5" x2="22" y2="16" stroke="' + accent + '" stroke-width="2.5" stroke-linecap="round"/>'
+      + '</svg>';
+    var blob = new Blob([svg], { type: 'image/svg+xml' });
+    var url = URL.createObjectURL(blob);
+    var link = document.querySelector('link[rel*="icon"]');
+    if (link) link.href = url;
+  })();
+
+  // ── Mobile FAB menu ────────────────────────────────────────────────
   (function () {
     var fab = document.getElementById('nav-fab');
     var menu = document.getElementById('nav-fab-menu');

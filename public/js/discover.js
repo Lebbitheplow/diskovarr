@@ -9,6 +9,7 @@
     sort: 'rating',
     genres: new Set(),
     includeWatched: false,
+    search: '',
     page: 1,
     totalPages: 1,
     totalResults: 0,
@@ -21,12 +22,35 @@
 
   async function init() {
     await loadGenres();
+    setupSearch();
     setupTypeChips();
     setupDecadeChips();
     setupRatingSlider();
     setupSort();
     setupIncludeWatched();
     fetchResults(true);
+  }
+
+  // ── Search ─────────────────────────────────────────────────────────
+
+  function setupSearch() {
+    const input = document.getElementById('filter-search');
+    const clearBtn = document.getElementById('search-clear');
+    if (!input) return;
+
+    input.addEventListener('input', () => {
+      state.search = input.value.trim();
+      clearBtn.classList.toggle('visible', state.search.length > 0);
+      fetchResults(true);
+    });
+
+    clearBtn.addEventListener('click', () => {
+      input.value = '';
+      state.search = '';
+      clearBtn.classList.remove('visible');
+      fetchResults(true);
+      input.focus();
+    });
   }
 
   // ── Genre loader ───────────────────────────────────────────────────
@@ -147,6 +171,7 @@
     state.sort = 'rating';
     state.genres.clear();
     state.includeWatched = false;
+    state.search = '';
 
     document.querySelectorAll('#filter-type .chip').forEach((b, i) => b.classList.toggle('active', i === 0));
     document.querySelectorAll('#filter-decade .chip').forEach((b, i) => b.classList.toggle('active', i === 0));
@@ -155,6 +180,10 @@
     document.getElementById('rating-value').textContent = 'Any';
     document.getElementById('filter-sort').value = 'rating';
     document.getElementById('filter-include-watched').checked = false;
+    const searchInput = document.getElementById('filter-search');
+    if (searchInput) { searchInput.value = ''; }
+    const searchClear = document.getElementById('search-clear');
+    if (searchClear) { searchClear.classList.remove('visible'); }
     updateClearGenresLink();
     fetchResults(true);
   };
@@ -186,6 +215,7 @@
       genres: [...state.genres].join(','),
       includeWatched: state.includeWatched,
       page: state.page,
+      q: state.search,
     });
 
     try {

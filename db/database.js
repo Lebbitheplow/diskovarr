@@ -500,6 +500,7 @@ function getConnectionSettings() {
     sonarrApiKey: getSetting('sonarr_api_key', ''),
     sonarrEnabled: getSetting('sonarr_enabled', '0') === '1',
     sonarrQualityProfileId: getSetting('sonarr_quality_profile_id', ''),
+    defaultRequestService: getSetting('default_request_service', 'overseerr'),
   };
 }
 
@@ -580,6 +581,12 @@ function getRequestedTmdbIds(userId) {
   return new Set(rows.map(r => `${r.tmdb_id}:${r.media_type}`));
 }
 
+function getRecentRequests(userId, limit = 20) {
+  return db.prepare(
+    'SELECT tmdb_id, media_type, title FROM discover_requests WHERE user_id = ? ORDER BY requested_at DESC LIMIT ?'
+  ).all(String(userId), limit);
+}
+
 // ── Discover pool cache (persists across restarts) ────────────────────────────
 
 function getDiscoverPool(userId) {
@@ -595,6 +602,14 @@ function setDiscoverPool(userId, pools, builtAt) {
 
 function getKnownUserIds() {
   return db.prepare('SELECT DISTINCT user_id FROM discover_pool_cache').all().map(r => r.user_id);
+}
+
+function isIndividualSeasonsEnabled() {
+  return getSetting('individual_seasons_enabled', '0') === '1';
+}
+
+function getLandingPage() {
+  return getSetting('landing_page', 'home'); // 'home' or 'explore'
 }
 
 module.exports = {
@@ -614,7 +629,9 @@ module.exports = {
   getSetting, setSetting, getConnectionSettings, isDiscoverEnabled, hasTmdbKey,
   getTmdbCache, setTmdbCache,
   getLibraryTmdbIds, getLibraryTitleYearSet,
-  addDiscoverRequest, getRequestedTmdbIds,
+  addDiscoverRequest, getRequestedTmdbIds, getRecentRequests,
   addExploreDismissal, getExploreDismissedIds,
   getDiscoverPool, setDiscoverPool, getKnownUserIds,
+  isIndividualSeasonsEnabled,
+  getLandingPage,
 };

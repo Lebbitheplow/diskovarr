@@ -108,8 +108,10 @@ router.get('/check-pin', checkPinLimiter, async (req, res) => {
     delete req.session.plexPinId;
     delete req.session.plexPinCode;
 
+    const landingPage = db.getLandingPage();
+    const landingUrl = (landingPage === 'explore') ? '/explore?welcome=1' : '/?welcome=1';
     log.info(`Session started for user ${userData.id} (${username})`);
-    return res.json({ status: 'authorized' });
+    return res.json({ status: 'authorized', landingUrl });
   } catch (err) {
     log.error('check-pin error:', err);
     return res.json({ status: 'error', message: err.message });

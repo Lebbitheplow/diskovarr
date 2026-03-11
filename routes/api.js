@@ -174,12 +174,14 @@ router.get('/discover', async (req, res) => {
       sort = 'recommended',
       page = '1',
       includeWatched = 'false',
+      q = '',
     } = req.query;
 
     const PAGE_SIZE = 40;
     const pageNum = Math.max(1, parseInt(page) || 1);
     const minRatingNum = parseFloat(minRating) || 0;
     const genreList = genres ? genres.split(',').map(g => g.trim().toLowerCase()).filter(Boolean) : [];
+    const searchQuery = q.trim().toLowerCase();
 
     const [movies, tv, watchedKeys, dismissedKeys] = await Promise.all([
       plexService.getLibraryItems(plexService.MOVIES_SECTION),
@@ -202,6 +204,7 @@ router.get('/discover', async (req, res) => {
     let filtered = pool.filter(item => {
       if (dismissedKeys.has(item.ratingKey)) return false;
       if (watchedKeys.has(item.ratingKey)) return false;
+      if (searchQuery && !item.title.toLowerCase().includes(searchQuery)) return false;
       if (item.audienceRating < minRatingNum) return false;
       if (genreList.length > 0) {
         const itemGenres = item.genres.map(g => g.toLowerCase());
@@ -272,6 +275,68 @@ router.get('/discover/genres', async (req, res) => {
   }
 });
 
+// GET /api/clients — list currently-connected Plex player clients
+router.get('/clients', async (req, res) => {
+  try {
+    const { token: userToken } = req.session.plexUser;
+    const plexUrl = plexService.getPlexUrl();
+    const r = await fetch(`${plexUrl}/clients?X-Plex-Token=${userToken}`, {
+      headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!r.ok) return res.json({ clients: [] });
+    const data = await r.json();
+    const clients = (data.MediaContainer?.Server || []).map(c => ({
+      name: c.name,
+      machineIdentifier: c.machineIdentifier,
+      product: c.product || '',
+    }));
+    res.json({ clients });
+  } catch {
+    res.json({ clients: [] });
+  }
+});
+
+// POST /api/cast — body: { ratingKey, clientId }
+router.post('/cast', async (req, res) => {
+  try {
+    const { ratingKey, clientId } = req.body;
+    if (!ratingKey || !clientId) return res.status(400).json({ error: 'ratingKey and clientId required' });
+    if (!/^\d+$/.test(String(ratingKey))) return res.status(400).json({ error: 'Invalid ratingKey' });
+
+    const { token: userToken } = req.session.plexUser;
+    const plexUrl = plexService.getPlexUrl();
+    const serverId = plexService.getPlexServerId ? plexService.getPlexServerId() : process.env.PLEX_SERVER_ID;
+    const urlObj = new URL(plexUrl);
+    const address = urlObj.hostname;
+    const port = urlObj.port || '32400';
+
+    const params = new URLSearchParams({
+      key: `/library/metadata/${ratingKey}`,
+      ratingKey: String(ratingKey),
+      machineIdentifier: serverId,
+      address,
+      port,
+      offset: '0',
+    });
+
+    const r = await fetch(`${plexUrl}/player/playback/playMedia?${params}`, {
+      headers: {
+        Accept: 'application/json',
+        'X-Plex-Token': userToken,
+        'X-Plex-Target-Client-Identifier': clientId,
+        'X-Plex-Client-Identifier': 'DISKOVARR',
+      },
+      signal: AbortSignal.timeout(10000),
+    });
+
+    if (!r.ok) return res.status(400).json({ error: `Plex returned ${r.status}` });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/dismiss — body: { ratingKey }
 router.post('/dismiss', (req, res) => {
   const { ratingKey } = req.body;
@@ -301,16 +366,168 @@ router.delete('/dismiss', (req, res) => {
   res.json({ success: true });
 });
 
+// ── TMDB Search ───────────────────────────────────────────────────────────────
+
+// GET /api/search/suggest?q=term — fast autocomplete (no details fetch)
+router.get('/search/suggest', async (req, res) => {
+  const q = (req.query.q || '').trim();
+  if (!q || q.length < 2) return res.json({ results: [] });
+  if (!db.hasTmdbKey()) return res.json({ results: [] });
+  try {
+    const json = await tmdbService.tmdbFetchPublic(
+      `/search/multi?query=${encodeURIComponent(q)}&page=1&include_adult=false`
+    );
+    const results = (json?.results || [])
+      .filter(r => r.media_type === 'movie' || r.media_type === 'tv')
+      .slice(0, 6)
+      .map(r => ({
+        tmdbId: r.id,
+        mediaType: r.media_type,
+        title: r.title || r.name,
+        year: parseInt((r.release_date || r.first_air_date || '').slice(0, 4)) || null,
+        posterUrl: r.poster_path ? `https://image.tmdb.org/t/p/w92${r.poster_path}` : null,
+      }));
+    res.json({ results });
+  } catch {
+    res.json({ results: [] });
+  }
+});
+
+// GET /api/search/details?tmdbId=X&type=movie|tv — full item details for modal
+router.get('/search/details', async (req, res) => {
+  const { tmdbId, type } = req.query;
+  if (!tmdbId || !['movie', 'tv'].includes(type)) return res.status(400).json({ error: 'Invalid params' });
+  if (!db.hasTmdbKey()) return res.status(503).json({ error: 'no_tmdb_key' });
+  try {
+    const { id: userId } = req.session.plexUser;
+    const item = await tmdbService.getItemDetails(Number(tmdbId), type);
+    if (!item) return res.status(404).json({ error: 'Not found' });
+
+    // Cross-reference with library
+    const [movies, tv] = await Promise.all([
+      plexService.getLibraryItems(plexService.MOVIES_SECTION),
+      plexService.getLibraryItems(plexService.TV_SECTION),
+    ]);
+    const libraryByTmdb = new Map();
+    for (const i of [...movies, ...tv]) {
+      if (i.tmdbId) libraryByTmdb.set(String(i.tmdbId), i);
+    }
+
+    const libItem = libraryByTmdb.get(String(tmdbId));
+    const watchlistKeys = new Set(db.getWatchlistFromDb(userId));
+    const requestedIds = db.getRequestedTmdbIds(userId);
+    const isRequested = requestedIds.has(`${tmdbId}:${type}`);
+
+    const result = {
+      ...item,
+      inLibrary: !!libItem,
+      ratingKey: libItem?.ratingKey || null,
+      deepLink: libItem ? plexService.getDeepLink(libItem.ratingKey) : null,
+      isInWatchlist: libItem ? watchlistKeys.has(libItem.ratingKey) : false,
+      isRequested,
+    };
+    res.json(result);
+  } catch (err) {
+    console.error('search/details error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/search/seasons?tmdbId=X — returns season numbers for a TV show
+router.get('/search/seasons', async (req, res) => {
+  const { tmdbId } = req.query;
+  if (!tmdbId) return res.status(400).json({ error: 'tmdbId required' });
+  if (!db.hasTmdbKey()) return res.json({ seasons: [] });
+  try {
+    // Check TMDB cache for already-fetched details that include seasons
+    const cached = db.getTmdbCache(tmdbId, 'tv');
+    if (cached && cached.seasonNumbers) {
+      return res.json({ seasons: cached.seasonNumbers });
+    }
+    // Fetch base TV details — always includes seasons array
+    const json = await tmdbService.tmdbFetchPublic(`/tv/${tmdbId}`);
+    const seasons = (json?.seasons || [])
+      .filter(s => s.season_number > 0)
+      .map(s => s.season_number)
+      .sort((a, b) => a - b);
+    res.json({ seasons });
+  } catch (err) {
+    console.error('seasons error:', err);
+    res.json({ seasons: [] });
+  }
+});
+
+// GET /api/search?q=term&page=N — full search results with library cross-ref
+router.get('/search', async (req, res) => {
+  const q = (req.query.q || '').trim();
+  const page = Math.max(1, parseInt(req.query.page) || 1);
+  if (!q) return res.json({ results: [], total: 0, pages: 0, page: 1, query: '' });
+  if (!db.hasTmdbKey()) return res.status(503).json({ error: 'no_tmdb_key' });
+  try {
+    const { id: userId } = req.session.plexUser;
+
+    const [json, movies, tv] = await Promise.all([
+      tmdbService.tmdbFetchPublic(
+        `/search/multi?query=${encodeURIComponent(q)}&page=${page}&include_adult=false`
+      ),
+      plexService.getLibraryItems(plexService.MOVIES_SECTION),
+      plexService.getLibraryItems(plexService.TV_SECTION),
+    ]);
+
+    const libraryByTmdb = new Map();
+    for (const item of [...movies, ...tv]) {
+      if (item.tmdbId) libraryByTmdb.set(String(item.tmdbId), item);
+    }
+
+    const watchlistKeys = new Set(db.getWatchlistFromDb(userId));
+    const requestedIds = db.getRequestedTmdbIds(userId);
+
+    const results = (json?.results || [])
+      .filter(r => r.media_type === 'movie' || r.media_type === 'tv')
+      .map(r => {
+        const tmdbId = String(r.id);
+        const libItem = libraryByTmdb.get(tmdbId);
+        return {
+          tmdbId: r.id,
+          mediaType: r.media_type,
+          title: r.title || r.name,
+          year: parseInt((r.release_date || r.first_air_date || '').slice(0, 4)) || null,
+          overview: r.overview || '',
+          posterUrl: r.poster_path ? `https://image.tmdb.org/t/p/w342${r.poster_path}` : null,
+          voteAverage: r.vote_average || 0,
+          inLibrary: !!libItem,
+          ratingKey: libItem?.ratingKey || null,
+          deepLink: libItem ? plexService.getDeepLink(libItem.ratingKey) : null,
+          isInWatchlist: libItem ? watchlistKeys.has(libItem.ratingKey) : false,
+          isRequested: !libItem && requestedIds.has(`${r.id}:${r.media_type}`),
+        };
+      });
+
+    res.json({
+      results,
+      total: json?.total_results || results.length,
+      pages: Math.min(json?.total_pages || 1, 10), // cap at 10 pages
+      page,
+      query: q,
+    });
+  } catch (err) {
+    console.error('search error:', err);
+    res.status(500).json({ error: 'Search failed: ' + err.message });
+  }
+});
+
 // ── Explore (external content) recommendations ────────────────────────────────
 
 // GET /api/explore/services — which request services are enabled
 router.get('/explore/services', (req, res) => {
   const c = db.getConnectionSettings();
-  res.json({
-    overseerr: c.overseerrEnabled && !!c.overseerrUrl,
-    radarr: c.radarrEnabled && !!c.radarrUrl,
-    sonarr: c.sonarrEnabled && !!c.sonarrUrl,
-  });
+  const hasOverseerr = c.overseerrEnabled && !!c.overseerrUrl;
+  const hasRadarr    = c.radarrEnabled    && !!c.radarrUrl;
+  const hasSonarr    = c.sonarrEnabled    && !!c.sonarrUrl;
+  // Default only applies when both sides are configured; otherwise the available service wins
+  const hasBothSides = hasOverseerr && (hasRadarr || hasSonarr);
+  const defaultService = hasBothSides ? (c.defaultRequestService || 'overseerr') : null;
+  res.json({ overseerr: hasOverseerr, radarr: hasRadarr, sonarr: hasSonarr, defaultService });
 });
 
 // GET /api/explore/recommendations
@@ -351,7 +568,7 @@ router.post('/request', async (req, res) => {
     return res.status(403).json({ error: 'Discover feature not enabled' });
   }
 
-  const { tmdbId, mediaType, title, year, service } = req.body;
+  const { tmdbId, mediaType, title, year, service, seasons } = req.body;
   if (!tmdbId || !mediaType || !service) {
     return res.status(400).json({ error: 'tmdbId, mediaType, and service are required' });
   }
@@ -380,7 +597,7 @@ router.post('/request', async (req, res) => {
         body: JSON.stringify({
           mediaType,
           mediaId: Number(tmdbId),
-          ...(mediaType === 'tv' ? { seasons: 'all' } : {}),
+          ...(mediaType === 'tv' ? { seasons: (Array.isArray(seasons) && seasons.length > 0) ? seasons.map(Number) : 'all' } : {}),
         }),
         signal: AbortSignal.timeout(10000),
       });
@@ -463,21 +680,44 @@ router.post('/request', async (req, res) => {
       if (!tvdbId) {
         return res.status(400).json({ error: 'Could not resolve TVDB ID for this show. TMDB may not have a TVDB mapping yet.' });
       }
+      let seasonsPayload = undefined;
+      if (Array.isArray(seasons) && seasons.length > 0) {
+        // Individual seasons: look up series from Sonarr to get full season list
+        try {
+          const lookupRes = await fetch(`${c.sonarrUrl.replace(/\/$/, '')}/api/v3/series/lookup?term=tvdb:${tvdbId}`, {
+            headers: { 'X-Api-Key': c.sonarrApiKey },
+            signal: AbortSignal.timeout(8000),
+          });
+          const lookupData = lookupRes.ok ? await lookupRes.json() : [];
+          const seriesInfo = lookupData[0];
+          if (seriesInfo?.seasons) {
+            const selectedNums = new Set(seasons.map(Number));
+            seasonsPayload = seriesInfo.seasons.map(s => ({
+              ...s,
+              monitored: selectedNums.has(s.seasonNumber),
+            }));
+          }
+        } catch { /* fall back to default behaviour */ }
+      }
+
+      const sonarrBody = {
+        tvdbId,
+        title: title || '',
+        qualityProfileId,
+        languageProfileId,
+        rootFolderPath,
+        monitored: true,
+        addOptions: { searchForMissingEpisodes: true },
+      };
+      if (seasonsPayload) sonarrBody.seasons = seasonsPayload;
+
       const r = await fetch(`${c.sonarrUrl.replace(/\/$/, '')}/api/v3/series`, {
         method: 'POST',
         headers: {
           'X-Api-Key': c.sonarrApiKey,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          tvdbId,
-          title: title || '',
-          qualityProfileId,
-          languageProfileId,
-          rootFolderPath,
-          monitored: true,
-          addOptions: { searchForMissingEpisodes: true },
-        }),
+        body: JSON.stringify(sonarrBody),
         signal: AbortSignal.timeout(10000),
       });
       if (!r.ok) {
