@@ -5,10 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Search — Diskovarr</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <%- include('partials/pwa-head') %>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/style.css?v=24">
+  <link rel="stylesheet" href="/css/style.css?v=26">
   <link rel="stylesheet" href="/theme.css?c=<%= themeParam %>">
 </head>
 <body>
@@ -90,11 +91,14 @@
   <!-- Request confirm dialog -->
   <div class="request-dialog-backdrop" id="request-dialog" aria-hidden="true">
     <div class="request-dialog-card" role="dialog" aria-modal="true">
-      <div class="request-dialog-title" id="request-dialog-title">Request this title?</div>
-      <div class="request-dialog-sub" id="request-dialog-sub"></div>
-      <div class="request-dialog-actions" id="request-dialog-actions">
-        <button class="btn-dialog-cancel" id="request-dialog-cancel">Cancel</button>
+      <div class="request-dialog-body">
+        <div class="request-dialog-title" id="request-dialog-title">Request this title?</div>
+        <div class="request-dialog-sub" id="request-dialog-sub"></div>
+        <div class="request-dialog-actions" id="request-dialog-actions">
+          <button class="btn-dialog-cancel" id="request-dialog-cancel">Cancel</button>
+        </div>
       </div>
+      <img class="request-dialog-poster" id="request-dialog-poster" src="" alt="" aria-hidden="true">
     </div>
   </div>
 
@@ -109,9 +113,11 @@
       },
       hasAnyService: <%= hasAnyService ? 'true' : 'false' %>,
       individualSeasonsEnabled: <%= individualSeasonsEnabled ? 'true' : 'false' %>,
+      directRequestAccess: "<%= directRequestAccess %>",
+      isOwner: <%= isOwner ? 'true' : 'false' %>,
     };
   </script>
   <script src="/js/watchlist.js?v=8"></script>
-  <script src="/js/search-app.js?v=2"></script>
+  <script src="/js/search-app.js?v=9"></script>
 </body>
 </html>

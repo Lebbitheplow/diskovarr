@@ -265,8 +265,8 @@ async function buildDiscoverPools(userId, userToken) {
   const libraryTmdbIds = db.getLibraryTmdbIds();
   // Title+year fallback for when TMDB IDs aren't populated yet
   const libraryTitleYears = db.getLibraryTitleYearSet();
-  // Previously requested items for this user
-  const requestedIds = db.getRequestedTmdbIds(userId);
+  // Previously requested items (global — any user requesting marks it for all)
+  const requestedIds = db.getAllRequestedTmdbIds();
 
   function normTitle(t) {
     return (t || '').toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim();
@@ -523,6 +523,66 @@ function scheduleRebuild(userId, userToken) {
     .finally(() => rebuildInProgress.delete(userIdStr));
 }
 
+/**
+ * Build trending sections (movies + TV) from TMDB's weekly trending endpoint.
+ * Results are filtered to items not in the library, not dismissed, and not
+ * already requested.  Fetches 3 pages (up to 60 candidates each); details come
+ * from the TMDB DB cache populated during pool building, so this is fast after
+ * the first pool build.
+ */
+async function buildTrendingSections(requestedIds, dismissedIds, libraryTmdbIds, libraryTitleYears, mature) {
+  function normTitle(t) {
+    return (t || '').toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim();
+  }
+  function isInLibrary(tmdbId, mediaType, title, year) {
+    if (libraryTmdbIds.has(String(tmdbId))) return true;
+    if (requestedIds.has(`${tmdbId}:${mediaType}`)) return true;
+    const norm = normTitle(title);
+    if (libraryTitleYears.has(norm + '|' + (year || ''))) return true;
+    if (year) {
+      if (libraryTitleYears.has(norm + '|' + (year - 1))) return true;
+      if (libraryTitleYears.has(norm + '|' + (year + 1))) return true;
+    }
+    return false;
+  }
+
+  // Fetch 3 pages per type (60 candidates). tmdbFetch caches page results in-process.
+  const [moviePages, tvPages] = await Promise.all([
+    Promise.all([1, 2, 3].map(p => tmdbService.getTrending('movie', p))),
+    Promise.all([1, 2, 3].map(p => tmdbService.getTrending('tv', p))),
+  ]);
+
+  async function enrichAndFilter(candidates, mediaType) {
+    // Pre-filter using lightweight data before fetching full details
+    const preFiltered = candidates
+      .filter(c => !isInLibrary(c.tmdbId, mediaType, c.title, c.year))
+      .filter(c => !dismissedIds.has(`${c.tmdbId}:${mediaType}`));
+
+    // Fetch details in parallel — mostly hits DB cache after first pool build
+    const details = await Promise.all(
+      preFiltered.map(c => tmdbService.getItemDetails(c.tmdbId, mediaType))
+    );
+
+    return details
+      .filter(item => item && !isInLibrary(item.tmdbId, item.mediaType, item.title, item.year))
+      .filter(item => mature || !item.adult)
+      .filter(item => !item.isAnime) // anime has its own section
+      .slice(0, 50)
+      .map(item => ({
+        ...item,
+        isRequested: requestedIds.has(`${item.tmdbId}:${item.mediaType}`),
+        reasons: [],
+      }));
+  }
+
+  const [trendingMovies, trendingTV] = await Promise.all([
+    enrichAndFilter(moviePages.flat(), 'movie'),
+    enrichAndFilter(tvPages.flat(), 'tv'),
+  ]);
+
+  return { trendingMovies, trendingTV };
+}
+
 async function getDiscoverRecommendations(userId, userToken, { mature = false } = {}) {
   const userIdStr = String(userId);
 
@@ -554,7 +614,7 @@ async function getDiscoverRecommendations(userId, userToken, { mature = false } 
   }
 
   // Sample fresh results from pools on every call
-  const requestedIds = db.getRequestedTmdbIds(userId);
+  const requestedIds = db.getAllRequestedTmdbIds();
   const dismissedIds = db.getExploreDismissedIds(userId);
 
   function filterAndMark(items) {
@@ -564,11 +624,22 @@ async function getDiscoverRecommendations(userId, userToken, { mature = false } 
       .map(item => ({ ...item, isRequested: requestedIds.has(`${item.tmdbId}:${item.mediaType}`) }));
   }
 
+  // Trending sections run in parallel with the pool sampling — they use
+  // the shared TMDB DB cache so they're fast after the first pool build.
+  const libraryTmdbIds = db.getLibraryTmdbIds();
+  const libraryTitleYears = db.getLibraryTitleYearSet();
+
+  const [trendingResult] = await Promise.all([
+    buildTrendingSections(requestedIds, dismissedIds, libraryTmdbIds, libraryTitleYears, mature),
+  ]);
+
   return {
     topPicks: filterAndMark(partialShuffle(pools.topPicks, Math.min(72, pools.topPicks.length))),
     movies: filterAndMark(tieredSample(pools.movies, 60)),
     tvShows: filterAndMark(tieredSample(pools.tvShows, 60)),
     anime: filterAndMark(tieredSample(pools.anime, 60)),
+    trendingMovies: trendingResult.trendingMovies,
+    trendingTV: trendingResult.trendingTV,
   };
 }
 

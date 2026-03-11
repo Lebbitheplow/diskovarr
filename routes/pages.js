@@ -40,6 +40,64 @@ router.get('/theme.css', (req, res) => {
   res.send(css);
 });
 
+// PWA manifest (dynamic — uses current theme color)
+router.get('/manifest.json', (req, res) => {
+  const color = db.getThemeColor();
+  res.setHeader('Content-Type', 'application/manifest+json');
+  res.setHeader('Cache-Control', 'no-cache, no-store');
+  res.json({
+    name: 'Diskovarr',
+    short_name: 'Diskovarr',
+    description: 'Personalized Plex recommendations based on your watch history.',
+    start_url: '/',
+    display: 'standalone',
+    background_color: '#0f0f0f',
+    theme_color: color,
+    icons: [
+      { src: '/icons/icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' },
+      { src: '/icons/icon-maskable.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'maskable' },
+    ],
+  });
+});
+
+// PWA app icon (dynamic — uses current theme color)
+router.get('/icons/icon.svg', (req, res) => {
+  const c = db.getThemeColor();
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <rect width="100" height="100" rx="18" fill="#0f0f0f"/>
+  <g transform="translate(20,20) scale(2.5)" fill="none">
+    <rect x="0.5" y="17.5" width="13" height="1.5" rx="0.5" fill="${c}"/>
+    <rect x="1" y="8.5" width="2.5" height="9" rx="0.4" fill="${c}"/>
+    <rect x="4.5" y="11" width="3" height="6.5" rx="0.4" fill="${c}"/>
+    <rect x="8.5" y="10" width="2.5" height="7.5" rx="0.4" fill="${c}"/>
+    <circle cx="15" cy="9" r="5" stroke="${c}" stroke-width="2"/>
+    <line x1="18.5" y1="12.5" x2="22" y2="16" stroke="${c}" stroke-width="2.5" stroke-linecap="round"/>
+  </g>
+</svg>`;
+  res.setHeader('Content-Type', 'image/svg+xml');
+  res.setHeader('Cache-Control', 'no-cache, no-store');
+  res.send(svg);
+});
+
+// Maskable variant — full bleed background for OS icon cropping
+router.get('/icons/icon-maskable.svg', (req, res) => {
+  const c = db.getThemeColor();
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <rect width="100" height="100" fill="#0f0f0f"/>
+  <g transform="translate(22,22) scale(2.33)" fill="none">
+    <rect x="0.5" y="17.5" width="13" height="1.5" rx="0.5" fill="${c}"/>
+    <rect x="1" y="8.5" width="2.5" height="9" rx="0.4" fill="${c}"/>
+    <rect x="4.5" y="11" width="3" height="6.5" rx="0.4" fill="${c}"/>
+    <rect x="8.5" y="10" width="2.5" height="7.5" rx="0.4" fill="${c}"/>
+    <circle cx="15" cy="9" r="5" stroke="${c}" stroke-width="2"/>
+    <line x1="18.5" y1="12.5" x2="22" y2="16" stroke="${c}" stroke-width="2.5" stroke-linecap="round"/>
+  </g>
+</svg>`;
+  res.setHeader('Content-Type', 'image/svg+xml');
+  res.setHeader('Cache-Control', 'no-cache, no-store');
+  res.send(svg);
+});
+
 // Login page
 router.get('/login', (req, res) => {
   if (req.session && req.session.plexUser) {
@@ -78,10 +136,13 @@ router.get('/explore', requireAuth, (req, res) => {
     sonarr: connections.sonarrEnabled && !!connections.sonarrUrl,
   };
   const hasAnyService = services.overseerr || services.radarr || services.sonarr;
+  const ownerUserId = db.getOwnerUserId();
   res.render('explore', {
     ...pageLocals(), userId, username, thumb, currentPath: '/explore',
     services, hasAnyService,
     individualSeasonsEnabled: db.isIndividualSeasonsEnabled(),
+    directRequestAccess: db.getDirectRequestAccess(),
+    isOwner: userId === ownerUserId,
   });
 });
 
@@ -100,6 +161,8 @@ router.get('/search', requireAuth, (req, res) => {
     ...pageLocals(), userId, username, thumb, currentPath: '/search',
     query, services, hasAnyService,
     individualSeasonsEnabled: db.isIndividualSeasonsEnabled(),
+    directRequestAccess: db.getDirectRequestAccess(),
+    isOwner: userId === db.getOwnerUserId(),
   });
 });
 

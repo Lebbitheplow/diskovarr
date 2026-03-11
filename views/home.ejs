@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Diskovarr</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <%- include('partials/pwa-head') %>
   <meta name="description" content="Personalized Plex recommendations based on your watch history.">
   <meta property="og:site_name" content="Diskovarr">
   <meta property="og:type" content="website">
@@ -14,7 +15,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/style.css?v=24">
+  <link rel="stylesheet" href="/css/style.css?v=27">
   <link rel="stylesheet" href="/theme.css?c=<%= themeParam %>">
 </head>
 <body>
@@ -24,12 +25,13 @@
     <div class="hero">
       <h1 class="hero-title">Welcome back, <span class="accent"><%= username %></span></h1>
       <p class="hero-sub">Personalized picks based on your watch history</p>
-      <div class="hero-controls">
+      <div class="hero-controls hero-controls-split">
         <label class="toggle-label">
           <input type="checkbox" id="mature-toggle" class="toggle-checkbox">
           <span class="toggle-switch"></span>
           <span class="toggle-text">Show mature content <span style="opacity:0.55;font-size:0.82em;font-weight:400">(R &amp; TV-MA)</span></span>
         </label>
+        <button type="button" id="btn-shuffle-all" class="btn-shuffle-all" title="Refresh picks">↺</button>
       </div>
     </div>
 
@@ -38,9 +40,6 @@
       <div class="section-header">
         <h2 class="section-title">Top Picks for You</h2>
         <span class="section-badge">Personalized</span>
-        <div class="carousel-controls">
-          <button class="carousel-btn carousel-btn-shuffle" aria-label="Shuffle" title="Show different picks">↺</button>
-        </div>
       </div>
       <div class="carousel-wrap">
         <button class="carousel-arrow carousel-arrow-prev" aria-label="Previous" disabled>❮</button>
@@ -63,9 +62,6 @@
     <section class="section" id="section-movies">
       <div class="section-header">
         <h2 class="section-title">Movies</h2>
-        <div class="carousel-controls">
-          <button class="carousel-btn carousel-btn-shuffle" aria-label="Shuffle" title="Show different picks">↺</button>
-        </div>
       </div>
       <div class="carousel-wrap">
         <button class="carousel-arrow carousel-arrow-prev" aria-label="Previous" disabled>❮</button>
@@ -88,9 +84,6 @@
     <section class="section" id="section-tv">
       <div class="section-header">
         <h2 class="section-title">TV Shows</h2>
-        <div class="carousel-controls">
-          <button class="carousel-btn carousel-btn-shuffle" aria-label="Shuffle" title="Show different picks">↺</button>
-        </div>
       </div>
       <div class="carousel-wrap">
         <button class="carousel-arrow carousel-arrow-prev" aria-label="Previous" disabled>❮</button>
@@ -113,9 +106,6 @@
     <section class="section" id="section-anime">
       <div class="section-header">
         <h2 class="section-title">Anime</h2>
-        <div class="carousel-controls">
-          <button class="carousel-btn carousel-btn-shuffle" aria-label="Shuffle" title="Show different picks">↺</button>
-        </div>
       </div>
       <div class="carousel-wrap">
         <button class="carousel-arrow carousel-arrow-prev" aria-label="Previous" disabled>❮</button>
@@ -157,6 +147,6 @@
     }
   </script>
   <script src="/js/watchlist.js?v=8"></script>
-  <script src="/js/app.js?v=18"></script>
+  <script src="/js/app.js?v=26"></script>
 </body>
 </html>

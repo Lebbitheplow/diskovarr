@@ -192,6 +192,12 @@
 
     titleEl.textContent = 'Request "' + item.title + '"?';
 
+    var posterEl = document.getElementById('request-dialog-poster');
+    if (posterEl) {
+      if (item.posterUrl) { posterEl.src = item.posterUrl; posterEl.classList.add('visible'); }
+      else { posterEl.src = ''; posterEl.classList.remove('visible'); }
+    }
+
     var isMovie = item.mediaType === 'movie';
     var s = cfg.services;
     var hasOverseerr = s.overseerr;
@@ -224,7 +230,8 @@
       actionsEl.parentNode.insertBefore(pickerEl, actionsEl);
     }
 
-    if (hasBothSides) {
+    var canSeeAdvanced = hasBothSides && (cfg.directRequestAccess !== 'admin' || cfg.isOwner);
+    if (canSeeAdvanced) {
       var altSvc  = (defaultSvc === 'overseerr') ? directSvc : 'overseerr';
       var altName = (defaultSvc === 'overseerr') ? directName : 'Overseerr';
 
@@ -679,12 +686,7 @@
     var section = document.getElementById(sectionId);
     if (!section) return;
 
-    section.querySelector('.carousel-btn-shuffle')?.addEventListener('click', function (e) {
-      var btn = e.currentTarget;
-      btn.classList.add('spinning');
-      setTimeout(function () { btn.classList.remove('spinning'); }, 600);
-      fetchAndRender(true);
-    });
+    // per-section shuffle removed — single global button handles all sections
   }
 
   // ── Data fetching ─────────────────────────────────────────────────────────
@@ -780,6 +782,43 @@
         renderCarousel(s.sectionId, s.gridId, items);
         attachCarouselListeners(s.sectionId, s.gridId);
       });
+
+      // Trending sections — show only if at least 8 items outside the library
+      [
+        { sectionId: 'section-trending-movies', gridId: 'grid-trending-movies', key: 'trendingMovies' },
+        { sectionId: 'section-trending-tv',     gridId: 'grid-trending-tv',     key: 'trendingTV' },
+      ].forEach(function (s) {
+        var items = data[s.key] || [];
+        var section = document.getElementById(s.sectionId);
+        if (!section) return;
+        if (items.length < 8) {
+          section.style.display = 'none';
+          return;
+        }
+        section.style.display = '';
+        renderCarousel(s.sectionId, s.gridId, items);
+        // Wire carousel arrows for the newly visible section
+        var wrap = section.querySelector('.carousel-wrap');
+        if (wrap) {
+          var grid = wrap.querySelector('.card-grid');
+          var btnPrev = wrap.querySelector('.carousel-arrow-prev');
+          var btnNext = wrap.querySelector('.carousel-arrow-next');
+          if (grid && btnPrev && btnNext) {
+            function makeUpdate(g, p, n) {
+              return function () {
+                p.disabled = g.scrollLeft <= 2;
+                n.disabled = g.scrollLeft + g.clientWidth >= g.scrollWidth - 2;
+              };
+            }
+            var update = makeUpdate(grid, btnPrev, btnNext);
+            btnPrev.onclick = function () { grid.scrollBy({ left: -grid.clientWidth, behavior: 'smooth' }); };
+            btnNext.onclick = function () { grid.scrollBy({ left: grid.clientWidth, behavior: 'smooth' }); };
+            grid.addEventListener('scroll', update, { passive: true });
+            grid._updateArrows = update;
+            update();
+          }
+        }
+      });
     } catch (err) {
       hideBuildingBar();
       showToast('Failed to load recommendations: ' + err.message, 'error');
@@ -805,6 +844,14 @@
       toggle.addEventListener('change', function () {
         localStorage.setItem('matureEnabled', toggle.checked ? 'true' : 'false');
         applyMatureFilter();
+      });
+    }
+    var shuffleBtn = document.getElementById('btn-shuffle-all');
+    if (shuffleBtn) {
+      shuffleBtn.addEventListener('click', function () {
+        shuffleBtn.classList.add('spinning');
+        setTimeout(function () { shuffleBtn.classList.remove('spinning'); }, 600);
+        fetchAndRender(true);
       });
     }
     initHeroSearch();
