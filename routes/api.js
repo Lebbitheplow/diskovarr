@@ -289,22 +289,33 @@ router.get('/discover/genres', async (req, res) => {
   }
 });
 
-// GET /api/clients — list currently-connected Plex player clients
+// GET /api/clients — list Plex player clients (local + remote via plex.tv resources)
 router.get('/clients', async (req, res) => {
   try {
     const { token: userToken } = req.session.plexUser;
-    const plexUrl = plexService.getPlexUrl();
-    const r = await fetch(`${plexUrl}/clients?X-Plex-Token=${userToken}`, {
-      headers: { Accept: 'application/json' },
-      signal: AbortSignal.timeout(8000),
-    });
+
+    // Query plex.tv resources — returns all clients registered to the account
+    // including remote devices, not just LAN-local ones
+    const r = await fetch(
+      `https://plex.tv/api/v2/resources?includeHttps=1&includeRelay=1&X-Plex-Token=${userToken}`,
+      {
+        headers: { Accept: 'application/json', 'X-Plex-Client-Identifier': 'DISKOVARR' },
+        signal: AbortSignal.timeout(10000),
+      }
+    );
     if (!r.ok) return res.json({ clients: [] });
-    const data = await r.json();
-    const clients = (data.MediaContainer?.Server || []).map(c => ({
-      name: c.name,
-      machineIdentifier: c.machineIdentifier,
-      product: c.product || '',
-    }));
+    const resources = await r.json();
+
+    // Filter to player-capable clients only (exclude servers, relays, etc.)
+    const clients = resources
+      .filter(d => d.provides && d.provides.split(',').includes('player'))
+      .map(d => ({
+        name: d.name,
+        machineIdentifier: d.clientIdentifier,
+        product: d.product || '',
+        platform: d.platform || '',
+      }));
+
     res.json({ clients });
   } catch {
     res.json({ clients: [] });
