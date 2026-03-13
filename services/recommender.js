@@ -4,7 +4,7 @@ const tmdbService = require('./tmdb');
 const db = require('../db/database');
 
 // Signal type priority for reason display — genre always shows after specific signals
-const SIGNAL_TYPE_RANK = { collection: 0, director: 1, similar: 2, actor: 3, keyword: 4, studio: 5, rating: 6, new: 7, genre: 99 };
+const SIGNAL_TYPE_RANK = { collection: 0, director: 1, similar: 2, actor: 3, keyword: 4, studio: 5, rating: 6, new: 7, recent_release: 8, genre: 99 };
 
 function getMoviesSection() { return db.getSetting('plex_movies_section', null) || process.env.PLEX_MOVIES_SECTION_ID || '1'; }
 function getTvSection()     { return db.getSetting('plex_tv_section', null)     || process.env.PLEX_TV_SECTION_ID     || '2'; }
@@ -602,6 +602,18 @@ function scoreItem(item, profile, dismissedKeys, watchedKeys, tmdbEnrich) {
   const sevenDaysAgo = Math.floor(Date.now() / 1000) - 7 * 86400;
   const newBonus = (item.addedAt && item.addedAt > sevenDaysAgo) ? 3 : 0;
   if (newBonus) signals.push({ pts: newBonus, reason: 'Recently Added', type: 'new' });
+
+  // ── Release recency bonus ────────────────────────────────────────────────
+  if (item.year) {
+    const age = new Date().getFullYear() - item.year;
+    if (age <= 1) {
+      signals.push({ pts: 5, reason: 'Recently released', type: 'recent_release' });
+    } else if (age <= 2) {
+      signals.push({ pts: 3, reason: null, type: 'recent_release' });
+    } else if (age <= 3) {
+      signals.push({ pts: 1, reason: null, type: 'recent_release' });
+    }
+  }
 
   // ── Dismissal penalty (max -20pts) ───────────────────────────────────────
   // Down-rank content whose genres/directors/actors match patterns from dismissed items.
