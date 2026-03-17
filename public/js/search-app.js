@@ -467,33 +467,34 @@
 
       // Cast to TV
       if (!isBasic && item.ratingKey) {
+        var CAST_ICON = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="15" height="15" fill="currentColor" style="vertical-align:-2px;margin-right:6px"><path d="M1 18v3h3c0-1.66-1.34-3-3-3zm0-4v2c2.76 0 5 2.24 5 5h2c0-3.87-3.13-7-7-7zm0-4v2c4.97 0 9 4.03 9 9h2C12 14.14 7.03 9 1 10zm20-7H3C1.9 3 1 3.9 1 5v3h2V5h18v14h-7v2h7c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"/></svg>Cast to TV';
         var castWrap = document.createElement('div');
         castWrap.className = 'modal-cast-wrap';
         var castBtn = document.createElement('button');
         castBtn.className = 'modal-btn modal-btn-cast';
-        castBtn.textContent = '▶ Cast to TV';
+        castBtn.innerHTML = CAST_ICON;
         var clientPicker = document.createElement('div');
         clientPicker.className = 'modal-cast-picker';
+        clientPicker.style.display = 'none';
         castWrap.appendChild(castBtn);
         castWrap.appendChild(clientPicker);
         actEl.appendChild(castWrap);
 
         castBtn.addEventListener('click', async function () {
-          clientPicker.innerHTML = '';
+          if (clientPicker.style.display !== 'none') { clientPicker.style.display = 'none'; return; }
           castBtn.textContent = '…';
           castBtn.disabled = true;
           try {
             var cr = await fetch('/api/clients');
             var cd = await cr.json();
-            castBtn.textContent = '▶ Cast to TV';
-            castBtn.disabled = false;
+            clientPicker.innerHTML = '';
             if (!cd.clients || cd.clients.length === 0) {
               clientPicker.innerHTML = '<span class="cast-no-clients">No Plex clients found.<br>Open your Plex app on your TV first.</span>';
             } else {
               cd.clients.forEach(function (client) {
                 var btn = document.createElement('button');
                 btn.className = 'cast-client-btn';
-                btn.textContent = client.name;
+                btn.textContent = client.name + (client.product ? ' · ' + client.product : '');
                 btn.addEventListener('click', async function () {
                   btn.textContent = 'Casting…';
                   btn.disabled = true;
@@ -505,17 +506,146 @@
                     });
                     var pd = await pr.json();
                     if (!pr.ok || pd.error) { showToast(pd.error || 'Cast failed', 'error'); btn.textContent = client.name; btn.disabled = false; }
-                    else { showToast('Casting to ' + client.name); clientPicker.innerHTML = ''; }
+                    else { showToast('Playing on ' + client.name); clientPicker.style.display = 'none'; }
                   } catch (err) { showToast(err.message, 'error'); btn.textContent = client.name; btn.disabled = false; }
                 });
                 clientPicker.appendChild(btn);
               });
             }
+            clientPicker.style.display = 'block';
           } catch {
-            castBtn.textContent = '▶ Cast to TV';
+            showToast('Could not fetch clients', 'error');
+          } finally {
+            castBtn.innerHTML = CAST_ICON;
             castBtn.disabled = false;
           }
         });
+      }
+
+      // Report Issue
+      if (!isBasic && item.ratingKey) {
+        var reportWrap = document.createElement('div');
+        reportWrap.style.cssText = 'width:100%;margin-top:8px';
+
+        var reportBtn2 = document.createElement('button');
+        reportBtn2.className = 'modal-btn modal-btn-dismiss';
+        reportBtn2.style.cssText = 'background:rgba(0,180,216,0.08);color:#00b4d8;border-color:rgba(0,180,216,0.2)';
+        reportBtn2.textContent = '⚑ Report Issue';
+
+        var reportPanel2 = document.createElement('div');
+        reportPanel2.style.cssText = 'display:none;margin-top:10px;padding:12px;background:var(--bg-elevated);border-radius:8px;border:1px solid var(--border)';
+
+        var scopeEl2 = null, seasonRow2 = null, seasonEl2 = null, episodeRow2 = null, episodeEl2 = null;
+        var isShow2 = item.mediaType === 'tv';
+
+        if (isShow2) {
+          var scopeGroup2 = document.createElement('div');
+          scopeGroup2.style.cssText = 'margin-bottom:10px';
+          var scopeLabel2 = document.createElement('label');
+          scopeLabel2.style.cssText = 'display:block;font-size:0.78rem;color:var(--text-secondary);margin-bottom:5px';
+          scopeLabel2.textContent = 'Scope';
+          scopeEl2 = document.createElement('select');
+          scopeEl2.style.cssText = 'width:100%;padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg-secondary);color:var(--text);font-size:0.85rem';
+          [['series','Entire Series'],['season','Specific Season'],['episode','Specific Episode']].forEach(function(opt) {
+            var o = document.createElement('option'); o.value = opt[0]; o.textContent = opt[1]; scopeEl2.appendChild(o);
+          });
+          scopeGroup2.appendChild(scopeLabel2);
+          scopeGroup2.appendChild(scopeEl2);
+          reportPanel2.appendChild(scopeGroup2);
+
+          seasonRow2 = document.createElement('div');
+          seasonRow2.style.cssText = 'display:none;margin-bottom:10px';
+          var seasonLabel2 = document.createElement('label');
+          seasonLabel2.style.cssText = 'display:block;font-size:0.78rem;color:var(--text-secondary);margin-bottom:5px';
+          seasonLabel2.textContent = 'Season Number';
+          seasonEl2 = document.createElement('input');
+          seasonEl2.type = 'number'; seasonEl2.min = '1';
+          seasonEl2.style.cssText = 'width:80px;padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg-secondary);color:var(--text);font-size:0.85rem';
+          seasonRow2.appendChild(seasonLabel2); seasonRow2.appendChild(seasonEl2);
+          reportPanel2.appendChild(seasonRow2);
+
+          episodeRow2 = document.createElement('div');
+          episodeRow2.style.cssText = 'display:none;margin-bottom:10px';
+          var episodeLabel2 = document.createElement('label');
+          episodeLabel2.style.cssText = 'display:block;font-size:0.78rem;color:var(--text-secondary);margin-bottom:5px';
+          episodeLabel2.textContent = 'Episode Number';
+          episodeEl2 = document.createElement('input');
+          episodeEl2.type = 'number'; episodeEl2.min = '1';
+          episodeEl2.style.cssText = 'width:80px;padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg-secondary);color:var(--text);font-size:0.85rem';
+          episodeRow2.appendChild(episodeLabel2); episodeRow2.appendChild(episodeEl2);
+          reportPanel2.appendChild(episodeRow2);
+
+          scopeEl2.addEventListener('change', function() {
+            var v = scopeEl2.value;
+            if (seasonRow2) seasonRow2.style.display = (v === 'season' || v === 'episode') ? 'block' : 'none';
+            if (episodeRow2) episodeRow2.style.display = v === 'episode' ? 'block' : 'none';
+          });
+        }
+
+        var descGroup2 = document.createElement('div');
+        descGroup2.style.cssText = 'margin-bottom:10px';
+        var descLabel2 = document.createElement('label');
+        descLabel2.style.cssText = 'display:block;font-size:0.78rem;color:var(--text-secondary);margin-bottom:5px';
+        descLabel2.textContent = 'Description (optional)';
+        var descEl2 = document.createElement('textarea');
+        descEl2.placeholder = 'Describe the problem...';
+        descEl2.style.cssText = 'width:100%;padding:8px;border-radius:6px;border:1px solid var(--border);background:var(--bg-secondary);color:var(--text);font-size:0.85rem;resize:vertical;min-height:70px;font-family:inherit;box-sizing:border-box';
+        descGroup2.appendChild(descLabel2); descGroup2.appendChild(descEl2);
+        reportPanel2.appendChild(descGroup2);
+
+        var btnRow2 = document.createElement('div');
+        btnRow2.style.cssText = 'display:flex;gap:8px;justify-content:flex-end';
+        var cancelBtn2 = document.createElement('button');
+        cancelBtn2.textContent = 'Cancel';
+        cancelBtn2.style.cssText = 'padding:5px 12px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:0.82rem;cursor:pointer';
+        var submitBtn2 = document.createElement('button');
+        submitBtn2.textContent = 'Submit';
+        submitBtn2.style.cssText = 'padding:5px 12px;border-radius:6px;border:none;background:rgba(0,180,216,0.18);color:#00b4d8;font-size:0.82rem;font-weight:600;cursor:pointer';
+        btnRow2.appendChild(cancelBtn2); btnRow2.appendChild(submitBtn2);
+        reportPanel2.appendChild(btnRow2);
+
+        cancelBtn2.addEventListener('click', function() { reportPanel2.style.display = 'none'; });
+
+        submitBtn2.addEventListener('click', async function() {
+          var scope2 = scopeEl2 ? scopeEl2.value : 'series';
+          var scopeSeason2 = seasonEl2 ? (parseInt(seasonEl2.value) || null) : null;
+          var scopeEpisode2 = episodeEl2 ? (parseInt(episodeEl2.value) || null) : null;
+          var description2 = descEl2.value.trim() || null;
+          submitBtn2.disabled = true;
+          submitBtn2.textContent = 'Submitting…';
+          try {
+            var rr = await fetch('/api/issues', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                ratingKey: item.ratingKey,
+                title: item.title,
+                mediaType: isShow2 ? 'show' : 'movie',
+                posterPath: item.posterUrl || null,
+                scope: scope2, scopeSeason: scopeSeason2, scopeEpisode: scopeEpisode2, description: description2,
+              }),
+            });
+            var rdata = await rr.json();
+            if (!rr.ok || !rdata.success) throw new Error(rdata.error || 'Submit failed');
+            reportPanel2.style.display = 'none';
+            reportBtn2.textContent = '✓ Issue Reported';
+            reportBtn2.disabled = true;
+          } catch (err2) {
+            submitBtn2.disabled = false;
+            submitBtn2.textContent = 'Submit';
+            var errDiv2 = reportPanel2.querySelector('.report-err');
+            if (!errDiv2) { errDiv2 = document.createElement('div'); errDiv2.className = 'report-err'; errDiv2.style.cssText = 'font-size:0.78rem;color:#ff5252;margin-bottom:8px'; reportPanel2.insertBefore(errDiv2, btnRow2); }
+            errDiv2.textContent = 'Error: ' + err2.message;
+          }
+        });
+
+        reportBtn2.addEventListener('click', function() {
+          reportPanel2.style.display = reportPanel2.style.display === 'none' ? 'block' : 'none';
+        });
+
+        reportWrap.appendChild(reportBtn2);
+        reportWrap.appendChild(reportPanel2);
+        actEl.appendChild(reportWrap);
       }
     } else {
       // ── Non-library item actions ──
