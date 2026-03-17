@@ -931,6 +931,14 @@ function requirePlexAdmin(req, res, next) {
   res.status(403).json({ error: 'Admin access required' });
 }
 
+function requirePrivileged(req, res, next) {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  if (req.session.isAdmin || req.session.isPlexAdminUser) return next();
+  const userId = String(req.session.plexUser.id);
+  if (db.getPrivilegedUserIds().includes(userId)) return next();
+  res.status(403).json({ error: 'Privileged access required' });
+}
+
 // GET /api/queue
 router.get('/queue', async (req, res) => {
   if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
@@ -1102,12 +1110,122 @@ router.delete('/queue/:id', (req, res) => {
   res.json({ success: true });
 });
 
+// ── Issue reporting endpoints ──────────────────────────────────────────────────
+
+// POST /api/issues — report an issue with a library item
+router.post('/issues', (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  const userId = String(req.session.plexUser.id);
+  const { ratingKey, title, mediaType, posterPath, scope, scopeSeason, scopeEpisode, description } = req.body;
+  if (!ratingKey || !title || !mediaType) return res.status(400).json({ error: 'Missing required fields' });
+  const id = db.createIssue({
+    userId, ratingKey, title, mediaType,
+    posterPath: posterPath || null,
+    scope: scope || 'series',
+    scopeSeason: scopeSeason != null ? Number(scopeSeason) : null,
+    scopeEpisode: scopeEpisode != null ? Number(scopeEpisode) : null,
+    description: description || null,
+  });
+  try {
+    const shortDesc = description ? description.slice(0, 120) : 'A user has reported an issue.';
+    for (const adminId of db.getPrivilegedUserIds()) {
+      const prefs = db.getUserNotificationPrefs(adminId);
+      if (!prefs.notify_issue_new) continue;
+      const notifId = db.createOrBundleNotification({
+        userId: adminId, type: 'issue_new',
+        title: `Issue reported: "${title}"`, body: shortDesc,
+        data: { issueId: id, ratingKey, mediaType },
+      });
+      const posterUrl = posterPath ? `/api/poster?path=${encodeURIComponent(posterPath)}` : null;
+      db.enqueueNotification({ notificationId: notifId, agent: 'discord', userId: adminId,
+        payload: { type: 'issue_new', title: `Issue reported: "${title}"`, body: shortDesc, posterUrl, userId: adminId } });
+      db.enqueueNotification({ notificationId: notifId, agent: 'pushover', userId: adminId,
+        payload: { type: 'issue_new', title: `Issue reported: "${title}"`, body: shortDesc } });
+    }
+  } catch (e) { logger.warn('Issue notification error:', e.message); }
+  res.json({ success: true, id });
+});
+
+// GET /api/issues — paginated list (admin sees all, users see own)
+router.get('/issues', (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  const isAdmin = !!(req.session.isAdmin || req.session.isPlexAdminUser)
+    || db.getPrivilegedUserIds().includes(String(req.session.plexUser.id));
+  const userId = String(req.session.plexUser.id);
+  const { status = 'all', page = '1', limit: lp = '25' } = req.query;
+  const limit = Math.min(100, Math.max(1, parseInt(lp) || 25));
+  const pageNum = Math.max(1, parseInt(page) || 1);
+  const { rows, total } = isAdmin
+    ? db.getAllIssues(limit, (pageNum - 1) * limit, status)
+    : db.getUserIssues(userId, limit, (pageNum - 1) * limit, status);
+  res.json({ issues: rows, total, page: pageNum, totalPages: Math.ceil(total / limit) || 1 });
+});
+
+// POST /api/issues/:id/resolve — mark resolved with optional note
+router.post('/issues/:id/resolve', requirePrivileged, (req, res) => {
+  const issue = db.getIssueById(req.params.id);
+  if (!issue) return res.status(404).json({ error: 'Issue not found' });
+  const note = req.body.note || null;
+  db.updateIssueStatus(issue.id, 'resolved', note);
+  try {
+    const prefs = db.getUserNotificationPrefs(issue.user_id);
+    if (prefs.notify_issue_update) {
+      const body = note ? `Note: ${note}` : 'Your reported issue has been marked resolved.';
+      const notifId = db.createOrBundleNotification({
+        userId: issue.user_id, type: 'issue_updated',
+        title: `Issue resolved: "${issue.title}"`, body,
+        data: { issueId: issue.id },
+      });
+      const posterUrl = issue.poster_path ? `/api/poster?path=${encodeURIComponent(issue.poster_path)}` : null;
+      db.enqueueNotification({ notificationId: notifId, agent: 'discord', userId: issue.user_id,
+        payload: { type: 'issue_updated', title: `Issue resolved: "${issue.title}"`, body, posterUrl, userId: issue.user_id } });
+      db.enqueueNotification({ notificationId: notifId, agent: 'pushover', userId: issue.user_id,
+        payload: { type: 'issue_updated', title: `Issue resolved: "${issue.title}"`, body } });
+    }
+  } catch (e) { logger.warn('Issue notification error:', e.message); }
+  res.json({ success: true });
+});
+
+// POST /api/issues/:id/close — mark closed with optional note
+router.post('/issues/:id/close', requirePrivileged, (req, res) => {
+  const issue = db.getIssueById(req.params.id);
+  if (!issue) return res.status(404).json({ error: 'Issue not found' });
+  const note = req.body.note || null;
+  db.updateIssueStatus(issue.id, 'closed', note);
+  try {
+    const prefs = db.getUserNotificationPrefs(issue.user_id);
+    if (prefs.notify_issue_update) {
+      const body = note ? `Note: ${note}` : 'Your reported issue has been closed.';
+      const notifId = db.createOrBundleNotification({
+        userId: issue.user_id, type: 'issue_updated',
+        title: `Issue closed: "${issue.title}"`, body,
+        data: { issueId: issue.id },
+      });
+      const posterUrl = issue.poster_path ? `/api/poster?path=${encodeURIComponent(issue.poster_path)}` : null;
+      db.enqueueNotification({ notificationId: notifId, agent: 'discord', userId: issue.user_id,
+        payload: { type: 'issue_updated', title: `Issue closed: "${issue.title}"`, body, posterUrl, userId: issue.user_id } });
+      db.enqueueNotification({ notificationId: notifId, agent: 'pushover', userId: issue.user_id,
+        payload: { type: 'issue_updated', title: `Issue closed: "${issue.title}"`, body } });
+    }
+  } catch (e) { logger.warn('Issue notification error:', e.message); }
+  res.json({ success: true });
+});
+
+// DELETE /api/issues/:id
+router.delete('/issues/:id', requirePrivileged, (req, res) => {
+  const issue = db.getIssueById(req.params.id);
+  if (!issue) return res.status(404).json({ error: 'Issue not found' });
+  db.deleteIssue(issue.id);
+  res.json({ success: true });
+});
+
 // POST /api/user/settings — save user's own content preferences + notification prefs
 router.post('/user/settings', (req, res) => {
   const userId = req.session.plexUser.id;
   const { region, language, notify_approved, notify_denied, notify_available,
           discord_webhook, discord_enabled, discord_user_id, pushover_user_key, pushover_enabled,
-          notify_pending, notify_auto_approved, notify_process_failed } = req.body;
+          notify_pending, notify_auto_approved, notify_process_failed,
+          notify_issue_new, notify_issue_update } = req.body;
   db.setUserPreferences(userId, { region: region || null, language: language || null });
   db.setUserNotificationPrefs(userId, {
     notify_approved:      notify_approved      !== false && notify_approved      !== 'false',
@@ -1121,6 +1239,8 @@ router.post('/user/settings', (req, res) => {
     notify_pending:       notify_pending        !== false && notify_pending        !== 'false',
     notify_auto_approved: notify_auto_approved  !== false && notify_auto_approved  !== 'false',
     notify_process_failed: notify_process_failed !== false && notify_process_failed !== 'false',
+    notify_issue_new:    notify_issue_new    !== false && notify_issue_new    !== 'false',
+    notify_issue_update: notify_issue_update !== false && notify_issue_update !== 'false',
   });
   res.json({ ok: true });
 });

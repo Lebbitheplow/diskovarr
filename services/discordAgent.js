@@ -14,6 +14,8 @@ const TYPE_COLORS = {
   request_denied:        0xff5252,
   request_available:     0x00b4d8,
   request_process_failed: 0xff5252,
+  issue_new:             0xff8c00,
+  issue_updated:         0x00b4d8,
 };
 
 // ── Webhook mode ───────────────────────────────────────────────────────────────
@@ -123,7 +125,7 @@ async function sendNotification({ type, title, body, posterUrl, userId }) {
       logger.warn(`Discord DM to ${discordUserId} failed:`, err.message);
     }
     // Also post admin-type notifications to shared channel webhook if configured
-    const adminTypes = ['request_pending', 'request_auto_approved', 'request_process_failed'];
+    const adminTypes = ['request_pending', 'request_auto_approved', 'request_process_failed', 'issue_new'];
     if (config.botUseWebhook && config.botWebhookUrl && adminTypes.includes(type)) {
       try {
         await sendWebhookEmbed({

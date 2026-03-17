@@ -315,6 +315,130 @@
     });
     actionsEl.appendChild(dismissBtn);
 
+    // ── Report Issue ───────────────────────────────────────────────────────────
+    const reportWrap = document.createElement('div');
+    reportWrap.style.cssText = 'width:100%;margin-top:8px';
+
+    const reportBtn = document.createElement('button');
+    reportBtn.className = 'modal-btn modal-btn-dismiss';
+    reportBtn.style.cssText = 'background:rgba(0,180,216,0.08);color:#00b4d8;border-color:rgba(0,180,216,0.2)';
+    reportBtn.textContent = '⚑ Report Issue';
+
+    const reportPanel = document.createElement('div');
+    reportPanel.style.cssText = 'display:none;margin-top:10px;padding:12px;background:var(--bg-elevated);border-radius:8px;border:1px solid var(--border)';
+
+    let scopeEl = null, seasonRow = null, seasonEl = null, episodeRow = null, episodeEl = null;
+
+    if (item.type === 'show') {
+      const scopeGroup = document.createElement('div');
+      scopeGroup.style.cssText = 'margin-bottom:10px';
+      const scopeLabel = document.createElement('label');
+      scopeLabel.style.cssText = 'display:block;font-size:0.78rem;color:var(--text-secondary);margin-bottom:5px';
+      scopeLabel.textContent = 'Scope';
+      scopeEl = document.createElement('select');
+      scopeEl.style.cssText = 'width:100%;padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg-secondary);color:var(--text);font-size:0.85rem';
+      [['series','Entire Series'],['season','Specific Season'],['episode','Specific Episode']].forEach(function(opt) {
+        var o = document.createElement('option'); o.value = opt[0]; o.textContent = opt[1]; scopeEl.appendChild(o);
+      });
+      scopeGroup.appendChild(scopeLabel);
+      scopeGroup.appendChild(scopeEl);
+      reportPanel.appendChild(scopeGroup);
+
+      seasonRow = document.createElement('div');
+      seasonRow.style.cssText = 'display:none;margin-bottom:10px';
+      const seasonLabel = document.createElement('label');
+      seasonLabel.style.cssText = 'display:block;font-size:0.78rem;color:var(--text-secondary);margin-bottom:5px';
+      seasonLabel.textContent = 'Season Number';
+      seasonEl = document.createElement('input');
+      seasonEl.type = 'number'; seasonEl.min = '1';
+      seasonEl.style.cssText = 'width:80px;padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg-secondary);color:var(--text);font-size:0.85rem';
+      seasonRow.appendChild(seasonLabel); seasonRow.appendChild(seasonEl);
+      reportPanel.appendChild(seasonRow);
+
+      episodeRow = document.createElement('div');
+      episodeRow.style.cssText = 'display:none;margin-bottom:10px';
+      const episodeLabel = document.createElement('label');
+      episodeLabel.style.cssText = 'display:block;font-size:0.78rem;color:var(--text-secondary);margin-bottom:5px';
+      episodeLabel.textContent = 'Episode Number';
+      episodeEl = document.createElement('input');
+      episodeEl.type = 'number'; episodeEl.min = '1';
+      episodeEl.style.cssText = 'width:80px;padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg-secondary);color:var(--text);font-size:0.85rem';
+      episodeRow.appendChild(episodeLabel); episodeRow.appendChild(episodeEl);
+      reportPanel.appendChild(episodeRow);
+
+      scopeEl.addEventListener('change', function() {
+        var v = scopeEl.value;
+        if (seasonRow) seasonRow.style.display = (v === 'season' || v === 'episode') ? 'block' : 'none';
+        if (episodeRow) episodeRow.style.display = v === 'episode' ? 'block' : 'none';
+      });
+    }
+
+    const descGroup = document.createElement('div');
+    descGroup.style.cssText = 'margin-bottom:10px';
+    const descLabel = document.createElement('label');
+    descLabel.style.cssText = 'display:block;font-size:0.78rem;color:var(--text-secondary);margin-bottom:5px';
+    descLabel.textContent = 'Description (optional)';
+    const descEl = document.createElement('textarea');
+    descEl.placeholder = 'Describe the problem...';
+    descEl.style.cssText = 'width:100%;padding:8px;border-radius:6px;border:1px solid var(--border);background:var(--bg-secondary);color:var(--text);font-size:0.85rem;resize:vertical;min-height:70px;font-family:inherit;box-sizing:border-box';
+    descGroup.appendChild(descLabel); descGroup.appendChild(descEl);
+    reportPanel.appendChild(descGroup);
+
+    const btnRow = document.createElement('div');
+    btnRow.style.cssText = 'display:flex;gap:8px;justify-content:flex-end';
+    const cancelBtn = document.createElement('button');
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.style.cssText = 'padding:5px 12px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-size:0.82rem;cursor:pointer';
+    const submitBtn = document.createElement('button');
+    submitBtn.textContent = 'Submit';
+    submitBtn.style.cssText = 'padding:5px 12px;border-radius:6px;border:none;background:rgba(0,180,216,0.18);color:#00b4d8;font-size:0.82rem;font-weight:600;cursor:pointer';
+    btnRow.appendChild(cancelBtn); btnRow.appendChild(submitBtn);
+    reportPanel.appendChild(btnRow);
+
+    cancelBtn.addEventListener('click', function() { reportPanel.style.display = 'none'; });
+
+    submitBtn.addEventListener('click', async function() {
+      const scope = scopeEl ? scopeEl.value : 'series';
+      const scopeSeason = seasonEl ? (parseInt(seasonEl.value) || null) : null;
+      const scopeEpisode = episodeEl ? (parseInt(episodeEl.value) || null) : null;
+      const description = descEl.value.trim() || null;
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Submitting…';
+      try {
+        const r = await fetch('/api/issues', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ratingKey: item.ratingKey,
+            title: item.title,
+            mediaType: item.type === 'show' ? 'show' : 'movie',
+            posterPath: item.thumb || null,
+            scope, scopeSeason, scopeEpisode, description,
+          }),
+        });
+        const data = await r.json();
+        if (!r.ok || !data.success) throw new Error(data.error || 'Submit failed');
+        reportPanel.style.display = 'none';
+        reportBtn.textContent = '✓ Issue Reported';
+        reportBtn.disabled = true;
+      } catch (err) {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Submit';
+        // show inline error
+        var errDiv = reportPanel.querySelector('.report-err');
+        if (!errDiv) { errDiv = document.createElement('div'); errDiv.className = 'report-err'; errDiv.style.cssText = 'font-size:0.78rem;color:#ff5252;margin-bottom:8px'; reportPanel.insertBefore(errDiv, btnRow); }
+        errDiv.textContent = 'Error: ' + err.message;
+      }
+    });
+
+    reportBtn.addEventListener('click', function() {
+      reportPanel.style.display = reportPanel.style.display === 'none' ? 'block' : 'none';
+    });
+
+    reportWrap.appendChild(reportBtn);
+    reportWrap.appendChild(reportPanel);
+    actionsEl.appendChild(reportWrap);
+
     // Trailer — lazy fetch, autoplay muted
     const trailerEl = document.getElementById('lib-modal-trailer');
     if (trailerEl) {

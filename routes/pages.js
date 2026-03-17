@@ -194,6 +194,14 @@ router.get('/queue', requireAuth, (req, res) => {
   });
 });
 
+// Issues page — all users see their own; admin/elevated see all
+router.get('/issues', requireAuth, (req, res) => {
+  const isAdmin = !!(req.session.isAdmin || req.session.isPlexAdminUser)
+    || db.getPrivilegedUserIds().includes(String(req.session.plexUser.id));
+  const { id: userId, username, thumb } = req.session.plexUser;
+  res.render('issues', { ...pageLocals(req), userId, username, thumb, currentPath: '/issues', isAdmin });
+});
+
 // User settings page
 router.get('/settings', requireAuth, (req, res) => {
   const { id: userId, username, thumb } = req.session.plexUser;

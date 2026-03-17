@@ -75,6 +75,7 @@
   <a href="/settings" class="nav-fab-menu-link">&#9881; Settings</a>
   <a href="/watchlist" class="nav-fab-menu-link">◈ Watchlist</a>
   <a href="/queue" class="nav-fab-menu-link">&#9776; Queue</a>
+  <a href="/issues" class="nav-fab-menu-link">&#9888; Issues</a>
   <a href="/admin" class="nav-fab-menu-link">&#9881; Admin</a>
   <button class="nav-fab-menu-link nav-fab-menu-info" id="nav-info-btn-mobile">ℹ About</button>
   <a href="/auth/logout" class="nav-fab-menu-link nav-fab-menu-signout">Sign out</a>
@@ -342,13 +343,17 @@
       });
   }
 
-  function bellItemClick(type, id) {
-    fetch('/api/notifications/read', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ids:[id]}) });
+  async function bellItemClick(type, id) {
+    try {
+      await fetch('/api/notifications/read', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ids:[id]}), keepalive: true });
+    } catch(e) {}
     if (type === 'request_pending' || type === 'request_approved' || type === 'request_denied' ||
         type === 'request_auto_approved' || type === 'request_process_failed') {
       window.location.href = '/queue';
     } else if (type === 'request_available') {
       window.location.href = '/queue?filter=available';
+    } else if (type === 'issue_new' || type === 'issue_updated') {
+      window.location.href = '/issues';
     }
   }
 </script>
