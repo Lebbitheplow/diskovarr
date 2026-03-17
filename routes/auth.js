@@ -103,6 +103,9 @@ router.get('/check-pin', checkPinLimiter, async (req, res) => {
       serverToken,            // server-specific access token — used for playlist operations
     };
 
+    // Set Plex admin flag if user has is_admin set in DB
+    req.session.isPlexAdminUser = db.isAdminUser(String(userData.id));
+
     delete req.session.plexPinId;
     delete req.session.plexPinCode;
 

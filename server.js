@@ -4,6 +4,7 @@ const session = require('express-session');
 const path = require('path');
 const fs = require('fs');
 const logger = require('./services/logger');
+const notificationService = require('./services/notificationService');
 
 // Ensure data directory exists
 const dataDir = path.join(__dirname, 'data');
@@ -13,7 +14,7 @@ if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
 // We do this after data dir exists but before routes load
 {
   const db = require('./db/database');
-  logger.setEnabled(db.getSetting('logging_enabled', '0') === '1');
+  logger.setVerbose(db.getSetting('verbose_logging_enabled', '0') === '1');
 }
 
 const { DatabaseSync } = require('node:sqlite');
@@ -106,6 +107,21 @@ app.use('/auth', require('./routes/auth'));
 app.use('/api', require('./routes/api'));
 app.use('/admin', require('./routes/admin'));
 
+// Public: Discord bot avatar PNG (themed, no auth required)
+app.get('/discord-avatar.png', (req, res) => {
+  try {
+    const { generateAvatar } = require('./services/discordAvatar');
+    const db = require('./db/database');
+    const accentHex = db.getThemeColor() || 'e5a00d';
+    const { png } = generateAvatar(accentHex);
+    res.setHeader('Content-Type', 'image/png');
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.send(png);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // OG image — served as SVG for link previews (Discord, Slack, etc.)
 app.get('/og-image.svg', (req, res) => {
   res.setHeader('Content-Type', 'image/svg+xml');
@@ -167,4 +183,7 @@ app.listen(PORT, '0.0.0.0', () => {
 
   // Background re-sync every 2 hours
   setInterval(refreshLibrarySync, REFRESH_INTERVAL);
+
+  // Start notification delivery service
+  notificationService.start();
 });

@@ -316,13 +316,24 @@
         throw new Error(data.error || 'Request failed');
       }
 
-      btns.forEach(function (btn) {
-        btn.textContent = 'Requested ✓';
-        btn.disabled = true;
-        btn.classList.add('btn-request-sent');
-      });
-
-      showToast('Requested: ' + item.title + ' via ' + service.charAt(0).toUpperCase() + service.slice(1));
+      item.isRequested = true;
+      if (data.pending) {
+        btns.forEach(function (btn) {
+          btn.textContent = 'Pending Approval';
+          btn.disabled = true;
+          btn.classList.add('btn-request-sent');
+          btn.style.background = 'rgba(255,170,0,0.15)';
+          btn.style.color = '#ffaa00';
+        });
+        showToast(item.title + ' submitted for approval');
+      } else {
+        btns.forEach(function (btn) {
+          btn.textContent = 'Requested ✓';
+          btn.disabled = true;
+          btn.classList.add('btn-request-sent');
+        });
+        showToast('Requested: ' + item.title + ' via ' + service.charAt(0).toUpperCase() + service.slice(1));
+      }
     } catch (err) {
       btns.forEach(function (btn) {
         btn.textContent = 'Request';

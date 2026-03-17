@@ -106,10 +106,18 @@ router.post('/logout', requireAdmin, (req, res) => {
 // ── Main admin page ───────────────────────────────────────────────────────────
 
 router.get('/', requireAdmin, async (req, res) => {
+  const userPage = Math.max(1, parseInt(req.query.userPage) || 1);
+  const userPerPage = [10, 25, 50].includes(parseInt(req.query.userPerPage)) ? parseInt(req.query.userPerPage) : 25;
   const stats = db.getAdminStats();
+  const totalUsers = stats.users.length;
+  const pagedUsers = stats.users.slice((userPage - 1) * userPerPage, userPage * userPerPage);
   const latestVersion = await getLatestVersion();
   res.render('admin/index', {
-    stats,
+    stats: { ...stats, users: pagedUsers },
+    userPage,
+    userPerPage,
+    totalUsers,
+    userTotalPages: Math.ceil(totalUsers / userPerPage),
     autoSyncEnabled,
     syncInProgress,
     lastSyncError,
@@ -126,7 +134,9 @@ router.get('/', requireAdmin, async (req, res) => {
     directRequestAccess: db.getDirectRequestAccess(),
     globalLimits: db.getGlobalRequestLimits(),
     userLimitOverrides: db.getAllUserRequestLimitOverrides(),
-    loggingEnabled: db.getSetting('logging_enabled', '0') === '1',
+    verboseLoggingEnabled: db.getSetting('verbose_logging_enabled', '0') === '1',
+    hasApiKey: !!db.getSetting('diskovarr_api_key', ''),
+    appPublicUrl: db.getSetting('app_public_url', ''),
   });
 });
 
@@ -139,6 +149,10 @@ router.get('/status', requireAdmin, (req, res) => {
     watchlistMode: db.getAdminWatchlistMode(),
     discoverEnabled: db.isDiscoverEnabled(),
     individualSeasonsEnabled: db.isIndividualSeasonsEnabled(),
+    autoRequestMovies: db.getSetting('auto_request_watchlist_movies', 'false') === 'true',
+    autoRequestTv: db.getSetting('auto_request_watchlist_tv', 'false') === 'true',
+    discordAgent: (() => { try { return JSON.parse(db.getSetting('discord_agent', 'null')); } catch { return null; } })(),
+    pushoverAgent: (() => { try { return JSON.parse(db.getSetting('pushover_agent', 'null')); } catch { return null; } })(),
   });
 });
 
@@ -244,13 +258,13 @@ router.post('/settings/watchlist-mode', requireAdmin, (req, res) => {
   res.json({ success: true, mode });
 });
 
-// ── Logging toggle ────────────────────────────────────────────────────────────
+// ── Verbose logging toggle ────────────────────────────────────────────────────
 
 router.post('/settings/logging', requireAdmin, (req, res) => {
   const enabled = req.body.enabled === true || req.body.enabled === 'true';
-  db.setSetting('logging_enabled', enabled ? '1' : '0');
-  logger.setEnabled(enabled);
-  logger.info(`Logging ${enabled ? 'enabled' : 'disabled'} by admin`);
+  db.setSetting('verbose_logging_enabled', enabled ? '1' : '0');
+  logger.setVerbose(enabled);
+  logger.info(`Verbose logging ${enabled ? 'enabled' : 'disabled'} by admin`);
   res.json({ success: true, enabled });
 });
 
@@ -297,24 +311,33 @@ const CONNECTION_KEYS = [
   'tautulli_url', 'tautulli_api_key',
   'tmdb_api_key', 'discover_enabled',
   'overseerr_url', 'overseerr_api_key', 'overseerr_enabled',
-  'radarr_url', 'radarr_api_key', 'radarr_enabled', 'radarr_quality_profile_id',
-  'sonarr_url', 'sonarr_api_key', 'sonarr_enabled', 'sonarr_quality_profile_id',
+  'radarr_url', 'radarr_api_key', 'radarr_enabled', 'radarr_quality_profile_id', 'radarr_quality_profile_name',
+  'sonarr_url', 'sonarr_api_key', 'sonarr_enabled', 'sonarr_quality_profile_id', 'sonarr_quality_profile_name',
   'default_request_service',
   'individual_seasons_enabled',
   'landing_page',
   'direct_request_access',
+  'app_public_url',
 ];
 
 router.post('/connections/save', requireAdmin, (req, res) => {
   const body = req.body;
+  const BOOL_KEYS = new Set(['discover_enabled','overseerr_enabled','radarr_enabled','sonarr_enabled','individual_seasons_enabled','landing_page','direct_request_access']);
   for (const key of CONNECTION_KEYS) {
     if (key in body) {
-      // Checkboxes send '1' when checked, absent when unchecked
-      db.setSetting(key, body[key] || '0');
+      // Checkboxes send '1' when checked, absent when unchecked — only default to '0' for boolean keys
+      db.setSetting(key, BOOL_KEYS.has(key) ? (body[key] || '0') : (body[key] ?? ''));
     }
   }
   // Invalidate discover cache when settings change
   discoverRecommender.invalidateAllCaches();
+  res.json({ success: true });
+});
+
+router.post('/settings/generate-api-key', requireAdmin, (req, res) => {
+  const { randomBytes } = require('crypto');
+  const key = randomBytes(32).toString('hex');
+  db.setSetting('diskovarr_api_key', key);
   res.json({ success: true });
 });
 
@@ -326,6 +349,7 @@ router.get('/connections/reveal', requireAdmin, (req, res) => {
     overseerrApiKey: db.getSetting('overseerr_api_key', '') || '',
     radarrApiKey:    db.getSetting('radarr_api_key', '')    || '',
     sonarrApiKey:    db.getSetting('sonarr_api_key', '')    || '',
+    diskovarrApiKey: db.getSetting('diskovarr_api_key', '') || '',
   });
 });
 
@@ -475,6 +499,296 @@ router.post('/cache/clear/dismissals', requireAdmin, (req, res) => {
   db.clearUserDismissals(null);
   recommender.invalidateAllCaches();
   res.json({ success: true, message: 'All dismissals cleared' });
+});
+
+// ── Request queue endpoints ───────────────────────────────────────────────────
+
+router.get('/requests', requireAdmin, (req, res) => {
+  const { status = 'all', page = '1', limit: limitParam = '20' } = req.query;
+  const limit = Math.min(100, Math.max(1, parseInt(limitParam) || 20));
+  const pageNum = Math.max(1, parseInt(page) || 1);
+  const offset = (pageNum - 1) * limit;
+  const { rows, total } = db.getAllRequests(limit, offset, status);
+
+  // Enrich with TMDB data and availability status
+  const libraryTmdbIds = db.getLibraryTmdbIds();
+  const enriched = rows.map(r => {
+    const cached = db.getTmdbCache(r.tmdb_id, r.media_type);
+    const isAvailable = libraryTmdbIds.has(String(r.tmdb_id));
+    let displayStatus = r.status;
+    if (r.status === 'approved') displayStatus = isAvailable ? 'available' : 'requested';
+    return {
+      ...r,
+      posterUrl: r.poster_url || cached?.posterUrl || null,
+      year: cached?.releaseDate ? parseInt(cached.releaseDate.slice(0, 4)) || null : null,
+      contentRating: cached?.contentRating || null,
+      displayStatus,
+    };
+  });
+
+  res.json({
+    requests: enriched,
+    total,
+    page: pageNum,
+    totalPages: Math.ceil(total / limit),
+  });
+});
+
+router.put('/requests/:id', requireAdmin, (req, res) => {
+  const request = db.getRequestById(req.params.id);
+  if (!request) return res.status(404).json({ error: 'Request not found' });
+  if (request.status !== 'pending') return res.status(400).json({ error: 'Request is not pending' });
+
+  const { service, seasons } = req.body;
+  const seasonsJson = Array.isArray(seasons) && seasons.length > 0 ? JSON.stringify(seasons.map(Number)) : null;
+  const seasonsCount = Array.isArray(seasons) && seasons.length > 0 ? seasons.length : 1;
+  db.updateRequest(request.id, {
+    service: service || request.service,
+    seasonsJson,
+    seasonsCount,
+  });
+  res.json({ success: true, request: db.getRequestById(request.id) });
+});
+
+router.post('/requests/:id/approve', requireAdmin, async (req, res) => {
+  try {
+    const { submitRequestToService } = require('./api');
+    const request = db.getRequestById(req.params.id);
+    if (!request) return res.status(404).json({ error: 'Request not found' });
+    if (request.status !== 'pending') return res.status(400).json({ error: 'Request is not pending' });
+
+    const storedSeasons = request.seasons_json ? JSON.parse(request.seasons_json) : null;
+    await submitRequestToService({
+      tmdbId: request.tmdb_id,
+      mediaType: request.media_type,
+      title: request.title,
+      service: request.service,
+      seasons: storedSeasons,
+    });
+
+    db.updateRequestStatus(request.id, 'approved', null);
+    logger.info(`Request approved by admin: id=${request.id} tmdbId=${request.tmdb_id} title="${request.title}"`);
+    res.json({ success: true, request: db.getRequestById(request.id) });
+  } catch (err) {
+    console.error('admin approve error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/requests/:id/deny', requireAdmin, (req, res) => {
+  const { note } = req.body;
+  const request = db.getRequestById(req.params.id);
+  if (!request) return res.status(404).json({ error: 'Request not found' });
+  db.updateRequestStatus(request.id, 'denied', note || null);
+  logger.info(`Request denied by admin: id=${request.id} title="${request.title}"`);
+  res.json({ success: true, request: db.getRequestById(request.id) });
+});
+
+router.delete('/requests/:id', requireAdmin, (req, res) => {
+  const request = db.getRequestById(req.params.id);
+  if (!request) return res.status(404).json({ error: 'Request not found' });
+  db.deleteRequest(request.id);
+  res.json({ success: true });
+});
+
+// ── Per-user request cleanup ──────────────────────────────────────────────────
+
+router.delete('/users/:userId/requests', requireAdmin, (req, res) => {
+  db.deleteRequestsByUser(req.params.userId);
+  logger.info(`All requests deleted for user=${req.params.userId} by admin`);
+  res.json({ success: true });
+});
+
+// ── User settings endpoints ───────────────────────────────────────────────────
+
+router.get('/users/:userId/settings', requireAdmin, (req, res) => {
+  const settings = db.getUserSettings(req.params.userId);
+  res.json(settings);
+});
+
+router.post('/users/:userId/settings', requireAdmin, (req, res) => {
+  const {
+    movieLimit,
+    seasonLimit,
+    movieWindowDays,
+    tvWindowDays,
+    overrideGlobal,
+    auto_approve_movies,
+    auto_approve_tv,
+    is_admin,
+  } = req.body;
+  try {
+    db.saveUserSettings(req.params.userId, {
+      movieLimit: parseInt(movieLimit) || 0,
+      seasonLimit: parseInt(seasonLimit) || 0,
+      movieWindowDays: Math.max(1, parseInt(movieWindowDays) || 7),
+      tvWindowDays: Math.max(1, parseInt(tvWindowDays) || 7),
+      overrideGlobal: overrideGlobal === true || overrideGlobal === '1',
+      auto_approve_movies: auto_approve_movies === null || auto_approve_movies === 'null' ? null
+        : (auto_approve_movies === true || auto_approve_movies === '1'),
+      auto_approve_tv: auto_approve_tv === null || auto_approve_tv === 'null' ? null
+        : (auto_approve_tv === true || auto_approve_tv === '1'),
+      is_admin: is_admin === true || is_admin === '1',
+    });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Global auto-approve ───────────────────────────────────────────────────────
+
+router.post('/settings/auto-approve', requireAdmin, (req, res) => {
+  const { movies, tv } = req.body;
+  if (movies !== undefined) db.setSetting('auto_approve_movies', movies ? '1' : '0');
+  if (tv !== undefined) db.setSetting('auto_approve_tv', tv ? '1' : '0');
+  res.json({ success: true });
+});
+
+router.get('/settings/auto-approve', requireAdmin, (req, res) => {
+  res.json({
+    movies: db.getSetting('auto_approve_movies', '1') === '1',
+    tv: db.getSetting('auto_approve_tv', '1') === '1',
+  });
+});
+
+// ── Per-user settings PAGE ────────────────────────────────────────────────────
+
+router.get('/user-settings/:userId', requireAdmin, (req, res) => {
+  const { userId } = req.params;
+  const settings = db.getUserSettings(userId);
+  const user = db.getKnownUsers().find(u => u.user_id === userId);
+  const saved = req.query.saved === '1';
+  const discordConfig = (() => { try { return JSON.parse(db.getSetting('discord_agent', 'null')); } catch { return null; } })();
+  res.render('admin/user-settings', {
+    userId,
+    username: user?.username || userId,
+    thumb: user?.thumb || null,
+    settings,
+    saved,
+    themeParam: encodeURIComponent(db.getThemeColor()),
+    appVersion: APP_VERSION,
+    connections: db.getConnectionSettings(),
+    individualSeasonsEnabled: db.isIndividualSeasonsEnabled(),
+    notificationPrefs: db.getUserNotificationPrefs(userId),
+    discordAgentEnabled: discordConfig?.enabled === true,
+    discordMode: discordConfig?.mode || 'webhook',
+    pushoverAgentEnabled: (() => { try { return JSON.parse(db.getSetting('pushover_agent', 'null'))?.enabled === true; } catch { return false; } })(),
+    isPrivileged: db.getPrivilegedUserIds().includes(userId),
+  });
+});
+
+router.post('/user-settings/:userId', requireAdmin, (req, res) => {
+  const { userId } = req.params;
+  const {
+    movieLimit, seasonLimit, movieWindowDays, tvWindowDays,
+    overrideGlobal, auto_approve_movies, auto_approve_tv, is_admin,
+    region, language, auto_request_movies, auto_request_tv,
+    notify_approved, notify_denied, notify_available,
+    discord_webhook, discord_enabled, pushover_user_key, pushover_enabled,
+    notify_pending, notify_auto_approved, notify_process_failed,
+  } = req.body;
+  db.saveUserSettings(userId, {
+    movieLimit: parseInt(movieLimit) || 0,
+    seasonLimit: parseInt(seasonLimit) || 0,
+    movieWindowDays: parseInt(movieWindowDays) || 7,
+    tvWindowDays: parseInt(tvWindowDays) || 7,
+    overrideGlobal: overrideGlobal === '1' || overrideGlobal === true,
+    auto_approve_movies: auto_approve_movies === '' ? null : (auto_approve_movies === '1' || auto_approve_movies === true),
+    auto_approve_tv: auto_approve_tv === '' ? null : (auto_approve_tv === '1' || auto_approve_tv === true),
+    is_admin: is_admin === '1' || is_admin === true,
+    region: region || null,
+    language: language || null,
+    auto_request_movies: auto_request_movies === '1' || auto_request_movies === true,
+    auto_request_tv: auto_request_tv === '1' || auto_request_tv === true,
+  });
+  const { discord_user_id } = req.body;
+  db.setUserNotificationPrefs(userId, {
+    notify_approved:      notify_approved      !== undefined ? (notify_approved      === '1' || notify_approved      === true) : true,
+    notify_denied:        notify_denied        !== undefined ? (notify_denied        === '1' || notify_denied        === true) : true,
+    notify_available:     notify_available     !== undefined ? (notify_available     === '1' || notify_available     === true) : true,
+    discord_webhook:      discord_webhook       || null,
+    discord_enabled:      discord_enabled       === '1' || discord_enabled       === true,
+    discord_user_id:      discord_user_id       || null,
+    pushover_user_key:    pushover_user_key     || null,
+    pushover_enabled:     pushover_enabled      === '1' || pushover_enabled      === true,
+    notify_pending:       notify_pending        !== undefined ? (notify_pending        === '1' || notify_pending        === true) : true,
+    notify_auto_approved: notify_auto_approved  !== undefined ? (notify_auto_approved  === '1' || notify_auto_approved  === true) : true,
+    notify_process_failed: notify_process_failed !== undefined ? (notify_process_failed === '1' || notify_process_failed === true) : true,
+  });
+  res.redirect(`/admin/user-settings/${userId}?saved=1`);
+});
+
+// ── Auto-request watchlist ────────────────────────────────────────────────────
+
+router.post('/settings/auto-request', requireAdmin, (req, res) => {
+  const { type, enabled } = req.body;
+  if (!['movies', 'tv'].includes(type)) return res.status(400).json({ error: 'Invalid type' });
+  const key = type === 'movies' ? 'auto_request_watchlist_movies' : 'auto_request_watchlist_tv';
+  db.setSetting(key, enabled ? 'true' : 'false');
+  res.json({ success: true });
+});
+
+// ── Notification agent settings ───────────────────────────────────────────────
+
+router.post('/settings/discord', requireAdmin, async (req, res) => {
+  const { enabled, mode, webhookUrl, botToken, botUsername, botAvatarUrl, publicUrl,
+          notificationRoleId, enableMentions, embedPoster, notificationTypes,
+          inviteLink, botWebhookUrl, botUseWebhook } = req.body;
+  const config = {
+    enabled: !!enabled,
+    mode: mode === 'bot' ? 'bot' : 'webhook',
+    webhookUrl: webhookUrl || null,
+    botToken: botToken || null,
+    botUsername: botUsername || null,
+    botAvatarUrl: botAvatarUrl || null,
+    publicUrl: publicUrl || null,
+    notificationRoleId: notificationRoleId || null,
+    enableMentions: !!enableMentions,
+    embedPoster: !!embedPoster,
+    notificationTypes: notificationTypes || [],
+    inviteLink: inviteLink || null,
+    botWebhookUrl: botWebhookUrl || null,
+    botUseWebhook: !!botUseWebhook,
+  };
+  db.setSetting('discord_agent', JSON.stringify(config));
+  // If switching to bot mode, update the bot's avatar asynchronously
+  if (config.mode === 'bot' && config.botToken && !config.botAvatarUrl) {
+    const discordAgent = require('../services/discordAgent');
+    const accentHex = db.getThemeColor() || 'e5a00d';
+    discordAgent.updateBotAvatar(config.botToken, accentHex).catch(() => {});
+  }
+  res.json({ success: true });
+});
+
+router.post('/settings/discord/test', requireAdmin, async (req, res) => {
+  try {
+    const { mode, webhookUrl, botToken, discordUserId, botUsername } = req.body;
+    const discordAgent = require('../services/discordAgent');
+    await discordAgent.sendTest({ mode, webhookUrl, botToken, discordUserId, botUsername });
+    res.json({ ok: true, message: mode === 'bot' ? 'Test DM sent via bot' : 'Test message sent to Discord' });
+  } catch (err) {
+    res.json({ ok: false, message: err.message });
+  }
+});
+
+router.post('/settings/pushover', requireAdmin, (req, res) => {
+  const { enabled, appToken, userKey, sound, embedPoster, notificationTypes } = req.body;
+  const config = { enabled: !!enabled, appToken, userKey, sound, embedPoster: !!embedPoster, notificationTypes: notificationTypes || [] };
+  db.setSetting('pushover_agent', JSON.stringify(config));
+  res.json({ success: true });
+});
+
+router.post('/settings/pushover/test', requireAdmin, async (req, res) => {
+  try {
+    const { appToken, userKey } = req.body;
+    if (!appToken || !userKey) return res.json({ ok: false, message: 'App token and user key required' });
+    const pushoverAgent = require('../services/pushoverAgent');
+    await pushoverAgent.sendTest(appToken, userKey);
+    res.json({ ok: true, message: 'Test message sent via Pushover' });
+  } catch (err) {
+    res.json({ ok: false, message: err.message });
+  }
 });
 
 module.exports = router;

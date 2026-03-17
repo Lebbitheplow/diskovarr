@@ -15,8 +15,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/style.css">
-  <link rel="stylesheet" href="/css/admin.css?v=22">
+  <link rel="stylesheet" href="/css/style.css?v=29">
+  <link rel="stylesheet" href="/css/admin.css?v=29">
   <link rel="stylesheet" href="/theme.css?c=<%= themeParam %>" id="theme-css">
 </head>
 <body>
@@ -48,7 +48,7 @@
   <main class="main-content">
     <div class="hero">
       <h1 class="hero-title">Admin Panel</h1>
-      <p class="hero-sub">Library sync, cache management, and system status</p>
+      <p class="hero-sub">Connections, users, requests, and system settings</p>
     </div>
 
     <div id="toast" class="toast" style="display:none"></div>
@@ -70,6 +70,7 @@
       <button class="admin-tab active" data-tab="settings">General</button>
       <button class="admin-tab" data-tab="users">Users</button>
       <button class="admin-tab" data-tab="connections">Connections</button>
+      <button class="admin-tab" data-tab="notifications">Notifications</button>
     </div>
 
     <!-- ══════════════════════════════════════════════════════════ -->
@@ -99,6 +100,22 @@
         <p class="section-desc" style="margin-top:10px;font-size:0.82rem">
           Sets which page users land on after signing in. Diskovarr = personalized recommendation feed. Diskovarr Requests = content not yet in the library.
         </p>
+        <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
+          <label class="settings-label" style="font-size:0.85rem;font-weight:500;color:#fff;display:block;margin-bottom:6px">
+            App Public URL
+            <span style="color:var(--text-muted);font-weight:400"> — required for Discord bot avatar</span>
+          </label>
+          <p style="font-size:0.78rem;color:var(--text-secondary);margin:0 0 8px">
+            The externally reachable URL of this Diskovarr instance (e.g. <code style="font-size:0.75rem">https://diskovarr.yourdomain.com</code>).
+          </p>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input type="url" id="app-public-url" class="conn-input" style="max-width:380px"
+              placeholder="https://diskovarr.yourdomain.com"
+              onfocus="if(!this.value.trim())this.value='https://'"
+              value="<%= appPublicUrl %>">
+            <button class="btn-admin btn-primary" onclick="saveAppPublicUrl()">Save</button>
+          </div>
+        </div>
       </section>
 
       <!-- ── Theme Color ────────────────────────────────────── -->
@@ -153,6 +170,10 @@
               Last sync: <span id="stat-tv-sync"><%= stats.library.lastSyncTV ? relativeTime(stats.library.lastSyncTV) : 'Never' %></span>
             </div>
           </div>
+          <div class="stat-card">
+            <div class="stat-label">Total</div>
+            <div class="stat-value" id="stat-total"><%= (stats.library.movies + stats.library.tv).toLocaleString() %></div>
+          </div>
         </div>
 
         <div id="sync-progress-msg" class="sync-progress-msg" style="display:<%= syncInProgress ? 'block' : 'none' %>">
@@ -171,46 +192,76 @@
       </section>
 
 
-      <!-- ── Stats ─────────────────────────────────────────── -->
-      <section class="admin-section">
-        <div class="admin-section-header">
-          <h2 class="section-title">Stats</h2>
-        </div>
-        <div class="admin-grid">
-          <div class="stat-card">
-            <div class="stat-label">Total Library Items</div>
-            <div class="stat-value"><%= (stats.library.movies + stats.library.tv).toLocaleString() %></div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-label">Total Dismissals</div>
-            <div class="stat-value" id="stat-dismissals"><%= stats.dismissals.toLocaleString() %></div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-label">Active Users (synced)</div>
-            <div class="stat-value"><%= stats.users.length %></div>
-          </div>
-        </div>
-      </section>
-
       <!-- ── Logging ───────────────────────────────────────────── -->
       <section class="admin-section">
         <div class="admin-section-header">
           <div>
-            <h2 class="section-title">Logging</h2>
+            <h2 class="section-title">Verbose Logging</h2>
             <p class="section-desc" style="margin-top:4px">
-              When enabled, Diskovarr writes timestamped logs to stdout/stderr.<br>
+              When enabled, Diskovarr writes detailed HTTP request logs and debug output. Basic info/warn/error logs are always written.<br>
               View with: <code style="font-size:0.78rem;background:var(--bg-elevated);padding:1px 5px;border-radius:4px;border:1px solid var(--border)">sudo journalctl -u diskovarr -f</code>
               &nbsp;or&nbsp;
               <code style="font-size:0.78rem;background:var(--bg-elevated);padding:1px 5px;border-radius:4px;border:1px solid var(--border)">docker logs diskovarr -f</code>
             </p>
           </div>
           <label class="slide-toggle" style="flex-shrink:0">
-            <input type="checkbox" id="logging-toggle"
-              <%= loggingEnabled ? 'checked' : '' %>
-              onchange="onLoggingChange(this.checked)">
+            <input type="checkbox" id="verbose-logging-toggle"
+              <%= verboseLoggingEnabled ? 'checked' : '' %>
+              onchange="onVerboseLoggingChange(this.checked)">
             <span class="slide-track"></span>
           </label>
         </div>
+      </section>
+
+      <!-- ── API Key ──────────────────────────────────────────── -->
+      <section class="admin-section">
+        <div class="section-header">
+          <h2 class="section-title">API Key</h2>
+        </div>
+        <p class="section-desc">Use this key to authenticate external applications with Diskovarr's API. Send it as an <code>Authorization: Bearer &lt;key&gt;</code> or <code>X-Api-Key</code> header. The key grants admin-level access to all API endpoints.</p>
+
+        <div class="conn-field-group" style="max-width:520px;margin-bottom:0.75rem">
+          <span class="conn-field-label">API Key</span>
+          <div class="conn-input-wrap">
+            <input type="password" id="settings-api-key" class="conn-input" readonly
+              value="<%= hasApiKey ? '••••••••' : '' %>"
+              placeholder="No key generated yet">
+            <div class="conn-input-btns">
+              <% if (hasApiKey) { %>
+                <button type="button" class="conn-input-icon-btn" id="api-key-eye-btn"
+                  onclick="toggleFieldVis('settings-api-key', this)" title="Show / hide"></button>
+                <button type="button" class="conn-input-icon-btn" id="api-key-copy-btn"
+                  onclick="copyApiKey()" title="Copy to clipboard"></button>
+              <% } %>
+            </div>
+          </div>
+        </div>
+        <button class="btn-admin btn-primary" onclick="generateApiKey()">
+          <%= hasApiKey ? 'Regenerate Key' : 'Generate API Key' %>
+        </button>
+
+        <!-- Inline API endpoint reference -->
+        <details style="margin-top:1.5rem">
+          <summary style="cursor:pointer;font-size:0.85rem;color:var(--text-secondary);user-select:none">API Endpoint Reference</summary>
+          <div class="api-docs" style="margin-top:0.75rem;font-size:0.82rem;line-height:1.7">
+            <p style="margin-bottom:0.5rem;color:var(--text-secondary)">All endpoints require authentication. Prefix with your Diskovarr base URL.</p>
+            <table class="api-docs-table">
+              <thead><tr><th>Method</th><th>Path</th><th>Description</th></tr></thead>
+              <tbody>
+                <tr><td>GET</td><td>/api/recommendations</td><td>Personalized recommendations for authenticated user</td></tr>
+                <tr><td>GET</td><td>/api/search?q=&lt;query&gt;</td><td>Full-text library search with pagination</td></tr>
+                <tr><td>GET</td><td>/api/discover</td><td>Browse library with type/genre/decade/rating filters</td></tr>
+                <tr><td>GET</td><td>/api/watchlist</td><td>Authenticated user's watchlist</td></tr>
+                <tr><td>POST</td><td>/api/request</td><td>Submit a media request (body: tmdbId, mediaType, seasons)</td></tr>
+                <tr><td>GET</td><td>/api/queue</td><td>All requests — pending, approved, denied (admin)</td></tr>
+                <tr><td>PUT</td><td>/api/queue/:id</td><td>Edit request service or seasons (admin)</td></tr>
+                <tr><td>POST</td><td>/api/queue/:id/approve</td><td>Approve a pending request (admin)</td></tr>
+                <tr><td>POST</td><td>/api/queue/:id/deny</td><td>Deny a request with optional note (admin)</td></tr>
+                <tr><td>DELETE</td><td>/api/queue/:id</td><td>Delete a request (admin)</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </details>
       </section>
 
     </div><!-- /panel-settings -->
@@ -284,16 +335,15 @@
           <p class="empty-state" style="padding:20px 0">No users have synced yet.</p>
         <% } else { %>
           <div class="user-table-wrap">
-          <div class="user-table" style="<%= connections.discoverEnabled ? 'grid-template-columns: minmax(140px,1fr) 110px 120px 1fr 180px' : '' %>">
-            <div class="user-table-header" style="<%= connections.discoverEnabled ? 'grid-template-columns: minmax(140px,1fr) 110px 120px 1fr 180px' : '' %>">
+          <div class="user-table" style="<%= connections.discoverEnabled ? 'grid-template-columns: minmax(140px,1fr) 110px 120px 120px' : '' %>">
+            <div class="user-table-header" style="<%= connections.discoverEnabled ? 'grid-template-columns: minmax(140px,1fr) 110px 120px 120px' : '' %>">
               <span>User</span>
               <span>Watched Items</span>
               <span>Last Sync</span>
-              <span>Actions</span>
-              <% if (connections.discoverEnabled) { %><span>Override Global Limits</span><% } %>
+              <% if (connections.discoverEnabled) { %><span>Settings</span><% } %>
             </div>
             <% for (const user of stats.users) { %>
-              <div class="user-table-row" id="user-row-<%= user.user_id %>" style="<%= connections.discoverEnabled ? 'grid-template-columns: minmax(140px,1fr) 110px 120px 1fr 180px' : '' %>">
+              <div class="user-table-row" id="user-row-<%= user.user_id %>" style="<%= connections.discoverEnabled ? 'grid-template-columns: minmax(140px,1fr) 110px 120px 120px' : '' %>">
                 <span class="user-id">
                   <% if (user.thumb) { %>
                     <img src="<%= user.thumb %>" class="user-avatar-sm" alt="" onerror="this.style.display='none'">
@@ -303,33 +353,31 @@
                 </span>
                 <span class="watched-count-cell" data-count="<%= user.watched_count %>"><%= user.watched_count.toLocaleString() %> items</span>
                 <span><%= user.last_sync ? relativeTime(user.last_sync) : 'Never' %></span>
-                <div class="user-actions">
-                  <button class="btn-admin btn-sm" onclick="syncWatched('<%= user.user_id %>')">↻ Re-sync Watched</button>
-                  <button class="btn-admin btn-sm btn-danger" onclick="clearWatched('<%= user.user_id %>')">✕ Clear Watched</button>
-                  <button class="btn-admin btn-sm btn-danger" onclick="clearDismissals('<%= user.user_id %>')">✕ Clear Dismissals</button>
-                </div>
                 <% if (connections.discoverEnabled) { %>
-                  <%
-                    const uOverride = userLimitOverrides[user.user_id];
-                    const uOverrideOn = uOverride && uOverride.overrideEnabled;
-                  %>
-                  <div style="display:flex;align-items:center;gap:8px">
-                    <label class="slide-toggle">
-                      <input type="checkbox" id="user-override-toggle-<%= user.user_id %>"
-                        <%= uOverrideOn ? 'checked' : '' %>
-                        onchange="onUserOverrideToggle('<%= user.user_id %>', '<%= user.username %>', this.checked)">
-                      <span class="slide-track"></span>
-                    </label>
-                    <button id="user-limits-btn-<%= user.user_id %>"
-                      class="btn-admin btn-sm"
-                      style="<%= uOverrideOn ? '' : 'display:none' %>"
-                      onclick="openLimitsModal('<%= user.user_id %>', '<%= user.username %>')">⚙ Set Limits</button>
+                  <div>
+                    <a class="btn-admin btn-sm" href="/admin/user-settings/<%= user.user_id %>">Edit</a>
                   </div>
                 <% } %>
               </div>
             <% } %>
           </div>
           </div><!-- /.user-table-wrap -->
+          <% if (userTotalPages > 1) { %>
+          <div style="display:flex;align-items:center;gap:10px;margin-top:16px;font-size:0.85rem;color:var(--text-secondary)">
+            <% if (userPage > 1) { %>
+              <a class="btn-admin btn-sm" href="/admin?userPage=<%= userPage - 1 %>&userPerPage=<%= userPerPage %>#users-tab">&#8249; Prev</a>
+            <% } %>
+            <span>Page <%= userPage %> of <%= userTotalPages %> (<%= totalUsers %> users)</span>
+            <% if (userPage < userTotalPages) { %>
+              <a class="btn-admin btn-sm" href="/admin?userPage=<%= userPage + 1 %>&userPerPage=<%= userPerPage %>#users-tab">Next &#8250;</a>
+            <% } %>
+            <select onchange="window.location='/admin?userPage=1&userPerPage='+this.value+'#users-tab'" style="padding:4px 8px;border-radius:5px;border:1px solid var(--border);background:var(--bg-elevated);color:var(--text);font-size:0.82rem">
+              <option value="10" <%= userPerPage === 10 ? 'selected' : '' %>>10/page</option>
+              <option value="25" <%= userPerPage === 25 ? 'selected' : '' %>>25/page</option>
+              <option value="50" <%= userPerPage === 50 ? 'selected' : '' %>>50/page</option>
+            </select>
+          </div>
+          <% } %>
         <% } %>
 
         <div class="admin-actions" style="margin-top:16px">
@@ -395,55 +443,158 @@
 
         </div>
         <button class="btn-admin btn-primary" onclick="saveGlobalLimits()">Save</button>
+
+        <!-- Auto-approve toggles -->
+        <div style="margin-top:24px;padding-top:20px;border-top:1px solid var(--border)">
+          <p style="font-size:0.72rem;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:var(--text-secondary);margin:0 0 14px">Auto Approve Requests</p>
+          <p class="section-desc" style="margin-bottom:14px;font-size:0.82rem">
+            When enabled, requests go directly to the configured service. When disabled, requests enter the queue for review. Per-user overrides can be set via <strong>Edit</strong>.
+          </p>
+          <div style="display:flex;flex-direction:column;gap:12px">
+            <div style="display:flex;align-items:center;gap:14px">
+              <label class="slide-toggle">
+                <input type="checkbox" id="toggle-auto-approve-movies"
+                  onchange="onAutoApproveChange('movies', this.checked)">
+                <span class="slide-track"></span>
+              </label>
+              <span style="font-size:0.9rem;color:#fff;font-weight:500">Movies</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:14px">
+              <label class="slide-toggle">
+                <input type="checkbox" id="toggle-auto-approve-tv"
+                  onchange="onAutoApproveChange('tv', this.checked)">
+                <span class="slide-track"></span>
+              </label>
+              <span style="font-size:0.9rem;color:#fff;font-weight:500">TV Shows</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Auto-Request Watchlist subsection -->
+        <div style="margin-top:24px;padding-top:20px;border-top:1px solid var(--border)">
+          <p style="font-size:0.72rem;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:var(--text-secondary);margin:0 0 14px">Auto-Request Watchlist</p>
+          <p class="section-desc" style="margin-bottom:14px;font-size:0.82rem">
+            When enabled, items added to a user's Plex watchlist are automatically submitted as requests (if not already in the library). Per-user overrides can be set via <strong>Edit</strong>.
+          </p>
+          <div style="display:flex;flex-direction:column;gap:12px">
+            <div style="display:flex;align-items:center;gap:14px">
+              <label class="slide-toggle">
+                <input type="checkbox" id="toggle-auto-request-movies" onchange="onAutoRequestChange('movies', this.checked)">
+                <span class="slide-track"></span>
+              </label>
+              <span style="font-size:0.9rem;color:#fff;font-weight:500">Movies</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:14px">
+              <label class="slide-toggle">
+                <input type="checkbox" id="toggle-auto-request-tv" onchange="onAutoRequestChange('tv', this.checked)">
+                <span class="slide-track"></span>
+              </label>
+              <span style="font-size:0.9rem;color:#fff;font-weight:500">TV Shows</span>
+            </div>
+          </div>
+        </div>
       </section>
       <% } %>
 
     </div><!-- /panel-users -->
 
-    <!-- Per-user limits modal -->
-    <div id="user-limits-modal" style="display:none;position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,0.7);align-items:center;justify-content:center">
-      <div style="background:var(--bg-secondary);border-radius:14px;padding:28px;width:min(480px,90vw);border:1px solid var(--border);position:relative">
-        <button onclick="closeLimitsModal()" style="position:absolute;top:14px;right:16px;background:none;border:none;color:var(--text-secondary);font-size:1.3rem;cursor:pointer">✕</button>
-        <h3 style="margin:0 0 4px;font-size:1.05rem">Custom Request Limits</h3>
-        <p id="user-limits-modal-name" style="margin:0 0 20px;color:var(--text-secondary);font-size:0.88rem"></p>
+    <!-- User settings modal (replaces per-user limits modal) -->
+    <div id="user-settings-modal" style="display:none;position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,0.75);align-items:center;justify-content:center">
+      <div style="background:var(--bg-secondary);border-radius:14px;padding:28px;width:min(520px,92vw);border:1px solid var(--border);position:relative;max-height:90vh;overflow-y:auto">
+        <button onclick="closeUserSettingsModal()" style="position:absolute;top:14px;right:16px;background:none;border:none;color:var(--text-secondary);font-size:1.3rem;cursor:pointer">✕</button>
+        <h3 style="margin:0 0 4px;font-size:1.05rem">User Settings</h3>
+        <p id="user-settings-modal-name" style="margin:0 0 20px;color:var(--text-secondary);font-size:0.88rem"></p>
 
-        <div style="display:flex;flex-direction:column;gap:14px;margin-bottom:24px">
+        <!-- Override limits toggle -->
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--border)">
+          <label class="slide-toggle">
+            <input type="checkbox" id="ums-override-toggle" onchange="onUmsOverrideChange(this.checked)">
+            <span class="slide-track"></span>
+          </label>
+          <span style="font-size:0.9rem;color:#fff;font-weight:500">Override global request limits</span>
+        </div>
 
-          <!-- Movies row -->
+        <div id="ums-limits-fields" style="display:none;flex-direction:column;gap:14px;margin-bottom:20px">
+          <!-- Movies -->
           <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
             <span style="min-width:84px;font-size:0.9rem;color:#fff;font-weight:500">Movies</span>
             <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:0.88rem;color:var(--text-secondary);user-select:none">
-              <input type="checkbox" class="themed-checkbox" id="user-limit-movie-unlimited" onchange="onUserMovieUnlimitedChange(this.checked)">
+              <input type="checkbox" class="themed-checkbox" id="ums-movie-unlimited" onchange="onUmsMovieUnlimitedChange(this.checked)">
               Unlimited
             </label>
-            <div id="user-limit-movie-fields" style="display:flex;align-items:center;gap:8px">
-              <input type="number" id="user-limit-movie-count" min="1" max="9999" class="btn-admin limit-num" value="1">
+            <div id="ums-movie-fields" style="display:flex;align-items:center;gap:8px">
+              <input type="number" id="ums-movie-count" min="1" max="9999" class="btn-admin limit-num" value="1">
               <span style="font-size:0.88rem;color:var(--text-secondary)">movies per</span>
-              <input type="number" id="user-limit-movie-days" min="1" max="365" class="btn-admin limit-num" value="7">
+              <input type="number" id="ums-movie-days" min="1" max="365" class="btn-admin limit-num" value="7">
               <span style="font-size:0.88rem;color:var(--text-secondary)">days</span>
             </div>
           </div>
-
-          <!-- TV Seasons row -->
+          <!-- TV Seasons -->
           <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
             <span style="min-width:84px;font-size:0.9rem;color:#fff;font-weight:500">TV Seasons</span>
             <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:0.88rem;color:var(--text-secondary);user-select:none">
-              <input type="checkbox" class="themed-checkbox" id="user-limit-season-unlimited" onchange="onUserSeasonUnlimitedChange(this.checked)">
+              <input type="checkbox" class="themed-checkbox" id="ums-season-unlimited" onchange="onUmsSeasonUnlimitedChange(this.checked)">
               Unlimited
             </label>
-            <div id="user-limit-season-fields" style="display:flex;align-items:center;gap:8px">
-              <input type="number" id="user-limit-season-count" min="1" max="9999" class="btn-admin limit-num" value="1">
+            <div id="ums-season-fields" style="display:flex;align-items:center;gap:8px">
+              <input type="number" id="ums-season-count" min="1" max="9999" class="btn-admin limit-num" value="1">
               <span style="font-size:0.88rem;color:var(--text-secondary)">seasons per</span>
-              <input type="number" id="user-limit-season-days" min="1" max="365" class="btn-admin limit-num" value="7">
+              <input type="number" id="ums-season-days" min="1" max="365" class="btn-admin limit-num" value="7">
               <span style="font-size:0.88rem;color:var(--text-secondary)">days</span>
             </div>
           </div>
+        </div>
 
+        <!-- Auto-approve overrides -->
+        <div style="margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--border)">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+            <label class="slide-toggle">
+              <input type="checkbox" id="ums-auto-approve-override" onchange="onUmsAutoApproveOverrideChange(this.checked)">
+              <span class="slide-track"></span>
+            </label>
+            <span style="font-size:0.9rem;color:#fff;font-weight:500">Override global approval settings</span>
+          </div>
+          <div id="ums-auto-approve-fields" style="display:none;flex-direction:column;gap:10px;padding-left:4px">
+            <div style="display:flex;align-items:center;gap:12px">
+              <label class="slide-toggle">
+                <input type="checkbox" id="ums-auto-approve-movies-toggle">
+                <span class="slide-track"></span>
+              </label>
+              <span style="font-size:0.88rem;color:var(--text-secondary)">Auto-approve movie requests</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:12px">
+              <label class="slide-toggle">
+                <input type="checkbox" id="ums-auto-approve-tv-toggle">
+                <span class="slide-track"></span>
+              </label>
+              <span style="font-size:0.88rem;color:var(--text-secondary)">Auto-approve TV Show requests</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Admin privileges -->
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:24px">
+          <label class="slide-toggle">
+            <input type="checkbox" id="ums-is-admin">
+            <span class="slide-track"></span>
+          </label>
+          <span style="font-size:0.9rem;color:#fff;font-weight:500">Elevated privileges (queue access)</span>
+        </div>
+
+        <!-- User actions -->
+        <div style="margin-bottom:20px;padding-bottom:20px;border-bottom:1px solid var(--border)">
+          <div style="font-size:0.82rem;font-weight:600;color:var(--text-secondary);margin-bottom:10px;text-transform:uppercase;letter-spacing:0.05em">Actions</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn-admin btn-sm" onclick="syncWatched(_umsUserId)">↻ Re-sync Watched</button>
+            <button class="btn-admin btn-sm btn-danger" onclick="clearWatched(_umsUserId)">✕ Clear Watched</button>
+            <button class="btn-admin btn-sm btn-danger" onclick="clearDismissals(_umsUserId)">✕ Clear Dismissals</button>
+            <button class="btn-admin btn-sm btn-danger" onclick="clearUserRequests(_umsUserId)">✕ Clear Requests</button>
+          </div>
         </div>
 
         <div style="display:flex;gap:10px;justify-content:flex-end">
-          <button class="btn-admin" onclick="closeLimitsModal()">Cancel</button>
-          <button class="btn-admin btn-primary" onclick="saveUserLimits()">Save</button>
+          <button class="btn-admin" onclick="closeUserSettingsModal()">Cancel</button>
+          <button class="btn-admin btn-primary" onclick="saveUserSettings()">Save</button>
         </div>
       </div>
     </div>
@@ -735,7 +886,7 @@
               <select id="radarr-quality-profile" class="conn-select" onchange="onQualityProfileChange('radarr')">
                 <option value="">— select a profile —</option>
                 <% if (connections.radarrQualityProfileId) { %>
-                  <option value="<%= connections.radarrQualityProfileId %>" selected>(saved — re-test to reload list)</option>
+                  <option value="<%= connections.radarrQualityProfileId %>" selected><%= connections.radarrQualityProfileName || '(saved — re-test to reload list)' %></option>
                 <% } %>
               </select>
             </div>
@@ -799,7 +950,7 @@
               <select id="sonarr-quality-profile" class="conn-select" onchange="onQualityProfileChange('sonarr')">
                 <option value="">— select a profile —</option>
                 <% if (connections.sonarrQualityProfileId) { %>
-                  <option value="<%= connections.sonarrQualityProfileId %>" selected>(saved — re-test to reload list)</option>
+                  <option value="<%= connections.sonarrQualityProfileId %>" selected><%= connections.sonarrQualityProfileName || '(saved — re-test to reload list)' %></option>
                 <% } %>
               </select>
             </div>
@@ -808,6 +959,222 @@
 
       </section>
     </div><!-- /panel-connections -->
+
+    <!-- ══════════════════════════════════════════════════════════ -->
+    <!-- NOTIFICATIONS TAB                                          -->
+    <!-- ══════════════════════════════════════════════════════════ -->
+    <div class="admin-tab-panel" id="panel-notifications" hidden>
+
+      <!-- Discord Agent -->
+      <section class="admin-section">
+        <div class="admin-section-header">
+          <h2 class="section-title">Discord Agent <button type="button" class="agent-info-btn" onclick="openAgentInfo('discord')" title="How to configure">&#9432;</button></h2>
+          <label class="slide-toggle" style="flex-shrink:0">
+            <input type="checkbox" id="discord-enabled" onchange="saveDiscordAgent()">
+            <span class="slide-track"></span>
+          </label>
+        </div>
+        <p class="section-desc" style="margin-bottom:16px">Send Discord notifications via a shared channel webhook or direct messages to individual users via a bot.</p>
+
+        <!-- Mode selector -->
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:20px">
+          <span id="lbl-discord-webhook" class="service-label-active">Webhook</span>
+          <label class="slide-toggle slide-toggle-choice">
+            <input type="checkbox" id="toggle-discord-mode" onchange="setDiscordMode(this.checked ? 'bot' : 'webhook')">
+            <span class="slide-track"></span>
+          </label>
+          <span id="lbl-discord-bot" class="service-label-inactive">Bot Token</span>
+        </div>
+
+        <!-- Webhook mode fields -->
+        <div id="discord-webhook-panel" style="display:flex;flex-direction:column;gap:12px;margin-bottom:20px">
+          <div><label class="conn-label">Webhook URL</label><input type="url" id="discord-webhook" class="conn-input" placeholder="https://discord.com/api/webhooks/..."></div>
+          <div><label class="conn-label">Notification Role ID <span style="color:var(--text-muted);font-weight:400">(optional, for @mentions)</span></label><input type="text" id="discord-roleid" class="conn-input" placeholder="Role ID"></div>
+          <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem"><input type="checkbox" id="discord-mentions" class="themed-checkbox"> Enable @role mentions</label>
+        </div>
+
+        <!-- Bot token mode fields -->
+        <div id="discord-bot-panel" style="display:none;flex-direction:column;gap:12px;margin-bottom:20px">
+          <div><label class="conn-label">Bot Token</label><input type="password" id="discord-bottoken" class="conn-input" placeholder="Bot token from Discord Developer Portal" autocomplete="off"></div>
+          <div id="discord-bot-webhook-row" style="margin-top:4px">
+            <div class="toggle-row">
+              <label class="slide-toggle">
+                <input type="checkbox" id="discord-bot-use-webhook"
+                  onchange="document.getElementById('discord-bot-webhook-field').style.display=this.checked?'block':'none'">
+                <span class="slide-track"></span>
+              </label>
+              <span class="toggle-label" style="font-size:0.85rem">Also post admin notifications to shared channel</span>
+            </div>
+            <div id="discord-bot-webhook-field" style="display:none;margin-top:8px">
+              <label class="conn-label">Shared Channel Webhook URL
+                <span style="color:var(--text-muted);font-weight:400">(for admin announcements)</span>
+              </label>
+              <input type="url" id="discord-bot-webhook" class="conn-input" placeholder="https://discord.com/api/webhooks/...">
+            </div>
+          </div>
+        </div>
+
+        <!-- Shared fields -->
+        <div style="display:flex;flex-direction:column;gap:12px;margin-bottom:20px">
+          <div><label class="conn-label">Bot Username <span style="color:var(--text-muted);font-weight:400">(optional)</span></label><input type="text" id="discord-botname" class="conn-input" placeholder="Diskovarr"></div>
+          <div><label class="conn-label">Bot Avatar URL <span style="color:var(--text-muted);font-weight:400">(optional — leave blank to use auto-generated logo)</span></label><input type="url" id="discord-avatar-url" class="conn-input" placeholder="https://..."></div>
+          <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem"><input type="checkbox" id="discord-poster" class="themed-checkbox"> Embed poster image in notifications</label>
+        </div>
+
+        <div style="margin-bottom:16px">
+          <p style="font-size:0.72rem;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:var(--text-secondary);margin:0 0 10px">Notification Types</p>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem"><input type="checkbox" class="themed-checkbox discord-type" value="request_pending" checked> New request pending <span style="color:var(--text-muted);font-size:0.78rem">(admin)</span></label>
+            <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem"><input type="checkbox" class="themed-checkbox discord-type" value="request_auto_approved" checked> Request auto-approved <span style="color:var(--text-muted);font-size:0.78rem">(admin)</span></label>
+            <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem"><input type="checkbox" class="themed-checkbox discord-type" value="request_approved" checked> Request approved <span style="color:var(--text-muted);font-size:0.78rem">(requester)</span></label>
+            <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem"><input type="checkbox" class="themed-checkbox discord-type" value="request_denied" checked> Request denied <span style="color:var(--text-muted);font-size:0.78rem">(requester)</span></label>
+            <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem"><input type="checkbox" class="themed-checkbox discord-type" value="request_available"> Request available in library <span style="color:var(--text-muted);font-size:0.78rem">(requester)</span></label>
+            <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem"><input type="checkbox" class="themed-checkbox discord-type" value="request_process_failed"> Request processing error <span style="color:var(--text-muted);font-size:0.78rem">(admin)</span></label>
+          </div>
+        </div>
+
+        <!-- Test section -->
+        <div id="discord-test-webhook-row" style="display:flex;gap:10px;flex-wrap:wrap">
+          <button class="btn-admin btn-primary" onclick="saveDiscordAgent()">Save</button>
+          <button class="btn-admin" onclick="testDiscord()">Send Test</button>
+        </div>
+        <div id="discord-test-bot-row" style="display:none;gap:10px;flex-wrap:wrap;align-items:flex-end">
+          <div>
+            <label class="conn-label" style="margin-bottom:4px">Your Discord User ID <span style="color:var(--text-muted);font-weight:400">(to receive test DM)</span></label>
+            <input type="text" id="discord-test-userid" class="conn-input" style="max-width:240px" placeholder="Discord user ID">
+          </div>
+          <div style="display:flex;gap:10px">
+            <button class="btn-admin btn-primary" onclick="saveDiscordAgent()">Save</button>
+            <button class="btn-admin" onclick="testDiscord()">Send Test DM</button>
+          </div>
+        </div>
+
+        <!-- Invite link (shown to users in settings) -->
+        <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
+          <label class="conn-label">Discord Server Invite Link <span style="color:var(--text-muted);font-weight:400">(optional — shown to users in their settings)</span></label>
+          <input type="url" id="discord-invite-link" class="conn-input" placeholder="https://discord.gg/...">
+          <p style="font-size:0.78rem;color:var(--text-secondary);margin-top:6px">Use a non-expiring invite so users can join the server to receive bot DMs.</p>
+        </div>
+      </section>
+
+      <!-- Pushover Agent -->
+      <section class="admin-section">
+        <div class="admin-section-header">
+          <h2 class="section-title">Pushover Agent <button type="button" class="agent-info-btn" onclick="openAgentInfo('pushover')" title="How to configure">&#9432;</button></h2>
+          <label class="slide-toggle" style="flex-shrink:0">
+            <input type="checkbox" id="pushover-enabled" onchange="savePushoverAgent()">
+            <span class="slide-track"></span>
+          </label>
+        </div>
+        <p class="section-desc" style="margin-bottom:20px">Send push notifications via Pushover to your devices.</p>
+        <div style="display:flex;flex-direction:column;gap:12px;margin-bottom:20px">
+          <div><label class="conn-label">Application API Token</label><input type="text" id="pushover-token" class="conn-input" placeholder="App token from pushover.net"></div>
+          <div><label class="conn-label">User or Group Key</label><input type="text" id="pushover-userkey" class="conn-input" placeholder="User/group key"></div>
+        </div>
+        <div style="margin-bottom:16px">
+          <p style="font-size:0.72rem;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:var(--text-secondary);margin:0 0 10px">Notification Types</p>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem"><input type="checkbox" class="themed-checkbox pushover-type" value="request_pending" checked> New request pending</label>
+            <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem"><input type="checkbox" class="themed-checkbox pushover-type" value="request_approved" checked> Request approved</label>
+            <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem"><input type="checkbox" class="themed-checkbox pushover-type" value="request_denied" checked> Request denied</label>
+            <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem"><input type="checkbox" class="themed-checkbox pushover-type" value="request_process_failed"> Request processing error</label>
+          </div>
+        </div>
+        <div style="display:flex;gap:10px">
+          <button class="btn-admin btn-primary" onclick="savePushoverAgent()">Save</button>
+          <button class="btn-admin" onclick="testPushover()">Send Test</button>
+        </div>
+      </section>
+
+    </div><!-- /panel-notifications -->
+
+    <!-- ── Discord info modal ───────────────────────────────────── -->
+    <div id="agent-info-discord" style="display:none;position:fixed;inset:0;z-index:1100;background:rgba(0,0,0,0.75);align-items:center;justify-content:center" onclick="if(event.target===this)closeAgentInfo('discord')">
+      <div style="background:var(--bg-secondary);border-radius:14px;padding:28px;width:min(560px,92vw);border:1px solid var(--border);position:relative;max-height:88vh;overflow-y:auto">
+        <button onclick="closeAgentInfo('discord')" style="position:absolute;top:14px;right:16px;background:none;border:none;color:var(--text-secondary);font-size:1.3rem;cursor:pointer;line-height:1" title="Close">&times;</button>
+        <h3 style="margin:0 0 16px;font-size:1.05rem">Configuring Discord Notifications</h3>
+        <div style="font-size:0.88rem;line-height:1.7;color:var(--text-secondary);display:flex;flex-direction:column;gap:14px">
+          <div style="background:var(--bg-elevated);border-radius:8px;padding:12px">
+            <p style="font-weight:600;color:var(--text-primary);margin:0 0 4px">Mode: Webhook (shared channel)</p>
+            <p style="margin:0 0 6px">All notifications go to a single Discord channel. Users can optionally add their own personal webhook for private-channel delivery.</p>
+            <p style="font-weight:500;color:var(--text-primary);margin:0 0 2px">Setup:</p>
+            <p style="margin:0">In your Discord server → <strong>Server Settings → Integrations → Webhooks</strong> → <em>New Webhook</em> → pick a channel → copy the URL. Paste it in the Webhook URL field above.</p>
+          </div>
+          <div style="background:var(--bg-elevated);border-radius:8px;padding:12px">
+            <p style="font-weight:600;color:var(--text-primary);margin:0 0 4px">Mode: Bot Token (individual DMs)</p>
+            <p style="margin:0 0 6px">The bot sends each user a personal DM. Each user enters their Discord User ID in their profile settings.</p>
+            <p style="font-weight:500;color:var(--text-primary);margin:0 0 2px">Setup:</p>
+            <ol style="margin:0;padding-left:18px">
+              <li>Go to <strong>discord.com/developers/applications</strong> → <em>New Application</em></li>
+              <li>Open the <strong>Bot</strong> tab → <em>Add Bot</em> → copy the <strong>Token</strong></li>
+              <li>Enable <strong>Message Content Intent</strong> on the Bot tab</li>
+              <li>Invite the bot to your server: OAuth2 → URL Generator → scope: <code style="font-size:0.78rem;background:var(--bg-secondary);padding:1px 4px;border-radius:3px">bot</code>, permission: <em>Send Messages</em></li>
+              <li>Each user finds their Discord User ID (Developer Mode → right-click profile → Copy User ID) and enters it in their Diskovarr settings</li>
+            </ol>
+            <p style="margin:8px 0 0"><strong>Admin channel toggle</strong> — enable "Also post admin notifications to shared channel" to mirror admin-type alerts (pending requests, errors) to a shared Discord channel webhook alongside the bot DMs.</p>
+            <p style="margin:6px 0 0"><strong>Server Invite Link</strong> — set a non-expiring Discord invite link; users will see a "Join Server" prompt in their settings page so they can join your server before the bot can DM them.</p>
+            <div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;padding:10px 12px;margin-top:10px">
+              <p style="font-weight:600;color:var(--text-primary);margin:0 0 4px">Finding your Discord User ID (to test DMs)</p>
+              <p style="margin:0 0 6px">The User ID is a <strong>17–19 digit number</strong> — not your username (e.g. <code style="font-size:0.78rem;background:var(--bg-secondary);padding:1px 4px;border-radius:3px">185234567891234560</code>).</p>
+              <ol style="margin:0;padding-left:18px">
+                <li>In Discord, open <strong>Settings → Advanced</strong> and enable <strong>Developer Mode</strong></li>
+                <li>Find any message you've sent, then <strong>right-click your avatar or username</strong> on that message</li>
+                <li>Click <strong>Copy User ID</strong> from the context menu</li>
+                <li>Paste the numeric ID into your Diskovarr <strong>Notification Settings</strong> page and save</li>
+              </ol>
+              <p style="margin:6px 0 0;color:var(--text-secondary)"><strong>Note:</strong> The bot must be in a Discord server that you are also a member of — it cannot DM users with no mutual server.</p>
+              <div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;padding:10px 12px;margin-top:8px">
+                <p style="font-weight:600;color:var(--text-primary);margin:0 0 4px">Inviting the bot to your server</p>
+                <ol style="margin:0;padding-left:18px">
+                  <li>Go to <strong>discord.com/developers/applications</strong> → select your app</li>
+                  <li>Open <strong>OAuth2 → URL Generator</strong></li>
+                  <li>Under <strong>Scopes</strong> check <code style="font-size:0.78rem;background:var(--bg-elevated);padding:1px 4px;border-radius:3px">bot</code></li>
+                  <li>Under <strong>Bot Permissions</strong> check <em>Send Messages</em></li>
+                  <li>Copy the generated URL, open it in your browser, and add the bot to your server</li>
+                </ol>
+              </div>
+            </div>
+          </div>
+          <div>
+            <p style="font-weight:600;color:var(--text-primary);margin:0 0 4px">Bot avatar</p>
+            <p style="margin:0">Leave the Avatar URL blank and Diskovarr will automatically set the bot's avatar to the Diskovarr logo in your server's accent colour. Or supply a custom image URL to override it. The <strong>App Public URL</strong> (set in General Settings) must be configured for the auto-generated avatar endpoint to work.</p>
+          </div>
+          <div>
+            <p style="font-weight:600;color:var(--text-primary);margin:0 0 4px">Notification types</p>
+            <p style="margin:0"><strong>New request pending / Auto-approved</strong> — admin alerts for incoming requests. <strong>Approved / Denied</strong> — notify the requester when an admin acts. <strong>Available</strong> — notify when content appears in Plex. <strong>Request processing error</strong> — admin alert when a request fails to submit to Radarr/Sonarr/Overseerr.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Pushover info modal ───────────────────────────────────── -->
+    <div id="agent-info-pushover" style="display:none;position:fixed;inset:0;z-index:1100;background:rgba(0,0,0,0.75);align-items:center;justify-content:center" onclick="if(event.target===this)closeAgentInfo('pushover')">
+      <div style="background:var(--bg-secondary);border-radius:14px;padding:28px;width:min(500px,92vw);border:1px solid var(--border);position:relative;max-height:88vh;overflow-y:auto">
+        <button onclick="closeAgentInfo('pushover')" style="position:absolute;top:14px;right:16px;background:none;border:none;color:var(--text-secondary);font-size:1.3rem;cursor:pointer;line-height:1" title="Close">&times;</button>
+        <h3 style="margin:0 0 16px;font-size:1.05rem">Configuring Pushover Notifications</h3>
+        <div style="font-size:0.88rem;line-height:1.7;color:var(--text-secondary);display:flex;flex-direction:column;gap:12px">
+          <div>
+            <p style="font-weight:600;color:var(--text-primary);margin:0 0 4px">1. Create a Pushover application</p>
+            <p style="margin:0">Log in at <strong>pushover.net</strong>, go to <em>Your Applications</em> → <em>Create an Application/API Token</em>. Name it (e.g. "Diskovarr") and copy the <strong>API Token</strong>.</p>
+          </div>
+          <div>
+            <p style="font-weight:600;color:var(--text-primary);margin:0 0 4px">2. Find your User Key</p>
+            <p style="margin:0">Your <strong>User Key</strong> is shown on your Pushover dashboard homepage. Use a <strong>Group Key</strong> instead to deliver to multiple users at once.</p>
+          </div>
+          <div>
+            <p style="font-weight:600;color:var(--text-primary);margin:0 0 4px">3. Install the Pushover app</p>
+            <p style="margin:0">Install Pushover on your iOS or Android device and log in. Notifications will be pushed there in real time.</p>
+          </div>
+          <div>
+            <p style="font-weight:600;color:var(--text-primary);margin:0 0 4px">Notification types</p>
+            <p style="margin:0"><strong>New request pending</strong> — admin alert for incoming requests. <strong>Request approved/denied</strong> — notifies the requester when an admin acts.</p>
+          </div>
+          <div>
+            <p style="margin:0">Per-user Pushover keys (for individual delivery) can be set from each user's settings page.</p>
+          </div>
+        </div>
+      </div>
+    </div>
 
   </main>
 
@@ -849,6 +1216,18 @@
         document.getElementById('panel-' + this.dataset.tab).hidden = false;
       });
     });
+
+    // Restore tab from URL hash on load
+    (function() {
+      var hash = location.hash.replace('#', '');
+      var target = document.querySelector('.admin-tab[data-tab="' + hash + '"]');
+      if (target) {
+        document.querySelectorAll('.admin-tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.admin-tab-panel').forEach(p => { p.hidden = true; });
+        target.classList.add('active');
+        document.getElementById('panel-' + hash).hidden = false;
+      }
+    })();
 
     // ── Library sync ───────────────────────────────────────────────
     let pollInterval = null;
@@ -897,6 +1276,7 @@
         pollInterval = null;
         document.getElementById('stat-movies').textContent = d.stats.library.movies.toLocaleString();
         document.getElementById('stat-tv').textContent = d.stats.library.tv.toLocaleString();
+        document.getElementById('stat-total').textContent = (d.stats.library.movies + d.stats.library.tv).toLocaleString();
         document.getElementById('stat-movies-sync').textContent = fmtTime(d.stats.library.lastSyncMovies);
         document.getElementById('stat-tv-sync').textContent = fmtTime(d.stats.library.lastSyncTV);
         if (d.lastSyncError) showToast('Sync error: ' + d.lastSyncError, true);
@@ -904,10 +1284,10 @@
       }
     }
 
-    // ── Logging toggle ─────────────────────────────────────────────
-    async function onLoggingChange(enable) {
+    // ── Verbose logging toggle ─────────────────────────────────────
+    async function onVerboseLoggingChange(enable) {
       await apiFetch('/admin/settings/logging', 'POST', { enabled: enable });
-      showToast('Logging ' + (enable ? 'enabled' : 'disabled'));
+      showToast('Verbose logging ' + (enable ? 'enabled' : 'disabled'));
     }
 
     // ── Auto-sync toggle ───────────────────────────────────────────
@@ -1071,6 +1451,16 @@
       }
     }
 
+    async function saveAppPublicUrl() {
+      var val = document.getElementById('app-public-url').value.trim();
+      var d = await fetch('/admin/connections/save', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ app_public_url: val }),
+      }).then(r => r.json());
+      if (d.success) showToast('App URL saved');
+      else showToast('Save failed', true);
+    }
+
     async function onIndividualSeasonsChange(enabled) {
       const body = { individual_seasons_enabled: enabled ? '1' : '0' };
       try {
@@ -1129,103 +1519,300 @@
       }
     }
 
-    let _limitsModalUserId = null;
-    const _userOverrides = <%- JSON.stringify(userLimitOverrides) %>;
+    // ── User settings modal ────────────────────────────────────────
 
-    async function onUserOverrideToggle(userId, username, enabled) {
-      // Immediately persist the override_enabled state
-      const override = _userOverrides[userId] || { movieLimit: 0, movieWindowDays: 7, seasonLimit: 0, seasonWindowDays: 7 };
+    let _umsUserId = null;
+
+    async function openUserSettingsModal(userId, username) {
+      _umsUserId = userId;
+      document.getElementById('user-settings-modal-name').textContent = username + ' (' + userId + ')';
       try {
-        const r = await fetch('/admin/request-limits/user', {
+        const r = await fetch('/admin/users/' + userId + '/settings');
+        const s = await r.json();
+        // Override toggle
+        const overrideEl = document.getElementById('ums-override-toggle');
+        overrideEl.checked = !!s.overrideGlobal;
+        document.getElementById('ums-limits-fields').style.display = s.overrideGlobal ? 'flex' : 'none';
+        // Movie limits
+        const movieLimit = s.movieLimit || 0;
+        document.getElementById('ums-movie-unlimited').checked = (movieLimit === 0);
+        document.getElementById('ums-movie-fields').style.display = (movieLimit === 0) ? 'none' : 'flex';
+        document.getElementById('ums-movie-count').value = movieLimit || 1;
+        document.getElementById('ums-movie-days').value = s.movieWindowDays || 7;
+        // Season limits
+        const seasonLimit = s.seasonLimit || 0;
+        document.getElementById('ums-season-unlimited').checked = (seasonLimit === 0);
+        document.getElementById('ums-season-fields').style.display = (seasonLimit === 0) ? 'none' : 'flex';
+        document.getElementById('ums-season-count').value = seasonLimit || 1;
+        document.getElementById('ums-season-days').value = s.tvWindowDays || 7;
+        // Auto-approve override
+        const hasAutoApproveOverride = s.auto_approve_movies !== null || s.auto_approve_tv !== null;
+        document.getElementById('ums-auto-approve-override').checked = hasAutoApproveOverride;
+        document.getElementById('ums-auto-approve-fields').style.display = hasAutoApproveOverride ? 'flex' : 'none';
+        // Default toggle to global value when first enabling override (or use saved value)
+        document.getElementById('ums-auto-approve-movies-toggle').checked = s.auto_approve_movies !== null ? !!s.auto_approve_movies : true;
+        document.getElementById('ums-auto-approve-tv-toggle').checked = s.auto_approve_tv !== null ? !!s.auto_approve_tv : true;
+        // Admin
+        document.getElementById('ums-is-admin').checked = !!s.is_admin;
+      } catch (err) {
+        showToast('Failed to load settings: ' + err.message, true);
+        return;
+      }
+      document.getElementById('user-settings-modal').style.display = 'flex';
+    }
+
+    function closeUserSettingsModal() {
+      document.getElementById('user-settings-modal').style.display = 'none';
+      _umsUserId = null;
+    }
+
+    function onUmsOverrideChange(checked) {
+      document.getElementById('ums-limits-fields').style.display = checked ? 'flex' : 'none';
+    }
+    function onUmsAutoApproveOverrideChange(checked) {
+      document.getElementById('ums-auto-approve-fields').style.display = checked ? 'flex' : 'none';
+    }
+    function onUmsMovieUnlimitedChange(checked) {
+      document.getElementById('ums-movie-fields').style.display = checked ? 'none' : 'flex';
+    }
+    function onUmsSeasonUnlimitedChange(checked) {
+      document.getElementById('ums-season-fields').style.display = checked ? 'none' : 'flex';
+    }
+
+    async function saveUserSettings() {
+      if (!_umsUserId) return;
+      const overrideGlobal = document.getElementById('ums-override-toggle').checked;
+      const movieUnlimited = document.getElementById('ums-movie-unlimited').checked;
+      const movieLimit = movieUnlimited ? 0 : (parseInt(document.getElementById('ums-movie-count').value) || 1);
+      const movieWindowDays = movieUnlimited ? 7 : (parseInt(document.getElementById('ums-movie-days').value) || 7);
+      const seasonUnlimited = document.getElementById('ums-season-unlimited').checked;
+      const seasonLimit = seasonUnlimited ? 0 : (parseInt(document.getElementById('ums-season-count').value) || 1);
+      const tvWindowDays = seasonUnlimited ? 7 : (parseInt(document.getElementById('ums-season-days').value) || 7);
+      const autoApproveOverride = document.getElementById('ums-auto-approve-override').checked;
+      const amVal = autoApproveOverride ? (document.getElementById('ums-auto-approve-movies-toggle').checked ? '1' : '0') : null;
+      const atVal = autoApproveOverride ? (document.getElementById('ums-auto-approve-tv-toggle').checked ? '1' : '0') : null;
+      const is_admin = document.getElementById('ums-is-admin').checked;
+      try {
+        const r = await fetch('/admin/users/' + _umsUserId + '/settings', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            userId,
-            overrideEnabled: enabled ? '1' : '0',
-            movieLimit: override.movieLimit,
-            movieWindowDays: override.movieWindowDays,
-            seasonLimit: override.seasonLimit,
-            seasonWindowDays: override.seasonWindowDays,
+            movieLimit, seasonLimit, movieWindowDays, tvWindowDays,
+            overrideGlobal: overrideGlobal ? '1' : '0',
+            auto_approve_movies: amVal,
+            auto_approve_tv: atVal,
+            is_admin: is_admin ? '1' : '0',
           }),
         });
         const data = await r.json();
         if (data.success) {
-          _userOverrides[userId] = { ...override, overrideEnabled: enabled };
-          const btn = document.getElementById('user-limits-btn-' + userId);
-          if (btn) btn.style.display = enabled ? '' : 'none';
-          showToast(enabled ? username + ': custom limits enabled' : username + ': using global limits');
+          showToast('User settings saved');
+          closeUserSettingsModal();
         } else {
-          showToast('Save failed', true);
-          // Revert toggle
-          const toggle = document.getElementById('user-override-toggle-' + userId);
-          if (toggle) toggle.checked = !enabled;
+          showToast('Save failed: ' + (data.error || ''), true);
         }
       } catch (err) {
         showToast('Save failed: ' + err.message, true);
-        const toggle = document.getElementById('user-override-toggle-' + userId);
-        if (toggle) toggle.checked = !enabled;
       }
     }
 
-    function openLimitsModal(userId, username) {
-      _limitsModalUserId = userId;
-      document.getElementById('user-limits-modal-name').textContent = username + ' (' + userId + ')';
-      const override = _userOverrides[userId] || null;
-      const movieLimit = override?.movieLimit ?? 0;
-      const seasonLimit = override?.seasonLimit ?? 0;
-      document.getElementById('user-limit-movie-unlimited').checked = (movieLimit === 0);
-      document.getElementById('user-limit-movie-fields').style.display = (movieLimit === 0) ? 'none' : 'flex';
-      document.getElementById('user-limit-movie-count').value = movieLimit || 1;
-      document.getElementById('user-limit-movie-days').value  = override?.movieWindowDays ?? 7;
-      document.getElementById('user-limit-season-unlimited').checked = (seasonLimit === 0);
-      document.getElementById('user-limit-season-fields').style.display = (seasonLimit === 0) ? 'none' : 'flex';
-      document.getElementById('user-limit-season-count').value = seasonLimit || 1;
-      document.getElementById('user-limit-season-days').value  = override?.seasonWindowDays ?? 7;
-      document.getElementById('user-limits-modal').style.display = 'flex';
-    }
+    // ── Auto-approve global toggles ────────────────────────────────
 
-    function closeLimitsModal() {
-      document.getElementById('user-limits-modal').style.display = 'none';
-      _limitsModalUserId = null;
-    }
-
-    function onUserMovieUnlimitedChange(checked) {
-      document.getElementById('user-limit-movie-fields').style.display = checked ? 'none' : 'flex';
-    }
-    function onUserSeasonUnlimitedChange(checked) {
-      document.getElementById('user-limit-season-fields').style.display = checked ? 'none' : 'flex';
-    }
-
-    async function saveUserLimits() {
-      if (!_limitsModalUserId) return;
-      const movieUnlimited  = document.getElementById('user-limit-movie-unlimited').checked;
-      const movieLimit      = movieUnlimited ? 0 : (parseInt(document.getElementById('user-limit-movie-count').value) || 1);
-      const movieWindowDays = movieUnlimited ? 7 : (parseInt(document.getElementById('user-limit-movie-days').value) || 7);
-      const seasonUnlimited  = document.getElementById('user-limit-season-unlimited').checked;
-      const seasonLimit      = seasonUnlimited ? 0 : (parseInt(document.getElementById('user-limit-season-count').value) || 1);
-      const seasonWindowDays = seasonUnlimited ? 7 : (parseInt(document.getElementById('user-limit-season-days').value) || 7);
-      const overrideEnabled  = _userOverrides[_limitsModalUserId]?.overrideEnabled ?? true;
+    async function onAutoApproveChange(type, enabled) {
       try {
-        const r = await fetch('/admin/request-limits/user', {
+        const body = type === 'movies' ? { movies: enabled } : { tv: enabled };
+        const r = await fetch('/admin/settings/auto-approve', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            userId: _limitsModalUserId,
-            overrideEnabled: overrideEnabled ? '1' : '0',
-            movieLimit, movieWindowDays, seasonLimit, seasonWindowDays,
-          }),
+          body: JSON.stringify(body),
         });
         const data = await r.json();
-        if (data.success) {
-          _userOverrides[_limitsModalUserId] = { overrideEnabled, movieLimit, movieWindowDays, seasonLimit, seasonWindowDays };
-          showToast('Custom limits saved');
-          closeLimitsModal();
-        } else {
-          showToast('Save failed', true);
-        }
+        if (data.success) showToast('Auto-approve ' + (type === 'movies' ? 'movies' : 'TV') + ' ' + (enabled ? 'enabled' : 'disabled'));
+        else showToast('Save failed', true);
       } catch (err) {
         showToast('Save failed: ' + err.message, true);
       }
+    }
+
+    // Initialize auto-approve toggles from server
+    (async function () {
+      const toggle_am = document.getElementById('toggle-auto-approve-movies');
+      const toggle_at = document.getElementById('toggle-auto-approve-tv');
+      if (!toggle_am && !toggle_at) return;
+      try {
+        const r = await fetch('/admin/settings/auto-approve');
+        const d = await r.json();
+        if (toggle_am) toggle_am.checked = !!d.movies;
+        if (toggle_at) toggle_at.checked = !!d.tv;
+      } catch {}
+    })();
+
+    // ── Auto-request watchlist ─────────────────────────────────────
+    function onAutoRequestChange(type, checked) {
+      fetch('/admin/settings/auto-request', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type, enabled: checked }),
+      })
+        .then(r => r.json())
+        .then(d => { if (d.success) showToast('Auto-request ' + type + ' ' + (checked ? 'enabled' : 'disabled')); })
+        .catch(() => showToast('Save failed', true));
+    }
+
+    // Load auto-request settings
+    fetch('/admin/status').then(r => r.json()).then(d => {
+      var moviesEl = document.getElementById('toggle-auto-request-movies');
+      var tvEl = document.getElementById('toggle-auto-request-tv');
+      if (moviesEl) moviesEl.checked = d.autoRequestMovies || false;
+      if (tvEl) tvEl.checked = d.autoRequestTv || false;
+    }).catch(() => {});
+
+    // ── Agent info modals ──────────────────────────────────────────
+    function openAgentInfo(agent) {
+      var el = document.getElementById('agent-info-' + agent);
+      if (el) el.style.display = 'flex';
+    }
+    function closeAgentInfo(agent) {
+      var el = document.getElementById('agent-info-' + agent);
+      if (el) el.style.display = 'none';
+    }
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape') { closeAgentInfo('discord'); closeAgentInfo('pushover'); }
+    });
+
+    // ── Discord / Pushover agent settings ──────────────────────────
+    var _discordMode = 'webhook';
+
+    function setDiscordMode(mode) {
+      _discordMode = mode;
+      document.getElementById('toggle-discord-mode').checked = mode === 'bot';
+      document.getElementById('lbl-discord-webhook').className = mode === 'webhook' ? 'service-label-active' : 'service-label-inactive';
+      document.getElementById('lbl-discord-bot').className    = mode === 'bot'     ? 'service-label-active' : 'service-label-inactive';
+      document.getElementById('discord-webhook-panel').style.display    = mode === 'webhook' ? 'flex' : 'none';
+      document.getElementById('discord-bot-panel').style.display        = mode === 'bot'     ? 'flex' : 'none';
+      document.getElementById('discord-test-webhook-row').style.display = mode === 'webhook' ? 'flex' : 'none';
+      document.getElementById('discord-test-bot-row').style.display     = mode === 'bot'     ? 'flex' : 'none';
+    }
+
+    function saveDiscordAgent() {
+      if (document.getElementById('discord-enabled').checked && _discordMode === 'bot') {
+        var publicUrl = (document.getElementById('app-public-url') || {}).value || '';
+        if (!publicUrl.trim()) {
+          document.getElementById('discord-enabled').checked = false;
+          showToast('Set the App Public URL in General Settings before enabling bot mode', true);
+          return;
+        }
+      }
+      var types = Array.from(document.querySelectorAll('.discord-type:checked')).map(function(el){return el.value;});
+      fetch('/admin/settings/discord', {
+        method: 'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({
+          enabled:            document.getElementById('discord-enabled').checked,
+          mode:               _discordMode,
+          webhookUrl:         document.getElementById('discord-webhook').value,
+          botToken:           document.getElementById('discord-bottoken').value,
+          botUsername:        document.getElementById('discord-botname').value,
+          botAvatarUrl:       document.getElementById('discord-avatar-url').value,
+          notificationRoleId: document.getElementById('discord-roleid').value,
+          enableMentions:     document.getElementById('discord-mentions').checked,
+          embedPoster:        document.getElementById('discord-poster').checked,
+          notificationTypes:  types,
+          inviteLink:         document.getElementById('discord-invite-link').value,
+          botWebhookUrl:      document.getElementById('discord-bot-webhook').value,
+          botUseWebhook:      document.getElementById('discord-bot-use-webhook').checked,
+        }),
+      }).then(r=>r.json()).then(d=>{ if(d.success) showToast('Discord settings saved'); else showToast('Save failed',true); }).catch(()=>showToast('Save failed',true));
+    }
+
+    async function testDiscord() {
+      var mode = _discordMode;
+      try {
+        var body = { mode, botUsername: document.getElementById('discord-botname').value };
+        if (mode === 'bot') {
+          body.botToken = document.getElementById('discord-bottoken').value;
+          body.discordUserId = document.getElementById('discord-test-userid').value;
+          if (!body.botToken) return showToast('Enter bot token first', true);
+          if (!body.discordUserId) return showToast('Enter your Discord User ID for the test DM', true);
+        } else {
+          body.webhookUrl = document.getElementById('discord-webhook').value;
+          if (!body.webhookUrl) return showToast('Enter webhook URL first', true);
+        }
+        var r = await fetch('/admin/settings/discord/test', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+        var d = await r.json();
+        showToast(d.message || (d.ok ? 'Sent!' : 'Failed'), !d.ok);
+      } catch(e) { showToast('Error: '+e.message, true); }
+    }
+
+    function savePushoverAgent() {
+      var types = Array.from(document.querySelectorAll('.pushover-type:checked')).map(function(el){return el.value;});
+      fetch('/admin/settings/pushover', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({
+          enabled: document.getElementById('pushover-enabled').checked,
+          appToken: document.getElementById('pushover-token').value,
+          userKey: document.getElementById('pushover-userkey').value,
+          notificationTypes: types,
+        }),
+      }).then(r=>r.json()).then(d=>{ if(d.success) showToast('Pushover settings saved'); }).catch(()=>showToast('Save failed',true));
+    }
+
+    async function testPushover() {
+      var token = document.getElementById('pushover-token').value;
+      var key = document.getElementById('pushover-userkey').value;
+      if (!token || !key) return showToast('Enter app token and user key first', true);
+      try {
+        var r = await fetch('/admin/settings/pushover/test', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({appToken:token,userKey:key})});
+        var d = await r.json();
+        showToast(d.message || (d.ok ? 'Sent!' : 'Failed'), !d.ok);
+      } catch(e) { showToast('Error: '+e.message, true); }
+    }
+
+    // Load agent configs
+    (function loadAgentConfigs() {
+      fetch('/admin/status').then(r=>r.json()).then(d=>{
+        if (d.discordAgent) {
+          var c = d.discordAgent;
+          document.getElementById('discord-enabled').checked = !!c.enabled;
+          setDiscordMode(c.mode === 'bot' ? 'bot' : 'webhook');
+          if (c.webhookUrl) document.getElementById('discord-webhook').value = c.webhookUrl;
+          if (c.botToken) document.getElementById('discord-bottoken').value = c.botToken;
+          if (c.botUsername) document.getElementById('discord-botname').value = c.botUsername;
+          if (c.botAvatarUrl) document.getElementById('discord-avatar-url').value = c.botAvatarUrl;
+          if (c.notificationRoleId) document.getElementById('discord-roleid').value = c.notificationRoleId;
+          if (c.enableMentions) document.getElementById('discord-mentions').checked = true;
+          if (c.embedPoster) document.getElementById('discord-poster').checked = true;
+          if (c.notificationTypes) {
+            document.querySelectorAll('.discord-type').forEach(function(el){
+              el.checked = c.notificationTypes.includes(el.value);
+            });
+          }
+          if (c.inviteLink) document.getElementById('discord-invite-link').value = c.inviteLink;
+          if (c.botUseWebhook) {
+            document.getElementById('discord-bot-use-webhook').checked = true;
+            document.getElementById('discord-bot-webhook-field').style.display = 'block';
+          }
+          if (c.botWebhookUrl) document.getElementById('discord-bot-webhook').value = c.botWebhookUrl;
+        }
+        if (d.pushoverAgent) {
+          var p = d.pushoverAgent;
+          document.getElementById('pushover-enabled').checked = !!p.enabled;
+          if (p.appToken) document.getElementById('pushover-token').value = p.appToken;
+          if (p.userKey) document.getElementById('pushover-userkey').value = p.userKey;
+          if (p.notificationTypes) {
+            document.querySelectorAll('.pushover-type').forEach(function(el){
+              el.checked = p.notificationTypes.includes(el.value);
+            });
+          }
+        }
+      }).catch(function(){});
+    })();
+
+    async function clearUserRequests(userId) {
+      if (!confirm('Delete all requests for this user?')) return;
+      const d = await apiFetch('/admin/users/' + userId + '/requests', 'DELETE');
+      if (d?.success) showToast('Requests cleared');
     }
 
     // ── Connections ────────────────────────────────────────────────
@@ -1363,6 +1950,7 @@
     // ── Password field eye / copy ───────────────────────────────────
     var EYE_ICON = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
     var EYE_OFF_ICON = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';
+    var COPY_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
 
     var FIELD_KEY_MAP = {
       'conn-plex-token':    'plexToken',
@@ -1371,6 +1959,7 @@
       'conn-overseerr-key': 'overseerrApiKey',
       'conn-radarr-key':    'radarrApiKey',
       'conn-sonarr-key':    'sonarrApiKey',
+      'settings-api-key':   'diskovarrApiKey',
     };
     var _revealedKeys = null;
 
@@ -1407,6 +1996,39 @@
       btn.innerHTML = willShow ? EYE_OFF_ICON : EYE_ICON;
       btn.title = willShow ? 'Hide' : 'Show / hide';
     }
+
+    async function generateApiKey() {
+      if (!confirm('Generate a new API key? Any existing key will stop working immediately.')) return;
+      var res = await fetch('/admin/settings/generate-api-key', { method: 'POST' });
+      var data = await res.json();
+      if (data.success) {
+        _revealedKeys = null;
+        location.reload();
+      }
+    }
+
+    async function copyApiKey() {
+      var input = document.getElementById('settings-api-key');
+      if (input.value === '••••••••') {
+        await resolveFieldValue('settings-api-key');
+      }
+      try {
+        await navigator.clipboard.writeText(input.value);
+        var btn = document.getElementById('api-key-copy-btn');
+        var orig = btn.innerHTML;
+        btn.innerHTML = '✓';
+        setTimeout(function() { btn.innerHTML = orig; }, 1500);
+      } catch(e) {
+        alert('Copy failed — reveal the key first and copy manually.');
+      }
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+      var copyBtn = document.getElementById('api-key-copy-btn');
+      if (copyBtn) copyBtn.innerHTML = COPY_ICON;
+      var eyeBtn = document.getElementById('api-key-eye-btn');
+      if (eyeBtn) eyeBtn.innerHTML = EYE_ICON;
+    });
 
     // Save Plex or Tautulli (no toggle — always required)
     async function saveCoreService(service) {
@@ -1544,6 +2166,7 @@
       if (!profileId) { updateToggleState(service); return; }
       var body = {};
       body[service + '_quality_profile_id'] = profileId;
+      body[service + '_quality_profile_name'] = select.options[select.selectedIndex].text;
       var d = await fetch('/admin/connections/save', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),

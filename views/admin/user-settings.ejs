@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Diskovarr — User Settings</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="stylesheet" href="/css/style.css?v=29">
+  <link rel="stylesheet" href="/css/admin.css?v=29">
+  <link rel="stylesheet" href="/theme.css?c=<%= themeParam %>" id="theme-css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    .user-settings-page { max-width: 680px; margin: 0 auto; padding: 0 16px 64px; }
+    .user-settings-back { display: inline-flex; align-items: center; gap: 6px; color: var(--text-secondary); font-size: 0.85rem; text-decoration: none; margin-bottom: 20px; }
+    .user-settings-back:hover { color: var(--accent); }
+    .user-settings-hero { display: flex; align-items: center; gap: 14px; margin-bottom: 28px; }
+    .user-settings-avatar { width: 48px; height: 48px; border-radius: 50%; object-fit: cover; }
+    .user-settings-avatar-placeholder { width: 48px; height: 48px; border-radius: 50%; background: var(--accent-dim); border: 1px solid var(--accent-border); display: flex; align-items: center; justify-content: center; font-size: 1.2rem; font-weight: 600; color: var(--accent); }
+    .user-settings-name { font-size: 1.2rem; font-weight: 700; }
+    .user-settings-id { font-size: 0.78rem; color: var(--text-secondary); }
+    .settings-section { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 12px; padding: 24px; margin-bottom: 16px; }
+    .settings-section-title { font-size: 0.72rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-secondary); margin: 0 0 16px; }
+    .settings-field { margin-bottom: 14px; }
+    .settings-field:last-child { margin-bottom: 0; }
+    .settings-label { display: block; font-size: 0.85rem; font-weight: 500; color: #fff; margin-bottom: 6px; }
+    .settings-select { padding: 7px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-elevated); color: var(--text); font-size: 0.88rem; min-width: 220px; }
+    .settings-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .limit-input { width: 72px; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-elevated); color: var(--text); font-size: 0.88rem; }
+    .toggle-row { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+    .toggle-label { font-size: 0.88rem; color: #fff; }
+    .saved-banner { background: rgba(0,200,100,0.1); border: 1px solid rgba(0,200,100,0.3); color: #00c864; padding: 10px 16px; border-radius: 8px; font-size: 0.88rem; margin-bottom: 16px; }
+  </style>
+</head>
+<body>
+  <nav class="nav">
+    <div class="nav-inner">
+      <a href="/" class="nav-logo">
+        <span class="logo-icon">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="1em" height="1em" fill="none" aria-hidden="true">
+            <rect x="0.5" y="17.5" width="13" height="1.5" rx="0.5" fill="currentColor"/>
+            <rect x="1" y="8.5" width="2.5" height="9" rx="0.4" fill="currentColor"/>
+            <rect x="4.5" y="11" width="3" height="6.5" rx="0.4" fill="currentColor"/>
+            <rect x="8.5" y="10" width="2.5" height="7.5" rx="0.4" fill="currentColor"/>
+            <circle cx="15" cy="9" r="5" stroke="currentColor" stroke-width="2"/>
+            <line x1="18.5" y1="12.5" x2="22" y2="16" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+          </svg>
+        </span>
+        <span class="logo-text">Diskovarr</span>
+        <span class="admin-badge">admin</span>
+      </a>
+      <div class="nav-user">
+        <a href="/admin#users-tab" class="nav-logout">&#8592; Admin</a>
+        <form method="POST" action="/admin/logout" style="display:inline">
+          <button type="submit" class="nav-logout" style="background:none;border:none;cursor:pointer">Sign out</button>
+        </form>
+      </div>
+    </div>
+  </nav>
+
+  <div class="user-settings-page" style="padding-top:24px">
+    <a href="/admin#users" class="user-settings-back">&#8592; Back to Users</a>
+
+    <div class="user-settings-hero">
+      <% if (thumb) { %>
+        <img src="<%= thumb %>" class="user-settings-avatar" alt="" onerror="this.style.display='none'">
+      <% } else { %>
+        <div class="user-settings-avatar-placeholder"><%= username.charAt(0).toUpperCase() %></div>
+      <% } %>
+      <div>
+        <div class="user-settings-name"><%= username %></div>
+        <div class="user-settings-id"><%= userId %></div>
+      </div>
+    </div>
+
+    <% if (saved) { %>
+      <div class="saved-banner">Settings saved successfully.</div>
+    <% } %>
+
+    <form method="POST" action="/admin/user-settings/<%= userId %>">
+
+      <% if (connections.discoverEnabled) { %>
+      <!-- Request Limits -->
+      <div class="settings-section">
+        <p class="settings-section-title">Request Limits</p>
+        <div class="toggle-row">
+          <label class="slide-toggle">
+            <input type="checkbox" name="overrideGlobal" value="1" id="override-toggle" <%= settings.overrideGlobal ? 'checked' : '' %> onchange="document.getElementById('limits-fields').style.display=this.checked?'block':'none'">
+            <span class="slide-track"></span>
+          </label>
+          <span class="toggle-label">Override global request limits</span>
+        </div>
+        <div id="limits-fields" style="display:<%= settings.overrideGlobal ? 'block' : 'none' %>">
+          <div class="settings-field">
+            <label class="settings-label">Movies per window</label>
+            <div class="settings-row">
+              <input type="number" name="movieLimit" class="limit-input" min="0" max="9999" value="<%= settings.movieLimit %>">
+              <span style="color:var(--text-secondary);font-size:0.85rem">per</span>
+              <input type="number" name="movieWindowDays" class="limit-input" min="1" max="365" value="<%= settings.movieWindowDays %>">
+              <span style="color:var(--text-secondary);font-size:0.85rem">days (0 = unlimited)</span>
+            </div>
+          </div>
+          <div class="settings-field">
+            <label class="settings-label">TV Seasons per window</label>
+            <div class="settings-row">
+              <input type="number" name="seasonLimit" class="limit-input" min="0" max="9999" value="<%= settings.seasonLimit %>">
+              <span style="color:var(--text-secondary);font-size:0.85rem">per</span>
+              <input type="number" name="tvWindowDays" class="limit-input" min="1" max="365" value="<%= settings.tvWindowDays %>">
+              <span style="color:var(--text-secondary);font-size:0.85rem">days (0 = unlimited)</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Auto-Approve -->
+      <div class="settings-section">
+        <p class="settings-section-title">Auto-Approve</p>
+        <div class="toggle-row">
+          <label class="slide-toggle">
+            <input type="checkbox" id="aa-override" onchange="toggleAutoApproveOverride(this.checked)">
+            <span class="slide-track"></span>
+          </label>
+          <span class="toggle-label">Override global auto-approve</span>
+        </div>
+        <div id="aa-fields" style="display:none;flex-direction:column;gap:12px">
+          <div class="toggle-row">
+            <label class="slide-toggle">
+              <input type="checkbox" name="auto_approve_movies" value="1" id="aa-movies" <%= settings.auto_approve_movies ? 'checked' : '' %>>
+              <span class="slide-track"></span>
+            </label>
+            <span class="toggle-label">Auto-approve Movies</span>
+          </div>
+          <div class="toggle-row">
+            <label class="slide-toggle">
+              <input type="checkbox" name="auto_approve_tv" value="1" id="aa-tv" <%= settings.auto_approve_tv ? 'checked' : '' %>>
+              <span class="slide-track"></span>
+            </label>
+            <span class="toggle-label">Auto-approve TV Shows</span>
+          </div>
+        </div>
+      </div>
+      <% } %>
+
+      <!-- Content Preferences -->
+      <div class="settings-section">
+        <p class="settings-section-title">Content Preferences</p>
+        <div class="settings-field">
+          <label class="settings-label">Region</label>
+          <select name="region" class="settings-select">
+            <option value="">All Regions</option>
+            <option value="US" <%= settings.region === 'US' ? 'selected' : '' %>>United States</option>
+            <option value="GB" <%= settings.region === 'GB' ? 'selected' : '' %>>United Kingdom</option>
+            <option value="CA" <%= settings.region === 'CA' ? 'selected' : '' %>>Canada</option>
+            <option value="AU" <%= settings.region === 'AU' ? 'selected' : '' %>>Australia</option>
+            <option value="DE" <%= settings.region === 'DE' ? 'selected' : '' %>>Germany</option>
+            <option value="FR" <%= settings.region === 'FR' ? 'selected' : '' %>>France</option>
+            <option value="ES" <%= settings.region === 'ES' ? 'selected' : '' %>>Spain</option>
+            <option value="IT" <%= settings.region === 'IT' ? 'selected' : '' %>>Italy</option>
+            <option value="JP" <%= settings.region === 'JP' ? 'selected' : '' %>>Japan</option>
+            <option value="KR" <%= settings.region === 'KR' ? 'selected' : '' %>>South Korea</option>
+            <option value="IN" <%= settings.region === 'IN' ? 'selected' : '' %>>India</option>
+            <option value="BR" <%= settings.region === 'BR' ? 'selected' : '' %>>Brazil</option>
+            <option value="MX" <%= settings.region === 'MX' ? 'selected' : '' %>>Mexico</option>
+            <option value="NL" <%= settings.region === 'NL' ? 'selected' : '' %>>Netherlands</option>
+            <option value="SE" <%= settings.region === 'SE' ? 'selected' : '' %>>Sweden</option>
+            <option value="NO" <%= settings.region === 'NO' ? 'selected' : '' %>>Norway</option>
+            <option value="DK" <%= settings.region === 'DK' ? 'selected' : '' %>>Denmark</option>
+            <option value="FI" <%= settings.region === 'FI' ? 'selected' : '' %>>Finland</option>
+            <option value="PL" <%= settings.region === 'PL' ? 'selected' : '' %>>Poland</option>
+          </select>
+        </div>
+        <div class="settings-field">
+          <label class="settings-label">Language</label>
+          <select name="language" class="settings-select">
+            <option value="">All Languages</option>
+            <option value="en" <%= settings.language === 'en' ? 'selected' : '' %>>English</option>
+            <option value="es" <%= settings.language === 'es' ? 'selected' : '' %>>Spanish</option>
+            <option value="fr" <%= settings.language === 'fr' ? 'selected' : '' %>>French</option>
+            <option value="de" <%= settings.language === 'de' ? 'selected' : '' %>>German</option>
+            <option value="it" <%= settings.language === 'it' ? 'selected' : '' %>>Italian</option>
+            <option value="ja" <%= settings.language === 'ja' ? 'selected' : '' %>>Japanese</option>
+            <option value="ko" <%= settings.language === 'ko' ? 'selected' : '' %>>Korean</option>
+            <option value="zh" <%= settings.language === 'zh' ? 'selected' : '' %>>Chinese</option>
+            <option value="pt" <%= settings.language === 'pt' ? 'selected' : '' %>>Portuguese</option>
+            <option value="ru" <%= settings.language === 'ru' ? 'selected' : '' %>>Russian</option>
+            <option value="nl" <%= settings.language === 'nl' ? 'selected' : '' %>>Dutch</option>
+            <option value="pl" <%= settings.language === 'pl' ? 'selected' : '' %>>Polish</option>
+            <option value="sv" <%= settings.language === 'sv' ? 'selected' : '' %>>Swedish</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Auto-Request Watchlist -->
+      <% if (connections.discoverEnabled) { %>
+      <div class="settings-section">
+        <p class="settings-section-title">Auto-Request Watchlist</p>
+        <p style="font-size:0.82rem;color:var(--text-secondary);margin:0 0 16px">Automatically submit requests for items added to this user's watchlist (requires global toggle enabled in Admin &rarr; General).</p>
+        <div class="toggle-row">
+          <label class="slide-toggle">
+            <input type="checkbox" name="auto_request_movies" value="1" <%= settings.auto_request_movies ? 'checked' : '' %>>
+            <span class="slide-track"></span>
+          </label>
+          <span class="toggle-label">Auto-request Movies</span>
+        </div>
+        <div class="toggle-row">
+          <label class="slide-toggle">
+            <input type="checkbox" name="auto_request_tv" value="1" <%= settings.auto_request_tv ? 'checked' : '' %>>
+            <span class="slide-track"></span>
+          </label>
+          <span class="toggle-label">Auto-request TV Shows</span>
+        </div>
+      </div>
+      <% } %>
+
+      <!-- Permissions -->
+      <div class="settings-section">
+        <p class="settings-section-title">Permissions</p>
+        <div class="toggle-row">
+          <label class="slide-toggle">
+            <input type="checkbox" name="is_admin" value="1" <%= settings.is_admin ? 'checked' : '' %>>
+            <span class="slide-track"></span>
+          </label>
+          <span class="toggle-label">Elevated privileges — can view and manage the request queue</span>
+        </div>
+      </div>
+
+      <!-- Notifications -->
+      <div class="settings-section">
+        <p class="settings-section-title">Notification Settings</p>
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+            <input type="checkbox" class="themed-checkbox" name="notify_approved" value="1" <%= notificationPrefs.notify_approved ? 'checked' : '' %>>
+            <span style="font-size:0.88rem">
+              <strong class="toggle-label">Request Approved</strong>
+              <span style="color:var(--text-secondary)"> — Get notified when requests are approved</span>
+            </span>
+          </label>
+          <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+            <input type="checkbox" class="themed-checkbox" name="notify_denied" value="1" <%= notificationPrefs.notify_denied ? 'checked' : '' %>>
+            <span style="font-size:0.88rem">
+              <strong class="toggle-label">Request Declined</strong>
+              <span style="color:var(--text-secondary)"> — Get notified when requests are declined</span>
+            </span>
+          </label>
+          <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+            <input type="checkbox" class="themed-checkbox" name="notify_available" value="1" <%= notificationPrefs.notify_available ? 'checked' : '' %>>
+            <span style="font-size:0.88rem">
+              <strong class="toggle-label">Request Available</strong>
+              <span style="color:var(--text-secondary)"> — Get notified when requested media is available</span>
+            </span>
+          </label>
+          <% if (settings.is_admin || isPrivileged) { %>
+          <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+            <input type="checkbox" class="themed-checkbox" name="notify_pending" value="1" <%= notificationPrefs.notify_pending ? 'checked' : '' %>>
+            <span style="font-size:0.88rem">
+              <strong class="toggle-label">New Request Pending</strong>
+              <span style="color:var(--text-secondary)"> — Get notified when a user submits a request awaiting approval</span>
+            </span>
+          </label>
+          <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+            <input type="checkbox" class="themed-checkbox" name="notify_auto_approved" value="1" <%= notificationPrefs.notify_auto_approved ? 'checked' : '' %>>
+            <span style="font-size:0.88rem">
+              <strong class="toggle-label">Request Auto-Approved</strong>
+              <span style="color:var(--text-secondary)"> — Get notified when a request is automatically submitted</span>
+            </span>
+          </label>
+          <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+            <input type="checkbox" class="themed-checkbox" name="notify_process_failed" value="1" <%= notificationPrefs.notify_process_failed ? 'checked' : '' %>>
+            <span style="font-size:0.88rem">
+              <strong class="toggle-label">Processing Failed</strong>
+              <span style="color:var(--text-secondary)"> — Get notified when a request fails to submit to Radarr/Sonarr/Overseerr</span>
+            </span>
+          </label>
+          <% } %>
+        </div>
+
+        <% if (discordAgentEnabled) { %>
+        <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
+          <% if (discordMode === 'bot') { %>
+            <p class="settings-section-title" style="margin-bottom:10px">Discord (Bot DMs)</p>
+            <div class="settings-field">
+              <label class="settings-label" style="margin-bottom:4px">Discord User ID</label>
+              <p style="font-size:0.78rem;color:var(--text-secondary);margin:0 0 6px">A 17–19 digit number — not your username. Enable Developer Mode (Settings → Advanced), then right-click your avatar on any message you've sent → Copy User ID.</p>
+              <input type="text" name="discord_user_id" class="settings-select" style="width:100%;max-width:100%;font-family:monospace;font-size:0.82rem"
+                placeholder="e.g. 185234567891234560"
+                value="<%= notificationPrefs.discord_user_id || '' %>">
+            </div>
+          <% } else { %>
+            <p class="settings-section-title" style="margin-bottom:10px">Discord Webhook</p>
+            <div class="settings-field">
+              <input type="text" name="discord_webhook" class="settings-select" style="width:100%;max-width:100%;font-family:monospace;font-size:0.82rem"
+                placeholder="https://discord.com/api/webhooks/..."
+                value="<%= notificationPrefs.discord_webhook || '' %>">
+            </div>
+          <% } %>
+          <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+            <input type="checkbox" class="themed-checkbox" name="discord_enabled" value="1" <%= notificationPrefs.discord_enabled ? 'checked' : '' %>>
+            <span class="toggle-label">Enable Discord notifications</span>
+          </label>
+        </div>
+        <% } %>
+
+        <% if (pushoverAgentEnabled) { %>
+        <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
+          <p class="settings-section-title" style="margin-bottom:10px">Pushover</p>
+          <div class="settings-field">
+            <input type="text" name="pushover_user_key" class="settings-select" style="width:100%;max-width:100%;font-family:monospace;font-size:0.82rem"
+              placeholder="Pushover user key..."
+              value="<%= notificationPrefs.pushover_user_key || '' %>">
+          </div>
+          <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+            <input type="checkbox" class="themed-checkbox" name="pushover_enabled" value="1" <%= notificationPrefs.pushover_enabled ? 'checked' : '' %>>
+            <span class="toggle-label">Enable Pushover notifications</span>
+          </label>
+        </div>
+        <% } %>
+
+      </div>
+
+      <div class="settings-section" style="margin-top:0">
+        <p class="settings-section-title">Actions</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button type="button" class="btn-admin btn-sm" onclick="doAction('resync')">&#8635; Re-sync Watched</button>
+          <button type="button" class="btn-admin btn-sm btn-danger" onclick="doAction('clearWatched')">&#10005; Clear Watched</button>
+          <button type="button" class="btn-admin btn-sm btn-danger" onclick="doAction('clearDismissals')">&#10005; Clear Dismissals</button>
+          <button type="button" class="btn-admin btn-sm btn-danger" onclick="doAction('clearRequests')">&#10005; Clear Requests</button>
+        </div>
+        <div id="action-status" style="font-size:0.82rem;color:var(--text-secondary);margin-top:8px;display:none"></div>
+      </div>
+
+      <button type="submit" class="btn-admin btn-primary" style="width:100%;padding:12px;font-size:0.95rem">Save Settings</button>
+    </form>
+  </div>
+
+  <script>
+    async function doAction(type) {
+      var uid = '<%= userId %>';
+      var status = document.getElementById('action-status');
+      if (type === 'clearRequests' && !confirm('Delete all requests for this user?')) return;
+      status.style.display = 'block';
+      status.textContent = 'Working\u2026';
+      var method = type === 'clearRequests' ? 'DELETE' : 'POST';
+      var url = type === 'resync'           ? '/admin/sync/watched/' + uid
+               : type === 'clearWatched'    ? '/admin/cache/clear/watched/' + uid
+               : type === 'clearDismissals' ? '/admin/cache/clear/dismissals/' + uid
+               : '/admin/users/' + uid + '/requests';
+      try {
+        var r = await fetch(url, { method: method });
+        var d = await r.json();
+        status.textContent = d.message || (d.success ? 'Done' : 'Error');
+      } catch (e) {
+        status.textContent = 'Error: ' + e.message;
+      }
+      setTimeout(function() { status.style.display = 'none'; }, 3000);
+    }
+
+    // Auto-approve override logic
+    var settings = <%- JSON.stringify({ auto_approve_movies: settings.auto_approve_movies, auto_approve_tv: settings.auto_approve_tv }) %>;
+    var aaOverride = document.getElementById('aa-override');
+    var aaFields = document.getElementById('aa-fields');
+    if (aaOverride) {
+      var hasOverride = settings.auto_approve_movies !== null || settings.auto_approve_tv !== null;
+      aaOverride.checked = hasOverride;
+      aaFields.style.display = hasOverride ? 'flex' : 'none';
+    }
+    function toggleAutoApproveOverride(checked) {
+      if (!aaFields) return;
+      aaFields.style.display = checked ? 'flex' : 'none';
+      var movEl = document.getElementById('aa-movies');
+      var tvEl = document.getElementById('aa-tv');
+      if (!checked) {
+        if (movEl) movEl.name = '';
+        if (tvEl) tvEl.name = '';
+      } else {
+        if (movEl) movEl.name = 'auto_approve_movies';
+        if (tvEl) tvEl.name = 'auto_approve_tv';
+      }
+    }
+    toggleAutoApproveOverride(aaOverride ? aaOverride.checked : false);
+  </script>
+</body>
+</html>

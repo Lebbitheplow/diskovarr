@@ -3,43 +3,47 @@
  *   systemd:  journalctl -u diskovarr -f
  *   docker:   docker logs diskovarr -f
  *
- * Logging is toggled via the admin panel and persisted in the DB.
- * Call logger.setEnabled(true/false) when the setting changes.
+ * INFO/WARN/ERROR are always written.
+ * HTTP request logs and DEBUG output require verbose mode (toggled via admin panel).
+ * Call logger.setVerbose(true/false) when the setting changes.
  */
 
-let _enabled = false;
+let _verbose = false;
 
 function ts() {
   return new Date().toISOString();
 }
 
-function setEnabled(val) {
-  _enabled = !!val;
+function setVerbose(val) {
+  _verbose = !!val;
 }
 
-function isEnabled() {
-  return _enabled;
+function isVerbose() {
+  return _verbose;
 }
 
 function info(...args) {
-  if (_enabled) process.stdout.write(`[${ts()}] INFO  ${args.join(' ')}\n`);
+  process.stdout.write(`[${ts()}] INFO  ${args.join(' ')}\n`);
 }
 
 function warn(...args) {
-  if (_enabled) process.stderr.write(`[${ts()}] WARN  ${args.join(' ')}\n`);
+  process.stderr.write(`[${ts()}] WARN  ${args.join(' ')}\n`);
 }
 
 function error(...args) {
-  // Errors always go to stderr regardless of toggle
   process.stderr.write(`[${ts()}] ERROR ${args.join(' ')}\n`);
 }
 
 function http(req, res, duration) {
-  if (_enabled) {
+  if (_verbose) {
     process.stdout.write(
       `[${ts()}] HTTP  ${req.method} ${req.originalUrl} ${res.statusCode} ${duration}ms\n`
     );
   }
 }
 
-module.exports = { setEnabled, isEnabled, info, warn, error, http };
+function debug(...args) {
+  if (_verbose) process.stdout.write(`[${ts()}] DEBUG ${args.join(' ')}\n`);
+}
+
+module.exports = { setVerbose, isVerbose, info, warn, error, http, debug };

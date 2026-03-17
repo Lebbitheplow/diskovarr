@@ -289,35 +289,67 @@ router.get('/discover/genres', async (req, res) => {
   }
 });
 
-// GET /api/clients — list Plex player clients (local + remote via plex.tv resources)
+// GET /api/clients — list Plex player clients
+// Merges plex.tv/devices.xml (user token) + server /clients endpoint (admin token)
 router.get('/clients', async (req, res) => {
   try {
     const { token: userToken } = req.session.plexUser;
+    const adminToken = plexService.getPlexToken();
+    const plexUrl = plexService.getPlexUrl();
 
-    // Query plex.tv resources — returns all clients registered to the account
-    // including remote devices, not just LAN-local ones
-    const r = await fetch(
-      `https://plex.tv/api/v2/resources?includeHttps=1&includeRelay=1&X-Plex-Token=${userToken}`,
-      {
-        headers: { Accept: 'application/json', 'X-Plex-Client-Identifier': 'DISKOVARR' },
+    const [devicesResult, serverResult] = await Promise.allSettled([
+      fetch('https://plex.tv/devices.xml', {
+        headers: {
+          'X-Plex-Token': userToken,
+          'X-Plex-Client-Identifier': 'diskovarr-app',
+          'X-Plex-Product': 'Diskovarr',
+          'X-Plex-Platform': 'Web',
+        },
         signal: AbortSignal.timeout(10000),
+      }),
+      adminToken && plexUrl ? fetch(`${plexUrl.replace(/\/$/, '')}/clients?X-Plex-Token=${adminToken}`, {
+        headers: { Accept: 'application/xml' },
+        signal: AbortSignal.timeout(8000),
+      }) : Promise.resolve(null),
+    ]);
+
+    // Parse devices.xml clients
+    const clients = [];
+    const seenIds = new Set();
+
+    if (devicesResult.status === 'fulfilled' && devicesResult.value?.ok) {
+      const xml = await devicesResult.value.text();
+      for (const match of xml.matchAll(/<Device\s([^>]*?)(?:\/>|>)/gs)) {
+        const attrs = {};
+        for (const a of match[1].matchAll(/(\w+)="([^"]*)"/g)) attrs[a[1]] = a[2];
+        const provides = (attrs.provides || '').split(',').map(s => s.trim());
+        if ((provides.includes('player') || provides.includes('pubsub-player') || provides.includes('client'))
+            && !provides.includes('server') && attrs.clientIdentifier) {
+          clients.push({ name: attrs.name, machineIdentifier: attrs.clientIdentifier, product: attrs.product || '', platform: attrs.platform || '' });
+          seenIds.add(attrs.clientIdentifier);
+        }
       }
-    );
-    if (!r.ok) return res.json({ clients: [] });
-    const resources = await r.json();
+    } else if (devicesResult.status === 'rejected') {
+      logger.warn('/api/clients: devices.xml fetch failed:', devicesResult.reason?.message);
+    }
 
-    // Filter to player-capable clients only (exclude servers, relays, etc.)
-    const clients = resources
-      .filter(d => d.provides && d.provides.split(',').includes('player'))
-      .map(d => ({
-        name: d.name,
-        machineIdentifier: d.clientIdentifier,
-        product: d.product || '',
-        platform: d.platform || '',
-      }));
+    // Parse server /clients (active connections)
+    if (serverResult.status === 'fulfilled' && serverResult.value?.ok) {
+      const xml = await serverResult.value.text();
+      for (const match of xml.matchAll(/<Server\s([^>]*?)(?:\/>|>)/gs)) {
+        const attrs = {};
+        for (const a of match[1].matchAll(/(\w+)="([^"]*)"/g)) attrs[a[1]] = a[2];
+        if (attrs.machineIdentifier && !seenIds.has(attrs.machineIdentifier)) {
+          clients.push({ name: attrs.name || attrs.host || 'Unknown', machineIdentifier: attrs.machineIdentifier, product: attrs.product || '', platform: attrs.platform || '' });
+          seenIds.add(attrs.machineIdentifier);
+        }
+      }
+    }
 
+    logger.debug(`/api/clients: user=${req.session.plexUser.id} total=${clients.length}`);
     res.json({ clients });
-  } catch {
+  } catch (err) {
+    logger.error('/api/clients error:', err.message);
     res.json({ clients: [] });
   }
 });
@@ -329,7 +361,8 @@ router.post('/cast', async (req, res) => {
     if (!ratingKey || !clientId) return res.status(400).json({ error: 'ratingKey and clientId required' });
     if (!/^\d+$/.test(String(ratingKey))) return res.status(400).json({ error: 'Invalid ratingKey' });
 
-    const { token: userToken } = req.session.plexUser;
+    const { serverToken, token: userToken } = req.session.plexUser;
+    const castToken = serverToken || userToken;
     const plexUrl = plexService.getPlexUrl();
     const serverId = plexService.getPlexServerId ? plexService.getPlexServerId() : process.env.PLEX_SERVER_ID;
     const urlObj = new URL(plexUrl);
@@ -348,7 +381,7 @@ router.post('/cast', async (req, res) => {
     const r = await fetch(`${plexUrl}/player/playback/playMedia?${params}`, {
       headers: {
         Accept: 'application/json',
-        'X-Plex-Token': userToken,
+        'X-Plex-Token': castToken,
         'X-Plex-Target-Client-Identifier': clientId,
         'X-Plex-Client-Identifier': 'DISKOVARR',
       },
@@ -586,6 +619,159 @@ router.post('/explore/dismiss', (req, res) => {
   res.json({ success: true });
 });
 
+// ── Reusable request submission function ─────────────────────────────────────
+
+async function submitRequestToService(requestData) {
+  const { tmdbId, mediaType, title, service, seasons } = requestData;
+  const c = db.getConnectionSettings();
+
+  if (service === 'overseerr') {
+    if (!c.overseerrEnabled || !c.overseerrUrl || !c.overseerrApiKey) {
+      throw new Error('Overseerr not configured');
+    }
+    let agentUserId = null;
+    try {
+      agentUserId = await overseerrService.getOrCreateAgentUserId(c.overseerrUrl, c.overseerrApiKey);
+    } catch (e) {
+      console.warn('[overseerr] Could not resolve agent user, falling back to admin:', e.message);
+    }
+    const r = await fetch(`${c.overseerrUrl.replace(/\/$/, '')}/api/v1/request`, {
+      method: 'POST',
+      headers: {
+        'X-Api-Key': c.overseerrApiKey,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      body: JSON.stringify({
+        mediaType,
+        mediaId: Number(tmdbId),
+        ...(agentUserId ? { userId: agentUserId } : {}),
+        ...(mediaType === 'tv' ? { seasons: (Array.isArray(seasons) && seasons.length > 0) ? seasons.map(Number) : 'all' } : {}),
+      }),
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!r.ok) {
+      const body = await r.text();
+      throw new Error(`Overseerr error: ${body}`);
+    }
+  } else if (service === 'radarr') {
+    if (!c.radarrEnabled || !c.radarrUrl || !c.radarrApiKey) {
+      throw new Error('Radarr not configured');
+    }
+    const [profilesRes, foldersRes] = await Promise.all([
+      fetch(`${c.radarrUrl.replace(/\/$/, '')}/api/v3/qualityprofile`, {
+        headers: { 'X-Api-Key': c.radarrApiKey }, signal: AbortSignal.timeout(8000),
+      }),
+      fetch(`${c.radarrUrl.replace(/\/$/, '')}/api/v3/rootfolder`, {
+        headers: { 'X-Api-Key': c.radarrApiKey }, signal: AbortSignal.timeout(8000),
+      }),
+    ]);
+    const profiles = await profilesRes.json();
+    const folders = await foldersRes.json();
+    const savedProfileId = Number(db.getSetting('radarr_quality_profile_id', '')) || null;
+    const qualityProfileId = (savedProfileId && profiles.some(p => p.id === savedProfileId))
+      ? savedProfileId
+      : profiles[0]?.id;
+    const rootFolderPath = folders[0]?.path;
+    if (!qualityProfileId || !rootFolderPath) {
+      throw new Error('Could not determine Radarr quality profile or root folder');
+    }
+    const r = await fetch(`${c.radarrUrl.replace(/\/$/, '')}/api/v3/movie`, {
+      method: 'POST',
+      headers: { 'X-Api-Key': c.radarrApiKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        tmdbId: Number(tmdbId),
+        title: title || '',
+        qualityProfileId,
+        rootFolderPath,
+        monitored: true,
+        addOptions: { searchForMovie: true },
+      }),
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!r.ok) {
+      const body = await r.text();
+      throw new Error(`Radarr error: ${body}`);
+    }
+  } else if (service === 'sonarr') {
+    if (!c.sonarrEnabled || !c.sonarrUrl || !c.sonarrApiKey) {
+      throw new Error('Sonarr not configured');
+    }
+    const [profilesRes, foldersRes, langRes] = await Promise.all([
+      fetch(`${c.sonarrUrl.replace(/\/$/, '')}/api/v3/qualityprofile`, {
+        headers: { 'X-Api-Key': c.sonarrApiKey }, signal: AbortSignal.timeout(8000),
+      }),
+      fetch(`${c.sonarrUrl.replace(/\/$/, '')}/api/v3/rootfolder`, {
+        headers: { 'X-Api-Key': c.sonarrApiKey }, signal: AbortSignal.timeout(8000),
+      }),
+      fetch(`${c.sonarrUrl.replace(/\/$/, '')}/api/v3/languageprofile`, {
+        headers: { 'X-Api-Key': c.sonarrApiKey }, signal: AbortSignal.timeout(8000),
+      }).catch(() => ({ json: () => ([]) })),
+    ]);
+    const profiles = await profilesRes.json();
+    const folders = await foldersRes.json();
+    const langs = langRes.ok ? await langRes.json() : [];
+    const savedSonarrProfileId = Number(db.getSetting('sonarr_quality_profile_id', '')) || null;
+    const qualityProfileId = (savedSonarrProfileId && profiles.some(p => p.id === savedSonarrProfileId))
+      ? savedSonarrProfileId
+      : profiles[0]?.id;
+    const rootFolderPath = folders[0]?.path;
+    const languageProfileId = langs[0]?.id || 1;
+    if (!qualityProfileId || !rootFolderPath) {
+      throw new Error('Could not determine Sonarr quality profile or root folder');
+    }
+    const externalIds = await tmdbService.tmdbFetchPublic(`/tv/${tmdbId}/external_ids`).catch(() => ({}));
+    const tvdbId = externalIds?.tvdb_id;
+    if (!tvdbId) {
+      throw new Error('Could not resolve TVDB ID for this show. TMDB may not have a TVDB mapping yet.');
+    }
+    let seasonsPayload = undefined;
+    if (Array.isArray(seasons) && seasons.length > 0) {
+      try {
+        const lookupRes = await fetch(`${c.sonarrUrl.replace(/\/$/, '')}/api/v3/series/lookup?term=tvdb:${tvdbId}`, {
+          headers: { 'X-Api-Key': c.sonarrApiKey },
+          signal: AbortSignal.timeout(8000),
+        });
+        const lookupData = lookupRes.ok ? await lookupRes.json() : [];
+        const seriesInfo = lookupData[0];
+        if (seriesInfo?.seasons) {
+          const selectedNums = new Set(seasons.map(Number));
+          seasonsPayload = seriesInfo.seasons.map(s => ({
+            ...s,
+            monitored: selectedNums.has(s.seasonNumber),
+          }));
+        }
+      } catch { /* fall back to default behaviour */ }
+    }
+
+    const sonarrBody = {
+      tvdbId,
+      title: title || '',
+      qualityProfileId,
+      languageProfileId,
+      rootFolderPath,
+      monitored: true,
+      addOptions: { searchForMissingEpisodes: true },
+    };
+    if (seasonsPayload) sonarrBody.seasons = seasonsPayload;
+
+    const r = await fetch(`${c.sonarrUrl.replace(/\/$/, '')}/api/v3/series`, {
+      method: 'POST',
+      headers: { 'X-Api-Key': c.sonarrApiKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify(sonarrBody),
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!r.ok) {
+      const body = await r.text();
+      throw new Error(`Sonarr error: ${body}`);
+    }
+  } else {
+    throw new Error('Invalid service');
+  }
+}
+
+module.exports.submitRequestToService = submitRequestToService;
+
 // POST /api/request — submit a request via Overseerr, Radarr, or Sonarr
 router.post('/request', async (req, res) => {
   if (!db.isDiscoverEnabled() || !db.hasTmdbKey()) {
@@ -604,7 +790,6 @@ router.post('/request', async (req, res) => {
   }
 
   const { id: userId, token: userToken } = req.session.plexUser;
-  const c = db.getConnectionSettings();
 
   // Enforce per-user request limits (if enabled globally)
   const limits = db.getEffectiveLimits(userId);
@@ -630,180 +815,73 @@ router.post('/request', async (req, res) => {
   }
 
   try {
-    if (service === 'overseerr') {
-      if (!c.overseerrEnabled || !c.overseerrUrl || !c.overseerrApiKey) {
-        return res.status(400).json({ error: 'Overseerr not configured' });
-      }
-      // Ensure the "Diskovarr Agent" user exists and get its ID so requests
-      // are attributed to it rather than the admin account.
-      let agentUserId = null;
-      try {
-        agentUserId = await overseerrService.getOrCreateAgentUserId(c.overseerrUrl, c.overseerrApiKey);
-      } catch (e) {
-        console.warn('[overseerr] Could not resolve agent user, falling back to admin:', e.message);
-      }
-      const r = await fetch(`${c.overseerrUrl.replace(/\/$/, '')}/api/v1/request`, {
-        method: 'POST',
-        headers: {
-          'X-Api-Key': c.overseerrApiKey,
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-        body: JSON.stringify({
-          mediaType,
-          mediaId: Number(tmdbId),
-          ...(agentUserId ? { userId: agentUserId } : {}),
-          ...(mediaType === 'tv' ? { seasons: (Array.isArray(seasons) && seasons.length > 0) ? seasons.map(Number) : 'all' } : {}),
-        }),
-        signal: AbortSignal.timeout(10000),
-      });
-      if (!r.ok) {
-        const body = await r.text();
-        return res.status(r.status).json({ error: `Overseerr error: ${body}` });
-      }
-    } else if (service === 'radarr') {
-      if (!c.radarrEnabled || !c.radarrUrl || !c.radarrApiKey) {
-        return res.status(400).json({ error: 'Radarr not configured' });
-      }
-      // Get first quality profile and root folder
-      const [profilesRes, foldersRes] = await Promise.all([
-        fetch(`${c.radarrUrl.replace(/\/$/, '')}/api/v3/qualityprofile`, {
-          headers: { 'X-Api-Key': c.radarrApiKey }, signal: AbortSignal.timeout(8000),
-        }),
-        fetch(`${c.radarrUrl.replace(/\/$/, '')}/api/v3/rootfolder`, {
-          headers: { 'X-Api-Key': c.radarrApiKey }, signal: AbortSignal.timeout(8000),
-        }),
-      ]);
-      const profiles = await profilesRes.json();
-      const folders = await foldersRes.json();
-      const savedProfileId = Number(db.getSetting('radarr_quality_profile_id', '')) || null;
-      const qualityProfileId = (savedProfileId && profiles.some(p => p.id === savedProfileId))
-        ? savedProfileId
-        : profiles[0]?.id;
-      const rootFolderPath = folders[0]?.path;
-      if (!qualityProfileId || !rootFolderPath) {
-        return res.status(500).json({ error: 'Could not determine Radarr quality profile or root folder' });
-      }
-      const r = await fetch(`${c.radarrUrl.replace(/\/$/, '')}/api/v3/movie`, {
-        method: 'POST',
-        headers: {
-          'X-Api-Key': c.radarrApiKey,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          tmdbId: Number(tmdbId),
-          title: title || '',
-          qualityProfileId,
-          rootFolderPath,
-          monitored: true,
-          addOptions: { searchForMovie: true },
-        }),
-        signal: AbortSignal.timeout(10000),
-      });
-      if (!r.ok) {
-        const body = await r.text();
-        return res.status(r.status).json({ error: `Radarr error: ${body}` });
-      }
-    } else if (service === 'sonarr') {
-      if (!c.sonarrEnabled || !c.sonarrUrl || !c.sonarrApiKey) {
-        return res.status(400).json({ error: 'Sonarr not configured' });
-      }
-      const [profilesRes, foldersRes, langRes] = await Promise.all([
-        fetch(`${c.sonarrUrl.replace(/\/$/, '')}/api/v3/qualityprofile`, {
-          headers: { 'X-Api-Key': c.sonarrApiKey }, signal: AbortSignal.timeout(8000),
-        }),
-        fetch(`${c.sonarrUrl.replace(/\/$/, '')}/api/v3/rootfolder`, {
-          headers: { 'X-Api-Key': c.sonarrApiKey }, signal: AbortSignal.timeout(8000),
-        }),
-        fetch(`${c.sonarrUrl.replace(/\/$/, '')}/api/v3/languageprofile`, {
-          headers: { 'X-Api-Key': c.sonarrApiKey }, signal: AbortSignal.timeout(8000),
-        }).catch(() => ({ json: () => ([]) })),
-      ]);
-      const profiles = await profilesRes.json();
-      const folders = await foldersRes.json();
-      const langs = langRes.ok ? await langRes.json() : [];
-      const savedSonarrProfileId = Number(db.getSetting('sonarr_quality_profile_id', '')) || null;
-      const qualityProfileId = (savedSonarrProfileId && profiles.some(p => p.id === savedSonarrProfileId))
-        ? savedSonarrProfileId
-        : profiles[0]?.id;
-      const rootFolderPath = folders[0]?.path;
-      const languageProfileId = langs[0]?.id || 1;
-      if (!qualityProfileId || !rootFolderPath) {
-        return res.status(500).json({ error: 'Could not determine Sonarr quality profile or root folder' });
-      }
-      const externalIds = await tmdbService.tmdbFetchPublic(`/tv/${tmdbId}/external_ids`).catch(() => ({}));
-      const tvdbId = externalIds?.tvdb_id;
-      if (!tvdbId) {
-        return res.status(400).json({ error: 'Could not resolve TVDB ID for this show. TMDB may not have a TVDB mapping yet.' });
-      }
-      let seasonsPayload = undefined;
-      if (Array.isArray(seasons) && seasons.length > 0) {
-        // Individual seasons: look up series from Sonarr to get full season list
-        try {
-          const lookupRes = await fetch(`${c.sonarrUrl.replace(/\/$/, '')}/api/v3/series/lookup?term=tvdb:${tvdbId}`, {
-            headers: { 'X-Api-Key': c.sonarrApiKey },
-            signal: AbortSignal.timeout(8000),
-          });
-          const lookupData = lookupRes.ok ? await lookupRes.json() : [];
-          const seriesInfo = lookupData[0];
-          if (seriesInfo?.seasons) {
-            const selectedNums = new Set(seasons.map(Number));
-            seasonsPayload = seriesInfo.seasons.map(s => ({
-              ...s,
-              monitored: selectedNums.has(s.seasonNumber),
-            }));
-          }
-        } catch { /* fall back to default behaviour */ }
-      }
-
-      const sonarrBody = {
-        tvdbId,
-        title: title || '',
-        qualityProfileId,
-        languageProfileId,
-        rootFolderPath,
-        monitored: true,
-        addOptions: { searchForMissingEpisodes: true },
-      };
-      if (seasonsPayload) sonarrBody.seasons = seasonsPayload;
-
-      const r = await fetch(`${c.sonarrUrl.replace(/\/$/, '')}/api/v3/series`, {
-        method: 'POST',
-        headers: {
-          'X-Api-Key': c.sonarrApiKey,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(sonarrBody),
-        signal: AbortSignal.timeout(10000),
-      });
-      if (!r.ok) {
-        const body = await r.text();
-        return res.status(r.status).json({ error: `Sonarr error: ${body}` });
-      }
-    }
-
-    // Log the request so it shows as "Already Requested" in the UI.
-    // No pool rebuild needed — isRequested is applied dynamically on every
-    // getDiscoverRecommendations() call by reading db.getAllRequestedTmdbIds().
     const seasonsCount = mediaType === 'tv'
       ? (Array.isArray(seasons) && seasons.length > 0 ? seasons.length : 1)
       : 1;
-    db.addDiscoverRequest(userId, tmdbId, mediaType, title || '', service, seasonsCount);
+
+    // Check auto-approve setting
+    const autoApprove = db.getEffectiveAutoApprove(userId, mediaType);
+
+    const cachedItem = db.getTmdbCache(tmdbId, mediaType);
+    const storedPosterUrl = cachedItem?.posterUrl || null;
+
+    if (!autoApprove) {
+      // Store as pending — do NOT submit to service
+      db.addDiscoverRequestWithStatus(userId, tmdbId, mediaType, title || '', service, seasonsCount, 'pending', seasons || null, storedPosterUrl);
+      logger.info(`Request queued (pending approval): user=${userId} tmdbId=${tmdbId} type=${mediaType} title="${title}" service=${service}`);
+      // Notify admins of new pending request
+      try {
+        const username = req.session.plexUser.username || userId;
+        const adminIds = db.getPrivilegedUserIds();
+        for (const adminId of adminIds) {
+          const prefs = db.getUserNotificationPrefs(adminId);
+          if (prefs.notify_pending) {
+            const notifId = db.createOrBundleNotification({
+              userId: adminId,
+              type: 'request_pending',
+              title: `New request: "${title}"`,
+              body: `${username} requested ${mediaType === 'movie' ? 'a movie' : 'a TV show'}.`,
+              data: { tmdbId, mediaType, title },
+            });
+            db.enqueueNotification({ notificationId: notifId, agent: 'discord', userId: adminId, payload: { type: 'request_pending', title: `New request: "${title}"`, body: `${username} requested ${mediaType === 'movie' ? 'a movie' : 'a TV show'}.`, posterUrl: storedPosterUrl } });
+            db.enqueueNotification({ notificationId: notifId, agent: 'pushover', userId: adminId, payload: { type: 'request_pending', title: `New request: "${title}"`, body: `${username} requested ${mediaType === 'movie' ? 'a movie' : 'a TV show'}.`, posterUrl: storedPosterUrl } });
+          }
+        }
+      } catch (e) { logger.warn('notification error:', e.message); }
+      return res.json({ success: true, pending: true });
+    }
+
+    // Auto-approve: submit to service immediately
+    await submitRequestToService({ tmdbId, mediaType, title, service, seasons });
+
+    db.addDiscoverRequestWithStatus(userId, tmdbId, mediaType, title || '', service, seasonsCount, 'approved', seasons || null, storedPosterUrl);
     logger.info(`Request submitted: user=${userId} tmdbId=${tmdbId} type=${mediaType} title="${title}" service=${service}`);
+
+    // Notify admins of auto-approved request
+    try {
+      const username = req.session.plexUser.username || userId;
+      for (const adminId of db.getPrivilegedUserIds()) {
+        const prefs = db.getUserNotificationPrefs(adminId);
+        if (prefs.notify_auto_approved) {
+          const notifId = db.createOrBundleNotification({
+            userId: adminId, type: 'request_auto_approved',
+            title: `"${title}" auto-approved`,
+            body: `${username} requested a ${mediaType === 'movie' ? 'movie' : 'TV show'} and it was automatically submitted.`,
+            data: { tmdbId, mediaType, title },
+          });
+          db.enqueueNotification({ notificationId: notifId, agent: 'discord', userId: adminId, payload: { type: 'request_auto_approved', title: `"${title}" auto-approved`, body: `${username} requested a ${mediaType === 'movie' ? 'movie' : 'TV show'} and it was automatically submitted.`, posterUrl: storedPosterUrl } });
+          db.enqueueNotification({ notificationId: notifId, agent: 'pushover', userId: adminId, payload: { type: 'request_auto_approved', title: `"${title}" auto-approved`, body: `${username} requested a ${mediaType === 'movie' ? 'movie' : 'TV show'} and it was automatically submitted.`, posterUrl: storedPosterUrl } });
+        }
+      }
+    } catch (e) { logger.warn('notification error:', e.message); }
 
     // Add the item to the user's native Plex.tv Watchlist so they can track it
     // in the Plex app while waiting for the download.
-    // Exception: skip for the server owner when in playlist mode — the playlist
-    // is monitored by download automation (e.g. pd_zurg) and the request already
-    // handles the download; adding to the playlist would trigger a duplicate attempt.
     const watchlistMode = db.getAdminWatchlistMode();
     const ownerUserId = db.getOwnerUserId();
     const isOwnerInPlaylistMode = watchlistMode === 'playlist' && userId === ownerUserId;
 
     if (!isOwnerInPlaylistMode) {
-      // Requested items are not yet in the library — find them on Plex Discover
-      // by TMDB ID match and add to the user's plex.tv Watchlist. Best-effort.
-      const userToken = req.session.plexUser.token;
       fetch(`https://discover.provider.plex.tv/library/search?query=${encodeURIComponent(title || '')}&limit=10&X-Plex-Token=${userToken}`, {
         headers: { Accept: 'application/json' },
         signal: AbortSignal.timeout(8000),
@@ -812,25 +890,262 @@ router.post('/request', async (req, res) => {
         .then(async data => {
           const hits = data?.MediaContainer?.SearchResult || [];
           const hit = hits.find(h => {
-            // Guid array: [{ id: "tmdb://12345" }, ...]
             const guids = h.Metadata?.Guid || [];
             const hasTmdb = guids.some(g => g.id === `tmdb://${tmdbId}`);
             const titleMatch = h.Metadata?.title === title && String(h.Metadata?.year) === String(year);
             return hasTmdb || titleMatch;
           });
           if (!hit?.Metadata?.ratingKey) return;
-          // ratingKey from discover.provider.plex.tv is already the plex GUID hash
           const plexGuid = String(hit.Metadata.ratingKey);
           await plexService.addToPlexTvWatchlistByGuid(userToken, plexGuid);
         })
-        .catch(() => {}); // best-effort
+        .catch(() => {});
     }
 
     res.json({ success: true });
   } catch (err) {
     console.error('request error:', err);
+    try {
+      for (const adminId of db.getPrivilegedUserIds()) {
+        const prefs = db.getUserNotificationPrefs(adminId);
+        if (prefs.notify_process_failed) {
+          db.createOrBundleNotification({
+            userId: adminId, type: 'request_process_failed',
+            title: `Request failed: "${title}"`,
+            body: err.message,
+            data: { tmdbId, mediaType, title },
+          });
+        }
+      }
+    } catch (e) { logger.warn('notification error:', e.message); }
     res.status(500).json({ error: 'Request failed: ' + err.message });
   }
+});
+
+// ── Queue management endpoints (Plex admin users) ─────────────────────────────
+
+function requirePlexAdmin(req, res, next) {
+  if (req.session && (req.session.isAdmin || req.session.isPlexAdminUser)) return next();
+  res.status(403).json({ error: 'Admin access required' });
+}
+
+// GET /api/queue
+router.get('/queue', async (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  const isAdmin = !!(req.session.isAdmin || req.session.isPlexAdminUser);
+  const userId = req.session.plexUser.id;
+  const { status = 'all', page = '1', limit: limitParam = '25' } = req.query;
+  const limit = Math.min(100, Math.max(1, parseInt(limitParam) || 25));
+  const pageNum = Math.max(1, parseInt(page) || 1);
+
+  // 'requested' is a computed displayStatus (approved + not in library) — fetch all approved
+  // and filter in memory; otherwise use DB-level pagination
+  const libraryTmdbIds = db.getLibraryTmdbIds();
+  const isRequestedFilter = status === 'requested';
+  const dbStatus = isRequestedFilter ? 'approved' : status;
+
+  let rows, total;
+  if (isRequestedFilter) {
+    // Fetch all approved without pagination, filter in memory, then slice
+    const all = isAdmin ? db.getAllRequests(10000, 0, 'approved') : db.getUserRequests(userId, 10000, 0, 'approved');
+    const filtered = all.rows.filter(r => !libraryTmdbIds.has(String(r.tmdb_id)));
+    total = filtered.length;
+    rows = filtered.slice((pageNum - 1) * limit, pageNum * limit);
+  } else {
+    ({ rows, total } = isAdmin ? db.getAllRequests(limit, (pageNum - 1) * limit, dbStatus) : db.getUserRequests(userId, limit, (pageNum - 1) * limit, dbStatus));
+  }
+
+  // Fetch TMDB details on-demand for rows missing poster (backfill for old requests)
+  const missingPosters = rows.filter(r => !r.poster_url && !db.getTmdbCache(r.tmdb_id, r.media_type));
+  if (missingPosters.length > 0) {
+    await Promise.all(missingPosters.map(r => tmdbService.getItemDetails(r.tmdb_id, r.media_type)));
+  }
+
+  const enriched = rows.map(r => {
+    const cached = db.getTmdbCache(r.tmdb_id, r.media_type);
+    const isAvailable = libraryTmdbIds.has(String(r.tmdb_id));
+    let displayStatus = r.status;
+    if (r.status === 'approved') displayStatus = isAvailable ? 'available' : 'requested';
+    return {
+      ...r,
+      posterUrl: r.poster_url || cached?.posterUrl || null,
+      year: cached?.releaseDate ? parseInt(cached.releaseDate.slice(0, 4)) || null : null,
+      contentRating: cached?.contentRating || null,
+      displayStatus,
+    };
+  });
+
+  res.json({
+    requests: enriched,
+    total,
+    page: pageNum,
+    totalPages: Math.ceil(total / limit),
+  });
+});
+
+// PUT /api/queue/:id — edit a pending request
+router.put('/queue/:id', (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  const isAdmin = !!(req.session.isAdmin || req.session.isPlexAdminUser);
+  const request = db.getRequestById(req.params.id);
+  if (!request) return res.status(404).json({ error: 'Request not found' });
+  if (!isAdmin && request.user_id !== req.session.plexUser.id) return res.status(403).json({ error: 'Forbidden' });
+  if (request.status !== 'pending') return res.status(400).json({ error: 'Request is not pending' });
+
+  const { service, seasons } = req.body;
+  const seasonsJson = Array.isArray(seasons) && seasons.length > 0 ? JSON.stringify(seasons.map(Number)) : null;
+  const seasonsCount = Array.isArray(seasons) && seasons.length > 0 ? seasons.length : 1;
+  db.updateRequest(request.id, {
+    service: service || request.service,
+    seasonsJson,
+    seasonsCount,
+  });
+  res.json({ success: true, request: db.getRequestById(request.id) });
+});
+
+// POST /api/queue/:id/approve
+router.post('/queue/:id/approve', requirePlexAdmin, async (req, res) => {
+  try {
+    const request = db.getRequestById(req.params.id);
+    if (!request) return res.status(404).json({ error: 'Request not found' });
+    if (request.status !== 'pending') return res.status(400).json({ error: 'Request is not pending' });
+
+    const storedSeasons = request.seasons_json ? JSON.parse(request.seasons_json) : null;
+    await submitRequestToService({
+      tmdbId: request.tmdb_id,
+      mediaType: request.media_type,
+      title: request.title,
+      service: request.service,
+      seasons: storedSeasons,
+    });
+
+    db.updateRequestStatus(request.id, 'approved', null);
+    logger.info(`Request approved by admin: id=${request.id} tmdbId=${request.tmdb_id} title="${request.title}"`);
+    // Notify the requester
+    try {
+      const prefs = db.getUserNotificationPrefs(request.user_id);
+      if (prefs.notify_approved) {
+        const notifId = db.createOrBundleNotification({
+          userId: request.user_id,
+          type: 'request_approved',
+          title: `"${request.title}" approved`,
+          body: 'Your request has been approved and submitted.',
+          data: { requestId: request.id, tmdbId: request.tmdb_id, mediaType: request.media_type, title: request.title },
+        });
+        db.enqueueNotification({ notificationId: notifId, agent: 'discord', userId: request.user_id, payload: { type: 'request_approved', title: `"${request.title}" approved`, body: 'Your request has been approved and submitted.', posterUrl: request.poster_url } });
+        db.enqueueNotification({ notificationId: notifId, agent: 'pushover', userId: request.user_id, payload: { type: 'request_approved', title: `"${request.title}" approved`, body: 'Your request has been approved and submitted.', posterUrl: request.poster_url } });
+      }
+    } catch (e) { logger.warn('notification error:', e.message); }
+    res.json({ success: true, request: db.getRequestById(request.id) });
+  } catch (err) {
+    console.error('queue approve error:', err);
+    try {
+      const request = db.getRequestById(req.params.id);
+      const title = request?.title || 'Unknown';
+      const tmdbId = request?.tmdb_id;
+      const mediaType = request?.media_type;
+      for (const adminId of db.getPrivilegedUserIds()) {
+        const prefs = db.getUserNotificationPrefs(adminId);
+        if (prefs.notify_process_failed) {
+          db.createOrBundleNotification({
+            userId: adminId, type: 'request_process_failed',
+            title: `Request failed: "${title}"`,
+            body: err.message,
+            data: { tmdbId, mediaType, title },
+          });
+        }
+      }
+    } catch (e) { logger.warn('notification error:', e.message); }
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/queue/:id/deny
+router.post('/queue/:id/deny', requirePlexAdmin, (req, res) => {
+  const { note } = req.body;
+  const request = db.getRequestById(req.params.id);
+  if (!request) return res.status(404).json({ error: 'Request not found' });
+  db.updateRequestStatus(request.id, 'denied', note || null);
+  logger.info(`Request denied by admin: id=${request.id} tmdbId=${request.tmdb_id} title="${request.title}"`);
+  // Notify the requester
+  try {
+    const prefs = db.getUserNotificationPrefs(request.user_id);
+    if (prefs.notify_denied) {
+      const denyBody = note ? `Reason: ${note}` : 'Your request has been declined.';
+      const notifId = db.createOrBundleNotification({
+        userId: request.user_id,
+        type: 'request_denied',
+        title: `"${request.title}" declined`,
+        body: denyBody,
+        data: { requestId: request.id, tmdbId: request.tmdb_id, mediaType: request.media_type, title: request.title },
+      });
+      db.enqueueNotification({ notificationId: notifId, agent: 'discord', userId: request.user_id, payload: { type: 'request_denied', title: `"${request.title}" declined`, body: denyBody, posterUrl: request.poster_url } });
+      db.enqueueNotification({ notificationId: notifId, agent: 'pushover', userId: request.user_id, payload: { type: 'request_denied', title: `"${request.title}" declined`, body: denyBody, posterUrl: request.poster_url } });
+    }
+  } catch (e) { logger.warn('notification error:', e.message); }
+  res.json({ success: true, request: db.getRequestById(request.id) });
+});
+
+// DELETE /api/queue/:id
+router.delete('/queue/:id', (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  const isAdmin = !!(req.session.isAdmin || req.session.isPlexAdminUser);
+  const request = db.getRequestById(req.params.id);
+  if (!request) return res.status(404).json({ error: 'Request not found' });
+  if (!isAdmin) {
+    if (request.user_id !== req.session.plexUser.id) return res.status(403).json({ error: 'Forbidden' });
+    if (request.status !== 'pending') return res.status(403).json({ error: 'Can only delete pending requests' });
+  }
+  db.deleteRequest(request.id);
+  res.json({ success: true });
+});
+
+// POST /api/user/settings — save user's own content preferences + notification prefs
+router.post('/user/settings', (req, res) => {
+  const userId = req.session.plexUser.id;
+  const { region, language, notify_approved, notify_denied, notify_available,
+          discord_webhook, discord_enabled, discord_user_id, pushover_user_key, pushover_enabled,
+          notify_pending, notify_auto_approved, notify_process_failed } = req.body;
+  db.setUserPreferences(userId, { region: region || null, language: language || null });
+  db.setUserNotificationPrefs(userId, {
+    notify_approved:      notify_approved      !== false && notify_approved      !== 'false',
+    notify_denied:        notify_denied        !== false && notify_denied        !== 'false',
+    notify_available:     notify_available     !== false && notify_available     !== 'false',
+    discord_webhook:      discord_webhook       || null,
+    discord_enabled:      discord_enabled       === true || discord_enabled       === 'true',
+    discord_user_id:      discord_user_id       || null,
+    pushover_user_key:    pushover_user_key     || null,
+    pushover_enabled:     pushover_enabled      === true || pushover_enabled      === 'true',
+    notify_pending:       notify_pending        !== false && notify_pending        !== 'false',
+    notify_auto_approved: notify_auto_approved  !== false && notify_auto_approved  !== 'false',
+    notify_process_failed: notify_process_failed !== false && notify_process_failed !== 'false',
+  });
+  res.json({ ok: true });
+});
+
+// ── Notification endpoints ─────────────────────────────────────────────────────
+
+router.get('/notifications', (req, res) => {
+  const userId = req.session.plexUser.id;
+  const countOnly = req.query.countOnly === '1';
+  const unreadCount = db.getUnreadNotificationCount(userId);
+  if (countOnly) return res.json({ unreadCount });
+  const notifications = db.getNotifications(userId, 20);
+  const recentRead = db.getRecentReadNotifications(userId, 5);
+  res.json({ notifications, recentRead, unreadCount });
+});
+
+router.post('/notifications/read', (req, res) => {
+  const userId = req.session.plexUser.id;
+  const { ids, all } = req.body;
+  db.markNotificationsRead(userId, all ? null : (ids || []));
+  res.json({ ok: true });
+});
+
+router.delete('/notifications/:id', (req, res) => {
+  const userId = req.session.plexUser.id;
+  db.deleteNotification(userId, req.params.id);
+  res.json({ ok: true });
 });
 
 module.exports = router;

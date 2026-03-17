@@ -1,0 +1,26 @@
+[
+  {
+    "version": "1.12.2",
+    "date": "2026-03-17",
+    "changes": [
+      "Request queue page — users can view and manage their own requests; admins can review, approve, deny (with optional note), edit, or delete all requests",
+      "Per-user settings page — users can set region, language, notification preferences, and auto-request watchlist options",
+      "Admin per-user settings panel — full per-user controls for request limits, auto-approve overrides, elevated privileges, and notification preferences",
+      "Notification system — in-app bell with dropdown, Discord webhook (per-user and global), and Pushover push notifications",
+      "Elevated privileges role — admin-level flag per user with toggle in admin user panel",
+      "Auto-request from watchlist — global setting with per-user overrides for movies and TV shows",
+      "Changelog modal — version badge in the About panel opens a changelog history popup",
+      "Desktop user button redesigned — compact button matching the mobile FAB style with dropdown menu",
+      "Discord mode selector redesigned as a slide toggle (Webhook ↔ Bot Token) matching the site's toggle style",
+      "Bot mode shared-channel webhook option is now a toggle that reveals the URL field on demand",
+      "App Public URL setting moved to General Settings tab; enabling Discord bot mode without it set shows an error",
+      "Discord Server Invite Link — admins can set a non-expiring invite; users see a 'Join Server' prompt in their settings",
+      "Notification bell shows recent read notifications greyed out below unread; clicking 'Request available' navigates to the queue",
+      "Privileged user routing — elevated users receive admin-type notifications in addition to Plex admins",
+      "request_process_failed notification type added to Discord and Pushover agent type lists",
+      "Quality profile names persisted — saved profile name shown in the dropdown if Radarr/Sonarr is temporarily unreachable",
+      "Per-user admin settings page — action buttons for Re-sync Watched, Clear Watched, Clear Dismissals, Clear Requests",
+      "Themed checkboxes now consistent site-wide"
+    ]
+  }
+]

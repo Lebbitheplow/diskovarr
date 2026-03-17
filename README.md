@@ -24,6 +24,10 @@ Sign in with your Plex account and Diskovarr surfaces what to watch next — sco
 - **Version strip** — admin panel always shows running version with an update-available badge when a new GitHub release exists
 - **Theme color picker** — color wheel + presets; accent color updates globally in real time
 - **Poster proxy** — all poster images proxied through the server; Plex tokens never reach the browser
+- **Notification system** — Discord (webhook shared channel or per-user bot DMs) and Pushover push notifications; per-user preferences for each event type
+- **Request queue** — users view and manage their own requests; admins approve, deny (with note), edit, or delete all requests
+- **Elevated privileges** — grant any user queue management access without full admin rights
+- **Auto-request from watchlist** — global and per-user overrides for movies and TV
 - **Dark UI** — Netflix-style card grid with shimmer skeleton loading, hover overlays, and CSS variable theming
 
 ## Requirements
@@ -153,6 +157,8 @@ Visit `/admin` and enter your `ADMIN_PASSWORD`.
 - **Recommendation Cache** — clear in-memory caches for all users or a specific user
 - **Server Owner & Watchlist Mode** — select the server owner Plex account; toggle between Watchlist mode (native plex.tv Watchlist) and Playlist mode (private server playlist)
 - **Theme Color** — pick from presets or the color wheel; change applies across all pages instantly
+- **App Public URL** — externally reachable URL of your Diskovarr instance; required for the Discord bot avatar endpoint
+- **Per-user settings** — request limits, auto-approve overrides, elevated privileges, and notification preferences; action buttons to re-sync watched, clear watched history, clear dismissals, and clear requests per user
 
 ### Connections tab
 
@@ -162,9 +168,43 @@ Configure all external services here — no file editing or restarts needed:
 - **Tautulli** — URL and API key
 - **TMDB** — API key required to enable Diskovarr Requests
 - **Diskovarr Requests** — toggle to show/hide the Requests tab for all users
-- **Overseerr / Radarr / Sonarr** — URL, API key, and enable toggle per service; Test button to verify connectivity
+- **Overseerr / Radarr / Sonarr** — URL, API key, quality profile selection, and enable toggle per service; Test button to verify connectivity
 
 All API keys are stored in the local SQLite database and masked in the UI. The eye button reveals a key on demand (admin session only).
+
+### Notifications tab
+
+Configure notification agents here:
+
+- **Discord Agent** — send notifications via a shared channel webhook or direct messages to individual users via a bot token; toggle per notification type
+- **Pushover Agent** — send push notifications to iOS/Android devices; configure app token and user/group key
+
+## Notifications
+
+Diskovarr supports two notification channels, configurable from **Admin → Notifications**.
+
+### Discord
+
+Two modes are available:
+
+- **Webhook mode** — all notifications post to a single shared Discord channel. Users can optionally add their own personal webhook in their profile settings for private-channel delivery.
+- **Bot Token mode** — the bot sends each user a personal DM. Each user enters their Discord User ID in their Diskovarr settings. An optional toggle mirrors admin-type notifications to a shared channel webhook as well.
+
+Set a non-expiring **Discord Server Invite Link** so users see a "Join Server" prompt in their settings and can join the server before receiving bot DMs.
+
+Per-notification-type toggles let you enable/disable: new request pending, request auto-approved, request approved, request denied, request available in library, and request processing error.
+
+### Pushover
+
+Enter your Pushover **Application API Token** and **User or Group Key**. Notifications are delivered in real time to all registered devices. Per-user Pushover keys can be set from each user's settings page for individual delivery.
+
+### Per-user preferences
+
+Users can choose which notification types they want to receive, and set their own Discord User ID or personal Pushover key in their profile settings.
+
+### Elevated privileges
+
+Granting elevated privileges to a user gives them admin-level notification delivery (pending request alerts, processing error alerts) without granting full admin access to the panel.
 
 ## Diskovarr Requests
 
