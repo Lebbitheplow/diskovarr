@@ -1017,7 +1017,26 @@
         <!-- Shared fields -->
         <div style="display:flex;flex-direction:column;gap:12px;margin-bottom:20px">
           <div><label class="conn-label">Bot Username <span style="color:var(--text-muted);font-weight:400">(optional)</span></label><input type="text" id="discord-botname" class="conn-input" placeholder="Diskovarr"></div>
-          <div><label class="conn-label">Bot Avatar URL <span style="color:var(--text-muted);font-weight:400">(optional — leave blank to use auto-generated logo)</span></label><input type="url" id="discord-avatar-url" class="conn-input" placeholder="https://..."></div>
+          <!-- Bot Avatar Upload -->
+          <div>
+            <label class="conn-label">Bot Avatar <span style="color:var(--text-muted);font-weight:400">(optional)</span></label>
+            <div style="display:flex;align-items:center;gap:12px;margin-top:4px">
+              <img id="discord-avatar-preview" src="/discord-avatar.png" width="48" height="48"
+                style="border-radius:50%;object-fit:cover;border:2px solid var(--border);flex-shrink:0">
+              <div style="display:flex;flex-direction:column;gap:6px">
+                <div style="display:flex;gap:8px;align-items:center">
+                  <label for="discord-avatar-file" class="btn-admin btn-sm" style="cursor:pointer;margin:0">Choose Image</label>
+                  <input type="file" id="discord-avatar-file" accept="image/png,image/jpeg,image/gif" style="display:none">
+                  <button type="button" id="discord-avatar-clear" class="btn-admin btn-sm btn-danger" style="display:none">Remove</button>
+                </div>
+                <span style="font-size:0.75rem;color:var(--text-muted)">PNG/JPG/GIF · 128×128 recommended · max 2 MB · leave blank for auto-generated logo</span>
+              </div>
+            </div>
+            <div style="margin-top:8px">
+              <label class="conn-label" style="font-size:0.78rem;color:var(--text-muted)">Or use a URL instead</label>
+              <input type="text" id="discord-avatar-url" class="conn-input" placeholder="https://example.com/avatar.png" style="margin-top:2px">
+            </div>
+          </div>
           <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem"><input type="checkbox" id="discord-poster" class="themed-checkbox"> Embed poster image in notifications</label>
         </div>
 
@@ -1694,7 +1713,33 @@
       document.getElementById('discord-test-bot-row').style.display     = mode === 'bot'     ? 'flex' : 'none';
     }
 
-    function saveDiscordAgent() {
+    // Discord avatar upload state
+    var _discordAvatarDataUri = null;   // new upload pending
+    var _discordAvatarClear   = false;  // user clicked Remove
+
+    document.getElementById('discord-avatar-file').addEventListener('change', function() {
+      var file = this.files[0];
+      if (!file) return;
+      if (file.size > 2 * 1024 * 1024) { showToast('Image exceeds 2 MB limit', true); this.value = ''; return; }
+      var reader = new FileReader();
+      reader.onload = function(e) {
+        _discordAvatarDataUri = e.target.result;
+        _discordAvatarClear   = false;
+        document.getElementById('discord-avatar-preview').src = _discordAvatarDataUri;
+        document.getElementById('discord-avatar-clear').style.display = 'inline-flex';
+      };
+      reader.readAsDataURL(file);
+    });
+
+    document.getElementById('discord-avatar-clear').addEventListener('click', function() {
+      _discordAvatarDataUri = null;
+      _discordAvatarClear   = true;
+      document.getElementById('discord-avatar-preview').src = '/discord-avatar.png?bust=' + Date.now();
+      document.getElementById('discord-avatar-file').value = '';
+      this.style.display = 'none';
+    });
+
+    async function saveDiscordAgent() {
       if (document.getElementById('discord-enabled').checked && _discordMode === 'bot') {
         var publicUrl = (document.getElementById('app-public-url') || {}).value || '';
         if (!publicUrl.trim()) {
@@ -1702,6 +1747,17 @@
           showToast('Set the App Public URL in General Settings before enabling bot mode', true);
           return;
         }
+      }
+      // Upload/clear avatar first if changed
+      if (_discordAvatarDataUri || _discordAvatarClear) {
+        try {
+          var avatarBody = _discordAvatarClear ? { clear: true } : { imageDataUri: _discordAvatarDataUri };
+          var ar = await fetch('/admin/settings/discord-avatar', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(avatarBody) });
+          var ad = await ar.json();
+          if (!ad.success) { showToast('Avatar upload failed: ' + (ad.error || 'unknown'), true); return; }
+          _discordAvatarDataUri = null;
+          _discordAvatarClear   = false;
+        } catch(e) { showToast('Avatar upload error: ' + e.message, true); return; }
       }
       var types = Array.from(document.querySelectorAll('.discord-type:checked')).map(function(el){return el.value;});
       fetch('/admin/settings/discord', {
@@ -1713,7 +1769,6 @@
           webhookUrl:         document.getElementById('discord-webhook').value,
           botToken:           document.getElementById('discord-bottoken').value,
           botUsername:        document.getElementById('discord-botname').value,
-          botAvatarUrl:       document.getElementById('discord-avatar-url').value,
           notificationRoleId: document.getElementById('discord-roleid').value,
           enableMentions:     document.getElementById('discord-mentions').checked,
           embedPoster:        document.getElementById('discord-poster').checked,
@@ -1721,6 +1776,7 @@
           inviteLink:         document.getElementById('discord-invite-link').value,
           botWebhookUrl:      document.getElementById('discord-bot-webhook').value,
           botUseWebhook:      document.getElementById('discord-bot-use-webhook').checked,
+          botAvatarUrl:       document.getElementById('discord-avatar-url').value,
         }),
       }).then(r=>r.json()).then(d=>{ if(d.success) showToast('Discord settings saved'); else showToast('Save failed',true); }).catch(()=>showToast('Save failed',true));
     }
@@ -1779,7 +1835,6 @@
           if (c.webhookUrl) document.getElementById('discord-webhook').value = c.webhookUrl;
           if (c.botToken) document.getElementById('discord-bottoken').value = c.botToken;
           if (c.botUsername) document.getElementById('discord-botname').value = c.botUsername;
-          if (c.botAvatarUrl) document.getElementById('discord-avatar-url').value = c.botAvatarUrl;
           if (c.notificationRoleId) document.getElementById('discord-roleid').value = c.notificationRoleId;
           if (c.enableMentions) document.getElementById('discord-mentions').checked = true;
           if (c.embedPoster) document.getElementById('discord-poster').checked = true;
@@ -1794,6 +1849,7 @@
             document.getElementById('discord-bot-webhook-field').style.display = 'block';
           }
           if (c.botWebhookUrl) document.getElementById('discord-bot-webhook').value = c.botWebhookUrl;
+          if (c.botAvatarUrl) document.getElementById('discord-avatar-url').value = c.botAvatarUrl;
         }
         if (d.pushoverAgent) {
           var p = d.pushoverAgent;

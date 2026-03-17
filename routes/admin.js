@@ -675,6 +675,7 @@ router.get('/user-settings/:userId', requireAdmin, (req, res) => {
     discordMode: discordConfig?.mode || 'webhook',
     pushoverAgentEnabled: (() => { try { return JSON.parse(db.getSetting('pushover_agent', 'null'))?.enabled === true; } catch { return false; } })(),
     isPrivileged: db.getPrivilegedUserIds().includes(userId),
+    ownerUserId: db.getOwnerUserId(),
   });
 });
 
@@ -726,6 +727,26 @@ router.post('/settings/auto-request', requireAdmin, (req, res) => {
   if (!['movies', 'tv'].includes(type)) return res.status(400).json({ error: 'Invalid type' });
   const key = type === 'movies' ? 'auto_request_watchlist_movies' : 'auto_request_watchlist_tv';
   db.setSetting(key, enabled ? 'true' : 'false');
+  res.json({ success: true });
+});
+
+// ── Discord avatar upload ─────────────────────────────────────────────────────
+
+router.post('/settings/discord-avatar', requireAdmin, (req, res) => {
+  const { imageDataUri, clear } = req.body;
+  if (clear) {
+    db.setSetting('discord_avatar_data_uri', null);
+    return res.json({ success: true, cleared: true });
+  }
+  if (!imageDataUri || typeof imageDataUri !== 'string') {
+    return res.status(400).json({ error: 'imageDataUri required' });
+  }
+  // Validate it's an image data URI (png, jpeg, or gif)
+  const match = imageDataUri.match(/^data:(image\/(?:png|jpeg|gif));base64,(.+)$/);
+  if (!match) return res.status(400).json({ error: 'Must be a PNG, JPG, or GIF image' });
+  const bytes = Buffer.byteLength(match[2], 'base64');
+  if (bytes > 2 * 1024 * 1024) return res.status(400).json({ error: 'Image exceeds 2 MB limit' });
+  db.setSetting('discord_avatar_data_uri', imageDataUri);
   res.json({ success: true });
 });
 

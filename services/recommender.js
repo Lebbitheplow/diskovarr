@@ -2,6 +2,7 @@ const plexService = require('./plex');
 const tautulliService = require('./tautulli');
 const tmdbService = require('./tmdb');
 const db = require('../db/database');
+const logger = require('./logger');
 
 // Signal type priority for reason display — genre always shows after specific signals
 const SIGNAL_TYPE_RANK = { collection: 0, director: 1, similar: 2, actor: 3, keyword: 4, studio: 5, rating: 6, new: 7, recent_release: 8, genre: 99 };
@@ -835,8 +836,32 @@ function invalidateAllCaches() {
   recCache.clear();
 }
 
+/**
+ * Pre-warm recommendation caches for all known users.
+ * Called after each library sync so the first page load is instant.
+ * Uses DB-cached watched data (no user token needed).
+ */
+async function warmAllUserCaches() {
+  const users = db.getKnownUsers();
+  if (!users.length) return;
+  let warmed = 0;
+  let skipped = 0;
+  for (const user of users) {
+    const key = String(user.user_id);
+    const existing = recCache.get(key);
+    if (existing && (Date.now() - existing.builtAt) < REC_CACHE_TTL) { skipped++; continue; }
+    try {
+      await getRecommendations(key, null);
+      warmed++;
+    } catch (err) {
+      logger.debug(`warmAllUserCaches: skip user ${key} — ${err.message}`);
+    }
+  }
+  logger.info(`Rec pre-warm: ${warmed} warmed, ${skipped} already fresh (${users.length} total users)`);
+}
+
 module.exports = {
-  getRecommendations, invalidateUserCache, invalidateAllCaches,
+  getRecommendations, invalidateUserCache, invalidateAllCaches, warmAllUserCaches,
   // Exported for use by discoverRecommender
   buildPreferenceProfile, partialShuffle, tieredSample,
 };
