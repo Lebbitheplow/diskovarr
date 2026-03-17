@@ -184,7 +184,8 @@ router.get('/watchlist', requireAuth, (req, res) => {
 
 // Queue page — requires auth (all users can view their own requests)
 router.get('/queue', requireAuth, (req, res) => {
-  const isAdmin = !!(req.session.isAdmin || req.session.isPlexAdminUser);
+  const isAdmin = !!(req.session.isAdmin || req.session.isPlexAdminUser)
+    || db.getPrivilegedUserIds().includes(String(req.session.plexUser.id));
   const { id: userId, username, thumb } = req.session.plexUser;
   res.render('queue', {
     ...pageLocals(req), userId, username, thumb, currentPath: '/queue',
