@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/style.css?v=30">
+  <link rel="stylesheet" href="/css/style.css?v=33">
   <link rel="stylesheet" href="/theme.css?c=<%= themeParam %>">
 </head>
 <body>
@@ -17,12 +17,13 @@
 
   <main class="main-content">
     <div class="search-page-header">
-      <a href="/explore" class="search-back-btn" aria-label="Back to Requests">
+      <button class="search-back-btn" aria-label="Back"
+        onclick="if(history.length>1){history.back()}else{window.location.href='<%= landingPage === 'explore' ? '/explore' : '/' %>'}">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none" width="16" height="16" aria-hidden="true">
           <path d="M12 4L6 10L12 16" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
-        Back to Requests
-      </a>
+        Back
+      </button>
       <div class="search-page-query-wrap">
         <form class="search-page-form" id="search-page-form" action="/search" method="get" autocomplete="off">
           <div class="search-page-input-wrap">
@@ -118,6 +119,6 @@
     };
   </script>
   <script src="/js/watchlist.js?v=8"></script>
-  <script src="/js/search-app.js?v=9"></script>
+  <script src="/js/search-app.js?v=10"></script>
 </body>
 </html>

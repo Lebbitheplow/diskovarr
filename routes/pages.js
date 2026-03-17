@@ -168,6 +168,7 @@ router.get('/search', requireAuth, (req, res) => {
     individualSeasonsEnabled: db.isIndividualSeasonsEnabled(),
     directRequestAccess: db.getDirectRequestAccess(),
     isOwner: userId === db.getOwnerUserId(),
+    landingPage: db.getLandingPage(),
   });
 });
 

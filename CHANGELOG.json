@@ -1,5 +1,16 @@
 [
   {
+    "version": "1.14.0",
+    "date": "2026-03-17",
+    "changes": [
+      "Global nav search bar — always-visible search input on desktop between the nav tabs and bell; on mobile collapses to a magnifying glass icon that expands to a full-width overlay bar",
+      "Nav search shows TMDB autocomplete suggestions and navigates to the full search results page",
+      "Search results page: library items now show the full detail modal including Cast to TV and Report Issue; non-library items show the request modal",
+      "Back button on search page now returns to the previous page, or falls back to the configured landing page",
+      "Search results no longer hang when Plex TV library is slow — stale DB items are served immediately while a background sync runs"
+    ]
+  },
+  {
     "version": "1.13.1",
     "date": "2026-03-17",
     "changes": [

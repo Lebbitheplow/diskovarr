@@ -73,19 +73,29 @@ async function fetchSection(sectionId) {
     return cached.data;
   }
 
-  // Try DB first — use it if synced recently enough
+  // Try DB — if we have any items, return them immediately and sync in background
   const dbSyncTime = db.getSyncTime(`library_${sectionId}`);
   const dbAge = Math.floor(Date.now() / 1000) - dbSyncTime;
-  if (dbSyncTime > 0 && dbAge < 7200) {
-    const items = db.getLibraryItemsFromDb(sectionId);
-    if (items.length > 0) {
-      libraryCache.set(sectionId, { data: items, fetchedAt: Date.now() });
-      console.log(`Loaded ${items.length} items for section ${sectionId} from DB (age: ${Math.round(dbAge/60)}m)`);
-      return items;
+  const dbItems = dbSyncTime > 0 ? db.getLibraryItemsFromDb(sectionId) : [];
+  if (dbItems.length > 0) {
+    libraryCache.set(sectionId, { data: dbItems, fetchedAt: dbAge < 7200 ? Date.now() : Date.now() - CACHE_TTL + 5 * 60 * 1000 });
+    if (dbAge >= 7200) console.log(`Loaded ${dbItems.length} stale items for section ${sectionId} from DB (age: ${Math.round(dbAge/60)}m), syncing in background`);
+    else console.log(`Loaded ${dbItems.length} items for section ${sectionId} from DB (age: ${Math.round(dbAge/60)}m)`);
+    // Kick off background refresh if stale, but don't block
+    if (dbAge >= 7200 && !libSyncInProgress.has(sectionId)) {
+      const p = syncLibrarySection(sectionId)
+        .catch(err => {
+          console.warn(`Background sync failed for section ${sectionId} (${err.message}), keeping stale items`);
+          libraryCache.set(sectionId, { data: dbItems, fetchedAt: Date.now() - CACHE_TTL + 5 * 60 * 1000 });
+          return dbItems;
+        })
+        .finally(() => libSyncInProgress.delete(sectionId));
+      libSyncInProgress.set(sectionId, p);
     }
+    return dbItems;
   }
 
-  // Deduplicate concurrent syncs — only one fetch per sectionId at a time
+  // No DB items at all — must wait for sync
   if (!libSyncInProgress.has(sectionId)) {
     const p = syncLibrarySection(sectionId)
       .catch(err => {
