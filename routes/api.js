@@ -13,6 +13,24 @@ const logger = require('../services/logger');
 
 router.use(requireAuth);
 
+// Resolve a publicly-accessible TMDB poster URL from a Plex rating key.
+// Plex thumb paths (/library/metadata/.../thumb) require auth and can't be used
+// in Discord embeds. Tries the TMDB cache first; falls back to a live fetch.
+async function getPublicPosterUrl(ratingKey) {
+  const item = db.getLibraryItemByKey(ratingKey);
+  if (!item?.tmdbId) return null;
+  const mediaType = item.type === 'show' ? 'tv' : 'movie';
+  const cached = db.getTmdbCache(item.tmdbId, mediaType);
+  if (cached?.posterUrl) return cached.posterUrl;
+  // Cache miss — fetch from TMDB (also populates cache for future calls)
+  try {
+    const details = await tmdbService.getItemDetails(item.tmdbId, mediaType);
+    return details?.posterUrl || null;
+  } catch {
+    return null;
+  }
+}
+
 // GET /api/trailer?tmdbId=X&mediaType=movie|tv
 // Lazy-fetches and caches trailer key from TMDB. Works for both library and explore items.
 router.get('/trailer', async (req, res) => {
@@ -1116,7 +1134,7 @@ router.delete('/queue/:id', (req, res) => {
 // ── Issue reporting endpoints ──────────────────────────────────────────────────
 
 // POST /api/issues — report an issue with a library item
-router.post('/issues', (req, res) => {
+router.post('/issues', async (req, res) => {
   if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
   const userId = String(req.session.plexUser.id);
   const { ratingKey, title, mediaType, posterPath, scope, scopeSeason, scopeEpisode, description } = req.body;
@@ -1139,7 +1157,7 @@ router.post('/issues', (req, res) => {
         title: `Issue reported: "${title}"`, body: shortDesc,
         data: { issueId: id, ratingKey, mediaType },
       });
-      const posterUrl = posterPath ? `/api/poster?path=${encodeURIComponent(posterPath)}` : null;
+      const posterUrl = await getPublicPosterUrl(ratingKey);
       db.enqueueNotification({ notificationId: notifId, agent: 'discord', userId: adminId,
         payload: { type: 'issue_new', title: `Issue reported: "${title}"`, body: shortDesc, posterUrl, userId: adminId } });
       db.enqueueNotification({ notificationId: notifId, agent: 'pushover', userId: adminId,
@@ -1165,7 +1183,7 @@ router.get('/issues', (req, res) => {
 });
 
 // POST /api/issues/:id/resolve — mark resolved with optional note
-router.post('/issues/:id/resolve', requirePrivileged, (req, res) => {
+router.post('/issues/:id/resolve', requirePrivileged, async (req, res) => {
   const issue = db.getIssueById(req.params.id);
   if (!issue) return res.status(404).json({ error: 'Issue not found' });
   const note = req.body.note || null;
@@ -1179,7 +1197,7 @@ router.post('/issues/:id/resolve', requirePrivileged, (req, res) => {
         title: `Issue resolved: "${issue.title}"`, body,
         data: { issueId: issue.id },
       });
-      const posterUrl = issue.poster_path ? `/api/poster?path=${encodeURIComponent(issue.poster_path)}` : null;
+      const posterUrl = await getPublicPosterUrl(issue.rating_key);
       db.enqueueNotification({ notificationId: notifId, agent: 'discord', userId: issue.user_id,
         payload: { type: 'issue_updated', title: `Issue resolved: "${issue.title}"`, body, posterUrl, userId: issue.user_id } });
       db.enqueueNotification({ notificationId: notifId, agent: 'pushover', userId: issue.user_id,
@@ -1190,7 +1208,7 @@ router.post('/issues/:id/resolve', requirePrivileged, (req, res) => {
 });
 
 // POST /api/issues/:id/close — mark closed with optional note
-router.post('/issues/:id/close', requirePrivileged, (req, res) => {
+router.post('/issues/:id/close', requirePrivileged, async (req, res) => {
   const issue = db.getIssueById(req.params.id);
   if (!issue) return res.status(404).json({ error: 'Issue not found' });
   const note = req.body.note || null;
@@ -1204,7 +1222,7 @@ router.post('/issues/:id/close', requirePrivileged, (req, res) => {
         title: `Issue closed: "${issue.title}"`, body,
         data: { issueId: issue.id },
       });
-      const posterUrl = issue.poster_path ? `/api/poster?path=${encodeURIComponent(issue.poster_path)}` : null;
+      const posterUrl = await getPublicPosterUrl(issue.rating_key);
       db.enqueueNotification({ notificationId: notifId, agent: 'discord', userId: issue.user_id,
         payload: { type: 'issue_updated', title: `Issue closed: "${issue.title}"`, body, posterUrl, userId: issue.user_id } });
       db.enqueueNotification({ notificationId: notifId, agent: 'pushover', userId: issue.user_id,

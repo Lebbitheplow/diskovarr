@@ -98,34 +98,46 @@ async function updateBotAvatar(botToken, accentHex) {
 
 async function sendNotification({ type, title, body, posterUrl, userId }) {
   const config = getConfig();
-  if (!config || !config.enabled) return;
+  if (!config || !config.enabled) {
+    logger.debug('Discord: agent disabled or no config, skipping');
+    return;
+  }
 
   const enabledTypes = config.notificationTypes || [];
-  if (!enabledTypes.includes(type)) return;
+  if (!enabledTypes.includes(type)) {
+    logger.debug(`Discord: type "${type}" not in enabledTypes [${enabledTypes.join(', ')}], skipping`);
+    return;
+  }
 
   const embed = {
     title,
     description: body || '',
     color: TYPE_COLORS[type] || 0xe5a00d,
   };
-  if (config.embedPoster && posterUrl) embed.thumbnail = { url: posterUrl };
+  if (config.embedPoster && posterUrl) embed.image = { url: posterUrl };
 
   // Resolve avatar URL: explicit URL > publicUrl-derived > none
   const avatarUrl = config.botAvatarUrl || (config.publicUrl ? `${config.publicUrl}/discord-avatar.png` : null);
 
   if (config.mode === 'bot') {
     // Bot token mode — DM individual users
-    if (!config.botToken) return;
+    if (!config.botToken) {
+      logger.debug('Discord: bot mode but no botToken, skipping');
+      return;
+    }
     const prefs = userId ? db.getUserNotificationPrefs(userId) : null;
     const discordUserId = prefs?.discord_user_id;
-    if (!discordUserId || !prefs?.discord_enabled) return;
+    if (!discordUserId || !prefs?.discord_enabled) {
+      logger.debug(`Discord: userId=${userId} has no discordUserId or discord_enabled=false, skipping`);
+      return;
+    }
     try {
       await sendBotDm(discordUserId, embed, config.botToken, config.botUsername);
     } catch (err) {
       logger.warn(`Discord DM to ${discordUserId} failed:`, err.message);
     }
     // Also post admin-type notifications to shared channel webhook if configured
-    const adminTypes = ['request_pending', 'request_auto_approved', 'request_process_failed', 'issue_new'];
+    const adminTypes = ['request_pending', 'request_auto_approved', 'request_process_failed', 'issue_new', 'issue_updated'];
     if (config.botUseWebhook && config.botWebhookUrl && adminTypes.includes(type)) {
       try {
         await sendWebhookEmbed({

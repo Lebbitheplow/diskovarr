@@ -4,6 +4,23 @@ All notable changes are documented here. Versioning follows [Semantic Versioning
 
 ---
 
+## v1.14.2 — 2026-03-17
+
+### Added
+
+- **Request fulfilled notifications** — when a requested title appears in the Plex library, the requester receives a bell notification, Discord DM, and/or Pushover push (respects per-user `notify_available` preference). Detection runs after every library sync and instantly via a new Plex webhook endpoint (`POST /api/webhooks/plex`; register in Plex → Settings → Webhooks, requires Plex Pass).
+- **Discord/Pushover notification grouping** — multiple events of the same type in the same hour are batched into one message matching what the bell shows (e.g. `"Dune" approved and 2 other titles`), with the first title's poster embedded full-width.
+- **Discord/Pushover skip-if-read** — if the user reads the bell notification in Diskovarr before the delivery window elapses, the external send is skipped.
+
+### Fixed
+
+- **Discord `issue_new` / `issue_updated` enabled by default** — existing configs saved before these types were added now default them to checked, preventing silent opt-out.
+- **Discord `embedPoster` defaults to on** — existing configs that never explicitly set this field now default to enabled.
+- **Discord `issue_updated` added to shared-channel webhook** — bot mode now also posts issue resolutions/closures to the configured shared channel.
+- **Pushover `request_available` type** — added to the admin notification type list.
+
+---
+
 ## v1.1.1 — 2026-03-06
 
 ### Fixed

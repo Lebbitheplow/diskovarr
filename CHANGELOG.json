@@ -1,5 +1,16 @@
 [
   {
+    "version": "1.14.2",
+    "date": "2026-03-17",
+    "changes": [
+      "Request fulfilled notifications — when a requested title appears in the Plex library the requester receives a bell, Discord, and/or Pushover notification; also triggers instantly via Plex webhook (register in Plex → Settings → Webhooks)",
+      "Discord and Pushover notifications now group into one bundled message per event (matching the bell), with the poster from the first title embedded full-width",
+      "Discord and Pushover sends are skipped if the user already read the bell notification before the delivery window",
+      "Discord: issue_new and issue_updated now default to enabled for existing configs; embed poster defaults to on; issue_updated added to shared-channel webhook",
+      "Pushover: request_available type added to admin notification settings"
+    ]
+  },
+  {
     "version": "1.14.0",
     "date": "2026-03-17",
     "changes": [

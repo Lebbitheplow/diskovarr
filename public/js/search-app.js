@@ -731,27 +731,13 @@
 
     if (item.inLibrary) {
       var wlOverlayBtn = document.createElement('button');
-      wlOverlayBtn.className = 'btn-icon btn-watchlist-toggle' + (item.isInWatchlist ? ' in-watchlist' : '');
+      wlOverlayBtn.className = 'btn-icon btn-watchlist' + (item.isInWatchlist ? ' in-watchlist' : '');
       wlOverlayBtn.setAttribute('data-rating-key', item.ratingKey);
-      wlOverlayBtn.textContent = item.isInWatchlist ? '◈' : '+';
+      wlOverlayBtn.textContent = item.isInWatchlist ? '✓ In Watchlist' : '+ Watchlist';
       wlOverlayBtn.title = item.isInWatchlist ? 'Remove from Watchlist' : 'Add to Watchlist';
       wlOverlayBtn.addEventListener('click', function (e) {
         e.stopPropagation();
-        var inWl = wlOverlayBtn.classList.contains('in-watchlist');
-        if (inWl) {
-          fetch('/api/watchlist/remove', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ratingKey: item.ratingKey }) });
-          wlOverlayBtn.classList.remove('in-watchlist');
-          wlOverlayBtn.textContent = '+';
-          wlOverlayBtn.title = 'Add to Watchlist';
-          item.isInWatchlist = false;
-        } else {
-          fetch('/api/watchlist/add', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ratingKey: item.ratingKey }) });
-          wlOverlayBtn.classList.add('in-watchlist');
-          wlOverlayBtn.textContent = '◈';
-          wlOverlayBtn.title = 'Remove from Watchlist';
-          item.isInWatchlist = true;
-          showToast('Added to Watchlist');
-        }
+        window.Watchlist.toggle(wlOverlayBtn, item);
       });
       overlayActions.appendChild(wlOverlayBtn);
     } else if (cfg.hasAnyService) {

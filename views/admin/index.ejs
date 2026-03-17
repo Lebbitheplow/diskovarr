@@ -1037,7 +1037,7 @@
               <input type="text" id="discord-avatar-url" class="conn-input" placeholder="https://example.com/avatar.png" style="margin-top:2px">
             </div>
           </div>
-          <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem"><input type="checkbox" id="discord-poster" class="themed-checkbox"> Embed poster image in notifications</label>
+          <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem"><input type="checkbox" id="discord-poster" class="themed-checkbox" checked> Embed poster image in notifications</label>
         </div>
 
         <div style="margin-bottom:16px">
@@ -1098,6 +1098,7 @@
             <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem"><input type="checkbox" class="themed-checkbox pushover-type" value="request_pending" checked> New request pending</label>
             <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem"><input type="checkbox" class="themed-checkbox pushover-type" value="request_approved" checked> Request approved</label>
             <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem"><input type="checkbox" class="themed-checkbox pushover-type" value="request_denied" checked> Request denied</label>
+            <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem"><input type="checkbox" class="themed-checkbox pushover-type" value="request_available" checked> Request available in library</label>
             <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem"><input type="checkbox" class="themed-checkbox pushover-type" value="request_process_failed"> Request processing error</label>
             <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem"><input type="checkbox" class="themed-checkbox pushover-type" value="issue_new" checked> New issue reported</label>
             <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem"><input type="checkbox" class="themed-checkbox pushover-type" value="issue_updated" checked> Issue status updated</label>
@@ -1841,10 +1842,18 @@
           if (c.botUsername) document.getElementById('discord-botname').value = c.botUsername;
           if (c.notificationRoleId) document.getElementById('discord-roleid').value = c.notificationRoleId;
           if (c.enableMentions) document.getElementById('discord-mentions').checked = true;
-          if (c.embedPoster) document.getElementById('discord-poster').checked = true;
+          // embedPoster defaults to true for configs saved before this field was added
+          document.getElementById('discord-poster').checked = c.embedPoster !== false;
           if (c.notificationTypes) {
             document.querySelectorAll('.discord-type').forEach(function(el){
               el.checked = c.notificationTypes.includes(el.value);
+            });
+            // issue_new and issue_updated default to enabled for configs created before these types existed
+            ['issue_new', 'issue_updated'].forEach(function(v) {
+              if (!c.notificationTypes.includes(v)) {
+                var el = document.querySelector('.discord-type[value="' + v + '"]');
+                if (el) el.checked = true;
+              }
             });
           }
           if (c.inviteLink) document.getElementById('discord-invite-link').value = c.inviteLink;
@@ -1863,6 +1872,13 @@
           if (p.notificationTypes) {
             document.querySelectorAll('.pushover-type').forEach(function(el){
               el.checked = p.notificationTypes.includes(el.value);
+            });
+            // issue_new, issue_updated, request_available default to enabled for pre-existing configs
+            ['issue_new', 'issue_updated', 'request_available'].forEach(function(v) {
+              if (!p.notificationTypes.includes(v)) {
+                var el = document.querySelector('.pushover-type[value="' + v + '"]');
+                if (el) el.checked = true;
+              }
             });
           }
         }

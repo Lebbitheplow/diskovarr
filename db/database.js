@@ -247,6 +247,7 @@ function countRecentSeasonRequests(userId, windowDays) {
   'ALTER TABLE discover_requests ADD COLUMN denial_note TEXT',
   'ALTER TABLE discover_requests ADD COLUMN seasons_json TEXT',
   'ALTER TABLE discover_requests ADD COLUMN poster_url TEXT DEFAULT NULL',
+  'ALTER TABLE discover_requests ADD COLUMN notified_available_at INTEGER DEFAULT NULL',
   'ALTER TABLE known_users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0',
   'ALTER TABLE user_request_limits ADD COLUMN auto_approve_movies INTEGER',
   'ALTER TABLE user_request_limits ADD COLUMN auto_approve_tv INTEGER',
@@ -1110,6 +1111,10 @@ function getPrivilegedUserIds() {
   return [...new Set([...admins, ...(owner ? [owner] : [])])];
 }
 
+function getNotificationById(id) {
+  return db.prepare('SELECT * FROM notifications WHERE id = ?').get(Number(id));
+}
+
 function getRecentReadNotifications(userId, limit = 5) {
   return db.prepare('SELECT * FROM notifications WHERE (user_id = ? OR user_id IS NULL) AND read = 1 ORDER BY created_at DESC LIMIT ?')
     .all(String(userId), Number(limit));
@@ -1121,7 +1126,7 @@ function enqueueNotification({ notificationId, agent, userId, payload, sendAfter
 }
 
 function getPendingQueuedNotifications() {
-  return db.prepare('SELECT * FROM notification_queue WHERE sent = 0 AND send_after <= ? LIMIT 50')
+  return db.prepare('SELECT * FROM notification_queue WHERE sent = 0 AND send_after <= ? ORDER BY id ASC LIMIT 50')
     .all(Math.floor(Date.now()/1000));
 }
 
@@ -1198,6 +1203,23 @@ function deleteIssue(id) {
   db.prepare('DELETE FROM issues WHERE id = ?').run(Number(id));
 }
 
+// ── Request fulfillment notifications ─────────────────────────────────────────
+
+function getUnnotifiedFulfilledRequests(libraryTmdbIds) {
+  const rows = db.prepare(`
+    SELECT * FROM discover_requests
+    WHERE status != 'denied'
+    AND notified_available_at IS NULL
+  `).all();
+  return rows.filter(r => libraryTmdbIds.has(`${r.tmdb_id}:${r.media_type}`));
+}
+
+function markRequestsNotifiedAvailable(ids) {
+  const now = Math.floor(Date.now() / 1000);
+  const stmt = db.prepare('UPDATE discover_requests SET notified_available_at = ? WHERE id = ?');
+  for (const id of ids) stmt.run(now, id);
+}
+
 module.exports = {
   addDismissal, getDismissals, removeDismissal,
   addToWatchlistDb, removeFromWatchlistDb, getWatchlistFromDb,
@@ -1231,9 +1253,10 @@ module.exports = {
   getUserRequests,
   addDiscoverRequestWithStatus, updateRequest, getRequestById,
   createOrBundleNotification, getUnreadNotificationCount, getNotifications,
-  markNotificationsRead, deleteNotification, getRecentReadNotifications,
+  markNotificationsRead, deleteNotification, getNotificationById, getRecentReadNotifications,
   getUserNotificationPrefs, setUserNotificationPrefs,
   getAdminUserIds, getPrivilegedUserIds,
   enqueueNotification, getPendingQueuedNotifications, markQueueItemSent, deleteQueueItem,
   createIssue, getIssueById, getAllIssues, getUserIssues, updateIssueStatus, deleteIssue,
+  getUnnotifiedFulfilledRequests, markRequestsNotifiedAvailable,
 };
