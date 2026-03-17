@@ -104,6 +104,27 @@ app.use(session({
 
 // Routes
 app.use('/auth', require('./routes/auth'));
+
+// Plex webhook — must be before the /api router (which requires auth)
+// Register this URL in Plex Settings → Webhooks (requires Plex Pass)
+app.post('/api/webhooks/plex', express.raw({ type: '*/*', limit: '2mb' }), (req, res) => {
+  res.sendStatus(200); // always ACK immediately
+  try {
+    const raw = req.body.toString('utf8');
+    // Plex sends multipart/form-data — extract the JSON payload field
+    const match = raw.match(/name="payload"\r?\n\r?\n([\s\S]*?)\r?\n--/);
+    if (!match) return;
+    const payload = JSON.parse(match[1]);
+    if (payload?.event === 'library.new') {
+      const plexService = require('./services/plex');
+      plexService.invalidateCache();
+      process.nextTick(() => process.emit('diskovarr:checkFulfilled'));
+    }
+  } catch (err) {
+    logger.warn('Plex webhook error:', err.message);
+  }
+});
+
 app.use('/api', require('./routes/api'));
 app.use('/admin', require('./routes/admin'));
 
@@ -171,9 +192,55 @@ app.listen(PORT, '0.0.0.0', () => {
 
   const plexService = require('./services/plex');
   const recommender = require('./services/recommender');
+  const db = require('./db/database');
+  const discordAgent = require('./services/discordAgent');
+  const pushoverAgent = require('./services/pushoverAgent');
   const REFRESH_INTERVAL = 2 * 60 * 60 * 1000; // 2 hours
 
   const adminRoute = require('./routes/admin');
+
+  async function checkFulfilledRequests() {
+    try {
+      const [movies, tv] = await Promise.all([
+        plexService.getLibraryItems(plexService.MOVIES_SECTION),
+        plexService.getLibraryItems(plexService.TV_SECTION),
+      ]);
+      const libraryTmdbIds = new Set();
+      for (const item of [...movies, ...tv]) {
+        if (item.tmdbId) {
+          libraryTmdbIds.add(`${item.tmdbId}:${item.type === 'show' ? 'tv' : 'movie'}`);
+        }
+      }
+      const fulfilled = db.getUnnotifiedFulfilledRequests(libraryTmdbIds);
+      if (!fulfilled.length) return;
+
+      for (const req of fulfilled) {
+        const prefs = db.getUserNotificationPrefs(req.user_id);
+        if (!prefs.notify_available) continue;
+        const notifTitle = `Now available: "${req.title}"`;
+        const body = `"${req.title}" is now available in the library.`;
+        const notifId = db.createOrBundleNotification({
+          userId: req.user_id, type: 'request_available',
+          title: notifTitle, body,
+          data: { tmdbId: req.tmdb_id, mediaType: req.media_type },
+        });
+        const posterUrl = req.poster_url || null;
+        db.enqueueNotification({ notificationId: notifId, agent: 'discord', userId: req.user_id,
+          payload: { type: 'request_available', title: notifTitle, body, posterUrl, userId: req.user_id } });
+        db.enqueueNotification({ notificationId: notifId, agent: 'pushover', userId: req.user_id,
+          payload: { type: 'request_available', title: notifTitle, body } });
+      }
+      db.markRequestsNotifiedAvailable(fulfilled.map(r => r.id));
+      logger.info(`Request fulfillment: notified ${fulfilled.length} user(s) of available content`);
+    } catch (err) {
+      logger.warn('checkFulfilledRequests error:', err.message);
+    }
+  }
+
+  // Allow the Plex webhook route to trigger fulfillment checks
+  process.on('diskovarr:checkFulfilled', () =>
+    checkFulfilledRequests().catch(err => logger.warn('checkFulfilledRequests (event) error:', err.message))
+  );
 
   async function refreshLibrarySync() {
     if (!adminRoute.shouldAutoSync()) {
@@ -184,6 +251,7 @@ app.listen(PORT, '0.0.0.0', () => {
       plexService.invalidateCache();
       await plexService.warmCache();
       logger.info('Library synced successfully');
+      await checkFulfilledRequests();
       // Pre-warm recommendation caches 30s after library sync (avoids load spike)
       setTimeout(() => recommender.warmAllUserCaches().catch(err =>
         logger.warn('Rec pre-warm failed:', err.message)
@@ -198,6 +266,12 @@ app.listen(PORT, '0.0.0.0', () => {
 
   // Background re-sync every 2 hours
   setInterval(refreshLibrarySync, REFRESH_INTERVAL);
+
+  // Keep rec caches warm — re-warm every 25 min so caches never expire before users open the app
+  // (rec cache TTL is 30 min; this fires just before expiry)
+  setInterval(() => recommender.warmAllUserCaches().catch(err =>
+    logger.warn('Periodic rec pre-warm failed:', err.message)
+  ), 25 * 60 * 1000);
 
   // Start notification delivery service
   notificationService.start();

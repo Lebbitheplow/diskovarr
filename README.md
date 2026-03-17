@@ -1,91 +1,115 @@
+<div align="center">
+
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-3 -3 30 30" width="80" height="80">
+  <rect x="-3" y="-3" width="30" height="30" rx="5" fill="#0f0f0f"/>
+  <rect x="0.5" y="17.5" width="13" height="1.5" rx="0.5" fill="#e5a00d"/>
+  <rect x="1" y="8.5" width="2.5" height="9" rx="0.4" fill="#e5a00d"/>
+  <rect x="4.5" y="11" width="3" height="6.5" rx="0.4" fill="#e5a00d"/>
+  <rect x="8.5" y="10" width="2.5" height="7.5" rx="0.4" fill="#e5a00d"/>
+  <circle cx="15" cy="9" r="5" fill="none" stroke="#e5a00d" stroke-width="2"/>
+  <line x1="18.5" y1="12.5" x2="22" y2="16" stroke="#e5a00d" stroke-width="2.5" stroke-linecap="round"/>
+</svg>
+
 # Diskovarr
 
-Personalized Plex content recommendations powered by your watch history.
+**Personalized Plex recommendations powered by your watch history**
 
-Sign in with your Plex account and Diskovarr surfaces what to watch next — scored by your genre, director, actor, and decade preferences — with a full browse/filter view, private watchlist, and an admin panel to manage syncing, connections, and theming.
+Sign in with Plex · Browse curated picks · Request missing titles · Manage your library
 
-![Home screen showing Top Picks, Movies, TV Shows, and Anime carousels](docs/screenshots/home.png)
+</div>
 
-## Features
+![Diskovarr home screen](docs/screenshots/home.png)
 
-- **Plex OAuth sign-in** — users authenticate with their own Plex account via the official PIN flow; PIN is created browser-side so the server IP is never exposed in Plex's security warning
-- **Personalized recommendations** — scored from Tautulli watch history across genre, director, cast, decade, and rating; fresh random sample drawn on every page load and shuffle
-- **Four sections** — Top Picks, Movies, TV Shows, Anime (auto-detected by genre tag); each a 2-row carousel with pagination and a ↺ shuffle button
-- **Diskovarr View** — full library browser with filters for type, decade, genre, min rating, sort order, and watched status
-- **Detail modal** — click any card to open a full overlay with poster, Rotten Tomatoes scores, genres, summary, director and cast credits, and watchlist/dismiss actions
-- **Diskovarr Requests** — optional tab showing content *not in your library*, scored by your preference profile; request directly to Overseerr, Radarr, or Sonarr with one click
-- **Watchlist sync** — items sync to the native Plex.tv Watchlist by default; server owners can switch to **Playlist mode** (private "Diskovarr" server playlist) — useful when the Plex Watchlist triggers download automation (e.g. pd_zurg)
-- **Dismiss** — hide individual items permanently per user; stored in SQLite
-- **Background library sync** — cached in SQLite, refreshed from Plex every 2 hours; no cold-start delays
-- **Per-user watched sync** — fetched via Plex admin token + accountID; syncs on first request then refreshes in background every 30 minutes
-- **Admin panel** — password-protected; two tabs:
-  - **Settings** — library sync, per-user caches, server owner, watchlist/playlist mode, theme color
-  - **Connections** — configure Plex, Tautulli, TMDB, Overseerr, Radarr, and Sonarr with slide toggles and masked key fields
-- **Version strip** — admin panel always shows running version with an update-available badge when a new GitHub release exists
-- **Theme color picker** — color wheel + presets; accent color updates globally in real time
-- **Poster proxy** — all poster images proxied through the server; Plex tokens never reach the browser
-- **Notification system** — Discord (webhook shared channel or per-user bot DMs) and Pushover push notifications; per-user preferences for each event type
-- **Request queue** — users view and manage their own requests; admins approve, deny (with note), edit, or delete all requests
-- **Issue reporting** — report problems with library items (broken files, wrong metadata, audio sync, etc.) from the detail modal; TV shows include a scope selector (Entire Series / Specific Season / Specific Episode); admins resolve or close issues with an optional note delivered back to the reporter
-- **Elevated privileges** — grant any user queue management access without full admin rights
-- **Auto-request from watchlist** — global and per-user overrides for movies and TV
-- **Dark UI** — Netflix-style card grid with shimmer skeleton loading, hover overlays, and CSS variable theming
+---
+
+## Tabs & Features
+
+### Diskovarr (Home)
+Personalized recommendations in four carousels — **Top Picks, Movies, TV Shows, Anime** — scored from your Tautulli watch history. Each section is a paginated 2-row carousel with a ↺ shuffle button. Scores factor in genre, director, cast, studio, decade, and star ratings. Cards show reason tags ("Because you like Sci-Fi", "Directed by X") and open a full detail modal with poster, Rotten Tomatoes scores, cast/director credits, and watchlist/dismiss actions.
+
+### Requests
+Content not yet in your Plex library, scored by the same preference engine. Requires a free TMDB API key and at least one request service (Overseerr, Radarr, or Sonarr). Cards show why each title was recommended; the Request button routes to whichever service is enabled. Unreleased titles are automatically excluded. When a requested title appears in the library, the requester gets a bell notification plus optional Discord and Pushover delivery.
+
+### Filter (Diskovarr View)
+Full library browser with filters for type, decade, genre, minimum rating, sort order, and watched status.
+
+### Watchlist
+Syncs to the native **Plex.tv Watchlist** by default. Server owners can switch to **Playlist mode** (a private server-side playlist) — useful when the Plex Watchlist triggers download automation like pd_zurg.
+
+### Queue
+Request queue for all users. Users view and manage their own requests. Admins and elevated users can approve, deny (with optional note), edit, or delete any request. Admins can set per-user request limits and auto-approve overrides.
+
+### Issues
+Report problems with library items directly from any detail modal — broken file, wrong metadata, audio sync, etc. TV shows include a scope selector: Entire Series, Specific Season, or Specific Episode. Submitted issues appear at `/issues`; admins resolve or close them with an optional note delivered back to the reporter as a notification.
+
+### User Settings
+Each user can configure: region, language, notification preferences (per event type), personal Discord User ID or Pushover key, and auto-request-from-watchlist options.
+
+### Admin Panel
+Two-tab panel at `/admin`:
+
+- **Settings** — library sync controls, per-user watch sync, cache management, server owner, watchlist/playlist mode, theme color (8 presets + color wheel), app public URL, and full per-user settings with action buttons (re-sync, clear watched, clear dismissals, clear requests)
+- **Connections** — configure Plex, Tautulli, TMDB, Overseerr, Radarr, and Sonarr with masked API key fields, test buttons, and slide toggles — no file edits or restarts needed
+
+---
+
+## Notifications
+
+Configure from **Admin → Notifications**. Multiple events of the same type within an hour are bundled into a single message ("Dune approved and 2 other titles"), with the first title's poster embedded full-width. External sends are skipped if the user already read the bell notification in-app.
+
+**Discord** — two modes:
+- *Webhook* — posts to a shared channel; users can optionally add a personal webhook for private delivery
+- *Bot Token* — DMs each user directly; users enter their Discord User ID in their settings; an optional toggle also mirrors admin-type events to a shared channel webhook
+
+**Pushover** — enter your Pushover app token and user/group key; per-user keys can be set in each user's settings for individual delivery.
+
+**Event types:** request pending · auto-approved · approved · denied · available in library · processing failed · issue reported · issue status updated
+
+---
 
 ## Requirements
 
-- Docker (recommended) **or** Node.js >= 23.4.0
-- Plex Media Server (local network access)
-- Tautulli (for watch history used in preference scoring)
+- **Docker** (recommended) or Node.js ≥ 23.4.0
+- **Plex Media Server** — local network access required
+- **Tautulli** — provides watch history used for preference scoring
+- Optional: TMDB API key (free) to enable Requests tab; Overseerr / Radarr / Sonarr for request routing
 
-> **Note:** Diskovarr is designed for a **single Plex server and its users**. Users who sign in must have an account on your Plex server — the app verifies server membership during OAuth. It will not work correctly for Plex users who are not members of the configured server.
+> Diskovarr is designed for a single Plex server and its users. Users must be members of your configured Plex server — the app verifies membership during OAuth sign-in.
 
-## Setup
+---
+
+## Installation
 
 ### Docker (recommended)
 
 ```bash
-# 1. Download the compose file
 curl -o docker-compose.yml https://raw.githubusercontent.com/Lebbitheplow/diskovarr/master/docker-compose.yml
-
-# 2. Edit the environment variables
-nano docker-compose.yml
-
-# 3. Start
+# Edit environment variables in docker-compose.yml
 docker compose up -d
 ```
 
-Open `http://your-server:3232` and sign in with your Plex account.
+Open `http://your-server:3232`. The library syncs from Plex on first startup (30–60 seconds). Subsequent starts load from the local cache instantly.
 
-The library syncs from Plex on first startup (30–60 seconds depending on library size). Subsequent starts load from the local SQLite cache instantly.
+**Update:** `docker compose pull && docker compose up -d`
 
-> **Data persistence:** The `./data` directory is mounted as a volume and contains the SQLite databases. Do not delete it between updates.
+> The `./data` volume contains the SQLite databases — don't delete it between updates.
 
-#### Updating
-
-```bash
-docker compose pull && docker compose up -d
-```
-
-### Bare metal (Node.js)
+### Bare Metal (Node.js)
 
 ```bash
 git clone https://github.com/Lebbitheplow/diskovarr
 cd diskovarr
-cp .env.example .env
-# Edit .env with your values
+cp .env.example .env   # fill in your values
 npm install
 npm start
 ```
 
-#### Running as a systemd service
-
-```bash
-sudo nano /etc/systemd/system/diskovarr.service
-```
+<details>
+<summary>Run as a systemd service</summary>
 
 ```ini
 [Unit]
-Description=Diskovarr - Plex Recommendation App
+Description=Diskovarr
 After=network.target
 
 [Service]
@@ -107,169 +131,36 @@ WantedBy=multi-user.target
 sudo systemctl daemon-reload
 sudo systemctl enable --now diskovarr
 ```
+</details>
+
+---
 
 ## Configuration
 
-### Required variables
+### Required
 
 | Variable | Description |
 |---|---|
 | `PLEX_URL` | Local URL of your Plex server, e.g. `http://192.168.1.x:32400` |
 | `PLEX_TOKEN` | Plex admin token — used for library fetching and poster proxy |
-| `PLEX_SERVER_ID` | Plex machine identifier (see below) |
-| `PLEX_SERVER_NAME` | Display name for your server (shown in OAuth flow) |
+| `PLEX_SERVER_ID` | Plex machine identifier (`http://your-plex:32400/identity` → `machineIdentifier`) |
+| `PLEX_SERVER_NAME` | Display name shown in the OAuth sign-in flow |
 | `ADMIN_PASSWORD` | Password for the `/admin` panel |
 | `SESSION_SECRET` | Long random string used to sign session cookies |
 
-### Optional variables
+### Optional
 
 | Variable | Description |
 |---|---|
-| `TAUTULLI_URL` | URL of your Tautulli instance (can be set in admin panel instead) |
-| `TAUTULLI_API_KEY` | Tautulli API key (can be set in admin panel instead) |
-| `PLEX_MOVIES_SECTION_ID` | Library section ID for movies (default: `1`) |
-| `PLEX_TV_SECTION_ID` | Library section ID for TV shows and anime (default: `2`) |
+| `TAUTULLI_URL` | Tautulli URL (can also be set in Admin → Connections) |
+| `TAUTULLI_API_KEY` | Tautulli API key |
+| `PLEX_MOVIES_SECTION_ID` | Movies library section ID (default: `1`) |
+| `PLEX_TV_SECTION_ID` | TV/Anime library section ID (default: `2`) |
 | `PORT` | Port to listen on (default: `3232`) |
 
-> **Tip:** Plex URL, Tautulli URL/key, TMDB, Overseerr, Radarr, and Sonarr can all be configured or updated from the **Admin → Connections** tab without editing any files or restarting the server.
+> **Tip:** Plex, Tautulli, TMDB, Overseerr, Radarr, and Sonarr can all be configured or updated from **Admin → Connections** without touching any files or restarting.
 
-### Finding your Plex Machine ID
-
-```
-http://your-plex:32400/identity
-```
-The `machineIdentifier` field is your `PLEX_SERVER_ID`.
-
-### Finding library section IDs
-
-```
-http://your-plex:32400/library/sections?X-Plex-Token=YOUR_TOKEN
-```
-Each `<Directory>` element has a `key` attribute — that is the section ID.
-
-## Admin Panel
-
-Visit `/admin` and enter your `ADMIN_PASSWORD`.
-
-### Settings tab
-
-- **Library Sync** — item counts and last sync time; trigger a manual full sync; enable/disable 2-hour auto-sync
-- **User Watch Sync** — watched counts per user; re-sync or clear individual users' history
-- **Recommendation Cache** — clear in-memory caches for all users or a specific user
-- **Server Owner & Watchlist Mode** — select the server owner Plex account; toggle between Watchlist mode (native plex.tv Watchlist) and Playlist mode (private server playlist)
-- **Theme Color** — pick from presets or the color wheel; change applies across all pages instantly
-- **App Public URL** — externally reachable URL of your Diskovarr instance; required for the Discord bot avatar endpoint
-- **Per-user settings** — request limits, auto-approve overrides, elevated privileges, and notification preferences; action buttons to re-sync watched, clear watched history, clear dismissals, and clear requests per user
-
-### Connections tab
-
-Configure all external services here — no file editing or restarts needed:
-
-- **Plex** — URL and admin token (editable with eye toggle)
-- **Tautulli** — URL and API key
-- **TMDB** — API key required to enable Diskovarr Requests
-- **Diskovarr Requests** — toggle to show/hide the Requests tab for all users
-- **Overseerr / Radarr / Sonarr** — URL, API key, quality profile selection, and enable toggle per service; Test button to verify connectivity
-
-All API keys are stored in the local SQLite database and masked in the UI. The eye button reveals a key on demand (admin session only).
-
-### Notifications tab
-
-Configure notification agents here:
-
-- **Discord Agent** — send notifications via a shared channel webhook or direct messages to individual users via a bot token; toggle per notification type
-- **Pushover Agent** — send push notifications to iOS/Android devices; configure app token and user/group key
-
-## Notifications
-
-Diskovarr supports two notification channels, configurable from **Admin → Notifications**.
-
-### Discord
-
-Two modes are available:
-
-- **Webhook mode** — all notifications post to a single shared Discord channel. Users can optionally add their own personal webhook in their profile settings for private-channel delivery.
-- **Bot Token mode** — the bot sends each user a personal DM. Each user enters their Discord User ID in their Diskovarr settings. An optional toggle mirrors admin-type notifications to a shared channel webhook as well.
-
-Set a non-expiring **Discord Server Invite Link** so users see a "Join Server" prompt in their settings and can join the server before receiving bot DMs.
-
-Per-notification-type toggles let you enable/disable: new request pending, request auto-approved, request approved, request denied, request available in library, and request processing error.
-
-### Pushover
-
-Enter your Pushover **Application API Token** and **User or Group Key**. Notifications are delivered in real time to all registered devices. Per-user Pushover keys can be set from each user's settings page for individual delivery.
-
-### Per-user preferences
-
-Users can choose which notification types they want to receive, and set their own Discord User ID or personal Pushover key in their profile settings.
-
-### Elevated privileges
-
-Granting elevated privileges to a user gives them admin-level notification delivery (pending request alerts, processing error alerts) without granting full admin access to the panel.
-
-## Issue Reporting
-
-Any signed-in user can report a problem with a library item directly from its detail modal using the **Report Issue** button.
-
-- **Movies** — opens a description box to explain the issue
-- **TV shows** — includes a scope selector: *Entire Series*, *Specific Season* (enter season number), or *Specific Episode* (enter season and episode numbers); followed by a description box
-
-Submitted issues are visible at **/issues**:
-
-- **Users** see their own reports with scope, status (Open / Resolved / Closed), and a Details button showing the full description and any admin note
-- **Admins and elevated users** see all issues across all users, with poster, reporter name, scope badge, and the same Details view
-
-Admins can **Resolve** or **Close** an open issue with an optional note. The note is delivered to the reporter as a push notification and is shown in the issue's detail view.
-
-Notification preferences:
-- `notify_issue_update` — available to all users; receive a notification when an issue you reported changes status
-- `notify_issue_new` — available to elevated users and admins; receive a notification when any user reports a new issue
-
-## Diskovarr Requests
-
-An optional tab that shows content **not in your Plex library**, personalised to your taste.
-
-**To enable:**
-1. Go to **Admin → Connections**
-2. Enter and save a TMDB API key (free at [developers.themoviedb.org](https://developers.themoviedb.org))
-3. Enable at least one request service (Overseerr, Radarr, or Sonarr)
-4. Flip the **Diskovarr Requests** toggle on
-
-Recommendations are sourced from TMDB based on your top watched movies and shows, filtered to exclude anything already in your library and anything not yet released. Each card shows why it was recommended and a Request button that routes to your configured service.
-
-## How Recommendations Work
-
-1. **Watch history** — fetches up to 1,000 movies and 2,000 episodes from Tautulli for the signed-in user
-2. **Preference profile** — builds weighted maps of genres, directors, actors, and decades; recent watches (top 50) get a 1.5× multiplier; fully-watched items get a 1.3× completion bonus
-3. **Scoring** — every unwatched, non-dismissed item is scored:
-   - Genre overlap: up to 20 pts (each genre capped at 7 pts to prevent single-genre dominance)
-   - Director match: up to 30 pts
-   - Actor overlap (top 3 matches): up to 25 pts
-   - Studio match: up to 15 pts
-   - Decade preference: up to 8 pts
-   - Star rating multipliers: 5-star items score 2.5×; low-rated items are suppressed
-   - Reason tags shown on each card: "Because you like Sci-Fi", "Directed by X", "Starring Y"
-4. **Top Picks diversity** — seeds from highest scorers then injects picks for top directors, actors, and studios to avoid genre-bubble results
-5. **Watched filtering** — uses Plex admin token with `accountID` to reliably fetch watched state for all users including Friends and managed accounts
-
-## Dependencies
-
-| Package | Purpose |
-|---|---|
-| `express` | Web framework and routing |
-| `express-session` | Session middleware |
-| `ejs` | Server-side HTML templating |
-| `dotenv` | Environment variable loading |
-
-SQLite, fetch, and session storage use Node.js 23's built-in APIs — no native addons required.
-
-## Development
-
-```bash
-npm run dev    # node --watch server.js (auto-restarts on file changes)
-```
-
-Logs go to stdout. In production (Docker), use `docker compose logs -f diskovarr`. With systemd, use `journalctl -u diskovarr -f`.
+---
 
 ## License
 
