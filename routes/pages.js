@@ -5,11 +5,16 @@ const db = require('../db/database');
 const plexService = require('../services/plex');
 const APP_VERSION = require('../package.json').version;
 
-function pageLocals() {
+const CHANGELOG = (() => { try { return require('../CHANGELOG.json'); } catch { return []; } })();
+
+function pageLocals(req) {
+  const isQueueAdmin = !!(req && (req.session?.isAdmin || req.session?.isPlexAdminUser));
   return {
     discoverEnabled: db.isDiscoverEnabled(),
     themeParam: themeParam(),
     appVersion: APP_VERSION,
+    isQueueAdmin,
+    changelog: CHANGELOG,
   };
 }
 
@@ -116,13 +121,13 @@ function themeParam() {
 // Home page — requires auth
 router.get('/', requireAuth, (req, res) => {
   const { id: userId, username, thumb } = req.session.plexUser;
-  res.render('home', { ...pageLocals(), userId, username, thumb, currentPath: '/' });
+  res.render('home', { ...pageLocals(req), userId, username, thumb, currentPath: '/' });
 });
 
 // Diskovarr View (library browse) — requires auth
 router.get('/discover', requireAuth, (req, res) => {
   const { id: userId, username, thumb } = req.session.plexUser;
-  res.render('discover', { ...pageLocals(), userId, username, thumb, currentPath: '/discover' });
+  res.render('discover', { ...pageLocals(req), userId, username, thumb, currentPath: '/discover' });
 });
 
 // Recommended Requests (external content) — requires auth + discover enabled
@@ -138,7 +143,7 @@ router.get('/explore', requireAuth, (req, res) => {
   const hasAnyService = services.overseerr || services.radarr || services.sonarr;
   const ownerUserId = db.getOwnerUserId();
   res.render('explore', {
-    ...pageLocals(), userId, username, thumb, currentPath: '/explore',
+    ...pageLocals(req), userId, username, thumb, currentPath: '/explore',
     services, hasAnyService,
     individualSeasonsEnabled: db.isIndividualSeasonsEnabled(),
     directRequestAccess: db.getDirectRequestAccess(),
@@ -158,7 +163,7 @@ router.get('/search', requireAuth, (req, res) => {
   const hasAnyService = services.overseerr || services.radarr || services.sonarr;
   const query = (req.query.q || '').trim();
   res.render('search', {
-    ...pageLocals(), userId, username, thumb, currentPath: '/search',
+    ...pageLocals(req), userId, username, thumb, currentPath: '/search',
     query, services, hasAnyService,
     individualSeasonsEnabled: db.isIndividualSeasonsEnabled(),
     directRequestAccess: db.getDirectRequestAccess(),
@@ -174,7 +179,34 @@ router.get('/watchlist', requireAuth, (req, res) => {
     .map(key => db.getLibraryItemByKey(key))
     .filter(Boolean)
     .map(item => ({ ...item, deepLink: plexService.getDeepLink(item.ratingKey), isInWatchlist: true }));
-  res.render('watchlist', { ...pageLocals(), userId, username, thumb, currentPath: '/watchlist', items });
+  res.render('watchlist', { ...pageLocals(req), userId, username, thumb, currentPath: '/watchlist', items });
+});
+
+// Queue page — requires auth (all users can view their own requests)
+router.get('/queue', requireAuth, (req, res) => {
+  const isAdmin = !!(req.session.isAdmin || req.session.isPlexAdminUser);
+  const { id: userId, username, thumb } = req.session.plexUser;
+  res.render('queue', {
+    ...pageLocals(req), userId, username, thumb, currentPath: '/queue',
+    isAdmin,
+    isPlexAdminUser: !!req.session.isPlexAdminUser,
+    connections: db.getConnectionSettings(),
+  });
+});
+
+// User settings page
+router.get('/settings', requireAuth, (req, res) => {
+  const { id: userId, username, thumb } = req.session.plexUser;
+  const prefs = db.getUserPreferences(userId);
+  res.render('settings', {
+    ...pageLocals(req), userId, username, thumb, currentPath: '/settings', prefs,
+    notificationPrefs: db.getUserNotificationPrefs(userId),
+    discordAgentEnabled: (() => { try { const c = JSON.parse(db.getSetting('discord_agent', 'null')); return c?.enabled === true; } catch { return false; } })(),
+    discordMode: (() => { try { return JSON.parse(db.getSetting('discord_agent', 'null'))?.mode || 'webhook'; } catch { return 'webhook'; } })(),
+    discordInviteLink: (() => { try { return JSON.parse(db.getSetting('discord_agent', 'null'))?.inviteLink || null; } catch { return null; } })(),
+    pushoverAgentEnabled: (() => { try { return JSON.parse(db.getSetting('pushover_agent', 'null'))?.enabled === true; } catch { return false; } })(),
+    isElevated: db.getPrivilegedUserIds().includes(userId),
+  });
 });
 
 module.exports = router;

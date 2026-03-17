@@ -221,7 +221,7 @@ function getEffectiveLimits(userId) {
 function countRecentMovieRequests(userId, windowDays) {
   const since = Math.floor(Date.now() / 1000) - windowDays * 86400;
   const row = db.prepare(
-    "SELECT COUNT(*) as cnt FROM discover_requests WHERE user_id = ? AND media_type = 'movie' AND requested_at > ?"
+    "SELECT COUNT(*) as cnt FROM discover_requests WHERE user_id = ? AND media_type = 'movie' AND requested_at > ? AND status != 'denied'"
   ).get(String(userId), since);
   return row?.cnt || 0;
 }
@@ -229,7 +229,7 @@ function countRecentMovieRequests(userId, windowDays) {
 function countRecentSeasonRequests(userId, windowDays) {
   const since = Math.floor(Date.now() / 1000) - windowDays * 86400;
   const row = db.prepare(
-    "SELECT COALESCE(SUM(seasons_count), 0) as cnt FROM discover_requests WHERE user_id = ? AND media_type = 'tv' AND requested_at > ?"
+    "SELECT COALESCE(SUM(seasons_count), 0) as cnt FROM discover_requests WHERE user_id = ? AND media_type = 'tv' AND requested_at > ? AND status != 'denied'"
   ).get(String(userId), since);
   return row?.cnt || 0;
 }
@@ -243,7 +243,29 @@ function countRecentSeasonRequests(userId, windowDays) {
   'ALTER TABLE library_items ADD COLUMN tmdb_id TEXT DEFAULT NULL',
   'ALTER TABLE library_items ADD COLUMN art TEXT DEFAULT NULL',
   'ALTER TABLE discover_requests ADD COLUMN seasons_count INTEGER DEFAULT 1',
+  "ALTER TABLE discover_requests ADD COLUMN status TEXT NOT NULL DEFAULT 'approved'",
+  'ALTER TABLE discover_requests ADD COLUMN denial_note TEXT',
+  'ALTER TABLE discover_requests ADD COLUMN seasons_json TEXT',
+  'ALTER TABLE discover_requests ADD COLUMN poster_url TEXT DEFAULT NULL',
+  'ALTER TABLE known_users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0',
+  'ALTER TABLE user_request_limits ADD COLUMN auto_approve_movies INTEGER',
+  'ALTER TABLE user_request_limits ADD COLUMN auto_approve_tv INTEGER',
 ].forEach(sql => { try { db.exec(sql); } catch (e) { if (!e.message.includes('duplicate column')) throw e; } });
+
+// Segment B migrations: user preferences
+['ALTER TABLE user_request_limits ADD COLUMN region TEXT DEFAULT NULL',
+ 'ALTER TABLE user_request_limits ADD COLUMN language TEXT DEFAULT NULL',
+ 'ALTER TABLE user_request_limits ADD COLUMN auto_request_movies INTEGER DEFAULT 0',
+ 'ALTER TABLE user_request_limits ADD COLUMN auto_request_tv INTEGER DEFAULT 0',
+].forEach(sql => { try { db.exec(sql); } catch (e) { if (!e.message.includes('duplicate column')) throw e; } });
+
+// Initialize global auto-request settings if not set
+if (!db.prepare("SELECT 1 FROM settings WHERE key = 'auto_request_watchlist_movies'").get()) {
+  db.prepare("INSERT INTO settings (key, value) VALUES ('auto_request_watchlist_movies', 'false')").run();
+}
+if (!db.prepare("SELECT 1 FROM settings WHERE key = 'auto_request_watchlist_tv'").get()) {
+  db.prepare("INSERT INTO settings (key, value) VALUES ('auto_request_watchlist_tv', 'false')").run();
+}
 
 // ── One-time migrations (tracked by a migrations table) ───────────────────────
 db.exec(`CREATE TABLE IF NOT EXISTS migrations (name TEXT PRIMARY KEY, ran_at INTEGER)`);
@@ -610,10 +632,12 @@ function getConnectionSettings() {
     radarrApiKey: getSetting('radarr_api_key', ''),
     radarrEnabled: getSetting('radarr_enabled', '0') === '1',
     radarrQualityProfileId: getSetting('radarr_quality_profile_id', ''),
+    radarrQualityProfileName: getSetting('radarr_quality_profile_name', ''),
     sonarrUrl: getSetting('sonarr_url', ''),
     sonarrApiKey: getSetting('sonarr_api_key', ''),
     sonarrEnabled: getSetting('sonarr_enabled', '0') === '1',
     sonarrQualityProfileId: getSetting('sonarr_quality_profile_id', ''),
+    sonarrQualityProfileName: getSetting('sonarr_quality_profile_name', ''),
     defaultRequestService: getSetting('default_request_service', 'overseerr'),
   };
 }
@@ -737,6 +761,353 @@ function getDirectRequestAccess() {
   return getSetting('direct_request_access', 'all'); // 'all' or 'admin'
 }
 
+// ── Request queue management ──────────────────────────────────────────────────
+
+function getPendingRequests() {
+  return db.prepare(`
+    SELECT dr.*, COALESCE(ku.username, dr.user_id) AS username, ku.thumb AS user_thumb
+    FROM discover_requests dr
+    LEFT JOIN known_users ku ON ku.user_id = dr.user_id
+    WHERE dr.status = 'pending'
+    ORDER BY dr.requested_at ASC
+  `).all();
+}
+
+function getAllRequests(limit = 20, offset = 0, statusFilter = null) {
+  const where = statusFilter && statusFilter !== 'all' ? `WHERE dr.status = '${statusFilter}'` : '';
+  const rows = db.prepare(`
+    SELECT dr.*, COALESCE(ku.username, dr.user_id) AS username, ku.thumb AS user_thumb
+    FROM discover_requests dr
+    LEFT JOIN known_users ku ON ku.user_id = dr.user_id
+    ${where}
+    ORDER BY dr.requested_at DESC
+    LIMIT ? OFFSET ?
+  `).all(Number(limit), Number(offset));
+  const countRow = db.prepare(`
+    SELECT COUNT(*) as cnt FROM discover_requests dr ${where}
+  `).get();
+  return { rows, total: countRow?.cnt || 0 };
+}
+
+function updateRequestStatus(id, status, denialNote = null) {
+  db.prepare('UPDATE discover_requests SET status = ?, denial_note = ? WHERE id = ?')
+    .run(status, denialNote || null, Number(id));
+}
+
+function deleteRequest(id) {
+  db.prepare('DELETE FROM discover_requests WHERE id = ?').run(Number(id));
+}
+
+function deleteRequestsByUser(userId) {
+  db.prepare('DELETE FROM discover_requests WHERE user_id = ?').run(String(userId));
+}
+
+function getEffectiveAutoApprove(userId, mediaType) {
+  // Check user-level override first
+  const row = db.prepare('SELECT auto_approve_movies, auto_approve_tv FROM user_request_limits WHERE user_id = ?')
+    .get(String(userId));
+  const col = mediaType === 'movie' ? 'auto_approve_movies' : 'auto_approve_tv';
+  if (row && row[col] !== null && row[col] !== undefined) {
+    return row[col] === 1;
+  }
+  // Fall back to global setting (default true)
+  const globalKey = mediaType === 'movie' ? 'auto_approve_movies' : 'auto_approve_tv';
+  return getSetting(globalKey, '1') === '1';
+}
+
+function setUserAdmin(userId, isAdmin) {
+  db.prepare('UPDATE known_users SET is_admin = ? WHERE user_id = ?')
+    .run(isAdmin ? 1 : 0, String(userId));
+}
+
+function isAdminUser(userId) {
+  const row = db.prepare('SELECT is_admin FROM known_users WHERE user_id = ?').get(String(userId));
+  return row ? !!row.is_admin : false;
+}
+
+function getUserSettings(userId) {
+  const limits = db.prepare('SELECT * FROM user_request_limits WHERE user_id = ?').get(String(userId));
+  const user = db.prepare('SELECT is_admin FROM known_users WHERE user_id = ?').get(String(userId));
+  return {
+    movieLimit: limits?.movie_limit ?? 0,
+    seasonLimit: limits?.season_limit ?? 0,
+    movieWindowDays: limits?.movie_window_days ?? 7,
+    tvWindowDays: limits?.season_window_days ?? 7,
+    overrideGlobal: limits ? !!limits.override_enabled : false,
+    auto_approve_movies: limits?.auto_approve_movies ?? null,
+    auto_approve_tv: limits?.auto_approve_tv ?? null,
+    is_admin: user ? !!user.is_admin : false,
+    region: limits?.region || null,
+    language: limits?.language || null,
+    auto_request_movies: limits ? !!limits.auto_request_movies : false,
+    auto_request_tv: limits ? !!limits.auto_request_tv : false,
+  };
+}
+
+function saveUserSettings(userId, settings) {
+  const {
+    movieLimit = 0,
+    seasonLimit = 0,
+    movieWindowDays = 7,
+    tvWindowDays = 7,
+    overrideGlobal = false,
+    auto_approve_movies = null,
+    auto_approve_tv = null,
+    is_admin = false,
+    region = null,
+    language = null,
+    auto_request_movies = false,
+    auto_request_tv = false,
+  } = settings;
+
+  db.prepare(`
+    INSERT OR REPLACE INTO user_request_limits
+      (user_id, override_enabled, movie_limit, movie_window_days, season_limit, season_window_days, auto_approve_movies, auto_approve_tv, region, language, auto_request_movies, auto_request_tv)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    String(userId),
+    overrideGlobal ? 1 : 0,
+    Number(movieLimit) || 0,
+    Number(movieWindowDays) || 7,
+    Number(seasonLimit) || 0,
+    Number(tvWindowDays) || 7,
+    auto_approve_movies === null ? null : (auto_approve_movies ? 1 : 0),
+    auto_approve_tv === null ? null : (auto_approve_tv ? 1 : 0),
+    region || null,
+    language || null,
+    auto_request_movies ? 1 : 0,
+    auto_request_tv ? 1 : 0,
+  );
+
+  // Ensure user row exists in known_users before updating is_admin
+  const exists = db.prepare('SELECT 1 FROM known_users WHERE user_id = ?').get(String(userId));
+  if (exists) {
+    db.prepare('UPDATE known_users SET is_admin = ? WHERE user_id = ?')
+      .run(is_admin ? 1 : 0, String(userId));
+  }
+}
+
+function addDiscoverRequestWithStatus(userId, tmdbId, mediaType, title, service, seasonsCount, status = 'approved', seasonsArray = null, posterUrl = null) {
+  db.prepare(`
+    INSERT INTO discover_requests (user_id, tmdb_id, media_type, title, service, seasons_count, requested_at, status, seasons_json, poster_url)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(String(userId), Number(tmdbId), mediaType, title, service,
+         (typeof seasonsCount === 'number' && seasonsCount > 0) ? seasonsCount : 1,
+         Math.floor(Date.now() / 1000),
+         status,
+         seasonsArray ? JSON.stringify(seasonsArray) : null,
+         posterUrl || null);
+}
+
+function updateRequest(id, { service, seasonsJson, seasonsCount }) {
+  db.prepare('UPDATE discover_requests SET service=?, seasons_json=?, seasons_count=? WHERE id=?')
+    .run(service, seasonsJson || null, seasonsCount || 1, Number(id));
+}
+
+function getRequestById(id) {
+  return db.prepare(`
+    SELECT dr.*, COALESCE(ku.username, dr.user_id) AS username
+    FROM discover_requests dr
+    LEFT JOIN known_users ku ON ku.user_id = dr.user_id
+    WHERE dr.id = ?
+  `).get(Number(id));
+}
+
+function getUserPreferences(userId) {
+  const row = db.prepare('SELECT region, language, auto_request_movies, auto_request_tv FROM user_request_limits WHERE user_id = ?').get(String(userId));
+  return {
+    region: row?.region || null,
+    language: row?.language || null,
+    auto_request_movies: row ? !!row.auto_request_movies : false,
+    auto_request_tv: row ? !!row.auto_request_tv : false,
+  };
+}
+
+function setUserPreferences(userId, { region, language, auto_request_movies, auto_request_tv }) {
+  // Ensure row exists first
+  db.prepare('INSERT OR IGNORE INTO user_request_limits (user_id) VALUES (?)').run(String(userId));
+  db.prepare('UPDATE user_request_limits SET region = ?, language = ?, auto_request_movies = ?, auto_request_tv = ? WHERE user_id = ?')
+    .run(region || null, language || null, auto_request_movies ? 1 : 0, auto_request_tv ? 1 : 0, String(userId));
+}
+
+function getUserRequests(userId, limit = 20, offset = 0, statusFilter = null) {
+  const where = statusFilter && statusFilter !== 'all'
+    ? `WHERE dr.user_id = ? AND dr.status = '${statusFilter}'`
+    : 'WHERE dr.user_id = ?';
+  const rows = db.prepare(`
+    SELECT dr.*, COALESCE(ku.username, dr.user_id) AS username, ku.thumb AS user_thumb
+    FROM discover_requests dr
+    LEFT JOIN known_users ku ON ku.user_id = dr.user_id
+    ${where}
+    ORDER BY dr.requested_at DESC
+    LIMIT ? OFFSET ?
+  `).all(String(userId), Number(limit), Number(offset));
+  const countRow = db.prepare(`SELECT COUNT(*) as cnt FROM discover_requests dr ${where}`).get(String(userId));
+  return { rows, total: countRow?.cnt || 0 };
+}
+
+// ── Notifications ─────────────────────────────────────────────────────────────
+db.exec(`
+  CREATE TABLE IF NOT EXISTS notifications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT,
+    type TEXT NOT NULL,
+    title TEXT NOT NULL,
+    body TEXT,
+    data TEXT,
+    bundle_key TEXT,
+    bundle_count INTEGER DEFAULT 1,
+    read INTEGER DEFAULT 0,
+    created_at INTEGER DEFAULT (unixepoch())
+  );
+  CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, read, created_at);
+
+  CREATE TABLE IF NOT EXISTS user_notification_prefs (
+    user_id TEXT PRIMARY KEY,
+    notify_approved INTEGER DEFAULT 1,
+    notify_denied INTEGER DEFAULT 1,
+    notify_available INTEGER DEFAULT 1,
+    discord_webhook TEXT DEFAULT NULL,
+    discord_enabled INTEGER DEFAULT 0,
+    pushover_user_key TEXT DEFAULT NULL,
+    pushover_enabled INTEGER DEFAULT 0
+  );
+
+  CREATE TABLE IF NOT EXISTS notification_queue (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    notification_id INTEGER,
+    agent TEXT NOT NULL,
+    user_id TEXT,
+    payload TEXT,
+    send_after INTEGER,
+    sent INTEGER DEFAULT 0,
+    created_at INTEGER DEFAULT (unixepoch())
+  );
+`);
+
+for (const col of [
+  'notify_pending INTEGER DEFAULT 1',
+  'notify_auto_approved INTEGER DEFAULT 1',
+  'notify_process_failed INTEGER DEFAULT 1',
+  'discord_user_id TEXT DEFAULT NULL',
+]) {
+  try { db.prepare(`ALTER TABLE user_notification_prefs ADD COLUMN ${col}`).run(); } catch {}
+}
+
+function createOrBundleNotification({ userId, type, title, body, data }) {
+  const hour = Math.floor(Date.now() / 1000 / 3600);
+  const bundleKey = `${type}:${userId || 'admin'}:${hour}`;
+  const existing = db.prepare('SELECT id, bundle_count FROM notifications WHERE bundle_key = ? AND read = 0').get(bundleKey);
+  if (existing) {
+    const newCount = existing.bundle_count + 1;
+    const newTitle = newCount === 2 ? title + ' and 1 other title' : title.replace(/ and \d+ other title/, '') + ` and ${newCount - 1} other titles`;
+    db.prepare('UPDATE notifications SET bundle_count = ?, title = ? WHERE id = ?')
+      .run(newCount, newTitle, existing.id);
+    return existing.id;
+  }
+  const result = db.prepare(
+    'INSERT INTO notifications (user_id, type, title, body, data, bundle_key) VALUES (?, ?, ?, ?, ?, ?)'
+  ).run(userId || null, type, title, body || null, data ? JSON.stringify(data) : null, bundleKey);
+  return result.lastInsertRowid;
+}
+
+function getUnreadNotificationCount(userId) {
+  const row = db.prepare('SELECT COUNT(*) as cnt FROM notifications WHERE (user_id = ? OR user_id IS NULL) AND read = 0').get(String(userId));
+  return row?.cnt || 0;
+}
+
+function getNotifications(userId, limit = 20) {
+  return db.prepare('SELECT * FROM notifications WHERE (user_id = ? OR user_id IS NULL) AND read = 0 ORDER BY created_at DESC LIMIT ?')
+    .all(String(userId), Number(limit));
+}
+
+function markNotificationsRead(userId, ids) {
+  if (!ids || ids.length === 0) {
+    db.prepare('UPDATE notifications SET read = 1 WHERE (user_id = ? OR user_id IS NULL)').run(String(userId));
+  } else {
+    const placeholders = ids.map(() => '?').join(',');
+    db.prepare(`UPDATE notifications SET read = 1 WHERE id IN (${placeholders}) AND (user_id = ? OR user_id IS NULL)`)
+      .run(...ids.map(Number), String(userId));
+  }
+}
+
+function deleteNotification(userId, id) {
+  db.prepare('DELETE FROM notifications WHERE id = ? AND (user_id = ? OR user_id IS NULL)').run(Number(id), String(userId));
+}
+
+function getUserNotificationPrefs(userId) {
+  const row = db.prepare('SELECT * FROM user_notification_prefs WHERE user_id = ?').get(String(userId));
+  return {
+    notify_approved: row ? !!row.notify_approved : true,
+    notify_denied: row ? !!row.notify_denied : true,
+    notify_available: row ? !!row.notify_available : true,
+    discord_webhook: row?.discord_webhook || null,
+    discord_enabled: row ? !!row.discord_enabled : false,
+    discord_user_id: row?.discord_user_id || null,
+    pushover_user_key: row?.pushover_user_key || null,
+    pushover_enabled: row ? !!row.pushover_enabled : false,
+    notify_pending: row ? (row.notify_pending !== null ? !!row.notify_pending : true) : true,
+    notify_auto_approved: row ? (row.notify_auto_approved !== null ? !!row.notify_auto_approved : true) : true,
+    notify_process_failed: row ? (row.notify_process_failed !== null ? !!row.notify_process_failed : true) : true,
+  };
+}
+
+function setUserNotificationPrefs(userId, prefs) {
+  db.prepare(`
+    INSERT OR REPLACE INTO user_notification_prefs
+      (user_id, notify_approved, notify_denied, notify_available, discord_webhook, discord_enabled, discord_user_id, pushover_user_key, pushover_enabled,
+       notify_pending, notify_auto_approved, notify_process_failed)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    String(userId),
+    prefs.notify_approved !== false ? 1 : 0,
+    prefs.notify_denied !== false ? 1 : 0,
+    prefs.notify_available !== false ? 1 : 0,
+    prefs.discord_webhook || null,
+    prefs.discord_enabled ? 1 : 0,
+    prefs.discord_user_id || null,
+    prefs.pushover_user_key || null,
+    prefs.pushover_enabled ? 1 : 0,
+    prefs.notify_pending !== false ? 1 : 0,
+    prefs.notify_auto_approved !== false ? 1 : 0,
+    prefs.notify_process_failed !== false ? 1 : 0,
+  );
+}
+
+function getAdminUserIds() {
+  const rows = db.prepare("SELECT user_id FROM known_users WHERE is_admin = 1").all();
+  return rows.map(r => r.user_id);
+}
+
+function getPrivilegedUserIds() {
+  const admins = db.prepare('SELECT user_id FROM known_users WHERE is_admin = 1').all().map(r => r.user_id);
+  const owner = getSetting('owner_plex_user_id', null);
+  return [...new Set([...admins, ...(owner ? [owner] : [])])];
+}
+
+function getRecentReadNotifications(userId, limit = 5) {
+  return db.prepare('SELECT * FROM notifications WHERE (user_id = ? OR user_id IS NULL) AND read = 1 ORDER BY created_at DESC LIMIT ?')
+    .all(String(userId), Number(limit));
+}
+
+function enqueueNotification({ notificationId, agent, userId, payload, sendAfter }) {
+  db.prepare('INSERT INTO notification_queue (notification_id, agent, user_id, payload, send_after) VALUES (?, ?, ?, ?, ?)')
+    .run(notificationId || null, agent, userId || null, JSON.stringify(payload), sendAfter || Math.floor(Date.now()/1000) + 120);
+}
+
+function getPendingQueuedNotifications() {
+  return db.prepare('SELECT * FROM notification_queue WHERE sent = 0 AND send_after <= ? LIMIT 50')
+    .all(Math.floor(Date.now()/1000));
+}
+
+function markQueueItemSent(id) {
+  db.prepare('UPDATE notification_queue SET sent = 1 WHERE id = ?').run(Number(id));
+}
+
+function deleteQueueItem(id) {
+  db.prepare('DELETE FROM notification_queue WHERE id = ?').run(Number(id));
+}
+
 module.exports = {
   addDismissal, getDismissals, removeDismissal,
   addToWatchlistDb, removeFromWatchlistDb, getWatchlistFromDb,
@@ -763,4 +1134,15 @@ module.exports = {
   getGlobalRequestLimits, setGlobalRequestLimits,
   getUserRequestLimitOverride, setUserRequestLimitOverride, getAllUserRequestLimitOverrides,
   getEffectiveLimits, countRecentMovieRequests, countRecentSeasonRequests,
+  getPendingRequests, getAllRequests, updateRequestStatus, deleteRequest, deleteRequestsByUser,
+  getEffectiveAutoApprove, setUserAdmin, isAdminUser,
+  getUserSettings, saveUserSettings,
+  getUserPreferences, setUserPreferences,
+  getUserRequests,
+  addDiscoverRequestWithStatus, updateRequest, getRequestById,
+  createOrBundleNotification, getUnreadNotificationCount, getNotifications,
+  markNotificationsRead, deleteNotification, getRecentReadNotifications,
+  getUserNotificationPrefs, setUserNotificationPrefs,
+  getAdminUserIds, getPrivilegedUserIds,
+  enqueueNotification, getPendingQueuedNotifications, markQueueItemSent, deleteQueueItem,
 };

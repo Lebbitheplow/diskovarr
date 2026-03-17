@@ -903,6 +903,7 @@
   transition: color 0.2s;
 }
 
+
 /* ── Password field wrap (eye + copy buttons) ────────────────── */
 
 .conn-input-wrap {
@@ -999,49 +1000,6 @@
   align-self: flex-end;
 }
 
-/* ── Themed checkbox ─────────────────────────────────────────────────────── */
-
-.themed-checkbox {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 16px;
-  height: 16px;
-  min-width: 16px;
-  border: 1.5px solid var(--border-hover);
-  border-radius: 4px;
-  background: var(--bg-elevated);
-  cursor: pointer;
-  position: relative;
-  transition: border-color 0.15s, background 0.15s;
-  vertical-align: middle;
-}
-
-.themed-checkbox:hover {
-  border-color: var(--accent-border);
-}
-
-.themed-checkbox:checked {
-  background: var(--accent);
-  border-color: var(--accent);
-}
-
-.themed-checkbox:checked::after {
-  content: '';
-  position: absolute;
-  left: 4px;
-  top: 1px;
-  width: 5px;
-  height: 9px;
-  border: 2px solid #000;
-  border-top: none;
-  border-left: none;
-  transform: rotate(45deg);
-}
-
-.themed-checkbox:focus-visible {
-  outline: 2px solid var(--accent-border);
-  outline-offset: 2px;
-}
 
 /* Hide number input spin buttons */
 .conn-input-port::-webkit-outer-spin-button,
@@ -1064,4 +1022,29 @@
   width: 64px;
   text-align: center;
   padding: 6px 8px;
+}
+
+/* Request queue filter buttons */
+.req-filter-btn.req-filter-active {
+  background: var(--accent);
+  color: #000;
+  border-color: var(--accent);
+  font-weight: 600;
+}
+
+/* Agent info button (ℹ next to section title) */
+.agent-info-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1rem;
+  cursor: pointer;
+  vertical-align: middle;
+  margin-left: 4px;
+  padding: 0;
+  line-height: 1;
+  transition: color 0.15s;
+}
+.agent-info-btn:hover {
+  color: var(--accent);
 }

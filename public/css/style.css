@@ -227,11 +227,12 @@ img {
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.6), 0 0 0 2px var(--accent-border);
 }
 
-/* ── FAB popup menu (slides up from bottom-right) ────────────── */
+/* ── FAB popup menu (desktop: drops down from user button) ────── */
 .nav-fab-menu {
-  display: none;
+  display: block;
   position: fixed;
-  bottom: 88px;
+  top: calc(var(--nav-height) + 6px);
+  bottom: auto;
   right: 16px;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
@@ -241,8 +242,8 @@ img {
   z-index: 300;
   overflow: hidden;
   opacity: 0;
-  transform: translateY(12px) scale(0.96);
-  transform-origin: bottom right;
+  transform: translateY(-8px) scale(0.96);
+  transform-origin: top right;
   transition: opacity 0.2s ease, transform 0.2s ease;
   pointer-events: none;
 }
@@ -251,6 +252,33 @@ img {
   opacity: 1;
   transform: translateY(0) scale(1);
   pointer-events: auto;
+}
+
+/* ── Desktop user avatar button ──────────────────────────────── */
+.nav-user-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 2px solid var(--accent-border);
+  background: var(--bg-elevated);
+  cursor: pointer;
+  overflow: hidden;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  flex-shrink: 0;
+}
+.nav-user-btn img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.nav-user-btn.open,
+.nav-user-btn:hover {
+  border-color: var(--accent);
 }
 
 .nav-fab-menu-user {
@@ -334,8 +362,12 @@ img {
     padding: 0 14px;
   }
 
-  /* Hide full desktop user row */
+  /* Show nav-user on mobile (contains bell) but hide desktop-only elements */
   .nav-user {
+    display: flex;
+  }
+
+  .nav-user-btn {
     display: none;
   }
 
@@ -344,9 +376,17 @@ img {
     display: flex;
   }
 
-  /* Show FAB menu when open */
+  /* FAB menu: mobile slides up from bottom-right */
   .nav-fab-menu {
     display: block;
+    top: auto;
+    bottom: 88px;
+    transform-origin: bottom right;
+    transform: translateY(12px) scale(0.96);
+  }
+
+  .nav-fab-menu.open {
+    transform: translateY(0) scale(1);
   }
 
   /* Tabs: scrollable strip between logo and FAB */
@@ -1658,6 +1698,69 @@ img {
   cursor: pointer;
 }
 
+/* ── Settings toggle rows ────────────────────────────────────────────────────*/
+.settings-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  cursor: pointer;
+}
+.settings-toggle-label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 0.88rem;
+  color: #fff;
+}
+.settings-toggle-desc {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+}
+.settings-toggle-cb {
+  flex-shrink: 0;
+}
+
+/* ── Themed checkbox (accent-colored, used site-wide) ────────────────────── */
+.themed-checkbox {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  min-width: 16px;
+  border: 1.5px solid var(--border-hover);
+  border-radius: 4px;
+  background: var(--bg-elevated);
+  cursor: pointer;
+  position: relative;
+  transition: border-color 0.15s, background 0.15s;
+  vertical-align: middle;
+}
+.themed-checkbox:hover {
+  border-color: var(--accent-border);
+}
+.themed-checkbox:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.themed-checkbox:checked::after {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 1px;
+  width: 5px;
+  height: 9px;
+  border: 2px solid #000;
+  border-top: none;
+  border-left: none;
+  transform: rotate(45deg);
+}
+.themed-checkbox:focus-visible {
+  outline: 2px solid var(--accent-border);
+  outline-offset: 2px;
+}
+
 /* ── Info modal ──────────────────────────────────────────────────────────────*/
 .info-modal-backdrop {
   display: none;
@@ -1711,6 +1814,12 @@ img {
   border: 1px solid rgba(255,255,255,0.1);
   border-radius: 20px;
   padding: 0.15rem 0.5rem;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.info-modal-version:hover {
+  background: rgba(255,255,255,0.14);
+  border-color: rgba(255,255,255,0.2);
 }
 .info-modal-tagline {
   color: var(--text-secondary);
@@ -2549,4 +2658,30 @@ img {
   font-size: 0.82rem;
   color: var(--text-secondary);
   padding: 4px 0;
+}
+
+/* ── API docs table (admin General tab) ─────────────────────────── */
+.api-docs-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+  margin-top: 0.25rem;
+}
+.api-docs-table th, .api-docs-table td {
+  padding: 0.3rem 0.6rem;
+  text-align: left;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.api-docs-table th {
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+.api-docs-table td:first-child {
+  font-family: monospace;
+  color: var(--accent);
+  white-space: nowrap;
+}
+.api-docs-table td:nth-child(2) {
+  font-family: monospace;
+  white-space: nowrap;
 }
