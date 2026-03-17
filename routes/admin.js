@@ -688,6 +688,7 @@ router.post('/user-settings/:userId', requireAdmin, (req, res) => {
     notify_approved, notify_denied, notify_available,
     discord_webhook, discord_enabled, pushover_user_key, pushover_enabled,
     notify_pending, notify_auto_approved, notify_process_failed,
+    notify_issue_new, notify_issue_update,
   } = req.body;
   db.saveUserSettings(userId, {
     movieLimit: parseInt(movieLimit) || 0,
@@ -716,6 +717,8 @@ router.post('/user-settings/:userId', requireAdmin, (req, res) => {
     notify_pending:       notify_pending        !== undefined ? (notify_pending        === '1' || notify_pending        === true) : true,
     notify_auto_approved: notify_auto_approved  !== undefined ? (notify_auto_approved  === '1' || notify_auto_approved  === true) : true,
     notify_process_failed: notify_process_failed !== undefined ? (notify_process_failed === '1' || notify_process_failed === true) : true,
+    notify_issue_new:      notify_issue_new      !== undefined ? (notify_issue_new      === '1' || notify_issue_new      === true) : true,
+    notify_issue_update:   notify_issue_update   !== undefined ? (notify_issue_update   === '1' || notify_issue_update   === true) : true,
   });
   res.redirect(`/admin/user-settings/${userId}?saved=1`);
 });

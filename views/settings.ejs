@@ -140,6 +140,13 @@
               <span style="color:var(--text-secondary)"> — Get notified when your requested media is available in the library</span>
             </span>
           </label>
+          <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+            <input type="checkbox" class="themed-checkbox" id="notify_issue_update" <%= notificationPrefs.notify_issue_update ? 'checked' : '' %>>
+            <span style="font-size:0.88rem">
+              <strong style="color:#fff">Issue Status Updated</strong>
+              <span style="color:var(--text-secondary)"> — Get notified when an issue you reported changes status</span>
+            </span>
+          </label>
           <% if (isElevated) { %>
           <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
             <input type="checkbox" class="themed-checkbox" id="notify_pending" <%= notificationPrefs.notify_pending ? 'checked' : '' %>>
@@ -160,6 +167,13 @@
             <span style="font-size:0.88rem">
               <strong style="color:#fff">Processing Failed</strong>
               <span style="color:var(--text-secondary)"> — Get notified when a request fails to submit to Radarr/Sonarr/Overseerr</span>
+            </span>
+          </label>
+          <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+            <input type="checkbox" class="themed-checkbox" id="notify_issue_new" <%= notificationPrefs.notify_issue_new ? 'checked' : '' %>>
+            <span style="font-size:0.88rem">
+              <strong style="color:#fff">New Issue Reported</strong>
+              <span style="color:var(--text-secondary)"> — Get notified when a user reports a new issue</span>
             </span>
           </label>
           <% } %>
@@ -255,6 +269,8 @@
         notify_pending:        getChecked('notify_pending', true),
         notify_auto_approved:  getChecked('notify_auto_approved', true),
         notify_process_failed: getChecked('notify_process_failed', true),
+        notify_issue_update:   getChecked('notify_issue_update', true),
+        notify_issue_new:      getChecked('notify_issue_new', true),
       };
       try {
         var res = await fetch('/api/user/settings', {

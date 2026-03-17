@@ -26,6 +26,7 @@ Sign in with your Plex account and Diskovarr surfaces what to watch next — sco
 - **Poster proxy** — all poster images proxied through the server; Plex tokens never reach the browser
 - **Notification system** — Discord (webhook shared channel or per-user bot DMs) and Pushover push notifications; per-user preferences for each event type
 - **Request queue** — users view and manage their own requests; admins approve, deny (with note), edit, or delete all requests
+- **Issue reporting** — report problems with library items (broken files, wrong metadata, audio sync, etc.) from the detail modal; TV shows include a scope selector (Entire Series / Specific Season / Specific Episode); admins resolve or close issues with an optional note delivered back to the reporter
 - **Elevated privileges** — grant any user queue management access without full admin rights
 - **Auto-request from watchlist** — global and per-user overrides for movies and TV
 - **Dark UI** — Netflix-style card grid with shimmer skeleton loading, hover overlays, and CSS variable theming
@@ -205,6 +206,24 @@ Users can choose which notification types they want to receive, and set their ow
 ### Elevated privileges
 
 Granting elevated privileges to a user gives them admin-level notification delivery (pending request alerts, processing error alerts) without granting full admin access to the panel.
+
+## Issue Reporting
+
+Any signed-in user can report a problem with a library item directly from its detail modal using the **Report Issue** button.
+
+- **Movies** — opens a description box to explain the issue
+- **TV shows** — includes a scope selector: *Entire Series*, *Specific Season* (enter season number), or *Specific Episode* (enter season and episode numbers); followed by a description box
+
+Submitted issues are visible at **/issues**:
+
+- **Users** see their own reports with scope, status (Open / Resolved / Closed), and a Details button showing the full description and any admin note
+- **Admins and elevated users** see all issues across all users, with poster, reporter name, scope badge, and the same Details view
+
+Admins can **Resolve** or **Close** an open issue with an optional note. The note is delivered to the reporter as a push notification and is shown in the issue's detail view.
+
+Notification preferences:
+- `notify_issue_update` — available to all users; receive a notification when an issue you reported changes status
+- `notify_issue_new` — available to elevated users and admins; receive a notification when any user reports a new issue
 
 ## Diskovarr Requests
 

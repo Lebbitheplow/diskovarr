@@ -256,6 +256,13 @@
               <span style="color:var(--text-secondary)"> — Get notified when requested media is available</span>
             </span>
           </label>
+          <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+            <input type="checkbox" class="themed-checkbox" name="notify_issue_update" value="1" <%= notificationPrefs.notify_issue_update ? 'checked' : '' %>>
+            <span style="font-size:0.88rem">
+              <strong class="toggle-label">Issue Status Updated</strong>
+              <span style="color:var(--text-secondary)"> — Get notified when an issue they reported changes status</span>
+            </span>
+          </label>
           <% if (settings.is_admin || isPrivileged) { %>
           <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
             <input type="checkbox" class="themed-checkbox" name="notify_pending" value="1" <%= notificationPrefs.notify_pending ? 'checked' : '' %>>
@@ -276,6 +283,13 @@
             <span style="font-size:0.88rem">
               <strong class="toggle-label">Processing Failed</strong>
               <span style="color:var(--text-secondary)"> — Get notified when a request fails to submit to Radarr/Sonarr/Overseerr</span>
+            </span>
+          </label>
+          <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+            <input type="checkbox" class="themed-checkbox" name="notify_issue_new" value="1" <%= notificationPrefs.notify_issue_new ? 'checked' : '' %>>
+            <span style="font-size:0.88rem">
+              <strong class="toggle-label">New Issue Reported</strong>
+              <span style="color:var(--text-secondary)"> — Get notified when a user reports a new issue</span>
             </span>
           </label>
           <% } %>

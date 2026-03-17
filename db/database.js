@@ -983,6 +983,25 @@ db.exec(`
     sent INTEGER DEFAULT 0,
     created_at INTEGER DEFAULT (unixepoch())
   );
+
+  CREATE TABLE IF NOT EXISTS issues (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    rating_key TEXT NOT NULL,
+    title TEXT NOT NULL,
+    media_type TEXT NOT NULL,
+    poster_path TEXT,
+    scope TEXT NOT NULL DEFAULT 'series',
+    scope_season INTEGER,
+    scope_episode INTEGER,
+    description TEXT,
+    status TEXT NOT NULL DEFAULT 'open',
+    admin_note TEXT,
+    created_at INTEGER DEFAULT (unixepoch()),
+    updated_at INTEGER DEFAULT (unixepoch())
+  );
+  CREATE INDEX IF NOT EXISTS idx_issues_user ON issues(user_id, status);
+  CREATE INDEX IF NOT EXISTS idx_issues_status ON issues(status, created_at);
 `);
 
 for (const col of [
@@ -990,6 +1009,8 @@ for (const col of [
   'notify_auto_approved INTEGER DEFAULT 1',
   'notify_process_failed INTEGER DEFAULT 1',
   'discord_user_id TEXT DEFAULT NULL',
+  'notify_issue_new INTEGER DEFAULT 1',
+  'notify_issue_update INTEGER DEFAULT 1',
 ]) {
   try { db.prepare(`ALTER TABLE user_notification_prefs ADD COLUMN ${col}`).run(); } catch {}
 }
@@ -1049,6 +1070,8 @@ function getUserNotificationPrefs(userId) {
     notify_pending: row ? (row.notify_pending !== null ? !!row.notify_pending : true) : true,
     notify_auto_approved: row ? (row.notify_auto_approved !== null ? !!row.notify_auto_approved : true) : true,
     notify_process_failed: row ? (row.notify_process_failed !== null ? !!row.notify_process_failed : true) : true,
+    notify_issue_new:    row ? (row.notify_issue_new    !== null ? !!row.notify_issue_new    : true) : true,
+    notify_issue_update: row ? (row.notify_issue_update !== null ? !!row.notify_issue_update : true) : true,
   };
 }
 
@@ -1056,8 +1079,8 @@ function setUserNotificationPrefs(userId, prefs) {
   db.prepare(`
     INSERT OR REPLACE INTO user_notification_prefs
       (user_id, notify_approved, notify_denied, notify_available, discord_webhook, discord_enabled, discord_user_id, pushover_user_key, pushover_enabled,
-       notify_pending, notify_auto_approved, notify_process_failed)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       notify_pending, notify_auto_approved, notify_process_failed, notify_issue_new, notify_issue_update)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     String(userId),
     prefs.notify_approved !== false ? 1 : 0,
@@ -1071,6 +1094,8 @@ function setUserNotificationPrefs(userId, prefs) {
     prefs.notify_pending !== false ? 1 : 0,
     prefs.notify_auto_approved !== false ? 1 : 0,
     prefs.notify_process_failed !== false ? 1 : 0,
+    prefs.notify_issue_new !== false ? 1 : 0,
+    prefs.notify_issue_update !== false ? 1 : 0,
   );
 }
 
@@ -1106,6 +1131,71 @@ function markQueueItemSent(id) {
 
 function deleteQueueItem(id) {
   db.prepare('DELETE FROM notification_queue WHERE id = ?').run(Number(id));
+}
+
+// ── Issue reporting ────────────────────────────────────────────────────────────
+
+function createIssue({ userId, ratingKey, title, mediaType, posterPath, scope, scopeSeason, scopeEpisode, description }) {
+  const result = db.prepare(`
+    INSERT INTO issues (user_id, rating_key, title, media_type, poster_path, scope, scope_season, scope_episode, description)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    String(userId), String(ratingKey), title, mediaType, posterPath || null,
+    scope || 'series',
+    scopeSeason != null ? Number(scopeSeason) : null,
+    scopeEpisode != null ? Number(scopeEpisode) : null,
+    description || null
+  );
+  return result.lastInsertRowid;
+}
+
+function getIssueById(id) {
+  return db.prepare(`
+    SELECT i.*, COALESCE(ku.username, i.user_id) AS username
+    FROM issues i LEFT JOIN known_users ku ON ku.user_id = i.user_id
+    WHERE i.id = ?
+  `).get(Number(id));
+}
+
+function getAllIssues(limit, offset, statusFilter) {
+  const where = statusFilter && statusFilter !== 'all' ? 'WHERE i.status = ?' : '';
+  const params = statusFilter && statusFilter !== 'all'
+    ? [statusFilter, Number(limit), Number(offset)]
+    : [Number(limit), Number(offset)];
+  const rows = db.prepare(`
+    SELECT i.*, COALESCE(ku.username, i.user_id) AS username
+    FROM issues i LEFT JOIN known_users ku ON ku.user_id = i.user_id
+    ${where} ORDER BY i.created_at DESC LIMIT ? OFFSET ?
+  `).all(...params);
+  const cntParams = statusFilter && statusFilter !== 'all' ? [statusFilter] : [];
+  const { cnt } = db.prepare(`SELECT COUNT(*) as cnt FROM issues i ${where}`).get(...cntParams);
+  return { rows, total: cnt || 0 };
+}
+
+function getUserIssues(userId, limit, offset, statusFilter) {
+  const extraWhere = statusFilter && statusFilter !== 'all' ? 'AND i.status = ?' : '';
+  const params = statusFilter && statusFilter !== 'all'
+    ? [String(userId), statusFilter, Number(limit), Number(offset)]
+    : [String(userId), Number(limit), Number(offset)];
+  const rows = db.prepare(`
+    SELECT i.*, COALESCE(ku.username, i.user_id) AS username
+    FROM issues i LEFT JOIN known_users ku ON ku.user_id = i.user_id
+    WHERE i.user_id = ? ${extraWhere} ORDER BY i.created_at DESC LIMIT ? OFFSET ?
+  `).all(...params);
+  const cntParams = statusFilter && statusFilter !== 'all'
+    ? [String(userId), statusFilter] : [String(userId)];
+  const { cnt } = db.prepare(`SELECT COUNT(*) as cnt FROM issues i WHERE i.user_id = ? ${extraWhere}`)
+    .get(...cntParams);
+  return { rows, total: cnt || 0 };
+}
+
+function updateIssueStatus(id, status, adminNote) {
+  db.prepare('UPDATE issues SET status = ?, admin_note = ?, updated_at = unixepoch() WHERE id = ?')
+    .run(status, adminNote !== undefined ? adminNote : null, Number(id));
+}
+
+function deleteIssue(id) {
+  db.prepare('DELETE FROM issues WHERE id = ?').run(Number(id));
 }
 
 module.exports = {
@@ -1145,4 +1235,5 @@ module.exports = {
   getUserNotificationPrefs, setUserNotificationPrefs,
   getAdminUserIds, getPrivilegedUserIds,
   enqueueNotification, getPendingQueuedNotifications, markQueueItemSent, deleteQueueItem,
+  createIssue, getIssueById, getAllIssues, getUserIssues, updateIssueStatus, deleteIssue,
 };

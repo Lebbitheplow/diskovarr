@@ -1,5 +1,20 @@
 [
   {
+    "version": "1.13.0",
+    "date": "2026-03-17",
+    "changes": [
+      "Issue reporting — report problems with library items directly from the detail modal; TV shows have a scope selector (Entire Series / Specific Season / Specific Episode) with season and episode number inputs",
+      "Issues page at /issues — users see their own reports with scope, status, and a Details button; admins and elevated users see all issues with poster, reporter, scope, status, and full detail view",
+      "Issue details modal — shows full description, scope breakdown, reporter (admin view), status, and any admin note",
+      "Admins can resolve or close issues with an optional note, displayed inline below the title and in the details modal",
+      "Notifications: issue_new sent to admins/elevated users when an issue is reported; issue_updated sent to the reporter when status changes; clicking either notification navigates to /issues",
+      "Fix: bell notifications now mark as read immediately when clicked, before navigating away",
+      "Discord and Pushover: issue_new and issue_updated added to notification type lists in admin settings",
+      "User settings and admin per-user settings: notify_issue_update (all users) and notify_issue_new (elevated users) toggles added",
+      "Issues link added to nav menu between Queue and Admin"
+    ]
+  },
+  {
     "version": "1.12.4",
     "date": "2026-03-17",
     "changes": [
