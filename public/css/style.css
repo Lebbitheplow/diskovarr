@@ -465,6 +465,58 @@ img {
   user-select: none;
 }
 
+.slide-toggle {
+  position: relative;
+  display: inline-block;
+  width: 46px;
+  height: 26px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.slide-toggle input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+  position: absolute;
+}
+.slide-track {
+  position: absolute;
+  inset: 0;
+  background: var(--bg-secondary, #1a1a1a);
+  border: 1px solid var(--border, #333);
+  border-radius: 999px;
+  transition: background 0.25s, border-color 0.25s;
+}
+.slide-track::before {
+  content: '';
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  left: 3px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: var(--text-muted, #666);
+  border-radius: 50%;
+  transition: transform 0.25s, background 0.25s;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.4);
+}
+.slide-toggle input:checked + .slide-track {
+  background: var(--accent-dim, rgba(229,160,13,0.15));
+  border-color: var(--accent, #e5a00d);
+}
+.slide-toggle input:checked + .slide-track::before {
+  transform: translateY(-50%) translateX(20px);
+  background: var(--accent, #e5a00d);
+}
+.slide-toggle input:disabled + .slide-track { opacity: 0.35; cursor: not-allowed; }
+.slide-toggle:has(input:disabled) { cursor: not-allowed; }
+
+.toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .toggle-checkbox {
   display: none;
 }

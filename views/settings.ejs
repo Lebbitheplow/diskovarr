@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/style.css?v=29">
+  <link rel="stylesheet" href="/css/style.css?v=30">
   <link rel="stylesheet" href="/theme.css?c=<%= themeParam %>" id="theme-css">
   <style>
     .settings-page { max-width: 700px; margin: 0 auto; padding: 0 16px 64px; }
@@ -171,10 +171,14 @@
         <% if (discordMode === 'bot') { %>
           <label class="settings-label">Discord (Bot DMs)</label>
           <p class="settings-desc">Enter your Discord User ID to receive direct message notifications from the Diskovarr bot.</p>
-          <p style="font-size:0.78rem;color:var(--text-secondary);margin:0 0 6px">A 17–19 digit number — not your username. Enable Developer Mode (Settings → Advanced), then right-click your avatar on any message you've sent → Copy User ID.</p>
-          <input type="text" id="notif-discord-userid" class="settings-select" style="max-width:100%;font-family:monospace;font-size:0.82rem"
-            placeholder="e.g. 185234567891234560"
-            value="<%= notificationPrefs.discord_user_id || '' %>">
+          <p style="font-size:0.78rem;color:var(--text-secondary);margin:0 0 4px"><strong style="color:var(--text-primary)">Desktop:</strong> A 17–19 digit number — not your username. Enable Developer Mode (Settings → Advanced), then right-click your avatar on any message you've sent → Copy User ID.</p>
+          <p style="font-size:0.78rem;color:var(--text-secondary);margin:0 0 6px"><strong style="color:var(--text-primary)">Mobile:</strong> Tap on your profile in a message, then tap the ⋯ in the top-right corner → Copy User ID. (Requires Developer Mode enabled in Appearance settings.)</p>
+          <div style="display:flex;gap:8px;align-items:center;margin-bottom:4px">
+            <input type="text" id="notif-discord-userid" class="settings-select" style="flex:1;font-family:monospace;font-size:0.82rem"
+              placeholder="e.g. 185234567891234560"
+              value="<%= notificationPrefs.discord_user_id || '' %>">
+            <button type="button" class="btn-settings-save" style="white-space:nowrap;padding:8px 14px;font-size:0.82rem" onclick="testDiscordDm()">Send Test</button>
+          </div>
           <% if (discordInviteLink) { %>
           <div style="background:rgba(255,165,0,0.08);border:1px solid rgba(255,165,0,0.25);border-radius:8px;padding:10px 14px;margin-top:10px;font-size:0.82rem;color:var(--text-secondary)">
             &#9888; You must be a member of the admin's Discord server for the bot to send you DMs.
@@ -188,10 +192,13 @@
             placeholder="https://discord.com/api/webhooks/..."
             value="<%= notificationPrefs.discord_webhook || '' %>">
         <% } %>
-        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;margin-top:10px">
-          <input type="checkbox" class="themed-checkbox" id="notif-discord-enabled" <%= notificationPrefs.discord_enabled ? 'checked' : '' %>>
-          <span style="font-size:0.85rem;color:#fff">Enable Discord notifications</span>
-        </label>
+        <div class="toggle-row" style="margin-top:10px">
+          <label class="slide-toggle">
+            <input type="checkbox" id="notif-discord-enabled" <%= notificationPrefs.discord_enabled ? 'checked' : '' %>>
+            <span class="slide-track"></span>
+          </label>
+          <span class="toggle-label">Enable Discord notifications</span>
+        </div>
       </div>
       <% } %>
 
@@ -199,15 +206,23 @@
       <div class="settings-field" style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border)">
         <label class="settings-label">Pushover</label>
         <p class="settings-desc">Receive personal push notifications via Pushover.</p>
-        <input type="text" id="notif-pushover-key" class="settings-select" style="max-width:100%;font-family:monospace;font-size:0.82rem"
-          placeholder="User key..."
-          value="<%= notificationPrefs.pushover_user_key || '' %>">
-        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;margin-top:10px">
-          <input type="checkbox" class="themed-checkbox" id="notif-pushover-enabled" <%= notificationPrefs.pushover_enabled ? 'checked' : '' %>>
-          <span style="font-size:0.85rem;color:#fff">Enable Pushover notifications</span>
-        </label>
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:4px">
+          <input type="text" id="notif-pushover-key" class="settings-select" style="flex:1;font-family:monospace;font-size:0.82rem"
+            placeholder="User key..."
+            value="<%= notificationPrefs.pushover_user_key || '' %>">
+          <button type="button" class="btn-settings-save" style="white-space:nowrap;padding:8px 14px;font-size:0.82rem" onclick="testPushover()">Send Test</button>
+        </div>
+        <div class="toggle-row" style="margin-top:10px">
+          <label class="slide-toggle">
+            <input type="checkbox" id="notif-pushover-enabled" <%= notificationPrefs.pushover_enabled ? 'checked' : '' %>>
+            <span class="slide-track"></span>
+          </label>
+          <span class="toggle-label">Enable Pushover notifications</span>
+        </div>
       </div>
       <% } %>
+
+      <button class="btn-settings-save" onclick="savePreferences()" style="margin-top:16px">Save Notification Settings</button>
 
     </div>
   </div>
@@ -252,6 +267,36 @@
         showToast('Preferences saved');
       } catch (err) {
         showToast('Error: ' + err.message, true);
+      }
+    }
+
+    async function testPushover() {
+      var key = (document.getElementById('notif-pushover-key') || {}).value || '';
+      if (!key.trim()) { showToast('Enter your Pushover user key first', true); return; }
+      try {
+        var d = await fetch('/api/user/pushover/test', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userKey: key.trim() }),
+        }).then(r => r.json());
+        if (d.ok) showToast('Test message sent!');
+        else showToast(d.error || 'Send failed', true);
+      } catch (err) {
+        showToast('Send failed', true);
+      }
+    }
+
+    async function testDiscordDm() {
+      var userId = (document.getElementById('notif-discord-userid') || {}).value || '';
+      if (!userId.trim()) { showToast('Enter your Discord User ID first', true); return; }
+      try {
+        var d = await fetch('/api/user/discord/test', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ discordUserId: userId.trim() }),
+        }).then(r => r.json());
+        if (d.ok) showToast('Test message sent!');
+        else showToast(d.error || 'Send failed', true);
+      } catch (err) {
+        showToast('Send failed', true);
       }
     }
   </script>
