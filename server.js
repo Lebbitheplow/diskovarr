@@ -107,11 +107,21 @@ app.use('/auth', require('./routes/auth'));
 app.use('/api', require('./routes/api'));
 app.use('/admin', require('./routes/admin'));
 
-// Public: Discord bot avatar PNG (themed, no auth required)
+// Public: Discord bot avatar (themed auto-generated, or custom upload)
 app.get('/discord-avatar.png', (req, res) => {
   try {
-    const { generateAvatar } = require('./services/discordAvatar');
     const db = require('./db/database');
+    const customDataUri = db.getSetting('discord_avatar_data_uri', null);
+    if (customDataUri) {
+      const match = customDataUri.match(/^data:(image\/(?:png|jpeg|gif));base64,(.+)$/);
+      if (match) {
+        const buf = Buffer.from(match[2], 'base64');
+        res.setHeader('Content-Type', match[1]);
+        res.setHeader('Cache-Control', 'public, max-age=300');
+        return res.send(buf);
+      }
+    }
+    const { generateAvatar } = require('./services/discordAvatar');
     const accentHex = db.getThemeColor() || 'e5a00d';
     const { png } = generateAvatar(accentHex);
     res.setHeader('Content-Type', 'image/png');
@@ -160,6 +170,7 @@ app.listen(PORT, '0.0.0.0', () => {
   logger.info(`Logging enabled. Diskovarr v${require('./package.json').version} started on port ${PORT}`);
 
   const plexService = require('./services/plex');
+  const recommender = require('./services/recommender');
   const REFRESH_INTERVAL = 2 * 60 * 60 * 1000; // 2 hours
 
   const adminRoute = require('./routes/admin');
@@ -173,6 +184,10 @@ app.listen(PORT, '0.0.0.0', () => {
       plexService.invalidateCache();
       await plexService.warmCache();
       logger.info('Library synced successfully');
+      // Pre-warm recommendation caches 30s after library sync (avoids load spike)
+      setTimeout(() => recommender.warmAllUserCaches().catch(err =>
+        logger.warn('Rec pre-warm failed:', err.message)
+      ), 30_000);
     } catch (err) {
       logger.warn('Library sync failed:', err.message);
     }

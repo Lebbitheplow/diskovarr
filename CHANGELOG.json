@@ -1,5 +1,16 @@
 [
   {
+    "version": "1.12.4",
+    "date": "2026-03-17",
+    "changes": [
+      "Discord bot avatar upload — admins can upload a custom PNG/JPG/GIF (128×128 recommended, max 2 MB) for the bot's identity, with live preview; or enter a direct URL as an alternative",
+      "Discord/Pushover notification enable toggles — now rendered as styled slide-toggles at the top of each credential block in per-user admin settings",
+      "Owner lock — when a user is designated as the server owner, their elevated privileges toggle is locked, checked, and labelled in per-user admin settings",
+      "Recommendation pre-warming — after each library sync, user recommendation caches are rebuilt in the background so page loads are instant",
+      "Fix: recommendation pre-warm logger reference error corrected"
+    ]
+  },
+  {
     "version": "1.12.2",
     "date": "2026-03-17",
     "changes": [

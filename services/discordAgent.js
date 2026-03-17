@@ -18,13 +18,14 @@ const TYPE_COLORS = {
 
 // ── Webhook mode ───────────────────────────────────────────────────────────────
 
-async function sendWebhookEmbed({ webhookUrl, title, description, color, posterUrl, mentionRole, botUsername }) {
+async function sendWebhookEmbed({ webhookUrl, title, description, color, posterUrl, mentionRole, botUsername, botAvatarUrl }) {
   if (!webhookUrl) return;
   const embed = { title, description, color: color || 0xe5a00d };
   if (posterUrl) embed.thumbnail = { url: posterUrl };
   const payload = { embeds: [embed] };
   if (mentionRole) payload.content = `<@&${mentionRole}>`;
   if (botUsername) payload.username = botUsername;
+  if (botAvatarUrl) payload.avatar_url = botAvatarUrl;
   const res = await fetch(webhookUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -73,11 +74,17 @@ async function sendBotDm(discordUserId, embed, botToken, botUsername) {
   await discordRequest('POST', `/channels/${channelId}/messages`, payload, botToken);
 }
 
-// Update the bot's global avatar. accentHex should be a hex colour string.
+// Update the bot's global avatar. Uses custom uploaded image if set, else auto-generates.
 async function updateBotAvatar(botToken, accentHex) {
   try {
-    const { generateAvatar } = require('./discordAvatar');
-    const { dataUri } = generateAvatar(accentHex);
+    const customDataUri = db.getSetting('discord_avatar_data_uri', null);
+    let dataUri;
+    if (customDataUri && /^data:image\/(png|jpeg|gif);base64,/.test(customDataUri)) {
+      dataUri = customDataUri;
+    } else {
+      const { generateAvatar } = require('./discordAvatar');
+      dataUri = generateAvatar(accentHex).dataUri;
+    }
     await discordRequest('PATCH', '/users/@me', { avatar: dataUri }, botToken);
     logger.info('Discord bot avatar updated');
   } catch (err) {
@@ -101,6 +108,9 @@ async function sendNotification({ type, title, body, posterUrl, userId }) {
   };
   if (config.embedPoster && posterUrl) embed.thumbnail = { url: posterUrl };
 
+  // Resolve avatar URL: explicit URL > publicUrl-derived > none
+  const avatarUrl = config.botAvatarUrl || (config.publicUrl ? `${config.publicUrl}/discord-avatar.png` : null);
+
   if (config.mode === 'bot') {
     // Bot token mode — DM individual users
     if (!config.botToken) return;
@@ -123,6 +133,7 @@ async function sendNotification({ type, title, body, posterUrl, userId }) {
           color: TYPE_COLORS[type] || 0xe5a00d,
           posterUrl: config.embedPoster ? posterUrl : null,
           botUsername: config.botUsername,
+          botAvatarUrl: avatarUrl,
         });
       } catch (err) {
         logger.warn('Discord bot shared-channel webhook error:', err.message);
@@ -140,6 +151,7 @@ async function sendNotification({ type, title, body, posterUrl, userId }) {
         posterUrl: config.embedPoster ? posterUrl : null,
         mentionRole: config.enableMentions ? config.notificationRoleId : null,
         botUsername: config.botUsername,
+        botAvatarUrl: avatarUrl,
       });
     } catch (err) {
       logger.warn('Discord webhook error:', err.message);
@@ -149,7 +161,7 @@ async function sendNotification({ type, title, body, posterUrl, userId }) {
       const prefs = db.getUserNotificationPrefs(userId);
       if (prefs?.discord_enabled && prefs?.discord_webhook && prefs.discord_webhook !== config.webhookUrl) {
         try {
-          await sendWebhookEmbed({ webhookUrl: prefs.discord_webhook, title, description: body || '', color: TYPE_COLORS[type] || 0xe5a00d, posterUrl: config.embedPoster ? posterUrl : null });
+          await sendWebhookEmbed({ webhookUrl: prefs.discord_webhook, title, description: body || '', color: TYPE_COLORS[type] || 0xe5a00d, posterUrl: config.embedPoster ? posterUrl : null, botAvatarUrl: avatarUrl });
         } catch (err) {
           logger.warn('Discord per-user webhook error:', err.message);
         }

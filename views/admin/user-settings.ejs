@@ -31,6 +31,7 @@
     .toggle-row { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
     .toggle-label { font-size: 0.88rem; color: #fff; }
     .saved-banner { background: rgba(0,200,100,0.1); border: 1px solid rgba(0,200,100,0.3); color: #00c864; padding: 10px 16px; border-radius: 8px; font-size: 0.88rem; margin-bottom: 16px; }
+    .toggle-disabled { opacity: 0.5; pointer-events: none; cursor: not-allowed; }
   </style>
 </head>
 <body>
@@ -216,12 +217,17 @@
       <!-- Permissions -->
       <div class="settings-section">
         <p class="settings-section-title">Permissions</p>
+        <% const isOwner = String(userId) === String(ownerUserId); %>
         <div class="toggle-row">
-          <label class="slide-toggle">
-            <input type="checkbox" name="is_admin" value="1" <%= settings.is_admin ? 'checked' : '' %>>
+          <label class="slide-toggle <%= isOwner ? 'toggle-disabled' : '' %>">
+            <input type="checkbox" name="is_admin" value="1" <%= (settings.is_admin || isOwner) ? 'checked' : '' %> <%= isOwner ? 'disabled' : '' %>>
             <span class="slide-track"></span>
           </label>
+          <% if (isOwner) { %><input type="hidden" name="is_admin" value="1"><% } %>
           <span class="toggle-label">Elevated privileges — can view and manage the request queue</span>
+          <% if (isOwner) { %>
+            <span style="font-size:0.75rem;color:var(--text-secondary);margin-left:4px">— Locked: designated server owner</span>
+          <% } %>
         </div>
       </div>
 
@@ -279,6 +285,17 @@
         <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
           <% if (discordMode === 'bot') { %>
             <p class="settings-section-title" style="margin-bottom:10px">Discord (Bot DMs)</p>
+          <% } else { %>
+            <p class="settings-section-title" style="margin-bottom:10px">Discord Webhook</p>
+          <% } %>
+          <div class="toggle-row" style="margin-bottom:12px">
+            <label class="slide-toggle">
+              <input type="checkbox" name="discord_enabled" value="1" <%= notificationPrefs.discord_enabled ? 'checked' : '' %>>
+              <span class="slide-track"></span>
+            </label>
+            <span class="toggle-label">Enable Discord notifications</span>
+          </div>
+          <% if (discordMode === 'bot') { %>
             <div class="settings-field">
               <label class="settings-label" style="margin-bottom:4px">Discord User ID</label>
               <p style="font-size:0.78rem;color:var(--text-secondary);margin:0 0 4px"><strong style="color:var(--text-primary)">Desktop:</strong> A 17–19 digit number — not your username. Enable Developer Mode (Settings → Advanced), then right-click your avatar on any message you've sent → Copy User ID.</p>
@@ -288,32 +305,30 @@
                 value="<%= notificationPrefs.discord_user_id || '' %>">
             </div>
           <% } else { %>
-            <p class="settings-section-title" style="margin-bottom:10px">Discord Webhook</p>
             <div class="settings-field">
               <input type="text" name="discord_webhook" class="settings-select" style="width:100%;max-width:100%;font-family:monospace;font-size:0.82rem"
                 placeholder="https://discord.com/api/webhooks/..."
                 value="<%= notificationPrefs.discord_webhook || '' %>">
             </div>
           <% } %>
-          <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
-            <input type="checkbox" class="themed-checkbox" name="discord_enabled" value="1" <%= notificationPrefs.discord_enabled ? 'checked' : '' %>>
-            <span class="toggle-label">Enable Discord notifications</span>
-          </label>
         </div>
         <% } %>
 
         <% if (pushoverAgentEnabled) { %>
         <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
           <p class="settings-section-title" style="margin-bottom:10px">Pushover</p>
+          <div class="toggle-row" style="margin-bottom:12px">
+            <label class="slide-toggle">
+              <input type="checkbox" name="pushover_enabled" value="1" <%= notificationPrefs.pushover_enabled ? 'checked' : '' %>>
+              <span class="slide-track"></span>
+            </label>
+            <span class="toggle-label">Enable Pushover notifications</span>
+          </div>
           <div class="settings-field">
             <input type="text" name="pushover_user_key" class="settings-select" style="width:100%;max-width:100%;font-family:monospace;font-size:0.82rem"
               placeholder="Pushover user key..."
               value="<%= notificationPrefs.pushover_user_key || '' %>">
           </div>
-          <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
-            <input type="checkbox" class="themed-checkbox" name="pushover_enabled" value="1" <%= notificationPrefs.pushover_enabled ? 'checked' : '' %>>
-            <span class="toggle-label">Enable Pushover notifications</span>
-          </label>
         </div>
         <% } %>
 
