@@ -3,6 +3,8 @@ const router = express.Router();
 const requireAuth = require('../middleware/requireAuth');
 const plexService = require('../services/plex');
 const recommender = require('../services/recommender');
+const discordAgent = require('../services/discordAgent');
+const pushoverAgent = require('../services/pushoverAgent');
 const discoverRecommender = require('../services/discoverRecommender');
 const tmdbService = require('../services/tmdb');
 const overseerrService = require('../services/overseerr');
@@ -1146,6 +1148,34 @@ router.delete('/notifications/:id', (req, res) => {
   const userId = req.session.plexUser.id;
   db.deleteNotification(userId, req.params.id);
   res.json({ ok: true });
+});
+
+router.post('/user/pushover/test', async (req, res) => {
+  const { userKey } = req.body;
+  if (!userKey) return res.json({ ok: false, error: 'No Pushover user key provided' });
+  const config = pushoverAgent.getConfig();
+  if (!config || !config.enabled) return res.json({ ok: false, error: 'Pushover is not enabled' });
+  try {
+    await pushoverAgent.sendTest(config.appToken, userKey);
+    res.json({ ok: true });
+  } catch (err) {
+    res.json({ ok: false, error: err.message });
+  }
+});
+
+router.post('/user/discord/test', async (req, res) => {
+  const { discordUserId } = req.body;
+  if (!discordUserId) return res.json({ ok: false, error: 'No Discord User ID provided' });
+  const config = discordAgent.getConfig();
+  if (!config || !config.enabled || config.mode !== 'bot') {
+    return res.json({ ok: false, error: 'Discord bot mode is not enabled' });
+  }
+  try {
+    await discordAgent.sendTest({ mode: 'bot', botToken: config.botToken, discordUserId, botUsername: config.botUsername });
+    res.json({ ok: true });
+  } catch (err) {
+    res.json({ ok: false, error: err.message });
+  }
 });
 
 module.exports = router;

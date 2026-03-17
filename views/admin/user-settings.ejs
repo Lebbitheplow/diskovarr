@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Diskovarr — User Settings</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-  <link rel="stylesheet" href="/css/style.css?v=29">
+  <link rel="stylesheet" href="/css/style.css?v=30">
   <link rel="stylesheet" href="/css/admin.css?v=29">
   <link rel="stylesheet" href="/theme.css?c=<%= themeParam %>" id="theme-css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -281,7 +281,8 @@
             <p class="settings-section-title" style="margin-bottom:10px">Discord (Bot DMs)</p>
             <div class="settings-field">
               <label class="settings-label" style="margin-bottom:4px">Discord User ID</label>
-              <p style="font-size:0.78rem;color:var(--text-secondary);margin:0 0 6px">A 17–19 digit number — not your username. Enable Developer Mode (Settings → Advanced), then right-click your avatar on any message you've sent → Copy User ID.</p>
+              <p style="font-size:0.78rem;color:var(--text-secondary);margin:0 0 4px"><strong style="color:var(--text-primary)">Desktop:</strong> A 17–19 digit number — not your username. Enable Developer Mode (Settings → Advanced), then right-click your avatar on any message you've sent → Copy User ID.</p>
+              <p style="font-size:0.78rem;color:var(--text-secondary);margin:0 0 6px"><strong style="color:var(--text-primary)">Mobile:</strong> Tap on your profile in a message, then tap the ⋯ in the top-right corner → Copy User ID. (Requires Developer Mode enabled in Appearance settings.)</p>
               <input type="text" name="discord_user_id" class="settings-select" style="width:100%;max-width:100%;font-family:monospace;font-size:0.82rem"
                 placeholder="e.g. 185234567891234560"
                 value="<%= notificationPrefs.discord_user_id || '' %>">
