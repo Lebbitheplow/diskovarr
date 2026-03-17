@@ -942,7 +942,8 @@ function requirePrivileged(req, res, next) {
 // GET /api/queue
 router.get('/queue', async (req, res) => {
   if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
-  const isAdmin = !!(req.session.isAdmin || req.session.isPlexAdminUser);
+  const isAdmin = !!(req.session.isAdmin || req.session.isPlexAdminUser)
+    || db.getPrivilegedUserIds().includes(String(req.session.plexUser.id));
   const userId = req.session.plexUser.id;
   const { status = 'all', page = '1', limit: limitParam = '25' } = req.query;
   const limit = Math.min(100, Math.max(1, parseInt(limitParam) || 25));
@@ -996,7 +997,8 @@ router.get('/queue', async (req, res) => {
 // PUT /api/queue/:id — edit a pending request
 router.put('/queue/:id', (req, res) => {
   if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
-  const isAdmin = !!(req.session.isAdmin || req.session.isPlexAdminUser);
+  const isAdmin = !!(req.session.isAdmin || req.session.isPlexAdminUser)
+    || db.getPrivilegedUserIds().includes(String(req.session.plexUser.id));
   const request = db.getRequestById(req.params.id);
   if (!request) return res.status(404).json({ error: 'Request not found' });
   if (!isAdmin && request.user_id !== req.session.plexUser.id) return res.status(403).json({ error: 'Forbidden' });
@@ -1014,7 +1016,7 @@ router.put('/queue/:id', (req, res) => {
 });
 
 // POST /api/queue/:id/approve
-router.post('/queue/:id/approve', requirePlexAdmin, async (req, res) => {
+router.post('/queue/:id/approve', requirePrivileged, async (req, res) => {
   try {
     const request = db.getRequestById(req.params.id);
     if (!request) return res.status(404).json({ error: 'Request not found' });
@@ -1071,7 +1073,7 @@ router.post('/queue/:id/approve', requirePlexAdmin, async (req, res) => {
 });
 
 // POST /api/queue/:id/deny
-router.post('/queue/:id/deny', requirePlexAdmin, (req, res) => {
+router.post('/queue/:id/deny', requirePrivileged, (req, res) => {
   const { note } = req.body;
   const request = db.getRequestById(req.params.id);
   if (!request) return res.status(404).json({ error: 'Request not found' });
@@ -1099,7 +1101,8 @@ router.post('/queue/:id/deny', requirePlexAdmin, (req, res) => {
 // DELETE /api/queue/:id
 router.delete('/queue/:id', (req, res) => {
   if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
-  const isAdmin = !!(req.session.isAdmin || req.session.isPlexAdminUser);
+  const isAdmin = !!(req.session.isAdmin || req.session.isPlexAdminUser)
+    || db.getPrivilegedUserIds().includes(String(req.session.plexUser.id));
   const request = db.getRequestById(req.params.id);
   if (!request) return res.status(404).json({ error: 'Request not found' });
   if (!isAdmin) {

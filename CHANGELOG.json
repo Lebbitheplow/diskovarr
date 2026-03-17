@@ -1,5 +1,13 @@
 [
   {
+    "version": "1.13.1",
+    "date": "2026-03-17",
+    "changes": [
+      "Elevated users can now view, approve, deny, edit, and delete all queue requests — not just their own",
+      "Changelog modal now shows only the three most recent versions"
+    ]
+  },
+  {
     "version": "1.13.0",
     "date": "2026-03-17",
     "changes": [

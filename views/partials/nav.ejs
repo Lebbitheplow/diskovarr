@@ -91,7 +91,7 @@
       <span class="logo-text">Changelog</span>
     </div>
     <div class="info-modal-sections" id="changelog-entries">
-      <% changelog.forEach(function(entry) { %>
+      <% changelog.slice(0, 3).forEach(function(entry) { %>
       <div class="info-modal-section">
         <div class="info-modal-section-title">v<%= entry.version %> <span style="font-weight:400;color:var(--text-secondary);font-size:0.78rem"><%= entry.date %></span></div>
         <ul style="margin:6px 0 0;padding-left:18px;display:flex;flex-direction:column;gap:4px">
