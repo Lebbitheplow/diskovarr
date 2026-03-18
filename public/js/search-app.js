@@ -649,7 +649,7 @@
       }
     } else {
       // ── Non-library item actions ──
-      if (cfg.hasAnyService) {
+      if (cfg.requestsEnabled) {
         var reqBtn = document.createElement('button');
         reqBtn.className = 'btn-request' + (item.isRequested ? ' btn-request-sent' : '');
         reqBtn.setAttribute('data-request-tmdb', String(item.tmdbId));
@@ -740,7 +740,7 @@
         window.Watchlist.toggle(wlOverlayBtn, item);
       });
       overlayActions.appendChild(wlOverlayBtn);
-    } else if (cfg.hasAnyService) {
+    } else if (cfg.requestsEnabled) {
       var reqBtn = document.createElement('button');
       reqBtn.className = 'btn-icon btn-request' + (item.isRequested ? ' btn-request-sent' : '');
       reqBtn.setAttribute('data-request-tmdb', String(item.tmdbId));

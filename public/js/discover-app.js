@@ -209,7 +209,9 @@
 
     var hasBothSides = hasOverseerr && hasDirect;
     var defaultSvc;
-    if (hasBothSides) {
+    if (!cfg.hasAnyService) {
+      defaultSvc = 'none';
+    } else if (hasBothSides) {
       defaultSvc = (s.defaultService === 'direct') ? directSvc : 'overseerr';
     } else {
       defaultSvc = hasOverseerr ? 'overseerr' : directSvc;
@@ -325,14 +327,14 @@
           btn.style.background = 'rgba(255,170,0,0.15)';
           btn.style.color = '#ffaa00';
         });
-        showToast(item.title + ' submitted for approval');
+        showToast('"' + item.title + '" requested');
       } else {
         btns.forEach(function (btn) {
           btn.textContent = 'Requested ✓';
           btn.disabled = true;
           btn.classList.add('btn-request-sent');
         });
-        showToast('Requested: ' + item.title + ' via ' + service.charAt(0).toUpperCase() + service.slice(1));
+        showToast('"' + item.title + '" requested' + (service !== 'none' ? ' via ' + service.charAt(0).toUpperCase() + service.slice(1) : ''));
       }
     } catch (err) {
       btns.forEach(function (btn) {
@@ -484,7 +486,7 @@
     // Actions
     var actEl = document.getElementById('detail-modal-actions');
     actEl.innerHTML = '';
-    if (cfg.hasAnyService) {
+    if (cfg.requestsEnabled) {
       var reqBtn = document.createElement('button');
       reqBtn.className = 'btn-request' + (item.isRequested ? ' btn-request-sent' : '');
       reqBtn.setAttribute('data-request-tmdb', String(item.tmdbId));
@@ -583,17 +585,17 @@
     overlay.className = 'card-overlay';
     var overlayActions = document.createElement('div');
     overlayActions.className = 'card-overlay-actions';
-    if (cfg.hasAnyService) {
-      var reqBtn = document.createElement('button');
-      reqBtn.className = 'btn-icon btn-request' + (item.isRequested ? ' btn-request-sent' : '');
-      reqBtn.setAttribute('data-request-tmdb', String(item.tmdbId));
-      reqBtn.textContent = item.isRequested ? 'Requested ✓' : 'Request';
-      reqBtn.disabled = item.isRequested;
-      reqBtn.addEventListener('click', function (e) {
+    if (cfg.requestsEnabled) {
+      var reqOverlayBtn = document.createElement('button');
+      reqOverlayBtn.className = 'btn-icon btn-request' + (item.isRequested ? ' btn-request-sent' : '');
+      reqOverlayBtn.setAttribute('data-request-tmdb', String(item.tmdbId));
+      reqOverlayBtn.textContent = item.isRequested ? 'Requested ✓' : 'Request';
+      reqOverlayBtn.disabled = item.isRequested;
+      reqOverlayBtn.addEventListener('click', function (e) {
         e.stopPropagation();
         if (!item.isRequested) openRequestDialog(item);
       });
-      overlayActions.appendChild(reqBtn);
+      overlayActions.appendChild(reqOverlayBtn);
     }
     var dismissCardBtn = document.createElement('button');
     dismissCardBtn.className = 'btn-icon btn-dismiss';

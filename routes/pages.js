@@ -145,6 +145,7 @@ router.get('/explore', requireAuth, (req, res) => {
   res.render('explore', {
     ...pageLocals(req), userId, username, thumb, currentPath: '/explore',
     services, hasAnyService,
+    requestsEnabled: db.canUserMakeRequests(userId),
     individualSeasonsEnabled: db.isIndividualSeasonsEnabled(),
     directRequestAccess: db.getDirectRequestAccess(),
     isOwner: userId === ownerUserId,
@@ -165,6 +166,7 @@ router.get('/search', requireAuth, (req, res) => {
   res.render('search', {
     ...pageLocals(req), userId, username, thumb, currentPath: '/search',
     query, services, hasAnyService,
+    requestsEnabled: db.canUserMakeRequests(userId),
     individualSeasonsEnabled: db.isIndividualSeasonsEnabled(),
     directRequestAccess: db.getDirectRequestAccess(),
     isOwner: userId === db.getOwnerUserId(),

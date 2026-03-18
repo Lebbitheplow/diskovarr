@@ -85,6 +85,13 @@
       <!-- Request Limits -->
       <div class="settings-section">
         <p class="settings-section-title">Request Limits</p>
+        <div class="toggle-row" style="margin-bottom:12px">
+          <label class="slide-toggle">
+            <input type="checkbox" name="allowRequestsOverride" value="1" <%= settings.allowRequestsOverride ? 'checked' : '' %>>
+            <span class="slide-track"></span>
+          </label>
+          <span class="toggle-label">Allow requests (overrides global disable)</span>
+        </div>
         <div class="toggle-row">
           <label class="slide-toggle">
             <input type="checkbox" name="overrideGlobal" value="1" id="override-toggle" <%= settings.overrideGlobal ? 'checked' : '' %> onchange="document.getElementById('limits-fields').style.display=this.checked?'block':'none'">

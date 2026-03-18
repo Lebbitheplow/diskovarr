@@ -89,13 +89,14 @@
         </p>
         <div style="display:flex;align-items:center;gap:16px">
           <span id="lbl-landing-home" class="<%= landingPage !== 'explore' ? 'service-label-active' : 'service-label-inactive' %>">Diskovarr</span>
-          <label class="slide-toggle slide-toggle-choice">
+          <label class="slide-toggle slide-toggle-choice" title="<%= !connections.discoverEnabled ? 'Enable Diskovarr Requests in Connections first' : '' %>">
             <input type="checkbox" id="toggle-landing-page"
               <%= landingPage === 'explore' ? 'checked' : '' %>
+              <%= !connections.discoverEnabled ? 'disabled' : '' %>
               onchange="onLandingPageChange(this.checked)">
             <span class="slide-track"></span>
           </label>
-          <span id="lbl-landing-explore" class="<%= landingPage === 'explore' ? 'service-label-active' : 'service-label-inactive' %>">Diskovarr Requests</span>
+          <span id="lbl-landing-explore" class="<%= landingPage === 'explore' && connections.discoverEnabled ? 'service-label-active' : 'service-label-inactive' %>">Diskovarr Requests</span>
         </div>
         <p class="section-desc" style="margin-top:10px;font-size:0.82rem">
           Sets which page users land on after signing in. Diskovarr = personalized recommendation feed. Diskovarr Requests = content not yet in the library.
@@ -400,6 +401,19 @@
         <p class="section-desc" style="margin-bottom:20px">
           Default limits applied to each user individually. Users with the override toggle enabled above can have custom limits set via <strong>⚙ Set Limits</strong>.
         </p>
+
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:20px">
+          <span style="min-width:100px;font-size:0.9rem;color:#fff;font-weight:500">Requests</span>
+          <label class="slide-toggle" title="Toggle to disable request submission for all users">
+            <input type="checkbox" id="toggle-requests-disabled"
+              <%= !requestsGloballyDisabled ? 'checked' : '' %>
+              onchange="onRequestsDisabledChange(!this.checked)">
+            <span class="slide-track"></span>
+          </label>
+          <span id="lbl-requests-disabled" class="<%= requestsGloballyDisabled ? 'service-label-inactive' : 'service-label-active' %>">
+            <%= requestsGloballyDisabled ? 'Disabled for all users' : 'Enabled' %>
+          </span>
+        </div>
 
         <div style="display:flex;flex-direction:column;gap:14px;margin-bottom:20px">
 
@@ -1520,6 +1534,20 @@
     }
     function onSeasonUnlimitedChange(checked) {
       document.getElementById('limit-season-fields').style.display = checked ? 'none' : 'flex';
+    }
+
+    async function onRequestsDisabledChange(checked) {
+      try {
+        await fetch('/admin/request-limits/requests-disabled', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ disabled: checked }),
+        });
+        const lbl = document.getElementById('lbl-requests-disabled');
+        lbl.textContent = checked ? 'Disabled for all users' : 'Enabled';
+        lbl.className = checked ? 'service-label-inactive' : 'service-label-active';
+        showToast(checked ? 'Requests disabled for all users' : 'Requests enabled');
+      } catch (e) { showToast('Failed to update', true); }
     }
 
     async function saveGlobalLimits() {
