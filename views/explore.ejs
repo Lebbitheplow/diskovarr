@@ -27,11 +27,7 @@
         </label>
         <button type="button" id="btn-shuffle-all" class="btn-shuffle-all" title="Refresh picks">↺</button>
       </div>
-      <% if (!hasAnyService) { %>
-        <p class="hero-sub" style="margin-top:8px;color:var(--text-muted);font-size:0.85rem;background:var(--bg-secondary);display:inline-block;padding:6px 14px;border-radius:8px;border:1px solid var(--border)">
-          No request service configured — ask your server admin to enable Overseerr, Radarr, or Sonarr in the Connections settings.
-        </p>
-      <% } %>
+
     </div>
 
     <!-- Top Picks -->
@@ -198,11 +194,12 @@
         sonarr: <%= services.sonarr ? 'true' : 'false' %>,
       },
       hasAnyService: <%= hasAnyService ? 'true' : 'false' %>,
+      requestsEnabled: <%= requestsEnabled ? 'true' : 'false' %>,
       individualSeasonsEnabled: <%= individualSeasonsEnabled ? 'true' : 'false' %>,
       directRequestAccess: "<%= directRequestAccess %>",
       isOwner: <%= isOwner ? 'true' : 'false' %>,
     };
   </script>
-  <script src="/js/discover-app.js?v=23"></script>
+  <script src="/js/discover-app.js?v=25"></script>
 </body>
 </html>

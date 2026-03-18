@@ -133,6 +133,7 @@ router.get('/', requireAdmin, async (req, res) => {
     landingPage: db.getLandingPage(),
     directRequestAccess: db.getDirectRequestAccess(),
     globalLimits: db.getGlobalRequestLimits(),
+    requestsGloballyDisabled: db.isRequestsGloballyDisabled(),
     userLimitOverrides: db.getAllUserRequestLimitOverrides(),
     verboseLoggingEnabled: db.getSetting('verbose_logging_enabled', '0') === '1',
     hasApiKey: !!db.getSetting('diskovarr_api_key', ''),
@@ -269,6 +270,11 @@ router.post('/settings/logging', requireAdmin, (req, res) => {
 });
 
 // ── Request limits ────────────────────────────────────────────────────────────
+
+router.post('/request-limits/requests-disabled', requireAdmin, (req, res) => {
+  db.setRequestsGloballyDisabled(req.body.disabled === true || req.body.disabled === '1');
+  res.json({ success: true });
+});
 
 router.post('/request-limits/global', requireAdmin, (req, res) => {
   const { enabled, movieLimit, movieWindowDays, seasonLimit, seasonWindowDays } = req.body;
@@ -684,7 +690,7 @@ router.post('/user-settings/:userId', requireAdmin, (req, res) => {
   const {
     movieLimit, seasonLimit, movieWindowDays, tvWindowDays,
     overrideGlobal, auto_approve_movies, auto_approve_tv, is_admin,
-    region, language, auto_request_movies, auto_request_tv,
+    region, language, auto_request_movies, auto_request_tv, allowRequestsOverride,
     notify_approved, notify_denied, notify_available,
     discord_webhook, discord_enabled, pushover_user_key, pushover_enabled,
     notify_pending, notify_auto_approved, notify_process_failed,
@@ -703,6 +709,7 @@ router.post('/user-settings/:userId', requireAdmin, (req, res) => {
     language: language || null,
     auto_request_movies: auto_request_movies === '1' || auto_request_movies === true,
     auto_request_tv: auto_request_tv === '1' || auto_request_tv === true,
+    allowRequestsOverride: allowRequestsOverride === '1' || allowRequestsOverride === true,
   });
   const { discord_user_id } = req.body;
   db.setUserNotificationPrefs(userId, {

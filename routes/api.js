@@ -797,12 +797,15 @@ router.post('/request', async (req, res) => {
   if (!db.isDiscoverEnabled() || !db.hasTmdbKey()) {
     return res.status(403).json({ error: 'Discover feature not enabled' });
   }
+  if (!db.canUserMakeRequests(req.session.plexUser.id)) {
+    return res.status(403).json({ error: 'Requests are currently disabled.' });
+  }
 
   const { tmdbId, mediaType, title, year, service, seasons } = req.body;
   if (!tmdbId || !mediaType || !service) {
     return res.status(400).json({ error: 'tmdbId, mediaType, and service are required' });
   }
-  if (!['overseerr', 'radarr', 'sonarr'].includes(service)) {
+  if (!['overseerr', 'radarr', 'sonarr', 'none'].includes(service)) {
     return res.status(400).json({ error: 'Invalid service' });
   }
   if (!['movie', 'tv'].includes(mediaType)) {
@@ -871,8 +874,8 @@ router.post('/request', async (req, res) => {
       return res.json({ success: true, pending: true });
     }
 
-    // Auto-approve: submit to service immediately
-    await submitRequestToService({ tmdbId, mediaType, title, service, seasons });
+    // Auto-approve: submit to service immediately (skip if no service configured)
+    if (service !== 'none') await submitRequestToService({ tmdbId, mediaType, title, service, seasons });
 
     db.addDiscoverRequestWithStatus(userId, tmdbId, mediaType, title || '', service, seasonsCount, 'approved', seasons || null, storedPosterUrl);
     logger.info(`Request submitted: user=${userId} tmdbId=${tmdbId} type=${mediaType} title="${title}" service=${service}`);

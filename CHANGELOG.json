@@ -1,5 +1,14 @@
 [
   {
+    "version": "1.14.4",
+    "date": "2026-03-17",
+    "changes": [
+      "Global requests disable toggle — the Request button is hidden site-wide and submissions are blocked when disabled; toggle is in Admin → Request Limits; individual users can be granted an override via per-user admin settings",
+      "Requests can now be submitted without a configured request service — the request appears in the queue and triggers notifications as normal",
+      "Landing page toggle: the Diskovarr Requests option is now disabled when the Requests tab is turned off"
+    ]
+  },
+  {
     "version": "1.14.2",
     "date": "2026-03-17",
     "changes": [

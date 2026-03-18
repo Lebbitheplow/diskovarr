@@ -4,6 +4,19 @@ All notable changes are documented here. Versioning follows [Semantic Versioning
 
 ---
 
+## v1.14.4 — 2026-03-17
+
+### Added
+
+- **Global requests disable toggle** — admin panel Request Limits section now has an Enabled/Disabled toggle; when disabled, the Request button is hidden site-wide in the Requests tab and search results and the API rejects direct submissions. Per-user admin settings can grant a specific user the ability to make requests even when globally disabled.
+
+### Fixed
+
+- **Requests without a configured service** — users can now submit requests even when no request service (Overseerr, Radarr, Sonarr) is configured; the request appears in the queue and triggers notifications as normal, but is not automatically forwarded to any service.
+- **Landing page toggle locked when Requests tab is disabled** — the "Diskovarr Requests" side of the Set Landing Page toggle is now disabled in the admin panel when the Requests tab is turned off.
+
+---
+
 ## v1.14.2 — 2026-03-17
 
 ### Added
