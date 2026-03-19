@@ -102,6 +102,21 @@ app.use(session({
   },
 }));
 
+// Track last visit for logged-in users (throttled to once per 5 minutes per user)
+const _lastVisitTouch = new Map();
+app.use((req, res, next) => {
+  const userId = req.session?.plexUser?.id;
+  if (userId) {
+    const now = Date.now();
+    const last = _lastVisitTouch.get(userId) || 0;
+    if (now - last > 5 * 60 * 1000) {
+      _lastVisitTouch.set(userId, now);
+      try { require('./db/database').touchKnownUser(userId); } catch {}
+    }
+  }
+  next();
+});
+
 // Routes
 app.use('/auth', require('./routes/auth'));
 

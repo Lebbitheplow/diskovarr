@@ -72,6 +72,15 @@
   </div>
 </nav>
 
+<!-- Broadcast message modal -->
+<div id="broadcast-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;align-items:center;justify-content:center" onclick="this.style.display='none'">
+  <div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:12px;padding:24px;max-width:480px;width:90%;position:relative" onclick="event.stopPropagation()">
+    <div style="font-size:0.72rem;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:var(--accent);margin-bottom:12px">Message from Server Admin</div>
+    <div id="broadcast-modal-body" style="font-size:0.95rem;line-height:1.6;white-space:pre-wrap;color:var(--text-primary)"></div>
+    <button onclick="document.getElementById('broadcast-modal').style.display='none'" style="margin-top:18px;background:none;border:1px solid var(--border);color:var(--text-secondary);border-radius:6px;padding:6px 16px;cursor:pointer;font-size:0.82rem">Dismiss</button>
+  </div>
+</div>
+
 <!-- Mobile floating menu button (bottom-right corner) -->
 <button class="nav-fab" id="nav-fab" aria-label="Open menu" aria-expanded="false">
   <% if (thumb) { %>
@@ -330,9 +339,10 @@
         }).join('');
         list.innerHTML = unreadNotifs.map(function(n) {
           var agoStr = agoString(n.created_at);
-          return '<div style="padding:10px 16px;border-bottom:1px solid var(--border);cursor:pointer" onclick="bellItemClick(\''+n.type+'\','+n.id+')">'
+          var bodyAttr = n.body ? ' data-body="' + n.body.replace(/"/g, '&quot;') + '"' : '';
+          return '<div style="padding:10px 16px;border-bottom:1px solid var(--border);cursor:pointer"' + bodyAttr + ' onclick="bellItemClick(\''+n.type+'\','+n.id+',this)">'
             + '<div style="font-size:0.82rem;font-weight:500">' + n.title + '</div>'
-            + (n.body ? '<div style="font-size:0.75rem;color:var(--text-secondary);margin-top:2px">' + n.body + '</div>' : '')
+            + (n.body ? '<div style="font-size:0.75rem;color:var(--text-secondary);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:260px">' + n.body + '</div>' : '')
             + '<div style="font-size:0.72rem;color:var(--text-secondary);margin-top:4px">' + agoStr + '</div>'
             + '</div>';
         }).join('') + readHtml;
@@ -501,11 +511,16 @@
     });
   })();
 
-  async function bellItemClick(type, id) {
+  async function bellItemClick(type, id, el) {
     try {
       await fetch('/api/notifications/read', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ids:[id]}), keepalive: true });
     } catch(e) {}
-    if (type === 'request_pending' || type === 'request_approved' || type === 'request_denied' ||
+    if (type === 'broadcast') {
+      var msg = el ? (el.dataset.body || '') : '';
+      document.getElementById('broadcast-modal-body').textContent = msg;
+      document.getElementById('broadcast-modal').style.display = 'flex';
+      document.getElementById('nav-bell-dropdown').style.display = 'none';
+    } else if (type === 'request_pending' || type === 'request_approved' || type === 'request_denied' ||
         type === 'request_auto_approved' || type === 'request_process_failed') {
       window.location.href = '/queue';
     } else if (type === 'request_available') {

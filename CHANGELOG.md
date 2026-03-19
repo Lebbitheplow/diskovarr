@@ -4,6 +4,16 @@ All notable changes are documented here. Versioning follows [Semantic Versioning
 
 ---
 
+## v1.15.0 — 2026-03-18
+
+### Added
+
+- **Admin broadcast notifications** — new "Broadcast Message" panel at the top of Admin → Notifications; type a message and click "Notify All Users" to send it to every user simultaneously via all configured channels (in-app bell, Discord, and Pushover). Discord bot mode DMs each user who has linked their account; webhook mode posts to the shared channel. Pushover sends to the global key and any per-user keys.
+- **Broadcast bell modal** — clicking a broadcast notification in the bell dropdown opens a full-screen modal showing the complete message instead of navigating away.
+- **Last Visit in admin Users tab** — the "Last Sync" column is replaced with "Last Visit", which updates whenever a logged-in user browses the app (throttled to once per 5 minutes per user, persists across sessions).
+
+---
+
 ## v1.14.4 — 2026-03-17
 
 ### Added
