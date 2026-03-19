@@ -202,4 +202,43 @@ async function sendTest({ mode, webhookUrl, botToken, discordUserId, botUsername
   }
 }
 
-module.exports = { sendNotification, sendTest, getConfig, updateBotAvatar };
+// ── Broadcast (admin message to all users, bypasses type filter) ───────────────
+
+async function sendBroadcast(message) {
+  const config = getConfig();
+  if (!config || !config.enabled) return;
+
+  const avatarUrl = config.botAvatarUrl || (config.publicUrl ? `${config.publicUrl}/discord-avatar.png` : null);
+  const embed = { title: 'Message from Server Admin', description: message, color: 0xe5a00d };
+
+  if (config.mode === 'bot') {
+    if (!config.botToken) return;
+    const users = db.getKnownUsers();
+    for (const user of users) {
+      const prefs = db.getUserNotificationPrefs(user.user_id);
+      if (prefs?.discord_user_id && prefs?.discord_enabled) {
+        try {
+          await sendBotDm(prefs.discord_user_id, embed, config.botToken, config.botUsername);
+        } catch (err) {
+          logger.warn(`Discord broadcast DM to ${prefs.discord_user_id} failed:`, err.message);
+        }
+      }
+    }
+    if (config.botUseWebhook && config.botWebhookUrl) {
+      try {
+        await sendWebhookEmbed({ webhookUrl: config.botWebhookUrl, title: embed.title, description: message, color: 0xe5a00d, botUsername: config.botUsername, botAvatarUrl: avatarUrl });
+      } catch (err) {
+        logger.warn('Discord broadcast webhook error:', err.message);
+      }
+    }
+  } else {
+    if (!config.webhookUrl) return;
+    try {
+      await sendWebhookEmbed({ webhookUrl: config.webhookUrl, title: embed.title, description: message, color: 0xe5a00d, botUsername: config.botUsername, botAvatarUrl: avatarUrl });
+    } catch (err) {
+      logger.warn('Discord broadcast webhook error:', err.message);
+    }
+  }
+}
+
+module.exports = { sendNotification, sendTest, getConfig, updateBotAvatar, sendBroadcast };

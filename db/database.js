@@ -171,30 +171,15 @@ function getUserRequestLimitOverride(userId) {
     movieWindowDays: row.movie_window_days,
     seasonLimit: row.season_limit,
     seasonWindowDays: row.season_window_days,
-    allowRequestsOverride: !!row.allow_requests_override,
   };
 }
 
-function setUserRequestLimitOverride(userId, { overrideEnabled, movieLimit, movieWindowDays, seasonLimit, seasonWindowDays, allowRequestsOverride = false }) {
+function setUserRequestLimitOverride(userId, { overrideEnabled, movieLimit, movieWindowDays, seasonLimit, seasonWindowDays }) {
   db.prepare(`
-    INSERT OR REPLACE INTO user_request_limits (user_id, override_enabled, movie_limit, movie_window_days, season_limit, season_window_days, allow_requests_override)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT OR REPLACE INTO user_request_limits (user_id, override_enabled, movie_limit, movie_window_days, season_limit, season_window_days)
+    VALUES (?, ?, ?, ?, ?, ?)
   `).run(String(userId), overrideEnabled ? 1 : 0, Number(movieLimit) || 0, Number(movieWindowDays) || 7,
-         Number(seasonLimit) || 0, Number(seasonWindowDays) || 7, allowRequestsOverride ? 1 : 0);
-}
-
-function isRequestsGloballyDisabled() {
-  return getSetting('requests_globally_disabled', '0') === '1';
-}
-
-function setRequestsGloballyDisabled(val) {
-  setSetting('requests_globally_disabled', val ? '1' : '0');
-}
-
-function canUserMakeRequests(userId) {
-  if (!isRequestsGloballyDisabled()) return true;
-  const row = db.prepare('SELECT allow_requests_override FROM user_request_limits WHERE user_id = ?').get(String(userId));
-  return !!(row?.allow_requests_override);
+         Number(seasonLimit) || 0, Number(seasonWindowDays) || 7);
 }
 
 function getAllUserRequestLimitOverrides() {
@@ -428,6 +413,7 @@ function getAdminStats() {
       s.uid AS user_id,
       COALESCE(ku.username, s.uid) AS username,
       ku.thumb,
+      ku.seen_at AS last_login,
       COALESCE(w.watched_count, 0) AS watched_count,
       COALESCE(w.last_sync, s.last_sync) AS last_sync
     FROM (
@@ -502,6 +488,11 @@ function upsertKnownUser(userId, username, thumb) {
     INSERT OR REPLACE INTO known_users (user_id, username, thumb, seen_at)
     VALUES (?, ?, ?, ?)
   `).run(String(userId), username, thumb || null, Math.floor(Date.now() / 1000));
+}
+
+function touchKnownUser(userId) {
+  db.prepare('UPDATE known_users SET seen_at = ? WHERE user_id = ?')
+    .run(Math.floor(Date.now() / 1000), String(userId));
 }
 
 function getKnownUsers() {
@@ -858,7 +849,6 @@ function getUserSettings(userId) {
     language: limits?.language || null,
     auto_request_movies: limits ? !!limits.auto_request_movies : false,
     auto_request_tv: limits ? !!limits.auto_request_tv : false,
-    allowRequestsOverride: limits ? !!limits.allow_requests_override : false,
   };
 }
 
@@ -876,13 +866,12 @@ function saveUserSettings(userId, settings) {
     language = null,
     auto_request_movies = false,
     auto_request_tv = false,
-    allowRequestsOverride = false,
   } = settings;
 
   db.prepare(`
     INSERT OR REPLACE INTO user_request_limits
-      (user_id, override_enabled, movie_limit, movie_window_days, season_limit, season_window_days, auto_approve_movies, auto_approve_tv, region, language, auto_request_movies, auto_request_tv, allow_requests_override)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (user_id, override_enabled, movie_limit, movie_window_days, season_limit, season_window_days, auto_approve_movies, auto_approve_tv, region, language, auto_request_movies, auto_request_tv)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     String(userId),
     overrideGlobal ? 1 : 0,
@@ -896,7 +885,6 @@ function saveUserSettings(userId, settings) {
     language || null,
     auto_request_movies ? 1 : 0,
     auto_request_tv ? 1 : 0,
-    allowRequestsOverride ? 1 : 0,
   );
 
   // Ensure user row exists in known_users before updating is_admin
@@ -1243,7 +1231,7 @@ module.exports = {
   addDismissal, getDismissals, removeDismissal,
   addToWatchlistDb, removeFromWatchlistDb, getWatchlistFromDb,
   updateWatchlistPlexIds, getWatchlistPlexIds, updateWatchlistPlexGuid,
-  upsertKnownUser, getKnownUsers,
+  upsertKnownUser, touchKnownUser, getKnownUsers,
   upsertManyItems, getLibraryItemsFromDb, getLibraryItemByKey,
   replaceWatchedBatch, getWatchedKeysFromDb,
   upsertUserRatings, getUserRatingsFromDb,
@@ -1263,7 +1251,6 @@ module.exports = {
   getLandingPage,
   getDirectRequestAccess,
   getGlobalRequestLimits, setGlobalRequestLimits,
-  isRequestsGloballyDisabled, setRequestsGloballyDisabled, canUserMakeRequests,
   getUserRequestLimitOverride, setUserRequestLimitOverride, getAllUserRequestLimitOverrides,
   getEffectiveLimits, countRecentMovieRequests, countRecentSeasonRequests,
   getPendingRequests, getAllRequests, updateRequestStatus, deleteRequest, deleteRequestsByUser,

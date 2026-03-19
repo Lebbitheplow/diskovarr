@@ -45,4 +45,33 @@ async function sendTest(appToken, userKey) {
   await sendPushover({ appToken, userKey, title: 'Diskovarr Test', message: 'Pushover notifications are working correctly.' });
 }
 
-module.exports = { sendNotification, sendTest, getConfig };
+// ── Broadcast (admin message to all users, bypasses type filter) ───────────────
+
+async function sendBroadcast(message) {
+  const config = getConfig();
+  if (!config || !config.enabled || !config.appToken) return;
+
+  const sentKeys = new Set();
+  if (config.userKey) {
+    try {
+      await sendPushover({ appToken: config.appToken, userKey: config.userKey, title: 'Message from Server Admin', message });
+      sentKeys.add(config.userKey);
+    } catch (err) {
+      logger.warn('Pushover broadcast global error:', err.message);
+    }
+  }
+  const users = db.getKnownUsers();
+  for (const user of users) {
+    const prefs = db.getUserNotificationPrefs(user.user_id);
+    if (prefs?.pushover_enabled && prefs?.pushover_user_key && !sentKeys.has(prefs.pushover_user_key)) {
+      sentKeys.add(prefs.pushover_user_key);
+      try {
+        await sendPushover({ appToken: config.appToken, userKey: prefs.pushover_user_key, title: 'Message from Server Admin', message });
+      } catch (err) {
+        logger.warn(`Pushover broadcast for user ${user.user_id} failed:`, err.message);
+      }
+    }
+  }
+}
+
+module.exports = { sendNotification, sendTest, getConfig, sendBroadcast };
