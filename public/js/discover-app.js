@@ -486,20 +486,18 @@
     // Actions
     var actEl = document.getElementById('detail-modal-actions');
     actEl.innerHTML = '';
-    if (cfg.requestsEnabled) {
-      var reqBtn = document.createElement('button');
-      reqBtn.className = 'btn-request' + (item.isRequested ? ' btn-request-sent' : '');
-      reqBtn.setAttribute('data-request-tmdb', String(item.tmdbId));
-      reqBtn.textContent = item.isRequested ? 'Requested ✓' : 'Request';
-      reqBtn.disabled = item.isRequested;
-      reqBtn.addEventListener('click', function () {
-        if (!item.isRequested) {
-          closeDetailModal();
-          openRequestDialog(item);
-        }
-      });
-      actEl.appendChild(reqBtn);
-    }
+    var reqBtn = document.createElement('button');
+    reqBtn.className = 'btn-request' + (item.isRequested ? ' btn-request-sent' : '');
+    reqBtn.setAttribute('data-request-tmdb', String(item.tmdbId));
+    reqBtn.textContent = item.isRequested ? 'Requested ✓' : 'Request';
+    reqBtn.disabled = item.isRequested;
+    reqBtn.addEventListener('click', function () {
+      if (!item.isRequested) {
+        closeDetailModal();
+        openRequestDialog(item);
+      }
+    });
+    actEl.appendChild(reqBtn);
     var notInterestedBtn = document.createElement('button');
     notInterestedBtn.className = 'modal-btn modal-btn-dismiss';
     notInterestedBtn.textContent = '✕ Not Interested';
@@ -585,18 +583,16 @@
     overlay.className = 'card-overlay';
     var overlayActions = document.createElement('div');
     overlayActions.className = 'card-overlay-actions';
-    if (cfg.requestsEnabled) {
-      var reqOverlayBtn = document.createElement('button');
-      reqOverlayBtn.className = 'btn-icon btn-request' + (item.isRequested ? ' btn-request-sent' : '');
-      reqOverlayBtn.setAttribute('data-request-tmdb', String(item.tmdbId));
-      reqOverlayBtn.textContent = item.isRequested ? 'Requested ✓' : 'Request';
-      reqOverlayBtn.disabled = item.isRequested;
-      reqOverlayBtn.addEventListener('click', function (e) {
-        e.stopPropagation();
-        if (!item.isRequested) openRequestDialog(item);
-      });
-      overlayActions.appendChild(reqOverlayBtn);
-    }
+    var reqOverlayBtn = document.createElement('button');
+    reqOverlayBtn.className = 'btn-icon btn-request' + (item.isRequested ? ' btn-request-sent' : '');
+    reqOverlayBtn.setAttribute('data-request-tmdb', String(item.tmdbId));
+    reqOverlayBtn.textContent = item.isRequested ? 'Requested ✓' : 'Request';
+    reqOverlayBtn.disabled = item.isRequested;
+    reqOverlayBtn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      if (!item.isRequested) openRequestDialog(item);
+    });
+    overlayActions.appendChild(reqOverlayBtn);
     var dismissCardBtn = document.createElement('button');
     dismissCardBtn.className = 'btn-icon btn-dismiss';
     dismissCardBtn.textContent = '✕';

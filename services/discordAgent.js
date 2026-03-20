@@ -8,14 +8,16 @@ function getConfig() {
 }
 
 const TYPE_COLORS = {
-  request_pending:       0xe5a00d,
-  request_auto_approved: 0xe5a00d,
-  request_approved:      0x00c864,
-  request_denied:        0xff5252,
-  request_available:     0x00b4d8,
-  request_process_failed: 0xff5252,
-  issue_new:             0xff8c00,
-  issue_updated:         0x00b4d8,
+  request_pending:            0xe5a00d,
+  request_auto_approved:      0xe5a00d,
+  request_approved:           0x00c864,
+  request_denied:             0xff5252,
+  request_available:          0x00b4d8,
+  request_process_failed:     0xff5252,
+  issue_new:                  0xff8c00,
+  issue_updated:              0x00b4d8,
+  issue_comment_added_admin:  0xff8c00,
+  issue_comment_added_user:   0x00b4d8,
 };
 
 // ── Webhook mode ───────────────────────────────────────────────────────────────
@@ -96,6 +98,18 @@ async function updateBotAvatar(botToken, accentHex) {
 
 // ── Unified send ───────────────────────────────────────────────────────────────
 
+function _resolveWebhookEnabled(config) {
+  // New schema: webhookEnabled field. Backward compat: old mode='webhook' with enabled=true
+  if (config.webhookEnabled !== undefined) return !!config.webhookEnabled;
+  return config.enabled && config.mode !== 'bot';
+}
+
+function _resolveBotEnabled(config) {
+  // New schema: botEnabled field. Backward compat: old mode='bot' with enabled=true
+  if (config.botEnabled !== undefined) return !!config.botEnabled;
+  return config.enabled && config.mode === 'bot';
+}
+
 async function sendNotification({ type, title, body, posterUrl, userId }) {
   const config = getConfig();
   if (!config || !config.enabled) {
@@ -103,66 +117,36 @@ async function sendNotification({ type, title, body, posterUrl, userId }) {
     return;
   }
 
-  const enabledTypes = config.notificationTypes || [];
-  if (!enabledTypes.includes(type)) {
-    logger.debug(`Discord: type "${type}" not in enabledTypes [${enabledTypes.join(', ')}], skipping`);
-    return;
-  }
+  // Backward compat: migrate old single notificationTypes to both webhook/bot types
+  const webhookTypes = config.webhookNotificationTypes || config.notificationTypes || [];
+  const botTypes = config.botNotificationTypes || config.notificationTypes || [];
+
+  // Resolve per-panel embed poster flags (fall back to shared embedPoster for old configs)
+  const webhookEmbedPoster = config.webhookEmbedPoster !== undefined ? config.webhookEmbedPoster : config.embedPoster;
+  const botEmbedPoster     = config.botEmbedPoster     !== undefined ? config.botEmbedPoster     : config.embedPoster;
 
   const embed = {
     title,
     description: body || '',
     color: TYPE_COLORS[type] || 0xe5a00d,
   };
-  if (config.embedPoster && posterUrl) embed.image = { url: posterUrl };
+  if (botEmbedPoster && posterUrl) embed.image = { url: posterUrl };
 
   // Resolve avatar URL: explicit URL > publicUrl-derived > none
   const avatarUrl = config.botAvatarUrl || (config.publicUrl ? `${config.publicUrl}/discord-avatar.png` : null);
 
-  if (config.mode === 'bot') {
-    // Bot token mode — DM individual users
-    if (!config.botToken) {
-      logger.debug('Discord: bot mode but no botToken, skipping');
-      return;
-    }
-    const prefs = userId ? db.getUserNotificationPrefs(userId) : null;
-    const discordUserId = prefs?.discord_user_id;
-    if (!discordUserId || !prefs?.discord_enabled) {
-      logger.debug(`Discord: userId=${userId} has no discordUserId or discord_enabled=false, skipping`);
-      return;
-    }
-    try {
-      await sendBotDm(discordUserId, embed, config.botToken, config.botUsername);
-    } catch (err) {
-      logger.warn(`Discord DM to ${discordUserId} failed:`, err.message);
-    }
-    // Also post admin-type notifications to shared channel webhook if configured
-    const adminTypes = ['request_pending', 'request_auto_approved', 'request_process_failed', 'issue_new', 'issue_updated'];
-    if (config.botUseWebhook && config.botWebhookUrl && adminTypes.includes(type)) {
-      try {
-        await sendWebhookEmbed({
-          webhookUrl: config.botWebhookUrl,
-          title,
-          description: body || '',
-          color: TYPE_COLORS[type] || 0xe5a00d,
-          posterUrl: config.embedPoster ? posterUrl : null,
-          botUsername: config.botUsername,
-          botAvatarUrl: avatarUrl,
-        });
-      } catch (err) {
-        logger.warn('Discord bot shared-channel webhook error:', err.message);
-      }
-    }
-  } else {
-    // Webhook mode — post to global channel
-    if (!config.webhookUrl) return;
+  const webhookEnabled = _resolveWebhookEnabled(config);
+  const botEnabled = _resolveBotEnabled(config);
+
+  // Webhook path — independent of bot
+  if (webhookEnabled && config.webhookUrl && webhookTypes.includes(type)) {
     try {
       await sendWebhookEmbed({
         webhookUrl: config.webhookUrl,
         title,
         description: body || '',
         color: TYPE_COLORS[type] || 0xe5a00d,
-        posterUrl: config.embedPoster ? posterUrl : null,
+        posterUrl: webhookEmbedPoster ? posterUrl : null,
         mentionRole: config.enableMentions ? config.notificationRoleId : null,
         botUsername: config.botUsername,
         botAvatarUrl: avatarUrl,
@@ -170,15 +154,30 @@ async function sendNotification({ type, title, body, posterUrl, userId }) {
     } catch (err) {
       logger.warn('Discord webhook error:', err.message);
     }
-    // Per-user personal webhook (webhook mode only)
+    // Per-user personal webhook (webhook path only)
     if (userId) {
       const prefs = db.getUserNotificationPrefs(userId);
       if (prefs?.discord_enabled && prefs?.discord_webhook && prefs.discord_webhook !== config.webhookUrl) {
         try {
-          await sendWebhookEmbed({ webhookUrl: prefs.discord_webhook, title, description: body || '', color: TYPE_COLORS[type] || 0xe5a00d, posterUrl: config.embedPoster ? posterUrl : null, botAvatarUrl: avatarUrl });
+          await sendWebhookEmbed({ webhookUrl: prefs.discord_webhook, title, description: body || '', color: TYPE_COLORS[type] || 0xe5a00d, posterUrl: webhookEmbedPoster ? posterUrl : null, botAvatarUrl: avatarUrl });
         } catch (err) {
           logger.warn('Discord per-user webhook error:', err.message);
         }
+      }
+    }
+  }
+
+  // Bot path — independent of webhook
+  if (botEnabled && config.botToken && botTypes.includes(type)) {
+    const prefs = userId ? db.getUserNotificationPrefs(userId) : null;
+    const discordUserId = prefs?.discord_user_id;
+    if (!discordUserId || !prefs?.discord_enabled) {
+      logger.debug(`Discord: userId=${userId} has no discordUserId or discord_enabled=false, skipping bot DM`);
+    } else {
+      try {
+        await sendBotDm(discordUserId, embed, config.botToken, config.botUsername);
+      } catch (err) {
+        logger.warn(`Discord DM to ${discordUserId} failed:`, err.message);
       }
     }
   }
@@ -211,8 +210,18 @@ async function sendBroadcast(message) {
   const avatarUrl = config.botAvatarUrl || (config.publicUrl ? `${config.publicUrl}/discord-avatar.png` : null);
   const embed = { title: 'Message from Server Admin', description: message, color: 0xe5a00d };
 
-  if (config.mode === 'bot') {
-    if (!config.botToken) return;
+  const webhookEnabled = _resolveWebhookEnabled(config);
+  const botEnabled = _resolveBotEnabled(config);
+
+  if (webhookEnabled && config.webhookUrl) {
+    try {
+      await sendWebhookEmbed({ webhookUrl: config.webhookUrl, title: embed.title, description: message, color: 0xe5a00d, botUsername: config.botUsername, botAvatarUrl: avatarUrl });
+    } catch (err) {
+      logger.warn('Discord broadcast webhook error:', err.message);
+    }
+  }
+
+  if (botEnabled && config.botToken) {
     const users = db.getKnownUsers();
     for (const user of users) {
       const prefs = db.getUserNotificationPrefs(user.user_id);
@@ -223,20 +232,6 @@ async function sendBroadcast(message) {
           logger.warn(`Discord broadcast DM to ${prefs.discord_user_id} failed:`, err.message);
         }
       }
-    }
-    if (config.botUseWebhook && config.botWebhookUrl) {
-      try {
-        await sendWebhookEmbed({ webhookUrl: config.botWebhookUrl, title: embed.title, description: message, color: 0xe5a00d, botUsername: config.botUsername, botAvatarUrl: avatarUrl });
-      } catch (err) {
-        logger.warn('Discord broadcast webhook error:', err.message);
-      }
-    }
-  } else {
-    if (!config.webhookUrl) return;
-    try {
-      await sendWebhookEmbed({ webhookUrl: config.webhookUrl, title: embed.title, description: message, color: 0xe5a00d, botUsername: config.botUsername, botAvatarUrl: avatarUrl });
-    } catch (err) {
-      logger.warn('Discord broadcast webhook error:', err.message);
     }
   }
 }

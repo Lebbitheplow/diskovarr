@@ -1010,6 +1010,16 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_issues_user ON issues(user_id, status);
   CREATE INDEX IF NOT EXISTS idx_issues_status ON issues(status, created_at);
+
+  CREATE TABLE IF NOT EXISTS issue_comments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    issue_id INTEGER NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL,
+    is_admin INTEGER DEFAULT 0,
+    comment TEXT NOT NULL,
+    created_at INTEGER DEFAULT (unixepoch())
+  );
+  CREATE INDEX IF NOT EXISTS idx_issue_comments_issue ON issue_comments(issue_id, created_at);
 `);
 
 for (const col of [
@@ -1019,6 +1029,7 @@ for (const col of [
   'discord_user_id TEXT DEFAULT NULL',
   'notify_issue_new INTEGER DEFAULT 1',
   'notify_issue_update INTEGER DEFAULT 1',
+  'notify_issue_comment INTEGER DEFAULT 1',
 ]) {
   try { db.prepare(`ALTER TABLE user_notification_prefs ADD COLUMN ${col}`).run(); } catch {}
 }
@@ -1078,8 +1089,9 @@ function getUserNotificationPrefs(userId) {
     notify_pending: row ? (row.notify_pending !== null ? !!row.notify_pending : true) : true,
     notify_auto_approved: row ? (row.notify_auto_approved !== null ? !!row.notify_auto_approved : true) : true,
     notify_process_failed: row ? (row.notify_process_failed !== null ? !!row.notify_process_failed : true) : true,
-    notify_issue_new:    row ? (row.notify_issue_new    !== null ? !!row.notify_issue_new    : true) : true,
-    notify_issue_update: row ? (row.notify_issue_update !== null ? !!row.notify_issue_update : true) : true,
+    notify_issue_new:     row ? (row.notify_issue_new     !== null ? !!row.notify_issue_new     : true) : true,
+    notify_issue_update:  row ? (row.notify_issue_update  !== null ? !!row.notify_issue_update  : true) : true,
+    notify_issue_comment: row ? (row.notify_issue_comment !== null ? !!row.notify_issue_comment : true) : true,
   };
 }
 
@@ -1087,8 +1099,8 @@ function setUserNotificationPrefs(userId, prefs) {
   db.prepare(`
     INSERT OR REPLACE INTO user_notification_prefs
       (user_id, notify_approved, notify_denied, notify_available, discord_webhook, discord_enabled, discord_user_id, pushover_user_key, pushover_enabled,
-       notify_pending, notify_auto_approved, notify_process_failed, notify_issue_new, notify_issue_update)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       notify_pending, notify_auto_approved, notify_process_failed, notify_issue_new, notify_issue_update, notify_issue_comment)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     String(userId),
     prefs.notify_approved !== false ? 1 : 0,
@@ -1104,6 +1116,7 @@ function setUserNotificationPrefs(userId, prefs) {
     prefs.notify_process_failed !== false ? 1 : 0,
     prefs.notify_issue_new !== false ? 1 : 0,
     prefs.notify_issue_update !== false ? 1 : 0,
+    prefs.notify_issue_comment !== false ? 1 : 0,
   );
 }
 
@@ -1210,6 +1223,34 @@ function deleteIssue(id) {
   db.prepare('DELETE FROM issues WHERE id = ?').run(Number(id));
 }
 
+// ── Issue comments ─────────────────────────────────────────────────────────────
+
+function addIssueComment(issueId, userId, comment, isAdmin) {
+  const result = db.prepare(
+    'INSERT INTO issue_comments (issue_id, user_id, is_admin, comment) VALUES (?, ?, ?, ?)'
+  ).run(Number(issueId), String(userId), isAdmin ? 1 : 0, comment);
+  db.prepare('UPDATE issues SET updated_at = unixepoch() WHERE id = ?').run(Number(issueId));
+  return result.lastInsertRowid;
+}
+
+function getIssueComments(issueId) {
+  return db.prepare(`
+    SELECT ic.*, COALESCE(ku.username, ic.user_id) AS display_name
+    FROM issue_comments ic
+    LEFT JOIN known_users ku ON ku.user_id = ic.user_id
+    WHERE ic.issue_id = ?
+    ORDER BY ic.created_at ASC
+  `).all(Number(issueId));
+}
+
+function deleteIssueComment(commentId, requesterId, isAdmin) {
+  if (isAdmin) {
+    db.prepare('DELETE FROM issue_comments WHERE id = ?').run(Number(commentId));
+  } else {
+    db.prepare('DELETE FROM issue_comments WHERE id = ? AND user_id = ?').run(Number(commentId), String(requesterId));
+  }
+}
+
 // ── Request fulfillment notifications ─────────────────────────────────────────
 
 function getUnnotifiedFulfilledRequests(libraryTmdbIds) {
@@ -1265,5 +1306,6 @@ module.exports = {
   getAdminUserIds, getPrivilegedUserIds,
   enqueueNotification, getPendingQueuedNotifications, markQueueItemSent, deleteQueueItem,
   createIssue, getIssueById, getAllIssues, getUserIssues, updateIssueStatus, deleteIssue,
+  addIssueComment, getIssueComments, deleteIssueComment,
   getUnnotifiedFulfilledRequests, markRequestsNotifiedAvailable,
 };

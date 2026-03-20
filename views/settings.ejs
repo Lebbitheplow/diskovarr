@@ -177,6 +177,13 @@
             </span>
           </label>
           <% } %>
+          <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+            <input type="checkbox" class="themed-checkbox" id="notify_issue_comment" <%= notificationPrefs.notify_issue_comment ? 'checked' : '' %>>
+            <span style="font-size:0.88rem">
+              <strong style="color:#fff">Issue Comment</strong>
+              <span style="color:var(--text-secondary)"> — Get notified when a comment is added to an issue</span>
+            </span>
+          </label>
         </div>
       </div>
 
@@ -271,6 +278,7 @@
         notify_process_failed: getChecked('notify_process_failed', true),
         notify_issue_update:   getChecked('notify_issue_update', true),
         notify_issue_new:      getChecked('notify_issue_new', true),
+        notify_issue_comment:  getChecked('notify_issue_comment', true),
       };
       try {
         var res = await fetch('/api/user/settings', {
