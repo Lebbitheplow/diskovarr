@@ -7,10 +7,17 @@ function getConfig() {
   try { return JSON.parse(raw); } catch { return null; }
 }
 
-async function sendPushover({ appToken, userKey, title, message, url, urlTitle }) {
+async function sendPushover({ appToken, userKey, title, message, url, urlTitle, sound, posterUrl, embedPoster }) {
   if (!appToken || !userKey) return;
   const body = new URLSearchParams({ token: appToken, user: userKey, title, message: message || title });
   if (url) { body.append('url', url); body.append('url_title', urlTitle || 'View'); }
+  if (sound) body.append('sound', sound);
+  if (embedPoster && posterUrl) {
+    // Use attachment_url if posterUrl is an http URL, otherwise skip (base64 would be too large for URLSearchParams)
+    if (posterUrl.startsWith('http://') || posterUrl.startsWith('https://')) {
+      body.append('attachment_url', posterUrl);
+    }
+  }
   const res = await fetch('https://api.pushover.net/1/messages.json', {
     method: 'POST',
     body,
@@ -19,21 +26,21 @@ async function sendPushover({ appToken, userKey, title, message, url, urlTitle }
   if (!res.ok) throw new Error(`Pushover returned ${res.status}`);
 }
 
-async function sendNotification({ type, title, body, userId }) {
+async function sendNotification({ type, title, body, userId, posterUrl }) {
   const config = getConfig();
   if (!config || !config.enabled || !config.appToken) return;
   const enabledTypes = config.notificationTypes || [];
   if (!enabledTypes.includes(type)) return;
   try {
-    // Global webhook
+    // Global key
     if (config.userKey) {
-      await sendPushover({ appToken: config.appToken, userKey: config.userKey, title, message: body });
+      await sendPushover({ appToken: config.appToken, userKey: config.userKey, title, message: body, sound: config.sound || null, posterUrl, embedPoster: config.embedPoster });
     }
-    // Per-user webhook
+    // Per-user key
     if (userId) {
       const prefs = db.getUserNotificationPrefs(userId);
       if (prefs.pushover_enabled && prefs.pushover_user_key) {
-        await sendPushover({ appToken: config.appToken, userKey: prefs.pushover_user_key, title, message: body });
+        await sendPushover({ appToken: config.appToken, userKey: prefs.pushover_user_key, title, message: body, sound: config.sound || null, posterUrl, embedPoster: config.embedPoster });
       }
     }
   } catch (err) {

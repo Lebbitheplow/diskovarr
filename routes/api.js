@@ -310,35 +310,26 @@ router.get('/discover/genres', async (req, res) => {
 });
 
 // GET /api/clients — list Plex player clients
-// Merges plex.tv/devices.xml (user token) + server /clients endpoint (admin token)
+// Uses plex.tv/devices.xml with the user's own token so each user only sees their own devices
 router.get('/clients', async (req, res) => {
   try {
     const { token: userToken } = req.session.plexUser;
-    const adminToken = plexService.getPlexToken();
-    const plexUrl = plexService.getPlexUrl();
 
-    const [devicesResult, serverResult] = await Promise.allSettled([
-      fetch('https://plex.tv/devices.xml', {
-        headers: {
-          'X-Plex-Token': userToken,
-          'X-Plex-Client-Identifier': 'diskovarr-app',
-          'X-Plex-Product': 'Diskovarr',
-          'X-Plex-Platform': 'Web',
-        },
-        signal: AbortSignal.timeout(10000),
-      }),
-      adminToken && plexUrl ? fetch(`${plexUrl.replace(/\/$/, '')}/clients?X-Plex-Token=${adminToken}`, {
-        headers: { Accept: 'application/xml' },
-        signal: AbortSignal.timeout(8000),
-      }) : Promise.resolve(null),
-    ]);
+    const devicesResult = await fetch('https://plex.tv/devices.xml', {
+      headers: {
+        'X-Plex-Token': userToken,
+        'X-Plex-Client-Identifier': 'diskovarr-app',
+        'X-Plex-Product': 'Diskovarr',
+        'X-Plex-Platform': 'Web',
+      },
+      signal: AbortSignal.timeout(10000),
+    }).catch(err => { logger.warn('/api/clients: devices.xml fetch failed:', err.message); return null; });
 
-    // Parse devices.xml clients
     const clients = [];
     const seenIds = new Set();
 
-    if (devicesResult.status === 'fulfilled' && devicesResult.value?.ok) {
-      const xml = await devicesResult.value.text();
+    if (devicesResult?.ok) {
+      const xml = await devicesResult.text();
       for (const match of xml.matchAll(/<Device\s([^>]*?)(?:\/>|>)/gs)) {
         const attrs = {};
         for (const a of match[1].matchAll(/(\w+)="([^"]*)"/g)) attrs[a[1]] = a[2];
@@ -347,21 +338,6 @@ router.get('/clients', async (req, res) => {
             && !provides.includes('server') && attrs.clientIdentifier) {
           clients.push({ name: attrs.name, machineIdentifier: attrs.clientIdentifier, product: attrs.product || '', platform: attrs.platform || '' });
           seenIds.add(attrs.clientIdentifier);
-        }
-      }
-    } else if (devicesResult.status === 'rejected') {
-      logger.warn('/api/clients: devices.xml fetch failed:', devicesResult.reason?.message);
-    }
-
-    // Parse server /clients (active connections)
-    if (serverResult.status === 'fulfilled' && serverResult.value?.ok) {
-      const xml = await serverResult.value.text();
-      for (const match of xml.matchAll(/<Server\s([^>]*?)(?:\/>|>)/gs)) {
-        const attrs = {};
-        for (const a of match[1].matchAll(/(\w+)="([^"]*)"/g)) attrs[a[1]] = a[2];
-        if (attrs.machineIdentifier && !seenIds.has(attrs.machineIdentifier)) {
-          clients.push({ name: attrs.name || attrs.host || 'Unknown', machineIdentifier: attrs.machineIdentifier, product: attrs.product || '', platform: attrs.platform || '' });
-          seenIds.add(attrs.machineIdentifier);
         }
       }
     }
@@ -539,7 +515,41 @@ router.get('/search', async (req, res) => {
   const q = (req.query.q || '').trim();
   const page = Math.max(1, parseInt(req.query.page) || 1);
   if (!q) return res.json({ results: [], total: 0, pages: 0, page: 1, query: '' });
-  if (!db.hasTmdbKey()) return res.status(503).json({ error: 'no_tmdb_key' });
+
+  // Library-only search when discover/TMDB is not configured
+  if (!db.hasTmdbKey() || !db.isDiscoverEnabled()) {
+    try {
+      const { id: userId } = req.session.plexUser;
+      const [movies, tv] = await Promise.all([
+        plexService.getLibraryItems(plexService.MOVIES_SECTION),
+        plexService.getLibraryItems(plexService.TV_SECTION),
+      ]);
+      const watchlistKeys = new Set(db.getWatchlistFromDb(userId));
+      const ql = q.toLowerCase();
+      const matched = [...movies, ...tv]
+        .filter(item => (item.title || '').toLowerCase().includes(ql))
+        .map(item => ({
+          tmdbId: item.tmdbId || null,
+          mediaType: item.type === 'show' ? 'tv' : 'movie',
+          title: item.title,
+          year: item.year || null,
+          overview: item.summary || '',
+          posterUrl: item.ratingKey ? `/api/poster?path=${encodeURIComponent(`/library/metadata/${item.ratingKey}/thumb`)}` : null,
+          voteAverage: 0,
+          inLibrary: true,
+          ratingKey: item.ratingKey,
+          deepLink: plexService.getDeepLink(item.ratingKey),
+          plexAppLink: plexService.getAppLink(item.ratingKey),
+          isInWatchlist: watchlistKeys.has(item.ratingKey),
+          isRequested: false,
+        }));
+      return res.json({ results: matched, total: matched.length, pages: 1, page: 1, query: q });
+    } catch (err) {
+      console.error('search error:', err);
+      return res.status(500).json({ error: 'Search failed: ' + err.message });
+    }
+  }
+
   try {
     const { id: userId } = req.session.plexUser;
 
@@ -584,7 +594,7 @@ router.get('/search', async (req, res) => {
     res.json({
       results,
       total: json?.total_results || results.length,
-      pages: Math.min(json?.total_pages || 1, 10), // cap at 10 pages
+      pages: Math.min(json?.total_pages || 1, 10),
       page,
       query: q,
     });
@@ -797,10 +807,6 @@ router.post('/request', async (req, res) => {
   if (!db.isDiscoverEnabled() || !db.hasTmdbKey()) {
     return res.status(403).json({ error: 'Discover feature not enabled' });
   }
-  if (!db.canUserMakeRequests(req.session.plexUser.id)) {
-    return res.status(403).json({ error: 'Requests are currently disabled.' });
-  }
-
   const { tmdbId, mediaType, title, year, service, seasons } = req.body;
   if (!tmdbId || !mediaType || !service) {
     return res.status(400).json({ error: 'tmdbId, mediaType, and service are required' });
@@ -880,23 +886,6 @@ router.post('/request', async (req, res) => {
     db.addDiscoverRequestWithStatus(userId, tmdbId, mediaType, title || '', service, seasonsCount, 'approved', seasons || null, storedPosterUrl);
     logger.info(`Request submitted: user=${userId} tmdbId=${tmdbId} type=${mediaType} title="${title}" service=${service}`);
 
-    // Notify admins of auto-approved request
-    try {
-      const username = req.session.plexUser.username || userId;
-      for (const adminId of db.getPrivilegedUserIds()) {
-        const prefs = db.getUserNotificationPrefs(adminId);
-        if (prefs.notify_auto_approved) {
-          const notifId = db.createOrBundleNotification({
-            userId: adminId, type: 'request_auto_approved',
-            title: `"${title}" auto-approved`,
-            body: `${username} requested a ${mediaType === 'movie' ? 'movie' : 'TV show'} and it was automatically submitted.`,
-            data: { tmdbId, mediaType, title },
-          });
-          db.enqueueNotification({ notificationId: notifId, agent: 'discord', userId: adminId, payload: { type: 'request_auto_approved', title: `"${title}" auto-approved`, body: `${username} requested a ${mediaType === 'movie' ? 'movie' : 'TV show'} and it was automatically submitted.`, posterUrl: storedPosterUrl } });
-          db.enqueueNotification({ notificationId: notifId, agent: 'pushover', userId: adminId, payload: { type: 'request_auto_approved', title: `"${title}" auto-approved`, body: `${username} requested a ${mediaType === 'movie' ? 'movie' : 'TV show'} and it was automatically submitted.`, posterUrl: storedPosterUrl } });
-        }
-      }
-    } catch (e) { logger.warn('notification error:', e.message); }
 
     // Add the item to the user's native Plex.tv Watchlist so they can track it
     // in the Plex app while waiting for the download.
@@ -1243,13 +1232,82 @@ router.delete('/issues/:id', requirePrivileged, (req, res) => {
   res.json({ success: true });
 });
 
+// GET /api/issues/:id/comments
+router.get('/issues/:id/comments', async (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  const userId = String(req.session.plexUser.id);
+  const isPriv = !!(req.session.isAdmin || req.session.isPlexAdminUser)
+    || db.getPrivilegedUserIds().includes(userId);
+  const issue = db.getIssueById(req.params.id);
+  if (!issue) return res.status(404).json({ error: 'Issue not found' });
+  if (!isPriv && issue.user_id !== userId) return res.status(403).json({ error: 'Forbidden' });
+  const comments = db.getIssueComments(issue.id);
+  res.json({ comments });
+});
+
+// POST /api/issues/:id/comments
+router.post('/issues/:id/comments', async (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  const userId = String(req.session.plexUser.id);
+  const isPriv = !!(req.session.isAdmin || req.session.isPlexAdminUser)
+    || db.getPrivilegedUserIds().includes(userId);
+  const issue = db.getIssueById(req.params.id);
+  if (!issue) return res.status(404).json({ error: 'Issue not found' });
+  if (!isPriv && issue.user_id !== userId) return res.status(403).json({ error: 'Forbidden' });
+  const { comment } = req.body;
+  if (!comment || typeof comment !== 'string' || !comment.trim()) return res.status(400).json({ error: 'Comment is required' });
+  if (comment.trim().length > 1000) return res.status(400).json({ error: 'Comment too long (max 1000 chars)' });
+  const commentId = db.addIssueComment(issue.id, userId, comment.trim(), isPriv);
+  try {
+    if (isPriv) {
+      // Admin commented — notify the issue reporter (if they are not admin)
+      if (issue.user_id !== userId) {
+        const prefs = db.getUserNotificationPrefs(issue.user_id);
+        if (prefs.notify_issue_comment) {
+          const notifTitle = `Admin replied to your issue: "${issue.title}"`;
+          const notifBody = comment.trim().slice(0, 200);
+          const notifId = db.createOrBundleNotification({ userId: issue.user_id, type: 'issue_comment_added_user', title: notifTitle, body: notifBody, data: { issueId: issue.id } });
+          const posterUrl = await getPublicPosterUrl(issue.rating_key);
+          db.enqueueNotification({ notificationId: notifId, agent: 'discord', userId: issue.user_id, payload: { type: 'issue_comment_added_user', title: notifTitle, body: notifBody, posterUrl, userId: issue.user_id } });
+          db.enqueueNotification({ notificationId: notifId, agent: 'pushover', userId: issue.user_id, payload: { type: 'issue_comment_added_user', title: notifTitle, body: notifBody } });
+        }
+      }
+    } else {
+      // User commented — notify all admins
+      for (const adminId of db.getPrivilegedUserIds()) {
+        const prefs = db.getUserNotificationPrefs(adminId);
+        if (!prefs.notify_issue_comment) continue;
+        const notifTitle = `Comment on issue: "${issue.title}"`;
+        const notifBody = comment.trim().slice(0, 200);
+        const notifId = db.createOrBundleNotification({ userId: adminId, type: 'issue_comment_added_admin', title: notifTitle, body: notifBody, data: { issueId: issue.id } });
+        const posterUrl = await getPublicPosterUrl(issue.rating_key);
+        db.enqueueNotification({ notificationId: notifId, agent: 'discord', userId: adminId, payload: { type: 'issue_comment_added_admin', title: notifTitle, body: notifBody, posterUrl, userId: adminId } });
+        db.enqueueNotification({ notificationId: notifId, agent: 'pushover', userId: adminId, payload: { type: 'issue_comment_added_admin', title: notifTitle, body: notifBody } });
+      }
+    }
+  } catch (e) { logger.warn('Issue comment notification error:', e.message); }
+  res.json({ success: true, id: commentId });
+});
+
+// DELETE /api/issues/:id/comments/:commentId
+router.delete('/issues/:id/comments/:commentId', async (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  const userId = String(req.session.plexUser.id);
+  const isPriv = !!(req.session.isAdmin || req.session.isPlexAdminUser)
+    || db.getPrivilegedUserIds().includes(userId);
+  const issue = db.getIssueById(req.params.id);
+  if (!issue) return res.status(404).json({ error: 'Issue not found' });
+  db.deleteIssueComment(req.params.commentId, userId, isPriv);
+  res.json({ success: true });
+});
+
 // POST /api/user/settings — save user's own content preferences + notification prefs
 router.post('/user/settings', (req, res) => {
   const userId = req.session.plexUser.id;
   const { region, language, notify_approved, notify_denied, notify_available,
           discord_webhook, discord_enabled, discord_user_id, pushover_user_key, pushover_enabled,
           notify_pending, notify_auto_approved, notify_process_failed,
-          notify_issue_new, notify_issue_update } = req.body;
+          notify_issue_new, notify_issue_update, notify_issue_comment } = req.body;
   db.setUserPreferences(userId, { region: region || null, language: language || null });
   db.setUserNotificationPrefs(userId, {
     notify_approved:      notify_approved      !== false && notify_approved      !== 'false',
@@ -1263,8 +1321,9 @@ router.post('/user/settings', (req, res) => {
     notify_pending:       notify_pending        !== false && notify_pending        !== 'false',
     notify_auto_approved: notify_auto_approved  !== false && notify_auto_approved  !== 'false',
     notify_process_failed: notify_process_failed !== false && notify_process_failed !== 'false',
-    notify_issue_new:    notify_issue_new    !== false && notify_issue_new    !== 'false',
-    notify_issue_update: notify_issue_update !== false && notify_issue_update !== 'false',
+    notify_issue_new:     notify_issue_new     !== false && notify_issue_new     !== 'false',
+    notify_issue_update:  notify_issue_update  !== false && notify_issue_update  !== 'false',
+    notify_issue_comment: notify_issue_comment !== false && notify_issue_comment !== 'false',
   });
   res.json({ ok: true });
 });

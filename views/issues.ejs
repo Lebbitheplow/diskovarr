@@ -51,6 +51,19 @@
     .status-badge-closed   { display:inline-block;padding:2px 8px;border-radius:10px;font-size:0.75rem;font-weight:600;background:rgba(150,150,150,0.12);color:#999;border:1px solid rgba(150,150,150,0.25); }
     .scope-badge { display:inline-block;padding:1px 7px;border-radius:6px;font-size:0.72rem;font-weight:600;background:rgba(0,180,216,0.1);color:#00b4d8; }
     .admin-note { font-size:0.78rem;color:var(--text-secondary);margin-top:2px;font-style:italic; }
+    .comment-count-badge { display:inline-block;margin-left:5px;padding:1px 6px;border-radius:8px;font-size:0.7rem;font-weight:600;background:rgba(0,180,216,0.12);color:#00b4d8; }
+    .comments-section { margin-top:16px;padding-top:14px;border-top:1px solid var(--border); }
+    .comments-list { display:flex;flex-direction:column;gap:10px;margin-bottom:12px; }
+    .comment-item { background:var(--bg-elevated);border-radius:7px;padding:10px 12px;font-size:0.85rem;border:1px solid var(--border); }
+    .comment-header { display:flex;align-items:center;gap:7px;margin-bottom:5px;font-size:0.78rem;color:var(--text-secondary); }
+    .comment-author { font-weight:600;color:var(--text-primary); }
+    .admin-badge { display:inline-block;padding:1px 5px;border-radius:4px;font-size:0.68rem;font-weight:700;background:rgba(229,160,13,0.15);color:#e5a00d;letter-spacing:0.04em; }
+    .comment-text { white-space:pre-wrap;line-height:1.5;color:var(--text); }
+    .comment-delete { margin-left:auto;background:none;border:none;color:var(--text-secondary);font-size:0.8rem;cursor:pointer;padding:1px 5px;border-radius:4px; }
+    .comment-delete:hover { color:#ff5252; }
+    .comment-input-row { display:flex;flex-direction:column;gap:7px; }
+    .comment-textarea { width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg-elevated);color:var(--text);font-size:0.85rem;resize:vertical;min-height:60px;font-family:inherit;box-sizing:border-box; }
+    .comment-submit-btn { align-self:flex-end;padding:5px 14px;border-radius:6px;border:none;background:rgba(0,180,216,0.18);color:#00b4d8;font-size:0.82rem;font-weight:600;cursor:pointer; }
     .issue-description { font-size:0.78rem;color:var(--text-secondary);margin-top:2px;max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
     .edit-modal-backdrop { position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9000;display:none;align-items:center;justify-content:center; }
     .edit-modal-backdrop.open { display:flex; }
@@ -230,7 +243,7 @@
         html += '<td><span class="status-badge-' + escHtml(issue.status) + '">' + escHtml(STATUS_LABELS[issue.status] || issue.status) + '</span></td>';
         // Actions
         html += '<td><div class="queue-actions">';
-        html += '<button class="btn-page" onclick="viewDetails(' + issue.id + ')" style="font-size:0.82rem;padding:4px 10px">Details</button>';
+        html += '<button class="btn-page" onclick="viewDetails(' + issue.id + ')" style="font-size:0.82rem;padding:4px 10px">Details' + (issue._commentCount > 0 ? '<span class="comment-count-badge">' + issue._commentCount + '</span>' : '') + '</button>';
         if (IS_ADMIN) {
           if (issue.status === 'open') {
             html += '<button class="btn-queue-approve" onclick="resolveIssue(' + issue.id + ')">Resolve</button>';
@@ -280,9 +293,12 @@
       loadIssues(currentStatus, newPage);
     }
 
-    function viewDetails(id) {
+    var _currentDetailIssueId = null;
+
+    async function viewDetails(id) {
       var issue = _issuesMap[id];
       if (!issue) return;
+      _currentDetailIssueId = id;
       document.getElementById('details-modal-title').textContent = issue.title;
       var body = '';
       if (IS_ADMIN) {
@@ -310,8 +326,86 @@
           + '<div class="details-label">Admin Note</div>'
           + '<div class="details-description">' + escHtml(issue.admin_note) + '</div></div>';
       }
+      // Comments section
+      body += '<div class="comments-section">'
+        + '<div class="details-label" style="margin-bottom:10px">Comments</div>'
+        + '<div class="comments-list" id="comments-list-' + id + '"><div style="color:var(--text-secondary);font-size:0.82rem">Loading...</div></div>'
+        + '<div class="comment-input-row">'
+        + '<textarea class="comment-textarea" id="comment-input-' + id + '" placeholder="Add a comment..." rows="2"></textarea>'
+        + '<button class="comment-submit-btn" onclick="submitComment(' + id + ')">Add Comment</button>'
+        + '</div></div>';
       document.getElementById('details-modal-body').innerHTML = body;
       document.getElementById('details-modal').classList.add('open');
+      loadComments(id);
+    }
+
+    async function loadComments(issueId) {
+      var listEl = document.getElementById('comments-list-' + issueId);
+      if (!listEl) return;
+      try {
+        var res = await fetch('/api/issues/' + issueId + '/comments');
+        if (!res.ok) throw new Error('Failed');
+        var data = await res.json();
+        renderComments(issueId, data.comments || []);
+      } catch (err) {
+        if (listEl) listEl.innerHTML = '<div style="color:var(--text-secondary);font-size:0.82rem">Failed to load comments.</div>';
+      }
+    }
+
+    function renderComments(issueId, comments) {
+      var listEl = document.getElementById('comments-list-' + issueId);
+      if (!listEl) return;
+      if (!comments || comments.length === 0) {
+        listEl.innerHTML = '<div style="color:var(--text-secondary);font-size:0.82rem;font-style:italic">No comments yet.</div>';
+        return;
+      }
+      listEl.innerHTML = comments.map(function(c) {
+        return '<div class="comment-item" id="comment-' + c.id + '">'
+          + '<div class="comment-header">'
+          + '<span class="comment-author">' + escHtml(c.display_name || c.user_id) + '</span>'
+          + (c.is_admin ? '<span class="admin-badge">Admin</span>' : '')
+          + '<span>' + escHtml(fmtDate(c.created_at)) + '</span>'
+          + (IS_ADMIN ? '<button class="comment-delete" onclick="deleteComment(' + issueId + ',' + c.id + ')" title="Delete">&#215;</button>' : '')
+          + '</div>'
+          + '<div class="comment-text">' + escHtml(c.comment) + '</div>'
+          + '</div>';
+      }).join('');
+    }
+
+    async function submitComment(issueId) {
+      var inputEl = document.getElementById('comment-input-' + issueId);
+      if (!inputEl) return;
+      var text = inputEl.value.trim();
+      if (!text) return;
+      if (text.length > 1000) { showToast('Comment too long (max 1000 chars)', true); return; }
+      inputEl.disabled = true;
+      try {
+        var res = await fetch('/api/issues/' + issueId + '/comments', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ comment: text }),
+        });
+        var data = await res.json();
+        if (!res.ok || !data.success) throw new Error(data.error || 'Failed');
+        inputEl.value = '';
+        loadComments(issueId);
+      } catch (err) {
+        showToast('Error: ' + err.message, true);
+      }
+      inputEl.disabled = false;
+    }
+
+    async function deleteComment(issueId, commentId) {
+      if (!confirm('Delete this comment?')) return;
+      try {
+        var res = await fetch('/api/issues/' + issueId + '/comments/' + commentId, { method: 'DELETE' });
+        var data = await res.json();
+        if (!res.ok || !data.success) throw new Error(data.error || 'Failed');
+        var el = document.getElementById('comment-' + commentId);
+        if (el) el.remove();
+      } catch (err) {
+        showToast('Error: ' + err.message, true);
+      }
     }
 
     function detailsModalClose() {

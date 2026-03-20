@@ -649,20 +649,18 @@
       }
     } else {
       // ── Non-library item actions ──
-      if (cfg.requestsEnabled) {
-        var reqBtn = document.createElement('button');
-        reqBtn.className = 'btn-request' + (item.isRequested ? ' btn-request-sent' : '');
-        reqBtn.setAttribute('data-request-tmdb', String(item.tmdbId));
-        reqBtn.textContent = item.isRequested ? 'Requested ✓' : 'Request';
-        reqBtn.disabled = item.isRequested;
-        reqBtn.addEventListener('click', function () {
-          if (!item.isRequested) {
-            closeModal();
-            openRequestDialog(item);
-          }
-        });
-        actEl.appendChild(reqBtn);
-      }
+      var reqBtn = document.createElement('button');
+      reqBtn.className = 'btn-request' + (item.isRequested ? ' btn-request-sent' : '');
+      reqBtn.setAttribute('data-request-tmdb', String(item.tmdbId));
+      reqBtn.textContent = item.isRequested ? 'Requested ✓' : 'Request';
+      reqBtn.disabled = item.isRequested;
+      reqBtn.addEventListener('click', function () {
+        if (!item.isRequested) {
+          closeModal();
+          openRequestDialog(item);
+        }
+      });
+      actEl.appendChild(reqBtn);
 
       var tmdbLink = document.createElement('a');
       tmdbLink.className = 'btn-tmdb-link';
@@ -740,7 +738,7 @@
         window.Watchlist.toggle(wlOverlayBtn, item);
       });
       overlayActions.appendChild(wlOverlayBtn);
-    } else if (cfg.requestsEnabled) {
+    } else {
       var reqBtn = document.createElement('button');
       reqBtn.className = 'btn-icon btn-request' + (item.isRequested ? ' btn-request-sent' : '');
       reqBtn.setAttribute('data-request-tmdb', String(item.tmdbId));
@@ -797,12 +795,7 @@
       var params = new URLSearchParams({ q: state.query, page: state.page });
       var r = await fetch('/api/search?' + params);
       if (!r.ok) {
-        var err = await r.json();
-        if (err.error === 'no_tmdb_key') {
-          grid.innerHTML = '<div class="search-empty" style="grid-column:1/-1"><p>TMDB API key not configured. Ask your admin to add one in Admin → Connections.</p></div>';
-        } else {
-          grid.innerHTML = '<div class="search-empty" style="grid-column:1/-1"><p>Search failed. Please try again.</p></div>';
-        }
+        grid.innerHTML = '<div class="search-empty" style="grid-column:1/-1"><p>Search failed. Please try again.</p></div>';
         return;
       }
       var data = await r.json();

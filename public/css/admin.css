@@ -1048,3 +1048,30 @@
 .agent-info-btn:hover {
   color: var(--accent);
 }
+
+/* ── Connection field labels and hints ───────────────────────── */
+
+.conn-label {
+  display: block;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+  letter-spacing: 0.02em;
+}
+
+.conn-hint {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+.conn-hint a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.conn-hint a:hover {
+  text-decoration: underline;
+}

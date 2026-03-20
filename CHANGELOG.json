@@ -1,5 +1,19 @@
 [
   {
+    "version": "1.16.0",
+    "date": "2026-03-19",
+    "changes": [
+      "Issue comments — users and admins can exchange comments on any issue in the issue detail modal; admin comments notify the reporter, user comments notify all admins",
+      "Discord independent webhook/bot toggles — both can now be enabled simultaneously, each with its own notification type list, embed poster toggle, and Save/Test button",
+      "Discord per-panel embed poster — webhook and bot each have their own embed poster toggle",
+      "Discord bot username and avatar settings moved into the Bot Token panel",
+      "Pushover notification sound — select from the full Pushover sound library or choose device default or silent",
+      "Pushover embed poster — attach the title's poster image to Pushover notifications",
+      "Pushover setup hints — help links to Pushover documentation under the API Token and User Key fields",
+      "Issue Comments notification type consolidated — the two separate issue comment checkboxes are merged into a single toggle across Discord and Pushover notification type lists"
+    ]
+  },
+  {
     "version": "1.15.0",
     "date": "2026-03-18",
     "changes": [

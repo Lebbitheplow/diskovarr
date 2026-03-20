@@ -16,7 +16,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/style.css?v=31">
-  <link rel="stylesheet" href="/css/admin.css?v=29">
+  <link rel="stylesheet" href="/css/admin.css?v=30">
   <link rel="stylesheet" href="/theme.css?c=<%= themeParam %>" id="theme-css">
 </head>
 <body>
@@ -988,48 +988,69 @@
             <span class="slide-track"></span>
           </label>
         </div>
-        <p class="section-desc" style="margin-bottom:16px">Send Discord notifications via a shared channel webhook or direct messages to individual users via a bot.</p>
+        <p class="section-desc" style="margin-bottom:16px">Send Discord notifications via a shared channel webhook or direct messages to individual users via a bot. Both can be enabled independently.</p>
 
-        <!-- Mode selector -->
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:20px">
-          <span id="lbl-discord-webhook" class="service-label-active">Webhook</span>
-          <label class="slide-toggle slide-toggle-choice">
-            <input type="checkbox" id="toggle-discord-mode" onchange="setDiscordMode(this.checked ? 'bot' : 'webhook')">
+        <!-- Webhook toggle -->
+        <div class="toggle-row" style="margin-bottom:12px">
+          <label class="slide-toggle">
+            <input type="checkbox" id="discord-webhook-enabled" onchange="toggleDiscordWebhook(this.checked)">
             <span class="slide-track"></span>
           </label>
-          <span id="lbl-discord-bot" class="service-label-inactive">Bot Token</span>
+          <span class="toggle-label">Webhook</span>
         </div>
 
-        <!-- Webhook mode fields -->
-        <div id="discord-webhook-panel" style="display:flex;flex-direction:column;gap:12px;margin-bottom:20px">
+        <!-- Webhook panel -->
+        <div id="discord-webhook-panel" style="display:none;flex-direction:column;gap:12px;margin-bottom:20px;padding:14px;background:var(--bg-elevated);border-radius:8px;border:1px solid var(--border)">
           <div><label class="conn-label">Webhook URL</label><input type="url" id="discord-webhook" class="conn-input" placeholder="https://discord.com/api/webhooks/..."></div>
           <div><label class="conn-label">Notification Role ID <span style="color:var(--text-muted);font-weight:400">(optional, for @mentions)</span></label><input type="text" id="discord-roleid" class="conn-input" placeholder="Role ID"></div>
           <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem"><input type="checkbox" id="discord-mentions" class="themed-checkbox"> Enable @role mentions</label>
-        </div>
-
-        <!-- Bot token mode fields -->
-        <div id="discord-bot-panel" style="display:none;flex-direction:column;gap:12px;margin-bottom:20px">
-          <div><label class="conn-label">Bot Token</label><input type="password" id="discord-bottoken" class="conn-input" placeholder="Bot token from Discord Developer Portal" autocomplete="off"></div>
-          <div id="discord-bot-webhook-row" style="margin-top:4px">
-            <div class="toggle-row">
-              <label class="slide-toggle">
-                <input type="checkbox" id="discord-bot-use-webhook"
-                  onchange="document.getElementById('discord-bot-webhook-field').style.display=this.checked?'block':'none'">
-                <span class="slide-track"></span>
-              </label>
-              <span class="toggle-label" style="font-size:0.85rem">Also post admin notifications to shared channel</span>
+          <div>
+            <p style="font-size:0.72rem;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:var(--text-secondary);margin:0 0 8px">Webhook Notification Types</p>
+            <div style="display:flex;flex-direction:column;gap:7px">
+              <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem"><input type="checkbox" class="themed-checkbox discord-webhook-type" value="request_pending" checked> New request pending <span style="color:var(--text-muted);font-size:0.78rem">(admin)</span></label>
+              <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem"><input type="checkbox" class="themed-checkbox discord-webhook-type" value="request_auto_approved" checked> Request auto-approved <span style="color:var(--text-muted);font-size:0.78rem">(admin)</span></label>
+              <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem"><input type="checkbox" class="themed-checkbox discord-webhook-type" value="request_approved" checked> Request approved <span style="color:var(--text-muted);font-size:0.78rem">(requester)</span></label>
+              <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem"><input type="checkbox" class="themed-checkbox discord-webhook-type" value="request_denied" checked> Request denied <span style="color:var(--text-muted);font-size:0.78rem">(requester)</span></label>
+              <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem"><input type="checkbox" class="themed-checkbox discord-webhook-type" value="request_available"> Request available in library <span style="color:var(--text-muted);font-size:0.78rem">(requester)</span></label>
+              <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem"><input type="checkbox" class="themed-checkbox discord-webhook-type" value="request_process_failed"> Request processing error <span style="color:var(--text-muted);font-size:0.78rem">(admin)</span></label>
+              <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem"><input type="checkbox" class="themed-checkbox discord-webhook-type" value="issue_new" checked> New issue reported <span style="color:var(--text-muted);font-size:0.78rem">(admin)</span></label>
+              <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem"><input type="checkbox" class="themed-checkbox discord-webhook-type" value="issue_updated" checked> Issue status updated <span style="color:var(--text-muted);font-size:0.78rem">(requester)</span></label>
+              <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem"><input type="checkbox" class="themed-checkbox discord-webhook-type" data-types="issue_comment_added_admin,issue_comment_added_user" checked> Issue Comments</label>
             </div>
-            <div id="discord-bot-webhook-field" style="display:none;margin-top:8px">
-              <label class="conn-label">Shared Channel Webhook URL
-                <span style="color:var(--text-muted);font-weight:400">(for admin announcements)</span>
-              </label>
-              <input type="url" id="discord-bot-webhook" class="conn-input" placeholder="https://discord.com/api/webhooks/...">
-            </div>
+          </div>
+          <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem"><input type="checkbox" id="discord-webhook-poster" class="themed-checkbox" checked> Embed poster image in notifications</label>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;padding-top:4px">
+            <button class="btn-admin btn-primary" onclick="saveDiscordAgent()">Save</button>
+            <button class="btn-admin" onclick="testDiscordWebhook()">Send Test</button>
           </div>
         </div>
 
-        <!-- Shared fields -->
-        <div style="display:flex;flex-direction:column;gap:12px;margin-bottom:20px">
+        <!-- Bot toggle -->
+        <div class="toggle-row" style="margin-bottom:12px">
+          <label class="slide-toggle">
+            <input type="checkbox" id="discord-bot-enabled" onchange="toggleDiscordBot(this.checked)">
+            <span class="slide-track"></span>
+          </label>
+          <span class="toggle-label">Bot Token</span>
+        </div>
+
+        <!-- Bot panel -->
+        <div id="discord-bot-panel" style="display:none;flex-direction:column;gap:12px;margin-bottom:20px;padding:14px;background:var(--bg-elevated);border-radius:8px;border:1px solid var(--border)">
+          <div><label class="conn-label">Bot Token</label><input type="password" id="discord-bottoken" class="conn-input" placeholder="Bot token from Discord Developer Portal" autocomplete="off"></div>
+          <div>
+            <p style="font-size:0.72rem;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:var(--text-secondary);margin:0 0 8px">Bot Notification Types</p>
+            <div style="display:flex;flex-direction:column;gap:7px">
+              <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem"><input type="checkbox" class="themed-checkbox discord-bot-type" value="request_pending" checked> New request pending <span style="color:var(--text-muted);font-size:0.78rem">(admin)</span></label>
+              <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem"><input type="checkbox" class="themed-checkbox discord-bot-type" value="request_auto_approved" checked> Request auto-approved <span style="color:var(--text-muted);font-size:0.78rem">(admin)</span></label>
+              <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem"><input type="checkbox" class="themed-checkbox discord-bot-type" value="request_approved" checked> Request approved <span style="color:var(--text-muted);font-size:0.78rem">(requester)</span></label>
+              <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem"><input type="checkbox" class="themed-checkbox discord-bot-type" value="request_denied" checked> Request denied <span style="color:var(--text-muted);font-size:0.78rem">(requester)</span></label>
+              <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem"><input type="checkbox" class="themed-checkbox discord-bot-type" value="request_available"> Request available in library <span style="color:var(--text-muted);font-size:0.78rem">(requester)</span></label>
+              <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem"><input type="checkbox" class="themed-checkbox discord-bot-type" value="request_process_failed"> Request processing error <span style="color:var(--text-muted);font-size:0.78rem">(admin)</span></label>
+              <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem"><input type="checkbox" class="themed-checkbox discord-bot-type" value="issue_new" checked> New issue reported <span style="color:var(--text-muted);font-size:0.78rem">(admin)</span></label>
+              <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem"><input type="checkbox" class="themed-checkbox discord-bot-type" value="issue_updated" checked> Issue status updated <span style="color:var(--text-muted);font-size:0.78rem">(requester)</span></label>
+              <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem"><input type="checkbox" class="themed-checkbox discord-bot-type" data-types="issue_comment_added_admin,issue_comment_added_user" checked> Issue Comments</label>
+            </div>
+          </div>
           <div><label class="conn-label">Bot Username <span style="color:var(--text-muted);font-weight:400">(optional)</span></label><input type="text" id="discord-botname" class="conn-input" placeholder="Diskovarr"></div>
           <!-- Bot Avatar Upload -->
           <div>
@@ -1051,36 +1072,16 @@
               <input type="text" id="discord-avatar-url" class="conn-input" placeholder="https://example.com/avatar.png" style="margin-top:2px">
             </div>
           </div>
-          <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem"><input type="checkbox" id="discord-poster" class="themed-checkbox" checked> Embed poster image in notifications</label>
-        </div>
-
-        <div style="margin-bottom:16px">
-          <p style="font-size:0.72rem;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:var(--text-secondary);margin:0 0 10px">Notification Types</p>
-          <div style="display:flex;flex-direction:column;gap:8px">
-            <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem"><input type="checkbox" class="themed-checkbox discord-type" value="request_pending" checked> New request pending <span style="color:var(--text-muted);font-size:0.78rem">(admin)</span></label>
-            <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem"><input type="checkbox" class="themed-checkbox discord-type" value="request_auto_approved" checked> Request auto-approved <span style="color:var(--text-muted);font-size:0.78rem">(admin)</span></label>
-            <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem"><input type="checkbox" class="themed-checkbox discord-type" value="request_approved" checked> Request approved <span style="color:var(--text-muted);font-size:0.78rem">(requester)</span></label>
-            <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem"><input type="checkbox" class="themed-checkbox discord-type" value="request_denied" checked> Request denied <span style="color:var(--text-muted);font-size:0.78rem">(requester)</span></label>
-            <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem"><input type="checkbox" class="themed-checkbox discord-type" value="request_available"> Request available in library <span style="color:var(--text-muted);font-size:0.78rem">(requester)</span></label>
-            <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem"><input type="checkbox" class="themed-checkbox discord-type" value="request_process_failed"> Request processing error <span style="color:var(--text-muted);font-size:0.78rem">(admin)</span></label>
-            <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem"><input type="checkbox" class="themed-checkbox discord-type" value="issue_new" checked> New issue reported <span style="color:var(--text-muted);font-size:0.78rem">(admin)</span></label>
-            <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem"><input type="checkbox" class="themed-checkbox discord-type" value="issue_updated" checked> Issue status updated <span style="color:var(--text-muted);font-size:0.78rem">(requester)</span></label>
-          </div>
-        </div>
-
-        <!-- Test section -->
-        <div id="discord-test-webhook-row" style="display:flex;gap:10px;flex-wrap:wrap">
-          <button class="btn-admin btn-primary" onclick="saveDiscordAgent()">Save</button>
-          <button class="btn-admin" onclick="testDiscord()">Send Test</button>
-        </div>
-        <div id="discord-test-bot-row" style="display:none;gap:10px;flex-wrap:wrap;align-items:flex-end">
-          <div>
-            <label class="conn-label" style="margin-bottom:4px">Your Discord User ID <span style="color:var(--text-muted);font-weight:400">(to receive test DM)</span></label>
-            <input type="text" id="discord-test-userid" class="conn-input" style="max-width:240px" placeholder="Discord user ID">
-          </div>
-          <div style="display:flex;gap:10px">
-            <button class="btn-admin btn-primary" onclick="saveDiscordAgent()">Save</button>
-            <button class="btn-admin" onclick="testDiscord()">Send Test DM</button>
+          <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem"><input type="checkbox" id="discord-bot-poster" class="themed-checkbox" checked> Embed poster image in notifications</label>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;padding-top:4px">
+            <div>
+              <label class="conn-label" style="margin-bottom:4px">Your Discord User ID <span style="color:var(--text-muted);font-weight:400">(to receive test DM)</span></label>
+              <input type="text" id="discord-test-userid" class="conn-input" style="max-width:240px" placeholder="Discord user ID">
+            </div>
+            <div style="display:flex;gap:10px">
+              <button class="btn-admin btn-primary" onclick="saveDiscordAgent()">Save</button>
+              <button class="btn-admin" onclick="testDiscordBot()">Send Test DM</button>
+            </div>
           </div>
         </div>
 
@@ -1103,8 +1104,49 @@
         </div>
         <p class="section-desc" style="margin-bottom:20px">Send push notifications via Pushover to your devices.</p>
         <div style="display:flex;flex-direction:column;gap:12px;margin-bottom:20px">
-          <div><label class="conn-label">Application API Token</label><input type="text" id="pushover-token" class="conn-input" placeholder="App token from pushover.net"></div>
-          <div><label class="conn-label">User or Group Key</label><input type="text" id="pushover-userkey" class="conn-input" placeholder="User/group key"></div>
+          <div>
+            <label class="conn-label">Application API Token</label>
+            <input type="text" id="pushover-token" class="conn-input" placeholder="App token from pushover.net">
+            <span class="conn-hint"><a href="https://pushover.net/api#registration" target="_blank">Register an application</a> for use with Diskovarr</span>
+          </div>
+          <div>
+            <label class="conn-label">User or Group Key</label>
+            <input type="text" id="pushover-userkey" class="conn-input" placeholder="User/group key">
+            <span class="conn-hint">Your 30-character <a href="https://pushover.net/api#identifiers" target="_blank">User or Group ID</a></span>
+          </div>
+          <label class="toggle-row" style="cursor:pointer">
+            <input type="checkbox" id="pushover-poster" class="themed-checkbox">
+            <span style="font-size:0.85rem;margin-left:4px">Embed poster image in notifications</span>
+          </label>
+          <div>
+            <label class="conn-label">Notification Sound</label>
+            <select id="pushover-sound" class="conn-input">
+              <option value="">Device Default</option>
+              <option value="pushover">Pushover (default)</option>
+              <option value="bike">Bike</option>
+              <option value="bugle">Bugle</option>
+              <option value="cashregister">Cash Register</option>
+              <option value="classical">Classical</option>
+              <option value="cosmic">Cosmic</option>
+              <option value="falling">Falling</option>
+              <option value="gamelan">Gamelan</option>
+              <option value="incoming">Incoming</option>
+              <option value="intermission">Intermission</option>
+              <option value="magic">Magic</option>
+              <option value="mechanical">Mechanical</option>
+              <option value="pianobar">Piano Bar</option>
+              <option value="siren">Siren</option>
+              <option value="spacealarm">Space Alarm</option>
+              <option value="tugboat">Tug Boat</option>
+              <option value="alien">Alien Alarm (long)</option>
+              <option value="climb">Climb (long)</option>
+              <option value="persistent">Persistent (long)</option>
+              <option value="echo">Pushover Echo (long)</option>
+              <option value="updown">Up Down (long)</option>
+              <option value="vibrate">Vibrate Only</option>
+              <option value="none">Silent</option>
+            </select>
+          </div>
         </div>
         <div style="margin-bottom:16px">
           <p style="font-size:0.72rem;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:var(--text-secondary);margin:0 0 10px">Notification Types</p>
@@ -1116,6 +1158,7 @@
             <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem"><input type="checkbox" class="themed-checkbox pushover-type" value="request_process_failed"> Request processing error</label>
             <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem"><input type="checkbox" class="themed-checkbox pushover-type" value="issue_new" checked> New issue reported</label>
             <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem"><input type="checkbox" class="themed-checkbox pushover-type" value="issue_updated" checked> Issue status updated</label>
+            <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem"><input type="checkbox" class="themed-checkbox pushover-type" data-types="issue_comment_added_admin,issue_comment_added_user" checked> Issue Comments</label>
           </div>
         </div>
         <div style="display:flex;gap:10px">
@@ -1720,17 +1763,13 @@
     });
 
     // ── Discord / Pushover agent settings ──────────────────────────
-    var _discordMode = 'webhook';
 
-    function setDiscordMode(mode) {
-      _discordMode = mode;
-      document.getElementById('toggle-discord-mode').checked = mode === 'bot';
-      document.getElementById('lbl-discord-webhook').className = mode === 'webhook' ? 'service-label-active' : 'service-label-inactive';
-      document.getElementById('lbl-discord-bot').className    = mode === 'bot'     ? 'service-label-active' : 'service-label-inactive';
-      document.getElementById('discord-webhook-panel').style.display    = mode === 'webhook' ? 'flex' : 'none';
-      document.getElementById('discord-bot-panel').style.display        = mode === 'bot'     ? 'flex' : 'none';
-      document.getElementById('discord-test-webhook-row').style.display = mode === 'webhook' ? 'flex' : 'none';
-      document.getElementById('discord-test-bot-row').style.display     = mode === 'bot'     ? 'flex' : 'none';
+    function toggleDiscordWebhook(checked) {
+      document.getElementById('discord-webhook-panel').style.display = checked ? 'flex' : 'none';
+    }
+
+    function toggleDiscordBot(checked) {
+      document.getElementById('discord-bot-panel').style.display = checked ? 'flex' : 'none';
     }
 
     // Discord avatar upload state
@@ -1790,14 +1829,6 @@
     }
 
     async function saveDiscordAgent() {
-      if (document.getElementById('discord-enabled').checked && _discordMode === 'bot') {
-        var publicUrl = (document.getElementById('app-public-url') || {}).value || '';
-        if (!publicUrl.trim()) {
-          document.getElementById('discord-enabled').checked = false;
-          showToast('Set the App Public URL in General Settings before enabling bot mode', true);
-          return;
-        }
-      }
       // Upload/clear avatar first if changed
       if (_discordAvatarDataUri || _discordAvatarClear) {
         try {
@@ -1809,41 +1840,47 @@
           _discordAvatarClear   = false;
         } catch(e) { showToast('Avatar upload error: ' + e.message, true); return; }
       }
-      var types = Array.from(document.querySelectorAll('.discord-type:checked')).map(function(el){return el.value;});
+      var webhookEnabled = document.getElementById('discord-webhook-enabled').checked;
+      var botEnabled = document.getElementById('discord-bot-enabled').checked;
+      var webhookTypes = Array.from(document.querySelectorAll('.discord-webhook-type:checked')).flatMap(function(el){return el.dataset.types ? el.dataset.types.split(',') : [el.value];});
+      var botTypes = Array.from(document.querySelectorAll('.discord-bot-type:checked')).flatMap(function(el){return el.dataset.types ? el.dataset.types.split(',') : [el.value];});
       fetch('/admin/settings/discord', {
         method: 'POST',
         headers:{'Content-Type':'application/json'},
         body: JSON.stringify({
-          enabled:            document.getElementById('discord-enabled').checked,
-          mode:               _discordMode,
-          webhookUrl:         document.getElementById('discord-webhook').value,
-          botToken:           document.getElementById('discord-bottoken').value,
-          botUsername:        document.getElementById('discord-botname').value,
-          notificationRoleId: document.getElementById('discord-roleid').value,
-          enableMentions:     document.getElementById('discord-mentions').checked,
-          embedPoster:        document.getElementById('discord-poster').checked,
-          notificationTypes:  types,
-          inviteLink:         document.getElementById('discord-invite-link').value,
-          botWebhookUrl:      document.getElementById('discord-bot-webhook').value,
-          botUseWebhook:      document.getElementById('discord-bot-use-webhook').checked,
-          botAvatarUrl:       document.getElementById('discord-avatar-url').value,
+          enabled:                  webhookEnabled || botEnabled,
+          webhookEnabled:           webhookEnabled,
+          botEnabled:               botEnabled,
+          webhookUrl:               document.getElementById('discord-webhook').value,
+          botToken:                 document.getElementById('discord-bottoken').value,
+          botUsername:              document.getElementById('discord-botname').value,
+          notificationRoleId:       document.getElementById('discord-roleid').value,
+          enableMentions:           document.getElementById('discord-mentions').checked,
+          webhookEmbedPoster:       document.getElementById('discord-webhook-poster').checked,
+          botEmbedPoster:           document.getElementById('discord-bot-poster').checked,
+          webhookNotificationTypes: webhookTypes,
+          botNotificationTypes:     botTypes,
+          inviteLink:               document.getElementById('discord-invite-link').value,
+          botAvatarUrl:             document.getElementById('discord-avatar-url').value,
         }),
       }).then(r=>r.json()).then(d=>{ if(d.success) showToast('Discord settings saved'); else showToast('Save failed',true); }).catch(()=>showToast('Save failed',true));
     }
 
-    async function testDiscord() {
-      var mode = _discordMode;
+    async function testDiscordWebhook() {
       try {
-        var body = { mode, botUsername: document.getElementById('discord-botname').value };
-        if (mode === 'bot') {
-          body.botToken = document.getElementById('discord-bottoken').value;
-          body.discordUserId = document.getElementById('discord-test-userid').value;
-          if (!body.botToken) return showToast('Enter bot token first', true);
-          if (!body.discordUserId) return showToast('Enter your Discord User ID for the test DM', true);
-        } else {
-          body.webhookUrl = document.getElementById('discord-webhook').value;
-          if (!body.webhookUrl) return showToast('Enter webhook URL first', true);
-        }
+        var body = { mode: 'webhook', webhookUrl: document.getElementById('discord-webhook').value, botUsername: document.getElementById('discord-botname').value };
+        if (!body.webhookUrl) return showToast('Enter webhook URL first', true);
+        var r = await fetch('/admin/settings/discord/test', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+        var d = await r.json();
+        showToast(d.message || (d.ok ? 'Sent!' : 'Failed'), !d.ok);
+      } catch(e) { showToast('Error: '+e.message, true); }
+    }
+
+    async function testDiscordBot() {
+      try {
+        var body = { mode: 'bot', botToken: document.getElementById('discord-bottoken').value, discordUserId: document.getElementById('discord-test-userid').value, botUsername: document.getElementById('discord-botname').value };
+        if (!body.botToken) return showToast('Enter bot token first', true);
+        if (!body.discordUserId) return showToast('Enter your Discord User ID for the test DM', true);
         var r = await fetch('/admin/settings/discord/test', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
         var d = await r.json();
         showToast(d.message || (d.ok ? 'Sent!' : 'Failed'), !d.ok);
@@ -1851,7 +1888,7 @@
     }
 
     function savePushoverAgent() {
-      var types = Array.from(document.querySelectorAll('.pushover-type:checked')).map(function(el){return el.value;});
+      var types = Array.from(document.querySelectorAll('.pushover-type:checked')).flatMap(function(el){return el.dataset.types ? el.dataset.types.split(',') : [el.value];});
       fetch('/admin/settings/pushover', {
         method:'POST',
         headers:{'Content-Type':'application/json'},
@@ -1859,6 +1896,8 @@
           enabled: document.getElementById('pushover-enabled').checked,
           appToken: document.getElementById('pushover-token').value,
           userKey: document.getElementById('pushover-userkey').value,
+          embedPoster: document.getElementById('pushover-poster').checked,
+          sound: document.getElementById('pushover-sound').value,
           notificationTypes: types,
         }),
       }).then(r=>r.json()).then(d=>{ if(d.success) showToast('Pushover settings saved'); }).catch(()=>showToast('Save failed',true));
@@ -1881,32 +1920,71 @@
         if (d.discordAgent) {
           var c = d.discordAgent;
           document.getElementById('discord-enabled').checked = !!c.enabled;
-          setDiscordMode(c.mode === 'bot' ? 'bot' : 'webhook');
+
+          // New schema: webhookEnabled / botEnabled. Backward compat: old mode field
+          var webhookOn = c.webhookEnabled !== undefined ? !!c.webhookEnabled : (c.enabled && c.mode !== 'bot');
+          var botOn = c.botEnabled !== undefined ? !!c.botEnabled : (c.enabled && c.mode === 'bot');
+          document.getElementById('discord-webhook-enabled').checked = webhookOn;
+          toggleDiscordWebhook(webhookOn);
+          document.getElementById('discord-bot-enabled').checked = botOn;
+          toggleDiscordBot(botOn);
+
           if (c.webhookUrl) document.getElementById('discord-webhook').value = c.webhookUrl;
           if (c.botToken) document.getElementById('discord-bottoken').value = c.botToken;
           if (c.botUsername) document.getElementById('discord-botname').value = c.botUsername;
           if (c.notificationRoleId) document.getElementById('discord-roleid').value = c.notificationRoleId;
           if (c.enableMentions) document.getElementById('discord-mentions').checked = true;
-          // embedPoster defaults to true for configs saved before this field was added
-          document.getElementById('discord-poster').checked = c.embedPoster !== false;
-          if (c.notificationTypes) {
-            document.querySelectorAll('.discord-type').forEach(function(el){
-              el.checked = c.notificationTypes.includes(el.value);
+          // embedPoster: per-panel flags; fall back to old shared embedPoster for backward compat
+          document.getElementById('discord-webhook-poster').checked = c.webhookEmbedPoster !== undefined ? !!c.webhookEmbedPoster : c.embedPoster !== false;
+          document.getElementById('discord-bot-poster').checked = c.botEmbedPoster !== undefined ? !!c.botEmbedPoster : c.embedPoster !== false;
+
+          // Load webhook notification types (new schema) or fall back to shared notificationTypes
+          var webhookTypes = c.webhookNotificationTypes || c.notificationTypes || null;
+          if (webhookTypes) {
+            document.querySelectorAll('.discord-webhook-type').forEach(function(el){
+              if (el.dataset.types) {
+                el.checked = el.dataset.types.split(',').some(function(t){ return webhookTypes.includes(t); });
+              } else {
+                el.checked = webhookTypes.includes(el.value);
+              }
             });
-            // issue_new and issue_updated default to enabled for configs created before these types existed
+            // Default newly-added single-value types to enabled if not present in saved config
             ['issue_new', 'issue_updated'].forEach(function(v) {
-              if (!c.notificationTypes.includes(v)) {
-                var el = document.querySelector('.discord-type[value="' + v + '"]');
+              if (!webhookTypes.includes(v)) {
+                var el = document.querySelector('.discord-webhook-type[value="' + v + '"]');
                 if (el) el.checked = true;
               }
             });
+            // Default combined issue_comment toggle if neither type was saved yet
+            if (!webhookTypes.includes('issue_comment_added_admin') && !webhookTypes.includes('issue_comment_added_user')) {
+              var el = document.querySelector('.discord-webhook-type[data-types]');
+              if (el) el.checked = true;
+            }
           }
+
+          // Load bot notification types
+          var botTypes = c.botNotificationTypes || c.notificationTypes || null;
+          if (botTypes) {
+            document.querySelectorAll('.discord-bot-type').forEach(function(el){
+              if (el.dataset.types) {
+                el.checked = el.dataset.types.split(',').some(function(t){ return botTypes.includes(t); });
+              } else {
+                el.checked = botTypes.includes(el.value);
+              }
+            });
+            ['issue_new', 'issue_updated'].forEach(function(v) {
+              if (!botTypes.includes(v)) {
+                var el = document.querySelector('.discord-bot-type[value="' + v + '"]');
+                if (el) el.checked = true;
+              }
+            });
+            if (!botTypes.includes('issue_comment_added_admin') && !botTypes.includes('issue_comment_added_user')) {
+              var el = document.querySelector('.discord-bot-type[data-types]');
+              if (el) el.checked = true;
+            }
+          }
+
           if (c.inviteLink) document.getElementById('discord-invite-link').value = c.inviteLink;
-          if (c.botUseWebhook) {
-            document.getElementById('discord-bot-use-webhook').checked = true;
-            document.getElementById('discord-bot-webhook-field').style.display = 'block';
-          }
-          if (c.botWebhookUrl) document.getElementById('discord-bot-webhook').value = c.botWebhookUrl;
           if (c.botAvatarUrl) document.getElementById('discord-avatar-url').value = c.botAvatarUrl;
         }
         if (d.pushoverAgent) {
@@ -1914,17 +1992,27 @@
           document.getElementById('pushover-enabled').checked = !!p.enabled;
           if (p.appToken) document.getElementById('pushover-token').value = p.appToken;
           if (p.userKey) document.getElementById('pushover-userkey').value = p.userKey;
+          document.getElementById('pushover-poster').checked = !!p.embedPoster;
+          if (p.sound) document.getElementById('pushover-sound').value = p.sound;
           if (p.notificationTypes) {
             document.querySelectorAll('.pushover-type').forEach(function(el){
-              el.checked = p.notificationTypes.includes(el.value);
+              if (el.dataset.types) {
+                el.checked = el.dataset.types.split(',').some(function(t){ return p.notificationTypes.includes(t); });
+              } else {
+                el.checked = p.notificationTypes.includes(el.value);
+              }
             });
-            // issue_new, issue_updated, request_available default to enabled for pre-existing configs
+            // Default newly-added single-value types to enabled for pre-existing configs
             ['issue_new', 'issue_updated', 'request_available'].forEach(function(v) {
               if (!p.notificationTypes.includes(v)) {
                 var el = document.querySelector('.pushover-type[value="' + v + '"]');
                 if (el) el.checked = true;
               }
             });
+            if (!p.notificationTypes.includes('issue_comment_added_admin') && !p.notificationTypes.includes('issue_comment_added_user')) {
+              var el = document.querySelector('.pushover-type[data-types]');
+              if (el) el.checked = true;
+            }
           }
         }
       }).catch(function(){});

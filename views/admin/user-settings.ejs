@@ -6,7 +6,7 @@
   <title>Diskovarr — User Settings</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="stylesheet" href="/css/style.css?v=31">
-  <link rel="stylesheet" href="/css/admin.css?v=29">
+  <link rel="stylesheet" href="/css/admin.css?v=30">
   <link rel="stylesheet" href="/theme.css?c=<%= themeParam %>" id="theme-css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -85,13 +85,6 @@
       <!-- Request Limits -->
       <div class="settings-section">
         <p class="settings-section-title">Request Limits</p>
-        <div class="toggle-row" style="margin-bottom:12px">
-          <label class="slide-toggle">
-            <input type="checkbox" name="allowRequestsOverride" value="1" <%= settings.allowRequestsOverride ? 'checked' : '' %>>
-            <span class="slide-track"></span>
-          </label>
-          <span class="toggle-label">Allow requests (overrides global disable)</span>
-        </div>
         <div class="toggle-row">
           <label class="slide-toggle">
             <input type="checkbox" name="overrideGlobal" value="1" id="override-toggle" <%= settings.overrideGlobal ? 'checked' : '' %> onchange="document.getElementById('limits-fields').style.display=this.checked?'block':'none'">
@@ -300,6 +293,13 @@
             </span>
           </label>
           <% } %>
+          <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+            <input type="checkbox" class="themed-checkbox" name="notify_issue_comment" value="1" <%= notificationPrefs.notify_issue_comment ? 'checked' : '' %>>
+            <span style="font-size:0.88rem">
+              <strong class="toggle-label">Issue Comment</strong>
+              <span style="color:var(--text-secondary)"> — Get notified when a comment is added to an issue</span>
+            </span>
+          </label>
         </div>
 
         <% if (discordAgentEnabled) { %>

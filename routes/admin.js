@@ -688,7 +688,7 @@ router.post('/user-settings/:userId', requireAdmin, (req, res) => {
     notify_approved, notify_denied, notify_available,
     discord_webhook, discord_enabled, pushover_user_key, pushover_enabled,
     notify_pending, notify_auto_approved, notify_process_failed,
-    notify_issue_new, notify_issue_update,
+    notify_issue_new, notify_issue_update, notify_issue_comment,
   } = req.body;
   db.saveUserSettings(userId, {
     movieLimit: parseInt(movieLimit) || 0,
@@ -719,6 +719,7 @@ router.post('/user-settings/:userId', requireAdmin, (req, res) => {
     notify_process_failed: notify_process_failed !== undefined ? (notify_process_failed === '1' || notify_process_failed === true) : true,
     notify_issue_new:      notify_issue_new      !== undefined ? (notify_issue_new      === '1' || notify_issue_new      === true) : true,
     notify_issue_update:   notify_issue_update   !== undefined ? (notify_issue_update   === '1' || notify_issue_update   === true) : true,
+    notify_issue_comment:  notify_issue_comment  !== undefined ? (notify_issue_comment  === '1' || notify_issue_comment  === true) : true,
   });
   res.redirect(`/admin/user-settings/${userId}?saved=1`);
 });
@@ -757,11 +758,19 @@ router.post('/settings/discord-avatar', requireAdmin, (req, res) => {
 
 router.post('/settings/discord', requireAdmin, async (req, res) => {
   const { enabled, mode, webhookUrl, botToken, botUsername, botAvatarUrl, publicUrl,
-          notificationRoleId, enableMentions, embedPoster, notificationTypes,
-          inviteLink, botWebhookUrl, botUseWebhook } = req.body;
+          notificationRoleId, enableMentions, embedPoster, webhookEmbedPoster, botEmbedPoster,
+          notificationTypes, webhookEnabled, botEnabled, webhookNotificationTypes,
+          botNotificationTypes, inviteLink } = req.body;
+
+  // Support both new schema (webhookEnabled/botEnabled) and old schema (mode)
+  const usingNewSchema = webhookEnabled !== undefined || botEnabled !== undefined;
+
   const config = {
     enabled: !!enabled,
-    mode: mode === 'bot' ? 'bot' : 'webhook',
+    webhookEnabled: usingNewSchema ? !!webhookEnabled : (mode !== 'bot' && !!enabled),
+    botEnabled: usingNewSchema ? !!botEnabled : (mode === 'bot' && !!enabled),
+    // Keep mode for backward compat with other code reading config
+    mode: usingNewSchema ? (botEnabled ? 'bot' : 'webhook') : (mode === 'bot' ? 'bot' : 'webhook'),
     webhookUrl: webhookUrl || null,
     botToken: botToken || null,
     botUsername: botUsername || null,
@@ -769,15 +778,19 @@ router.post('/settings/discord', requireAdmin, async (req, res) => {
     publicUrl: publicUrl || null,
     notificationRoleId: notificationRoleId || null,
     enableMentions: !!enableMentions,
-    embedPoster: !!embedPoster,
-    notificationTypes: notificationTypes || [],
+    embedPoster: !!embedPoster, // keep for backward compat with old configs
+    webhookEmbedPoster: webhookEmbedPoster !== undefined ? !!webhookEmbedPoster : !!embedPoster,
+    botEmbedPoster: botEmbedPoster !== undefined ? !!botEmbedPoster : !!embedPoster,
+    // New per-mode notification types; fall back to shared notificationTypes for old clients
+    webhookNotificationTypes: webhookNotificationTypes || notificationTypes || [],
+    botNotificationTypes: botNotificationTypes || notificationTypes || [],
+    // Keep legacy field for old code reading it
+    notificationTypes: notificationTypes || webhookNotificationTypes || [],
     inviteLink: inviteLink || null,
-    botWebhookUrl: botWebhookUrl || null,
-    botUseWebhook: !!botUseWebhook,
   };
   db.setSetting('discord_agent', JSON.stringify(config));
-  // If switching to bot mode, update the bot's avatar asynchronously
-  if (config.mode === 'bot' && config.botToken && !config.botAvatarUrl) {
+  // If bot is enabled, update the bot's avatar asynchronously
+  if (config.botEnabled && config.botToken && !config.botAvatarUrl) {
     const discordAgent = require('../services/discordAgent');
     const accentHex = db.getThemeColor() || 'e5a00d';
     discordAgent.updateBotAvatar(config.botToken, accentHex).catch(() => {});
