@@ -304,41 +304,6 @@ router.post('/request', async (req, res) => {
       .run(userId, req.shimApp.name, Math.floor(Date.now() / 1000));
   }
 
-  // Rate limit check (reuses existing user limit system).
-  // When the limit is hit we silently return a success response instead of erroring —
-  // automated callers like Agregarr treat 4xx as fatal and their sync freezes.
-  const limits = db.getEffectiveLimits(userId);
-  if (limits) {
-    if (mediaType === 'movie' && limits.movieLimit > 0) {
-      const count = db.countRecentMovieRequests(userId, limits.movieWindowDays);
-      if (count >= limits.movieLimit) {
-        logger.debug(`[shim] rate limit: user=${userId} movie limit ${limits.movieLimit}/${limits.movieWindowDays}d reached (${count} used) — silently dropping`);
-        return res.status(201).json({
-          id: 0, status: 1,
-          media: { id: Number(mediaId), mediaType, tmdbId: Number(mediaId), status: 1 },
-          seasons: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
-          requestedBy: resolvedSvcUser ? shimUserObj(resolvedSvcUser) : shimAdminObj(req.shimApp),
-          modifiedBy: null, is4k: false, serverId: 0, profileId: 0, rootFolder: '',
-        });
-      }
-    }
-    if (mediaType === 'tv' && limits.seasonLimit > 0) {
-      const requestedSeasons = Array.isArray(seasons) ? seasons.length : 1;
-      const count = db.countRecentSeasonRequests(userId, limits.seasonWindowDays);
-      if (count + requestedSeasons > limits.seasonLimit) {
-        logger.debug(`[shim] rate limit: user=${userId} season limit ${limits.seasonLimit}/${limits.seasonWindowDays}d reached (${count} used, +${requestedSeasons} requested) — silently dropping`);
-        return res.status(201).json({
-          id: 0, status: 1,
-          media: { id: Number(mediaId), mediaType, tmdbId: Number(mediaId), status: 1 },
-          seasons: Array.isArray(seasons) ? seasons.map(n => ({ id: Number(n), seasonNumber: Number(n), status: 1 })) : [],
-          createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
-          requestedBy: resolvedSvcUser ? shimUserObj(resolvedSvcUser) : shimAdminObj(req.shimApp),
-          modifiedBy: null, is4k: false, serverId: 0, profileId: 0, rootFolder: '',
-        });
-      }
-    }
-  }
-
   try {
     // Resolve title from TMDB cache; fetch live if missing
     let cached = db.getTmdbCache(mediaId, mediaType);
@@ -375,6 +340,40 @@ router.post('/request', async (req, res) => {
       seasonsArray = Array.from({ length: cached.numberOfSeasons }, (_, i) => i + 1);
     }
     const seasonsCount = seasonsArray ? seasonsArray.length : 1;
+
+    // Rate limit check — must happen after TMDB fetch so seasonsCount reflects the real
+    // season count (Agregarr doesn't send a seasons array; we derive it from numberOfSeasons).
+    // Silently return 201 so automated callers like Agregarr don't freeze on 4xx.
+    const limits = db.getEffectiveLimits(userId);
+    if (limits) {
+      if (mediaType === 'movie' && limits.movieLimit > 0) {
+        const count = db.countRecentMovieRequests(userId, limits.movieWindowDays);
+        if (count >= limits.movieLimit) {
+          logger.debug(`[shim] rate limit: user=${userId} movie limit ${limits.movieLimit}/${limits.movieWindowDays}d reached (${count} used) — silently dropping`);
+          return res.status(201).json({
+            id: 0, status: 1,
+            media: { id: Number(mediaId), mediaType, tmdbId: Number(mediaId), status: 1 },
+            seasons: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+            requestedBy: resolvedSvcUser ? shimUserObj(resolvedSvcUser) : shimAdminObj(req.shimApp),
+            modifiedBy: null, is4k: false, serverId: 0, profileId: 0, rootFolder: '',
+          });
+        }
+      }
+      if (mediaType === 'tv' && limits.seasonLimit > 0) {
+        const count = db.countRecentSeasonRequests(userId, limits.seasonWindowDays);
+        if (count + seasonsCount > limits.seasonLimit) {
+          logger.debug(`[shim] rate limit: user=${userId} season limit ${limits.seasonLimit}/${limits.seasonWindowDays}d reached (${count} used, +${seasonsCount} requested) — silently dropping`);
+          return res.status(201).json({
+            id: 0, status: 1,
+            media: { id: Number(mediaId), mediaType, tmdbId: Number(mediaId), status: 1 },
+            seasons: seasonsArray ? seasonsArray.map(n => ({ id: n, seasonNumber: n, status: 1 })) : [],
+            createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+            requestedBy: resolvedSvcUser ? shimUserObj(resolvedSvcUser) : shimAdminObj(req.shimApp),
+            modifiedBy: null, is4k: false, serverId: 0, profileId: 0, rootFolder: '',
+          });
+        }
+      }
+    }
 
     // Check if already in Plex library (cached set — avoids DB query per request)
     const libKey = `${mediaId}:${mediaType === 'tv' ? 'tv' : 'movie'}`;

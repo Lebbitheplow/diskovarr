@@ -76,9 +76,11 @@
     .details-label { font-size:0.75rem;font-weight:600;letter-spacing:0.05em;text-transform:uppercase;color:var(--text-secondary); }
     .details-value { font-size:0.88rem; }
     .details-description { font-size:0.88rem;white-space:pre-wrap;line-height:1.5; }
+    .table-scroll-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
     @media (max-width: 600px) {
       .queue-table th:nth-child(3), .queue-table td:nth-child(3) { display: none; }
       .queue-table th:nth-child(4), .queue-table td:nth-child(4) { display: none; }
+      body { overflow-x: hidden; }
     }
   </style>
 </head>
@@ -255,7 +257,7 @@
         html += '</tr>';
       });
       html += '</tbody></table>';
-      container.innerHTML = html;
+      container.innerHTML = '<div class="table-scroll-wrap">' + html + '</div>';
     }
 
     function updatePagination(page, pages, total) {
@@ -436,34 +438,50 @@
 
     async function actionModalConfirm() {
       if (!_actionId || !_actionType) return;
-      var note = document.getElementById('action-modal-note').value.trim() || null;
       var confirmBtn = document.getElementById('action-modal-confirm');
       confirmBtn.disabled = true;
-      try {
-        var res = await fetch('/api/issues/' + _actionId + '/' + _actionType, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ note: note }),
-        });
-        var data = await res.json();
-        if (!res.ok || !data.success) throw new Error(data.error || 'Action failed');
-        showToast('Issue ' + _actionType + 'd');
-        actionModalClose();
-        loadIssues(currentStatus, currentPage);
-      } catch (err) {
-        showToast('Error: ' + err.message, true);
+      var id = _actionId;
+      var type = _actionType;
+      actionModalClose();
+      if (type === 'delete') {
+        await _doDeleteIssue(id);
+      } else {
+        var note = document.getElementById('action-modal-note').value.trim() || null;
+        try {
+          var res = await fetch('/api/issues/' + id + '/' + type, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ note: note }),
+          });
+          var data = await res.json();
+          if (!res.ok || !data.success) throw new Error(data.error || 'Action failed');
+          showToast('Issue ' + type + 'd');
+          var row = document.getElementById('issue-row-' + id);
+          if (row) row.remove();
+        } catch (err) {
+          showToast('Error: ' + err.message, true);
+        }
       }
       confirmBtn.disabled = false;
     }
 
-    async function deleteIssue(id) {
-      if (!confirm('Delete this issue permanently?')) return;
+    function deleteIssue(id) {
+      _actionId = id;
+      _actionType = 'delete';
+      document.getElementById('action-modal-title').textContent = 'Delete Issue';
+      document.getElementById('action-modal-note').value = '';
+      document.getElementById('action-modal-note').placeholder = 'Optional note (not saved)';
+      document.getElementById('action-modal').classList.add('open');
+    }
+
+    async function _doDeleteIssue(id) {
       try {
         var res = await fetch('/api/issues/' + id, { method: 'DELETE' });
         var data = await res.json();
         if (!res.ok || !data.success) throw new Error(data.error || 'Delete failed');
         showToast('Issue deleted');
-        loadIssues(currentStatus, currentPage);
+        var row = document.getElementById('issue-row-' + id);
+        if (row) row.remove();
       } catch (err) {
         showToast('Error: ' + err.message, true);
       }
