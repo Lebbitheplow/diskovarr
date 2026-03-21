@@ -4,6 +4,29 @@ All notable changes are documented here. Versioning follows [Semantic Versioning
 
 ---
 
+## v1.17.0 — 2026-03-21
+
+### Added
+
+- **Riven/DUMB as a request service** — Riven can now be selected as a request routing target alongside Overseerr, Radarr, and Sonarr. Configure the Riven URL and API key in Admin → Connections → Riven; requests submitted through Diskovarr will be sent to Riven automatically.
+- **Riven/DUMB torrent browser** — DMM-style torrent browser at Admin → Connections → Riven → "Browse Torrents". Search any title by name, see Torrentio results with Real-Debrid cache status and quality info, and inject a chosen torrent directly into Riven with one click. Riven handles download, symlink creation, and Plex notification automatically. Includes a season selector for TV shows and a manual magnet/hash paste fallback for content not indexed by Torrentio.
+- **Agregarr integration** — Diskovarr now presents an Overseerr-compatible API at `/api/v1/` so Agregarr (and other Overseerr-compatible apps) can connect to it directly. Enable it in Admin → Connections → Agregarr, copy the generated API key, and enter it in Agregarr settings as an Overseerr URL. Agregarr creates its own service user accounts automatically; requests from those accounts appear in the queue attributed to the correct Agregarr user with a "bot" badge.
+- **Plex WebSocket** — real-time library change listener (no Plex Pass required). When Plex adds new content, the library cache is invalidated and fulfilled request checks run instantly. Reconnects automatically with exponential back-off.
+
+### Fixed
+
+- **Admin icon buttons** — eye and copy icon buttons in the Connections tab API key fields now render as solid filled icons, visible at all sizes.
+
+---
+
+## v1.16.1 — 2026-03-20
+
+### Added
+
+- **Plex webhook listener** — Diskovarr now listens at `POST /api/webhooks/plex` for Plex `library.new` events. When new content is added to Plex, the library cache is automatically invalidated and fulfilled request checks run immediately. Register the URL in Plex Settings → Webhooks (requires Plex Pass).
+
+---
+
 ## v1.16.0 — 2026-03-19
 
 ### Added

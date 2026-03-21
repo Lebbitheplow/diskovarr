@@ -647,6 +647,9 @@ function getConnectionSettings() {
     sonarrQualityProfileId: getSetting('sonarr_quality_profile_id', ''),
     sonarrQualityProfileName: getSetting('sonarr_quality_profile_name', ''),
     defaultRequestService: getSetting('default_request_service', 'overseerr'),
+    rivenUrl: getSetting('riven_url', '') || 'http://127.0.0.1:8082',
+    rivenApiKey: getSetting('riven_api_key', ''),
+    rivenEnabled: getSetting('riven_enabled', '0') === '1',
   };
 }
 
@@ -1268,6 +1271,121 @@ function markRequestsNotifiedAvailable(ids) {
   for (const id of ids) stmt.run(now, id);
 }
 
+// ── API Apps (Agregarr / external integrations) ───────────────────────────────
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS api_apps (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT NOT NULL,
+    api_key     TEXT UNIQUE NOT NULL,
+    type        TEXT NOT NULL DEFAULT 'generic',
+    enabled     INTEGER NOT NULL DEFAULT 1,
+    created_at  INTEGER NOT NULL DEFAULT 0,
+    notes       TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS app_service_users (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    app_id              INTEGER NOT NULL REFERENCES api_apps(id),
+    overseerr_user_id   INTEGER NOT NULL,
+    user_id             TEXT NOT NULL,
+    api_key             TEXT UNIQUE NOT NULL,
+    email               TEXT,
+    username            TEXT NOT NULL,
+    permissions         INTEGER NOT NULL DEFAULT 0,
+    created_at          INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_svc_user_overseerr ON app_service_users(app_id, overseerr_user_id);
+`);
+
+function createApiApp(name, type = 'generic') {
+  const { randomBytes } = require('crypto');
+  const key = randomBytes(32).toString('hex');
+  const now = Math.floor(Date.now() / 1000);
+  const result = db.prepare(
+    'INSERT INTO api_apps (name, api_key, type, enabled, created_at) VALUES (?, ?, ?, 1, ?)'
+  ).run(name, key, type, now);
+  return db.prepare('SELECT * FROM api_apps WHERE id = ?').get(result.lastInsertRowid);
+}
+
+function getApiApp(id) {
+  return db.prepare('SELECT * FROM api_apps WHERE id = ?').get(Number(id));
+}
+
+function getApiAppByKey(apiKey) {
+  return db.prepare('SELECT * FROM api_apps WHERE api_key = ? AND enabled = 1').get(apiKey);
+}
+
+function listApiApps() {
+  return db.prepare('SELECT * FROM api_apps ORDER BY created_at DESC').all();
+}
+
+function updateApiApp(id, { name, enabled, notes } = {}) {
+  const app = getApiApp(id);
+  if (!app) return null;
+  db.prepare('UPDATE api_apps SET name = ?, enabled = ?, notes = ? WHERE id = ?')
+    .run(name !== undefined ? name : app.name,
+         enabled !== undefined ? (enabled ? 1 : 0) : app.enabled,
+         notes !== undefined ? notes : app.notes,
+         Number(id));
+  return getApiApp(id);
+}
+
+function regenerateApiAppKey(id) {
+  const { randomBytes } = require('crypto');
+  const key = randomBytes(32).toString('hex');
+  db.prepare('UPDATE api_apps SET api_key = ? WHERE id = ?').run(key, Number(id));
+  return key;
+}
+
+function deleteApiApp(id) {
+  // Remove all service users first (and their known_users entries)
+  const users = getServiceUsersByApp(id);
+  for (const u of users) {
+    db.prepare('DELETE FROM known_users WHERE user_id = ?').run(u.user_id);
+  }
+  db.prepare('DELETE FROM app_service_users WHERE app_id = ?').run(Number(id));
+  db.prepare('DELETE FROM api_apps WHERE id = ?').run(Number(id));
+}
+
+function createServiceUser(appId, { username, email, permissions = 0 }) {
+  const { randomBytes } = require('crypto');
+  const apiKey = randomBytes(32).toString('hex');
+  const now = Math.floor(Date.now() / 1000);
+  // Stable fake Overseerr user ID: start at 100 to avoid colliding with Overseerr admin (id=1)
+  const maxRow = db.prepare('SELECT MAX(overseerr_user_id) as m FROM app_service_users WHERE app_id = ?').get(Number(appId));
+  const overseerrUserId = (maxRow?.m || 99) + 1;
+  const userId = `__svc_${appId}_${overseerrUserId}__`;
+  // Insert into known_users so the request system can resolve a display name
+  db.prepare('INSERT OR REPLACE INTO known_users (user_id, username, thumb, seen_at) VALUES (?, ?, NULL, ?)')
+    .run(userId, username, now);
+  const result = db.prepare(`
+    INSERT INTO app_service_users (app_id, overseerr_user_id, user_id, api_key, email, username, permissions, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(Number(appId), overseerrUserId, userId, apiKey, email || null, username, permissions, now);
+  return db.prepare('SELECT * FROM app_service_users WHERE id = ?').get(result.lastInsertRowid);
+}
+
+function getServiceUserByKey(apiKey) {
+  return db.prepare('SELECT * FROM app_service_users WHERE api_key = ?').get(apiKey);
+}
+
+function getServiceUserById(appId, overseerrUserId) {
+  return db.prepare('SELECT * FROM app_service_users WHERE app_id = ? AND overseerr_user_id = ?')
+    .get(Number(appId), Number(overseerrUserId));
+}
+
+function getServiceUsersByApp(appId) {
+  return db.prepare('SELECT * FROM app_service_users WHERE app_id = ? ORDER BY overseerr_user_id ASC').all(Number(appId));
+}
+
+function deleteServiceUser(id) {
+  const u = db.prepare('SELECT * FROM app_service_users WHERE id = ?').get(Number(id));
+  if (!u) return;
+  db.prepare('DELETE FROM known_users WHERE user_id = ?').run(u.user_id);
+  db.prepare('DELETE FROM app_service_users WHERE id = ?').run(Number(id));
+}
+
 module.exports = {
   addDismissal, getDismissals, removeDismissal,
   addToWatchlistDb, removeFromWatchlistDb, getWatchlistFromDb,
@@ -1308,4 +1426,7 @@ module.exports = {
   createIssue, getIssueById, getAllIssues, getUserIssues, updateIssueStatus, deleteIssue,
   addIssueComment, getIssueComments, deleteIssueComment,
   getUnnotifiedFulfilledRequests, markRequestsNotifiedAvailable,
+  // API apps (Agregarr / external integrations)
+  createApiApp, getApiApp, getApiAppByKey, listApiApps, updateApiApp, regenerateApiAppKey, deleteApiApp,
+  createServiceUser, getServiceUserByKey, getServiceUserById, getServiceUsersByApp, deleteServiceUser,
 };

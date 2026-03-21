@@ -140,8 +140,14 @@ app.post('/api/webhooks/plex', express.raw({ type: '*/*', limit: '2mb' }), (req,
   }
 });
 
+// Overseerr-compatible shim — must be before /api (has its own auth)
+app.use('/api/v1', require('./routes/overseerrShim'));
 app.use('/api', require('./routes/api'));
 app.use('/admin', require('./routes/admin'));
+
+// Riven torrent browser (admin-protected)
+const { requireAdmin: _requireAdmin } = require('./routes/admin');
+app.use('/admin/riven', _requireAdmin, require('./routes/riven'));
 
 // Public: Discord bot avatar (themed auto-generated, or custom upload)
 app.get('/discord-avatar.png', (req, res) => {
@@ -229,6 +235,15 @@ app.listen(PORT, '0.0.0.0', () => {
       const fulfilled = db.getUnnotifiedFulfilledRequests(libraryTmdbIds);
       if (!fulfilled.length) return;
 
+      // Back-fill TMDB cache for any fulfilled items that have no stored poster URL
+      const tmdbService = require('./services/tmdb');
+      const missingPosters = fulfilled.filter(r => !r.poster_url && !db.getTmdbCache(r.tmdb_id, r.media_type));
+      if (missingPosters.length > 0) {
+        await Promise.all(missingPosters.map(r =>
+          tmdbService.getItemDetails(r.tmdb_id, r.media_type).catch(() => null)
+        ));
+      }
+
       for (const req of fulfilled) {
         const prefs = db.getUserNotificationPrefs(req.user_id);
         if (!prefs.notify_available) continue;
@@ -239,7 +254,7 @@ app.listen(PORT, '0.0.0.0', () => {
           title: notifTitle, body,
           data: { tmdbId: req.tmdb_id, mediaType: req.media_type },
         });
-        const posterUrl = req.poster_url || null;
+        const posterUrl = req.poster_url || db.getTmdbCache(req.tmdb_id, req.media_type)?.posterUrl || null;
         db.enqueueNotification({ notificationId: notifId, agent: 'discord', userId: req.user_id,
           payload: { type: 'request_available', title: notifTitle, body, posterUrl, userId: req.user_id } });
         db.enqueueNotification({ notificationId: notifId, agent: 'pushover', userId: req.user_id,
@@ -290,4 +305,50 @@ app.listen(PORT, '0.0.0.0', () => {
 
   // Start notification delivery service
   notificationService.start();
+
+  // Plex WebSocket — real-time library change notifications (no Plex Pass required).
+  // Plex pushes timeline events over this socket whenever items are added/updated.
+  // Uses Node.js built-in WebSocket (v22+) — no external dependency.
+  (function connectPlexWebSocket(delay = 0) {
+    setTimeout(() => {
+      const wsPlexUrl   = plexService.getPlexUrl();
+      const wsPlexToken = plexService.getPlexToken();
+      if (!wsPlexUrl || !wsPlexToken) {
+        logger.warn('Plex WebSocket: no URL or token configured, skipping');
+        return;
+      }
+
+      const wsUrl = wsPlexUrl.replace(/^http/, 'ws') + '/:/websockets/notifications?X-Plex-Token=' + wsPlexToken;
+      const ws = new WebSocket(wsUrl);
+
+      ws.onopen = () => {
+        logger.info('Plex WebSocket connected');
+      };
+
+      ws.onmessage = ({ data }) => {
+        try {
+          const container = JSON.parse(data)?.NotificationContainer;
+          if (container?.type !== 'timeline') return;
+          const hasNew = (container.TimelineEntry || []).some(
+            e => e.state === 5 && e.identifier === 'com.plexapp.plugins.library'
+          );
+          if (hasNew) {
+            plexService.invalidateCache();
+            process.nextTick(() => process.emit('diskovarr:checkFulfilled'));
+          }
+        } catch {}
+      };
+
+      ws.onclose = () => {
+        const nextDelay = Math.min((delay || 5000) * 2, 5 * 60 * 1000);
+        logger.info(`Plex WebSocket closed, reconnecting in ${nextDelay / 1000}s`);
+        connectPlexWebSocket(nextDelay);
+      };
+
+      ws.onerror = (err) => {
+        logger.warn('Plex WebSocket error:', err.message);
+        // onclose fires after onerror and handles reconnect
+      };
+    }, delay);
+  })(3000); // 3s initial delay so startup sync completes first
 });

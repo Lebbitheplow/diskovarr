@@ -903,6 +903,25 @@
   transition: color 0.2s;
 }
 
+/* 3-way mutually-exclusive service selector buttons */
+.service-opt-btn {
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.8rem;
+  border-radius: 99px;
+  padding: 2px 10px;
+  transition: color 0.2s, background 0.2s, border-color 0.2s;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-muted);
+}
+.service-opt-btn.service-opt-active {
+  color: var(--accent);
+  background: var(--accent-dim);
+  border-color: var(--accent-border);
+  font-weight: 600;
+}
+
 
 /* ── Password field wrap (eye + copy buttons) ────────────────── */
 
@@ -932,19 +951,23 @@
   background: none;
   border: none;
   cursor: pointer;
-  color: var(--text-muted);
-  padding: 4px 5px;
+  color: var(--text-primary);
+  padding: 5px 7px;
   border-radius: 6px;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: color 0.15s, background 0.15s;
+  transition: background 0.15s;
   line-height: 1;
 }
 
+/* Give enough room when two icon buttons are stacked in one input */
+.conn-input-wrap:has(.conn-input-btns button:nth-child(2)) .conn-input {
+  padding-right: 72px;
+}
+
 .conn-input-icon-btn:hover {
-  color: var(--text-primary);
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.1);
 }
 
 /* ── Field groups with labels ───────────────────────────── */

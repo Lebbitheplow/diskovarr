@@ -1,5 +1,23 @@
 [
   {
+    "version": "1.17.0",
+    "date": "2026-03-21",
+    "changes": [
+      "Riven/DUMB as a request service — Riven can now be selected as a request routing target alongside Overseerr, Radarr, and Sonarr; configure in Admin → Connections → Riven",
+      "Riven/DUMB torrent browser — DMM-style browser in Admin → Connections → Riven → Browse Torrents; search by title, view Torrentio results with RD cache status, inject chosen torrent into Riven in one click; includes season selector for TV and manual magnet paste fallback",
+      "Agregarr integration — Overseerr-compatible API shim at /api/v1/ lets Agregarr connect to Diskovarr as if it were Overseerr; enable in Admin → Connections → Agregarr; Agregarr creates service users automatically; their requests appear in the queue with a bot badge",
+      "Plex WebSocket — real-time library change notifications without Plex Pass; invalidates cache and checks fulfilled requests instantly when new content is added; auto-reconnects with exponential back-off",
+      "Fix: Admin connection tab eye/copy icon buttons now use solid filled icons, readable at all sizes"
+    ]
+  },
+  {
+    "version": "1.16.1",
+    "date": "2026-03-20",
+    "changes": [
+      "Plex webhook listener — Diskovarr now receives library.new events from Plex at POST /api/webhooks/plex, automatically invalidating the library cache and triggering fulfilled request checks when new content is added (requires Plex Pass)"
+    ]
+  },
+  {
     "version": "1.16.0",
     "date": "2026-03-19",
     "changes": [

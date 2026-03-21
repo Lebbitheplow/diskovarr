@@ -612,10 +612,11 @@ router.get('/explore/services', (req, res) => {
   const hasOverseerr = c.overseerrEnabled && !!c.overseerrUrl;
   const hasRadarr    = c.radarrEnabled    && !!c.radarrUrl;
   const hasSonarr    = c.sonarrEnabled    && !!c.sonarrUrl;
+  const hasRiven     = c.rivenEnabled && !!c.rivenUrl;
   // Default only applies when both sides are configured; otherwise the available service wins
-  const hasBothSides = hasOverseerr && (hasRadarr || hasSonarr);
+  const hasBothSides = (hasOverseerr || hasRiven) && (hasRadarr || hasSonarr);
   const defaultService = hasBothSides ? (c.defaultRequestService || 'overseerr') : null;
-  res.json({ overseerr: hasOverseerr, radarr: hasRadarr, sonarr: hasSonarr, defaultService });
+  res.json({ overseerr: hasOverseerr, radarr: hasRadarr, sonarr: hasSonarr, riven: hasRiven, defaultService });
 });
 
 // GET /api/explore/recommendations
@@ -795,6 +796,43 @@ async function submitRequestToService(requestData) {
       const body = await r.text();
       throw new Error(`Sonarr error: ${body}`);
     }
+  } else if (service === 'riven') {
+    if (!c.rivenEnabled || !c.rivenUrl) {
+      throw new Error('Riven requests not configured');
+    }
+    // Resolve API key — stored override or auto-read from DUMB settings.json
+    const fs = require('fs');
+    const RIVEN_SETTINGS_PATH = '/home/lebbi/docker/DUMB/data/riven/settings.json';
+    let rivenApiKey = c.rivenApiKey;
+    if (!rivenApiKey) {
+      try {
+        const raw = fs.readFileSync(RIVEN_SETTINGS_PATH, 'utf8');
+        rivenApiKey = JSON.parse(raw)?.api_key || '';
+      } catch { /* fall through */ }
+    }
+    if (!rivenApiKey) throw new Error('Riven API key not configured');
+
+    // Riven uses IMDB IDs — resolve from TMDB
+    const apiKey = db.getSetting('tmdb_api_key', '') || process.env.TMDB_API_KEY || '';
+    if (!apiKey) throw new Error('TMDB API key required to look up IMDB ID for Riven');
+    const base = 'https://api.themoviedb.org/3';
+    const extPath = mediaType === 'movie' ? `/movie/${tmdbId}` : `/tv/${tmdbId}/external_ids`;
+    const tmdbRes = await fetch(`${base}${extPath}?api_key=${apiKey}`, { signal: AbortSignal.timeout(10000) });
+    if (!tmdbRes.ok) throw new Error(`TMDB lookup failed: ${tmdbRes.status}`);
+    const tmdbData = await tmdbRes.json();
+    const imdbId = tmdbData.imdb_id;
+    if (!imdbId) throw new Error('Could not resolve IMDB ID for this title — TMDB may not have a mapping yet');
+
+    const rivenBase = c.rivenUrl.replace(/\/$/, '');
+    const r = await fetch(`${rivenBase}/api/v1/items/add?imdb_ids=${encodeURIComponent(imdbId)}`, {
+      method: 'POST',
+      headers: { 'X-API-KEY': rivenApiKey, 'Content-Type': 'application/json' },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!r.ok) {
+      const body = await r.text();
+      throw new Error(`Riven error: ${body}`);
+    }
   } else {
     throw new Error('Invalid service');
   }
@@ -811,7 +849,7 @@ router.post('/request', async (req, res) => {
   if (!tmdbId || !mediaType || !service) {
     return res.status(400).json({ error: 'tmdbId, mediaType, and service are required' });
   }
-  if (!['overseerr', 'radarr', 'sonarr', 'none'].includes(service)) {
+  if (!['overseerr', 'radarr', 'sonarr', 'riven', 'none'].includes(service)) {
     return res.status(400).json({ error: 'Invalid service' });
   }
   if (!['movie', 'tv'].includes(mediaType)) {
