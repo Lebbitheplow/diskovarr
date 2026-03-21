@@ -681,6 +681,11 @@ function setTmdbCache(tmdbId, mediaType, data) {
     .run(Number(tmdbId), mediaType, JSON.stringify(data), Math.floor(Date.now() / 1000));
 }
 
+function deleteTmdbCache(tmdbId, mediaType) {
+  db.prepare('DELETE FROM tmdb_cache WHERE tmdb_id = ? AND media_type = ?')
+    .run(Number(tmdbId), mediaType);
+}
+
 // ── Library TMDB IDs ──────────────────────────────────────────────────────────
 
 function getLibraryTmdbIds() {
@@ -1403,7 +1408,7 @@ module.exports = {
   getAdminWatchlistMode, setAdminWatchlistMode,
   getOwnerUserId, setOwnerUserId,
   getSetting, setSetting, getConnectionSettings, isDiscoverEnabled, hasTmdbKey,
-  getTmdbCache, setTmdbCache,
+  getTmdbCache, setTmdbCache, deleteTmdbCache,
   getLibraryTmdbIds, getLibraryTitleYearSet,
   addDiscoverRequest, getRequestedTmdbIds, getAllRequestedTmdbIds, getRecentRequests,
   addExploreDismissal, getExploreDismissedIds,

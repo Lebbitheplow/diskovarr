@@ -4,6 +4,23 @@ All notable changes are documented here. Versioning follows [Semantic Versioning
 
 ---
 
+## v1.17.3 — 2026-03-21
+
+### Fixed
+
+- **Season rate limit bypass via Agregarr** — the season limit check ran before the TMDB fetch, so when Agregarr doesn't send a seasons array the request was counted as 1 season instead of the real count. The check now runs after the seasons array is derived from `numberOfSeasons`, so a 74-season show correctly consumes 74 against the limit.
+- **Info modal credits username** — contributor display name corrected from "Gage" to "gage117".
+- **Queue actions scroll to top** — approving, denying, editing, or deleting a request now updates the row in place; the page no longer re-renders and jumps to the top. Approve/deny update the status badge and strip the action buttons in place; edit updates the season bubbles without a reload.
+- **Issues actions scroll to top** — resolving, closing, or deleting an issue removes the row in place. Delete no longer uses the native `confirm()` dialog; it reuses the existing action modal.
+- **Queue per-page preference resets on restart** — the selected items-per-page is now saved to localStorage and restored on page load.
+- **Mobile horizontal page scroll on queue and issues** — the table now scrolls horizontally within its container on narrow screens instead of the whole page panning sideways.
+
+### Added
+
+- **Issues section in info modal** — the ℹ︎ modal now includes a brief description of the Issues page alongside the existing Diskovarr, Queue, Filter, and Watchlist sections.
+
+---
+
 ## v1.17.2 — 2026-03-21
 
 ### Added

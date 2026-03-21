@@ -1,5 +1,18 @@
 [
   {
+    "version": "1.17.3",
+    "date": "2026-03-21",
+    "changes": [
+      "Fix: Season rate limit bypass — the limit check now runs after deriving the real season count from TMDB so Agregarr requests for multi-season shows are counted correctly",
+      "Fix: Info modal credits username corrected to gage117",
+      "Fix: Approving, denying, editing, or deleting a queue request no longer scrolls to the top — all actions update the row in place",
+      "Fix: Resolving, closing, or deleting an issue no longer scrolls to the top — row is removed in place; delete uses the action modal instead of native confirm()",
+      "Fix: Queue items-per-page preference is now saved to localStorage and restored on page load",
+      "Fix: Queue and issues tables scroll horizontally on mobile instead of the whole page panning",
+      "Issues section added to the info modal"
+    ]
+  },
+  {
     "version": "1.17.2",
     "date": "2026-03-21",
     "changes": [

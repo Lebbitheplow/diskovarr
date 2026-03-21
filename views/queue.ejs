@@ -69,9 +69,11 @@
     .edit-season-list { display: flex; flex-wrap: wrap; gap: 6px 12px; margin-top: 6px; }
     .edit-season-list label { font-size: 0.82rem; }
     .edit-modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+    .table-scroll-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
     @media (max-width: 600px) {
       .queue-table th:nth-child(3), .queue-table td:nth-child(3) { display: none; }
       .queue-table th:nth-child(4), .queue-table td:nth-child(4) { display: none; }
+      body { overflow-x: hidden; }
     }
   </style>
 </head>
@@ -165,7 +167,7 @@
     var currentStatus = 'all';
     var currentPage = 1;
     var totalPages = 1;
-    var perPage = 25;
+    var perPage = parseInt(localStorage.getItem('diskovarr_queue_per_page')) || 25;
 
     function showToast(msg, isError) {
       var t = document.getElementById('queue-toast');
@@ -299,7 +301,7 @@
       });
 
       html += '</tbody></table>';
-      container.innerHTML = html;
+      container.innerHTML = '<div class="table-scroll-wrap">' + html + '</div>';
     }
 
     function updatePagination(page, pages, total) {
@@ -328,6 +330,7 @@
 
     function onPerPageChange() {
       perPage = parseInt(document.getElementById('queue-per-page').value) || 25;
+      localStorage.setItem('diskovarr_queue_per_page', perPage);
       loadQueue(currentStatus, 1);
     }
 
@@ -337,13 +340,31 @@
       loadQueue(currentStatus, newPage);
     }
 
+    function updateRowStatus(id, newStatus) {
+      var row = document.getElementById('req-row-' + id);
+      if (!row) return;
+      row.classList.remove('pending-row');
+      var badge = row.querySelector('[class^="status-badge-"]');
+      if (badge) {
+        badge.className = 'status-badge-' + newStatus;
+        badge.textContent = STATUS_LABELS[newStatus] || newStatus;
+      }
+      // Remove approve/deny/edit buttons; keep delete
+      var actions = row.querySelector('.queue-actions');
+      if (actions) {
+        var deleteBtn = actions.querySelector('.btn-queue-delete');
+        actions.innerHTML = '';
+        if (deleteBtn) actions.appendChild(deleteBtn);
+      }
+    }
+
     async function approveRequest(id) {
       try {
         var res = await fetch('/api/queue/' + id + '/approve', { method: 'POST' });
         var data = await res.json();
         if (!res.ok || !data.success) throw new Error(data.error || 'Approve failed');
         showToast('Request approved and submitted');
-        loadQueue(currentStatus, currentPage);
+        updateRowStatus(id, 'requested');
       } catch (err) {
         showToast('Error: ' + err.message, true);
       }
@@ -361,7 +382,7 @@
         var data = await res.json();
         if (!res.ok || !data.success) throw new Error(data.error || 'Deny failed');
         showToast('Request denied');
-        loadQueue(currentStatus, currentPage);
+        updateRowStatus(id, 'denied');
       } catch (err) {
         showToast('Error: ' + err.message, true);
       }
@@ -399,7 +420,8 @@
         var data = await res.json();
         if (!res.ok || !data.success) throw new Error(data.error || 'Delete failed');
         showToast('Request deleted');
-        loadQueue(currentStatus, currentPage);
+        var row = document.getElementById('req-row-' + id);
+        if (row) row.remove();
       } catch (err) {
         showToast('Error: ' + err.message, true);
       }
@@ -475,7 +497,22 @@
         if (!res.ok || !data.success) throw new Error(data.error || 'Save failed');
         showToast('Request updated');
         editModalClose();
-        loadQueue(currentStatus, currentPage);
+        // Update season bubbles in place
+        var row = document.getElementById('req-row-' + _editId);
+        if (row) {
+          var bubblesDiv = row.querySelector('.season-bubbles');
+          if (bubblesDiv) {
+            var newHtml = '';
+            if (Array.isArray(seasons) && seasons.length > 0) {
+              seasons.slice().sort(function(a,b){return a-b;}).forEach(function(s) {
+                newHtml += '<span class="season-bubble">S' + s + '</span>';
+              });
+            } else {
+              newHtml = '<span class="season-bubble season-bubble-all">All Seasons</span>';
+            }
+            bubblesDiv.innerHTML = newHtml;
+          }
+        }
       } catch (err) {
         showToast('Error: ' + err.message, true);
       }
@@ -497,6 +534,9 @@
         loadQueue(btn.dataset.status, 1);
       });
     });
+
+    // Restore saved per-page selection
+    document.getElementById('queue-per-page').value = perPage;
 
     // Initial load + auto-refresh pending count every 30s
     loadQueue('all', 1);

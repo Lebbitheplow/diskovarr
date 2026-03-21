@@ -1017,8 +1017,18 @@ router.get('/queue', async (req, res) => {
     ({ rows, total } = isAdmin ? db.getAllRequests(limit, (pageNum - 1) * limit, dbStatus) : db.getUserRequests(userId, limit, (pageNum - 1) * limit, dbStatus));
   }
 
-  // Fetch TMDB details on-demand for rows missing poster or seasons (backfill for old requests)
-  const needsFetch = rows.filter(r => !db.getTmdbCache(r.tmdb_id, r.media_type));
+  // Fetch TMDB details on-demand for rows with no cache entry, or TV rows whose
+  // cache predates the numberOfSeasons field (identified by having no seasons_json
+  // and a cache entry that lacks numberOfSeasons — evict so getItemDetails re-fetches).
+  const needsFetch = rows.filter(r => {
+    const cached = db.getTmdbCache(r.tmdb_id, r.media_type);
+    if (!cached) return true;
+    if (r.media_type === 'tv' && r.seasons_json === null && cached.numberOfSeasons === undefined) {
+      db.deleteTmdbCache(r.tmdb_id, r.media_type);
+      return true;
+    }
+    return false;
+  });
   if (needsFetch.length > 0) {
     await Promise.all(needsFetch.map(r => tmdbService.getItemDetails(r.tmdb_id, r.media_type)));
   }
@@ -1028,11 +1038,19 @@ router.get('/queue', async (req, res) => {
     const isAvailable = libraryTmdbIds.has(String(r.tmdb_id));
     let displayStatus = r.status;
     if (r.status === 'approved') displayStatus = isAvailable ? 'available' : 'requested';
-    // Backfill seasons_json for TV requests that predate the seasons feature
+    // Backfill seasons_json for TV requests that predate the seasons feature.
+    // If TMDB has numberOfSeasons, build the array. If it doesn't (obscure show),
+    // write '[]' so we stop re-fetching on every queue load.
     let seasons_json = r.seasons_json;
-    if (!seasons_json && r.media_type === 'tv' && cached?.numberOfSeasons > 0) {
-      seasons_json = JSON.stringify(Array.from({ length: cached.numberOfSeasons }, (_, i) => i + 1));
-      db.prepare('UPDATE discover_requests SET seasons_json = ? WHERE id = ?').run(seasons_json, r.id);
+    if (!seasons_json && r.media_type === 'tv') {
+      if (cached?.numberOfSeasons > 0) {
+        seasons_json = JSON.stringify(Array.from({ length: cached.numberOfSeasons }, (_, i) => i + 1));
+      } else if (cached) {
+        seasons_json = '[]'; // TMDB confirmed no season count — stop retrying
+      }
+      if (seasons_json !== null) {
+        db.prepare('UPDATE discover_requests SET seasons_json = ? WHERE id = ?').run(seasons_json, r.id);
+      }
     }
     return {
       ...r,
