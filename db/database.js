@@ -650,6 +650,8 @@ function getConnectionSettings() {
     rivenUrl: getSetting('riven_url', '') || 'http://127.0.0.1:8082',
     rivenApiKey: getSetting('riven_api_key', ''),
     rivenEnabled: getSetting('riven_enabled', '0') === '1',
+    dumbEnabled: getSetting('dumb_enabled', '0') === '1',
+    dumbRequestMode: getSetting('dumb_request_mode', 'pull'),
   };
 }
 

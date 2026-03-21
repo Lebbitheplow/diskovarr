@@ -4,6 +4,20 @@ All notable changes are documented here. Versioning follows [Semantic Versioning
 
 ---
 
+## v1.17.1 — 2026-03-21
+
+### Added
+
+- **DUMB request polling** — DUMB can now connect to Diskovarr as its Overseerr source instead of Diskovarr pushing directly to Riven. Enable in Admin → Connections → Riven → DUMB Integration; generate an API key and enter it in DUMB's Overseerr settings. Choose Pull mode (DUMB polls `/api/v1/request`) or Push mode (Diskovarr pushes to Riven on approval). DUMB marks content available via `PUT /api/v1/media/:id/available`, which triggers the fulfilled notification pipeline.
+- **Search page autocomplete** — the search bar on the results page now shows TMDB suggestions as you type, matching the behaviour of the nav bar.
+
+### Fixed
+
+- **DUMB API key length** — Riven validates Overseerr API keys against an exact 68-character length check; Diskovarr now generates 68-character keys (34 random bytes) for DUMB instead of the default 64-character keys used for other integrations.
+- **Session cookie `sameSite`** — hardened from `lax` to `strict`; the admin session cookie is no longer sent on cross-site navigations.
+
+---
+
 ## v1.17.0 — 2026-03-21
 
 ### Added

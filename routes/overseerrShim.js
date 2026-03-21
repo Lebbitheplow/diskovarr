@@ -346,6 +346,27 @@ router.delete('/request/:id', (req, res) => {
   res.json({ message: 'Request deleted' });
 });
 
+// GET /api/v1/request/count — DUMB polls this for queue depth
+router.get('/request/count', (req, res) => {
+  const pending  = db.getAllRequests(500, 0, 'pending').total;
+  const approved = db.getAllRequests(500, 0, 'approved').total;
+  res.json({ pending, approved, available: 0, processing: 0, failed: 0 });
+});
+
+// PUT /api/v1/media/:id/available — DUMB calls this after downloading content
+router.put('/media/:id/available', (req, res) => {
+  const tmdbId = parseInt(req.params.id);
+  if (!tmdbId) return res.status(400).json({ message: 'Invalid media id' });
+  const request = db.prepare(
+    `SELECT * FROM discover_requests WHERE tmdb_id = ? AND status = 'approved' ORDER BY requested_at DESC LIMIT 1`
+  ).get(tmdbId);
+  if (!request) return res.status(404).json({ message: 'No approved request found for this media' });
+  db.markRequestsNotifiedAvailable([request.id]);
+  process.emit('diskovarr:checkFulfilled');
+  logger.info(`[shim] DUMB marked tmdbId=${tmdbId} available — request #${request.id}`);
+  res.json(toOverseerrRequest(request));
+});
+
 // ── Catch-all for unimplemented Overseerr endpoints ───────────────────────────
 router.use((req, res) => {
   logger.debug(`[shim] Unhandled ${req.method} ${req.path}`);
