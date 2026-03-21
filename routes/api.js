@@ -798,7 +798,7 @@ async function submitRequestToService(requestData) {
     }
   } else if (service === 'riven') {
     // DUMB pull mode: skip the push — DUMB polls /api/v1/request?filter=approved instead
-    if (db.getSetting('dumb_enabled', '0') === '1' && db.getSetting('dumb_request_mode', 'pull') === 'pull') {
+    if (db.getSetting('riven_enabled', '0') === '1' && db.getSetting('dumb_request_mode', 'pull') === 'pull') {
       logger.info(`[riven] DUMB pull mode active — skipping push for tmdbId=${tmdbId}`);
       return;
     }
@@ -842,8 +842,6 @@ async function submitRequestToService(requestData) {
     throw new Error('Invalid service');
   }
 }
-
-module.exports.submitRequestToService = submitRequestToService;
 
 // POST /api/request — submit a request via Overseerr, Radarr, or Sonarr
 router.post('/request', async (req, res) => {
@@ -1019,10 +1017,10 @@ router.get('/queue', async (req, res) => {
     ({ rows, total } = isAdmin ? db.getAllRequests(limit, (pageNum - 1) * limit, dbStatus) : db.getUserRequests(userId, limit, (pageNum - 1) * limit, dbStatus));
   }
 
-  // Fetch TMDB details on-demand for rows missing poster (backfill for old requests)
-  const missingPosters = rows.filter(r => !r.poster_url && !db.getTmdbCache(r.tmdb_id, r.media_type));
-  if (missingPosters.length > 0) {
-    await Promise.all(missingPosters.map(r => tmdbService.getItemDetails(r.tmdb_id, r.media_type)));
+  // Fetch TMDB details on-demand for rows missing poster or seasons (backfill for old requests)
+  const needsFetch = rows.filter(r => !db.getTmdbCache(r.tmdb_id, r.media_type));
+  if (needsFetch.length > 0) {
+    await Promise.all(needsFetch.map(r => tmdbService.getItemDetails(r.tmdb_id, r.media_type)));
   }
 
   const enriched = rows.map(r => {
@@ -1030,8 +1028,15 @@ router.get('/queue', async (req, res) => {
     const isAvailable = libraryTmdbIds.has(String(r.tmdb_id));
     let displayStatus = r.status;
     if (r.status === 'approved') displayStatus = isAvailable ? 'available' : 'requested';
+    // Backfill seasons_json for TV requests that predate the seasons feature
+    let seasons_json = r.seasons_json;
+    if (!seasons_json && r.media_type === 'tv' && cached?.numberOfSeasons > 0) {
+      seasons_json = JSON.stringify(Array.from({ length: cached.numberOfSeasons }, (_, i) => i + 1));
+      db.prepare('UPDATE discover_requests SET seasons_json = ? WHERE id = ?').run(seasons_json, r.id);
+    }
     return {
       ...r,
+      seasons_json,
       posterUrl: r.poster_url || cached?.posterUrl || null,
       year: cached?.releaseDate ? parseInt(cached.releaseDate.slice(0, 4)) || null : null,
       contentRating: cached?.contentRating || null,
@@ -1076,11 +1081,17 @@ router.post('/queue/:id/approve', requirePrivileged, async (req, res) => {
     if (request.status !== 'pending') return res.status(400).json({ error: 'Request is not pending' });
 
     const storedSeasons = request.seasons_json ? JSON.parse(request.seasons_json) : null;
+    // If service is 'none' (e.g. queued via shim), pick the best available service now
+    const service = (!request.service || request.service === 'none')
+      ? (request.media_type === 'movie'
+          ? (db.getConnectionSettings().radarrEnabled ? 'radarr' : db.getConnectionSettings().overseerrEnabled ? 'overseerr' : 'riven')
+          : (db.getConnectionSettings().sonarrEnabled ? 'sonarr' : db.getConnectionSettings().overseerrEnabled ? 'overseerr' : 'riven'))
+      : request.service;
     await submitRequestToService({
       tmdbId: request.tmdb_id,
       mediaType: request.media_type,
       title: request.title,
-      service: request.service,
+      service,
       seasons: storedSeasons,
     });
 
@@ -1425,3 +1436,4 @@ router.post('/user/discord/test', async (req, res) => {
 });
 
 module.exports = router;
+module.exports.submitRequestToService = submitRequestToService;

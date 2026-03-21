@@ -1431,4 +1431,6 @@ module.exports = {
   // API apps (Agregarr / external integrations)
   createApiApp, getApiApp, getApiAppByKey, listApiApps, updateApiApp, regenerateApiAppKey, deleteApiApp,
   createServiceUser, getServiceUserByKey, getServiceUserById, getServiceUsersByApp, deleteServiceUser,
+  // Raw prepare — used by overseerrShim for ad-hoc queries not worth a dedicated function
+  prepare: (sql) => db.prepare(sql),
 };

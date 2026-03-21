@@ -1,5 +1,22 @@
 [
   {
+    "version": "1.17.2",
+    "date": "2026-03-21",
+    "changes": [
+      "Bulk user settings — select multiple users in Admin → Users and apply the same settings override to all at once; each field has a three-state selector so only the fields you care about are changed",
+      "Season bubbles on TV requests — the request queue now shows individual season number chips (S1 S2 S3…) for each TV request",
+      "Request age — the queue Date column now shows relative age (e.g. 3 hours ago, 2 days ago) instead of an absolute date",
+      "Info modal credits — a Created by line at the bottom of the info modal links to the GitHub profiles of the project contributors",
+      "Fix: DUMB queue polling — approved requests now return media.status=3 (PROCESSING) so DUMB picks them up; added missing /movie/:id and /tv/:id detail endpoints DUMB uses for IMDb ID lookup; added type and media.media_type fields that DUMB accesses internally",
+      "Fix: Agregarr service user attribution — requests via the shim were attributed to the generic app user; fixed by reading the X-Api-User header Agregarr sends",
+      "Fix: Agregarr requests always pending — shim now calls getEffectiveAutoApprove() so requests auto-approve when the global or per-user setting allows it",
+      "Fix: Agregarr requests with non-TMDB IDs — requests whose TMDB ID returns 404 are now silently skipped with a clean 201 so Agregarr's sync continues",
+      "Fix: Agregarr rate limit response — hitting a per-user season or movie limit now returns a silent 201 instead of 403 so Agregarr's sync continues uninterrupted",
+      "Fix: Approve request with service=none — the approve endpoint now picks the best available service dynamically when service is none",
+      "Fix: Delete confirmation modal — replaced native confirm() with a custom in-page modal that supports a don't ask again checkbox backed by localStorage"
+    ]
+  },
+  {
     "version": "1.17.1",
     "date": "2026-03-21",
     "changes": [

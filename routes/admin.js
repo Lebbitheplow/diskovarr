@@ -141,10 +141,7 @@ router.get('/', requireAdmin, async (req, res) => {
       const apps = db.listApiApps().filter(a => a.type === 'agregarr');
       return apps[0] || null;
     })(),
-    dumbApp: (() => {
-      const apps = db.listApiApps().filter(a => a.type === 'dumb');
-      return apps[0] || null;
-    })(),
+    dumbHasApiKey: !!(db.listApiApps().find(a => a.type === 'dumb')?.api_key),
   });
 });
 
@@ -641,6 +638,45 @@ router.post('/users/:userId/settings', requireAdmin, (req, res) => {
       is_admin: is_admin === true || is_admin === '1',
     });
     res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Bulk user settings ────────────────────────────────────────────────────────
+
+router.post('/users/bulk-settings', requireAdmin, async (req, res) => {
+  try {
+    const { userIds, overrideGlobal, movieLimit, movieWindowDays, seasonLimit, tvWindowDays,
+            auto_approve_movies, auto_approve_tv, is_admin } = req.body;
+    if (!Array.isArray(userIds) || userIds.length === 0) {
+      return res.status(400).json({ error: 'userIds must be a non-empty array' });
+    }
+    for (const userId of userIds) {
+      const current = db.getUserSettings(userId);
+      const merged = {
+        movieLimit:       overrideGlobal === 'enable'  ? (movieLimit        !== undefined ? Number(movieLimit) || 0        : current.movieLimit)       : current.movieLimit,
+        movieWindowDays:  overrideGlobal === 'enable'  ? (movieWindowDays   !== undefined ? Number(movieWindowDays) || 7   : current.movieWindowDays)  : current.movieWindowDays,
+        seasonLimit:      overrideGlobal === 'enable'  ? (seasonLimit       !== undefined ? Number(seasonLimit) || 0       : current.seasonLimit)      : current.seasonLimit,
+        tvWindowDays:     overrideGlobal === 'enable'  ? (tvWindowDays      !== undefined ? Number(tvWindowDays) || 7      : current.tvWindowDays)     : current.tvWindowDays,
+        overrideGlobal:   overrideGlobal === 'enable'  ? true  : overrideGlobal === 'disable' ? false : current.overrideGlobal,
+        auto_approve_movies: auto_approve_movies === 'enable'  ? true
+                           : auto_approve_movies === 'disable' ? false
+                           : auto_approve_movies === 'clear'   ? null
+                           : current.auto_approve_movies,
+        auto_approve_tv:     auto_approve_tv    === 'enable'  ? true
+                           : auto_approve_tv    === 'disable' ? false
+                           : auto_approve_tv    === 'clear'   ? null
+                           : current.auto_approve_tv,
+        is_admin:         is_admin === 'grant'  ? true  : is_admin === 'revoke' ? false : current.is_admin,
+        region:           current.region,
+        language:         current.language,
+        auto_request_movies: current.auto_request_movies,
+        auto_request_tv:     current.auto_request_tv,
+      };
+      db.saveUserSettings(userId, merged);
+    }
+    res.json({ success: true, updated: userIds.length });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

@@ -51,6 +51,7 @@ function normalizeMovie(details, credits) {
     isAnime: false,
     contentRating: usCert || null,
     adult: details.adult || isMatureRated,
+    imdbId: details.imdb_id || null,
     keywords: (details.keywords?.keywords || []).map(k => k.name),
     keywordIds: (details.keywords?.keywords || []).slice(0, 20).map(k => ({ id: k.id, name: k.name })),
     collection: details.belongs_to_collection?.id || null,
@@ -94,6 +95,8 @@ function normalizeTV(details, credits) {
     trailerKey: (details.videos?.results || [])
       .filter(v => v.site === 'YouTube' && v.type === 'Trailer')
       .sort((a, b) => (b.official ? 1 : 0) - (a.official ? 1 : 0))[0]?.key || null,
+    numberOfSeasons: details.number_of_seasons || null,
+    imdbId: details.external_ids?.imdb_id || null,
   };
 }
 
@@ -103,7 +106,7 @@ async function getItemDetails(tmdbId, mediaType) {
 
   try {
     const detailsPath = mediaType === 'tv'
-      ? `/tv/${tmdbId}?append_to_response=content_ratings,keywords,videos`
+      ? `/tv/${tmdbId}?append_to_response=content_ratings,keywords,videos,external_ids`
       : `/movie/${tmdbId}?append_to_response=release_dates,keywords,videos`;
     const [details, credits] = await Promise.all([
       tmdbFetch(detailsPath),

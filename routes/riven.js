@@ -241,7 +241,21 @@ router.get('/browse', (req, res) => {
 
 // GET /admin/riven/config — return current config (keys masked)
 router.get('/config', (req, res) => {
-  const dumbApp = db.listApiApps().find(a => a.type === 'dumb') || null;
+  // Auto-create DUMB app row (and ensure it's enabled) whenever Riven is enabled
+  let dumbApp = db.listApiApps().find(a => a.type === 'dumb') || null;
+  if (!dumbApp) {
+    dumbApp = db.createApiApp('DUMB', 'dumb');
+    const key68 = generateDumbKey();
+    db.prepare('UPDATE api_apps SET api_key = ?, enabled = 1 WHERE id = ?').run(key68, dumbApp.id);
+    dumbApp = db.getApiApp(dumbApp.id);
+  } else if (!dumbApp.enabled) {
+    db.updateApiApp(dumbApp.id, { enabled: true });
+    dumbApp = db.getApiApp(dumbApp.id);
+  } else if (dumbApp.api_key && dumbApp.api_key.length !== 68) {
+    const key68 = generateDumbKey();
+    db.prepare('UPDATE api_apps SET api_key = ? WHERE id = ?').run(key68, dumbApp.id);
+    dumbApp = db.getApiApp(dumbApp.id);
+  }
   res.json({
     url: getRivenUrl(),
     apiKey: getRivenApiKey() ? '••••••••' : '',
@@ -249,7 +263,6 @@ router.get('/config', (req, res) => {
     hasApiKey: !!getRivenApiKey(),
     hasRdKey: !!getRdApiKey(),
     enabled: db.getSetting('riven_enabled', '0') === '1',
-    dumbEnabled: db.getSetting('dumb_enabled', '0') === '1',
     dumbRequestMode: db.getSetting('dumb_request_mode', 'pull'),
     dumbHasApiKey: !!(dumbApp?.api_key),
   });
@@ -257,12 +270,11 @@ router.get('/config', (req, res) => {
 
 // POST /admin/riven/config/save
 router.post('/config/save', (req, res) => {
-  const { url, apiKey, rdApiKey, enabled, dumbEnabled, dumbRequestMode } = req.body;
+  const { url, apiKey, rdApiKey, enabled, dumbRequestMode } = req.body;
   if (url !== undefined) db.setSetting('riven_url', url.trim());
   if (apiKey && apiKey !== '••••••••') db.setSetting('riven_api_key', apiKey.trim());
   if (rdApiKey && rdApiKey !== '••••••••') db.setSetting('riven_rd_api_key', rdApiKey.trim());
   if (enabled !== undefined) db.setSetting('riven_enabled', enabled ? '1' : '0');
-  if (dumbEnabled !== undefined) db.setSetting('dumb_enabled', dumbEnabled ? '1' : '0');
   if (dumbRequestMode !== undefined) db.setSetting('dumb_request_mode', dumbRequestMode);
   res.json({ ok: true });
 });
