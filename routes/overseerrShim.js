@@ -10,6 +10,24 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db/database');
 const logger = require('../services/logger');
+const tmdb = require('../services/tmdb');
+
+// ── In-memory library cache ────────────────────────────────────────────────────
+// Caches library TMDB IDs for 2 minutes so bulk Agregarr list runs don't hit
+// SQLite for every individual request. Invalidated on library sync events.
+let _libCache = { ids: null, expiresAt: 0 };
+const LIB_CACHE_TTL = 2 * 60 * 1000;
+
+function getLibraryIdSet() {
+  if (Date.now() < _libCache.expiresAt && _libCache.ids) return _libCache.ids;
+  const rows = db.prepare('SELECT tmdb_id, type FROM library_items WHERE tmdb_id IS NOT NULL').all();
+  const ids = new Set(rows.map(r => `${r.tmdb_id}:${r.type === 'show' ? 'tv' : 'movie'}`));
+  _libCache = { ids, expiresAt: Date.now() + LIB_CACHE_TTL };
+  return ids;
+}
+
+// Invalidate when the library syncs
+process.on('diskovarr:checkFulfilled', () => { _libCache.expiresAt = 0; });
 
 // ── Shim auth middleware ───────────────────────────────────────────────────────
 // Sets req.shimApp (always) and req.shimUser (if request is from a service user key)
@@ -97,12 +115,16 @@ function toOverseerrRequest(row) {
   const seasons = row.seasons_json ? JSON.parse(row.seasons_json) : [];
   return {
     id: row.id,
+    type: row.media_type, // 'movie' or 'tv' — DUMB reads item.type in log/skip messages
     status: toOverseerrStatus(row.status),
     media: {
       id: row.tmdb_id,
       mediaType: row.media_type,
+      media_type: row.media_type, // snake_case alias — DUMB accesses data.media_type in its fallback path
       tmdbId: row.tmdb_id,
-      status: row.status === 'approved' ? 5 : 2,
+      // DUMB filters for status==2 (approved) && media.status==3 (processing).
+      // Use 3 so DUMB picks up approved-but-not-yet-downloaded items.
+      status: row.status === 'approved' ? 3 : 2,
     },
     seasons: seasons.map(n => ({ id: n, seasonNumber: n, status: 2 })),
     createdAt: new Date((row.requested_at || 0) * 1000).toISOString(),
@@ -216,6 +238,25 @@ router.post('/user/:id/settings', (req, res) => {
   res.json(shimUserObj(svcUser));
 });
 
+// POST /api/v1/user/:id/settings/notifications — Agregarr updates notification prefs
+router.post('/user/:id/settings/notifications', (req, res) => {
+  const svcUser = db.getServiceUserById(req.shimApp.id, parseInt(req.params.id));
+  if (!svcUser) return res.status(404).json({ message: 'User not found' });
+  res.json({ notificationTypes: {}, pgpKey: null });
+});
+
+// POST /api/v1/user/:id/settings/permissions — Agregarr sets permissions before requests
+router.post('/user/:id/settings/permissions', (req, res) => {
+  const svcUser = db.getServiceUserById(req.shimApp.id, parseInt(req.params.id));
+  if (!svcUser) return res.status(404).json({ message: 'User not found' });
+  const { permissions } = req.body || {};
+  if (permissions !== undefined) {
+    db.prepare('UPDATE app_service_users SET permissions = ? WHERE id = ?')
+      .run(Number(permissions), svcUser.id);
+  }
+  res.json(shimUserObj(db.prepare('SELECT * FROM app_service_users WHERE id = ?').get(svcUser.id)));
+});
+
 // GET /api/v1/user/:id/settings
 router.get('/user/:id/settings', (req, res) => {
   const svcUser = db.getServiceUserById(req.shimApp.id, parseInt(req.params.id));
@@ -235,61 +276,138 @@ router.post('/request', async (req, res) => {
     return res.status(400).json({ message: 'Invalid mediaType' });
   }
 
-  // Determine which user_id this request is from
-  const userId = req.shimUser ? req.shimUser.user_id : `__app_${req.shimApp.id}__`;
+  // Determine which user_id this request is from.
+  // Agregarr authenticates with the admin key but sends X-API-User header
+  // containing the service user's overseerr_user_id for impersonation.
+  let userId;
+  let resolvedSvcUser = req.shimUser || null;
+
+  if (req.shimUser) {
+    // Authenticated as a service user directly
+    userId = req.shimUser.user_id;
+  } else {
+    // Admin key — check X-API-User impersonation header (Agregarr's mechanism)
+    const impersonateId = req.headers['x-api-user'];
+    if (impersonateId) {
+      const svc = db.getServiceUserById(req.shimApp.id, parseInt(impersonateId));
+      if (svc) {
+        resolvedSvcUser = svc;
+        userId = svc.user_id;
+      }
+    }
+    if (!userId) userId = `__app_${req.shimApp.id}__`;
+  }
 
   // Ensure the app-level virtual user exists in known_users
-  if (!req.shimUser) {
+  if (!resolvedSvcUser) {
     db.prepare('INSERT OR IGNORE INTO known_users (user_id, username, thumb, seen_at) VALUES (?, ?, NULL, ?)')
       .run(userId, req.shimApp.name, Math.floor(Date.now() / 1000));
   }
 
-  // Rate limit check (reuses existing user limit system)
+  // Rate limit check (reuses existing user limit system).
+  // When the limit is hit we silently return a success response instead of erroring —
+  // automated callers like Agregarr treat 4xx as fatal and their sync freezes.
   const limits = db.getEffectiveLimits(userId);
   if (limits) {
     if (mediaType === 'movie' && limits.movieLimit > 0) {
       const count = db.countRecentMovieRequests(userId, limits.movieWindowDays);
       if (count >= limits.movieLimit) {
-        return res.status(403).json({ message: `Movie request limit reached (${limits.movieLimit} per ${limits.movieWindowDays}d)` });
+        logger.debug(`[shim] rate limit: user=${userId} movie limit ${limits.movieLimit}/${limits.movieWindowDays}d reached (${count} used) — silently dropping`);
+        return res.status(201).json({
+          id: 0, status: 1,
+          media: { id: Number(mediaId), mediaType, tmdbId: Number(mediaId), status: 1 },
+          seasons: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+          requestedBy: resolvedSvcUser ? shimUserObj(resolvedSvcUser) : shimAdminObj(req.shimApp),
+          modifiedBy: null, is4k: false, serverId: 0, profileId: 0, rootFolder: '',
+        });
       }
     }
     if (mediaType === 'tv' && limits.seasonLimit > 0) {
       const requestedSeasons = Array.isArray(seasons) ? seasons.length : 1;
       const count = db.countRecentSeasonRequests(userId, limits.seasonWindowDays);
       if (count + requestedSeasons > limits.seasonLimit) {
-        return res.status(403).json({ message: `Season request limit reached (${limits.seasonLimit} per ${limits.seasonWindowDays}d)` });
+        logger.debug(`[shim] rate limit: user=${userId} season limit ${limits.seasonLimit}/${limits.seasonWindowDays}d reached (${count} used, +${requestedSeasons} requested) — silently dropping`);
+        return res.status(201).json({
+          id: 0, status: 1,
+          media: { id: Number(mediaId), mediaType, tmdbId: Number(mediaId), status: 1 },
+          seasons: Array.isArray(seasons) ? seasons.map(n => ({ id: Number(n), seasonNumber: Number(n), status: 1 })) : [],
+          createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+          requestedBy: resolvedSvcUser ? shimUserObj(resolvedSvcUser) : shimAdminObj(req.shimApp),
+          modifiedBy: null, is4k: false, serverId: 0, profileId: 0, rootFolder: '',
+        });
       }
     }
   }
 
   try {
-    // Resolve title from TMDB cache or use mediaId as fallback
-    const cached = db.getTmdbCache(mediaId, mediaType);
-    const title = cached?.title || String(mediaId);
+    // Resolve title from TMDB cache; fetch live if missing
+    let cached = db.getTmdbCache(mediaId, mediaType);
+    if (!cached && db.hasTmdbKey()) {
+      try {
+        const details = await tmdb.getItemDetails(mediaId, mediaType === 'tv' ? 'tv' : 'movie');
+        if (details) {
+          db.setTmdbCache(mediaId, mediaType, details);
+          cached = db.getTmdbCache(mediaId, mediaType);
+        }
+      } catch (e) {
+        logger.debug(`[shim] TMDB fetch failed for ${mediaId}: ${e.message}`);
+      }
+    }
+    const title = cached?.title || null;
+    if (!title) {
+      // TMDB returned 404 or key not configured — ID doesn't exist on TMDB (likely AniList/other source).
+      // Skip silently so Agregarr's sync isn't interrupted.
+      logger.debug(`[shim] skipping tmdbId=${mediaId} type=${mediaType} — could not resolve title (non-TMDB ID?)`);
+      return res.status(201).json({
+        id: 0, status: 1,
+        media: { id: Number(mediaId), mediaType, tmdbId: Number(mediaId), status: 1 },
+        seasons: Array.isArray(seasons) ? seasons.map(n => ({ id: Number(n), seasonNumber: Number(n), status: 1 })) : [],
+        createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+        requestedBy: resolvedSvcUser ? shimUserObj(resolvedSvcUser) : shimAdminObj(req.shimApp),
+        modifiedBy: null, is4k: false, serverId: 0, profileId: 0, rootFolder: '',
+      });
+    }
     const posterUrl = cached?.posterUrl || null;
-    const seasonsArray = Array.isArray(seasons) && seasons.length > 0 ? seasons.map(Number) : null;
+    // Build seasons array: use explicit list from request body if provided,
+    // otherwise derive from TMDB's numberOfSeasons (so bubbles are always visible).
+    let seasonsArray = Array.isArray(seasons) && seasons.length > 0 ? seasons.map(Number) : null;
+    if (!seasonsArray && mediaType === 'tv' && cached?.numberOfSeasons > 0) {
+      seasonsArray = Array.from({ length: cached.numberOfSeasons }, (_, i) => i + 1);
+    }
     const seasonsCount = seasonsArray ? seasonsArray.length : 1;
-    const service = pickService(mediaType);
 
-    const autoApprove = db.getEffectiveAutoApprove(userId, mediaType);
-
-    if (!autoApprove) {
-      db.addDiscoverRequestWithStatus(userId, mediaId, mediaType, title, service, seasonsCount, 'pending', seasonsArray, posterUrl);
-      logger.info(`[shim] Request queued pending: user=${userId} tmdbId=${mediaId} type=${mediaType} title="${title}"`);
-      const row = db.prepare('SELECT * FROM discover_requests WHERE user_id = ? AND tmdb_id = ? ORDER BY id DESC LIMIT 1').get(userId, Number(mediaId));
-      return res.status(201).json(toOverseerrRequest({ ...row, username: req.shimUser?.username || req.shimApp.name }));
+    // Check if already in Plex library (cached set — avoids DB query per request)
+    const libKey = `${mediaId}:${mediaType === 'tv' ? 'tv' : 'movie'}`;
+    if (getLibraryIdSet().has(libKey)) {
+      logger.debug(`[shim] ${title} already in library — skipping request`);
+      // Return a synthetic "available" response matching Overseerr format
+      return res.status(201).json({
+        id: 0, status: 5, // AVAILABLE
+        media: { id: Number(mediaId), mediaType, tmdbId: Number(mediaId), status: 5 },
+        seasons: seasonsArray ? seasonsArray.map(n => ({ id: n, seasonNumber: n, status: 5 })) : [],
+        createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+        requestedBy: resolvedSvcUser ? shimUserObj(resolvedSvcUser) : shimAdminObj(req.shimApp),
+        modifiedBy: null, is4k: false, serverId: 0, profileId: 0, rootFolder: '',
+      });
     }
 
-    // Auto-approve: submit to service
-    if (service !== 'none') {
-      const { submitRequestToService } = require('./api');
-      await submitRequestToService({ tmdbId: mediaId, mediaType, title, service, seasons: seasonsArray });
+    // Check for an existing non-denied request for this title
+    const existing = db.prepare(
+      `SELECT * FROM discover_requests WHERE tmdb_id = ? AND media_type = ? AND status != 'denied' ORDER BY id DESC LIMIT 1`
+    ).get(Number(mediaId), mediaType);
+    if (existing) {
+      logger.debug(`[shim] ${title} already requested (id=${existing.id}) — returning existing`);
+      return res.status(409).json({ message: 'Request already exists', ...toOverseerrRequest(existing) });
     }
-    db.addDiscoverRequestWithStatus(userId, mediaId, mediaType, title, service, seasonsCount, 'approved', seasonsArray, posterUrl);
-    logger.info(`[shim] Request approved: user=${userId} tmdbId=${mediaId} type=${mediaType} title="${title}" service=${service}`);
+
+    // Shim requests are queued in Diskovarr only — never routed to Radarr/Sonarr.
+    // Respect the global auto-approve setting.
+    const status = db.getEffectiveAutoApprove(userId, mediaType) ? 'approved' : 'pending';
+    db.addDiscoverRequestWithStatus(userId, mediaId, mediaType, title, 'none', seasonsCount, status, seasonsArray, posterUrl);
+    logger.info(`[shim] Request ${status}: user=${userId} tmdbId=${mediaId} type=${mediaType} title="${title}"`);
 
     const row = db.prepare('SELECT * FROM discover_requests WHERE user_id = ? AND tmdb_id = ? ORDER BY id DESC LIMIT 1').get(userId, Number(mediaId));
-    res.status(201).json(toOverseerrRequest({ ...row, username: req.shimUser?.username || req.shimApp.name }));
+    res.status(201).json(toOverseerrRequest({ ...row, username: resolvedSvcUser?.username || req.shimApp.name }));
   } catch (err) {
     logger.warn('[shim] request error:', err.message);
     res.status(500).json({ message: err.message });
@@ -344,6 +462,34 @@ router.delete('/request/:id', (req, res) => {
   if (!request) return res.status(404).json({ message: 'Request not found' });
   db.deleteRequest(request.id);
   res.json({ message: 'Request deleted' });
+});
+
+// GET /api/v1/movie/:id — DUMB calls this to look up IMDb ID for a movie
+router.get('/movie/:id', async (req, res) => {
+  const tmdbId = parseInt(req.params.id);
+  if (!tmdbId) return res.status(400).json({ message: 'Invalid id' });
+  let cached = db.getTmdbCache(tmdbId, 'movie');
+  if (!cached && db.hasTmdbKey()) {
+    try { cached = await tmdb.getItemDetails(tmdbId, 'movie'); } catch {}
+  }
+  res.json({
+    id: tmdbId, mediaType: 'movie',
+    externalIds: { imdbId: cached?.imdbId || null, tmdbId },
+  });
+});
+
+// GET /api/v1/tv/:id — DUMB calls this to look up IMDb ID for a TV show
+router.get('/tv/:id', async (req, res) => {
+  const tmdbId = parseInt(req.params.id);
+  if (!tmdbId) return res.status(400).json({ message: 'Invalid id' });
+  let cached = db.getTmdbCache(tmdbId, 'tv');
+  if (!cached && db.hasTmdbKey()) {
+    try { cached = await tmdb.getItemDetails(tmdbId, 'tv'); } catch {}
+  }
+  res.json({
+    id: tmdbId, mediaType: 'tv',
+    externalIds: { imdbId: cached?.imdbId || null, tmdbId },
+  });
 });
 
 // GET /api/v1/request/count — DUMB polls this for queue depth

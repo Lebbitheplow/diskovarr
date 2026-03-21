@@ -336,15 +336,17 @@
           <p class="empty-state" style="padding:20px 0">No users have synced yet.</p>
         <% } else { %>
           <div class="user-table-wrap">
-          <div class="user-table" style="<%= connections.discoverEnabled ? 'grid-template-columns: minmax(140px,1fr) 110px 120px 120px' : '' %>">
-            <div class="user-table-header" style="<%= connections.discoverEnabled ? 'grid-template-columns: minmax(140px,1fr) 110px 120px 120px' : '' %>">
+          <div class="user-table" style="<%= connections.discoverEnabled ? 'grid-template-columns: 36px minmax(140px,1fr) 110px 120px 120px' : 'grid-template-columns: 36px minmax(140px,1fr) 110px 120px' %>">
+            <div class="user-table-header" style="<%= connections.discoverEnabled ? 'grid-template-columns: 36px minmax(140px,1fr) 110px 120px 120px' : 'grid-template-columns: 36px minmax(140px,1fr) 110px 120px' %>">
+              <span style="display:flex;align-items:center"><input type="checkbox" id="user-select-all" class="themed-checkbox" onchange="toggleSelectAll(this.checked)" title="Select all"></span>
               <span>User</span>
               <span>Watched Items</span>
               <span>Last Visit</span>
               <% if (connections.discoverEnabled) { %><span>Settings</span><% } %>
             </div>
             <% for (const user of stats.users) { %>
-              <div class="user-table-row" id="user-row-<%= user.user_id %>" style="<%= connections.discoverEnabled ? 'grid-template-columns: minmax(140px,1fr) 110px 120px 120px' : '' %>">
+              <div class="user-table-row" id="user-row-<%= user.user_id %>" style="<%= connections.discoverEnabled ? 'grid-template-columns: 36px minmax(140px,1fr) 110px 120px 120px' : 'grid-template-columns: 36px minmax(140px,1fr) 110px 120px' %>">
+                <span style="display:flex;align-items:center"><input type="checkbox" class="themed-checkbox user-select-cb" value="<%= user.user_id %>" onchange="onUserSelectChange()"></span>
                 <span class="user-id">
                   <% if (user.thumb) { %>
                     <img src="<%= user.thumb %>" class="user-avatar-sm" alt="" onerror="this.style.display='none'">
@@ -363,6 +365,14 @@
             <% } %>
           </div>
           </div><!-- /.user-table-wrap -->
+
+          <!-- Bulk action toolbar (hidden until ≥1 user selected) -->
+          <div id="bulk-edit-toolbar" style="display:none;align-items:center;gap:12px;margin-top:12px;padding:10px 14px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;flex-wrap:wrap">
+            <span id="bulk-selected-count" style="font-size:0.88rem;color:var(--text-secondary)">0 selected</span>
+            <button class="btn-admin btn-primary btn-sm" onclick="openBulkModal()">Bulk Edit Settings</button>
+            <button class="btn-admin btn-sm" onclick="clearSelection()">Clear</button>
+          </div>
+
           <% if (userTotalPages > 1) { %>
           <div style="display:flex;align-items:center;gap:10px;margin-top:16px;font-size:0.85rem;color:var(--text-secondary)">
             <% if (userPage > 1) { %>
@@ -596,6 +606,95 @@
         <div style="display:flex;gap:10px;justify-content:flex-end">
           <button class="btn-admin" onclick="closeUserSettingsModal()">Cancel</button>
           <button class="btn-admin btn-primary" onclick="saveUserSettings()">Save</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Bulk user settings modal -->
+    <div id="bulk-settings-modal" style="display:none;position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,0.75);align-items:center;justify-content:center">
+      <div style="background:var(--bg-secondary);border-radius:14px;padding:28px;width:min(520px,92vw);border:1px solid var(--border);position:relative;max-height:90vh;overflow-y:auto">
+        <button onclick="closeBulkModal()" style="position:absolute;top:14px;right:16px;background:none;border:none;color:var(--text-secondary);font-size:1.3rem;cursor:pointer">✕</button>
+        <h3 style="margin:0 0 4px;font-size:1.05rem">Bulk Edit Settings</h3>
+        <p id="bulk-modal-desc" style="margin:0 0 20px;color:var(--text-secondary);font-size:0.88rem"></p>
+
+        <!-- Override global limits -->
+        <div style="margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--border)">
+          <div style="font-size:0.82rem;font-weight:600;color:var(--text-secondary);margin-bottom:10px;text-transform:uppercase;letter-spacing:0.05em">Request Limit Override</div>
+          <select id="bms-override-global" class="btn-admin" style="width:100%;margin-bottom:12px" onchange="onBmsOverrideChange(this.value)">
+            <option value="nochange">No change</option>
+            <option value="enable">Enable override</option>
+            <option value="disable">Disable override</option>
+          </select>
+          <div id="bms-limits-fields" style="display:none;flex-direction:column;gap:14px">
+            <!-- Movies -->
+            <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+              <span style="min-width:84px;font-size:0.9rem;color:#fff;font-weight:500">Movies</span>
+              <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:0.88rem;color:var(--text-secondary);user-select:none">
+                <input type="checkbox" class="themed-checkbox" id="bms-movie-unlimited" onchange="onBmsMovieUnlimitedChange(this.checked)">
+                Unlimited
+              </label>
+              <div id="bms-movie-fields" style="display:flex;align-items:center;gap:8px">
+                <input type="number" id="bms-movie-count" min="1" max="9999" class="btn-admin limit-num" value="5">
+                <span style="font-size:0.88rem;color:var(--text-secondary)">movies per</span>
+                <input type="number" id="bms-movie-days" min="1" max="365" class="btn-admin limit-num" value="7">
+                <span style="font-size:0.88rem;color:var(--text-secondary)">days</span>
+              </div>
+            </div>
+            <!-- TV Seasons -->
+            <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+              <span style="min-width:84px;font-size:0.9rem;color:#fff;font-weight:500">TV Seasons</span>
+              <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:0.88rem;color:var(--text-secondary);user-select:none">
+                <input type="checkbox" class="themed-checkbox" id="bms-season-unlimited" onchange="onBmsSeasonUnlimitedChange(this.checked)">
+                Unlimited
+              </label>
+              <div id="bms-season-fields" style="display:flex;align-items:center;gap:8px">
+                <input type="number" id="bms-season-count" min="1" max="9999" class="btn-admin limit-num" value="5">
+                <span style="font-size:0.88rem;color:var(--text-secondary)">seasons per</span>
+                <input type="number" id="bms-season-days" min="1" max="365" class="btn-admin limit-num" value="7">
+                <span style="font-size:0.88rem;color:var(--text-secondary)">days</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Auto-approve override -->
+        <div style="margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--border)">
+          <div style="font-size:0.82rem;font-weight:600;color:var(--text-secondary);margin-bottom:10px;text-transform:uppercase;letter-spacing:0.05em">Auto-Approve Override</div>
+          <div style="display:flex;flex-direction:column;gap:10px">
+            <div style="display:flex;align-items:center;gap:12px">
+              <span style="min-width:130px;font-size:0.88rem;color:var(--text-secondary)">Movies override</span>
+              <select id="bms-auto-approve-movies" class="btn-admin" style="flex:1">
+                <option value="nochange">No change</option>
+                <option value="enable">Auto-approve</option>
+                <option value="disable">Require approval</option>
+                <option value="clear">Clear (use global)</option>
+              </select>
+            </div>
+            <div style="display:flex;align-items:center;gap:12px">
+              <span style="min-width:130px;font-size:0.88rem;color:var(--text-secondary)">TV override</span>
+              <select id="bms-auto-approve-tv" class="btn-admin" style="flex:1">
+                <option value="nochange">No change</option>
+                <option value="enable">Auto-approve</option>
+                <option value="disable">Require approval</option>
+                <option value="clear">Clear (use global)</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- Admin privileges -->
+        <div style="margin-bottom:24px">
+          <div style="font-size:0.82rem;font-weight:600;color:var(--text-secondary);margin-bottom:10px;text-transform:uppercase;letter-spacing:0.05em">Admin Privileges</div>
+          <select id="bms-is-admin" class="btn-admin" style="width:100%">
+            <option value="nochange">No change</option>
+            <option value="grant">Grant admin</option>
+            <option value="revoke">Revoke admin</option>
+          </select>
+        </div>
+
+        <div style="display:flex;gap:10px;justify-content:flex-end">
+          <button class="btn-admin" onclick="closeBulkModal()">Cancel</button>
+          <button class="btn-admin btn-primary" onclick="saveBulkSettings()">Apply to Selected</button>
         </div>
       </div>
     </div>
@@ -1023,21 +1122,12 @@
 
           <!-- DUMB Integration subsection -->
           <div style="margin:20px 0 0;padding:16px;border-top:1px solid var(--border)">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-              <div>
-                <span style="font-size:0.9rem;font-weight:600;color:var(--text)">DUMB Integration</span>
-                <span style="font-size:0.8rem;color:var(--text-muted);margin-left:8px">Let DUMB poll Diskovarr for approved requests</span>
-              </div>
-              <div class="conn-toggle-wrap">
-                <span class="conn-toggle-label" id="lbl-dumb-enabled"><%= dumbApp && dumbApp.enabled ? 'Enabled' : 'Disabled' %></span>
-                <label class="slide-toggle" title="Enable DUMB integration">
-                  <input type="checkbox" id="toggle-dumb-enabled" <%= dumbApp && dumbApp.enabled ? 'checked' : '' %> onchange="dumbToggleEnabled(this.checked)">
-                  <span class="slide-track"></span>
-                </label>
-              </div>
+            <div style="margin-bottom:12px">
+              <span style="font-size:0.9rem;font-weight:600;color:var(--text)">DUMB Integration</span>
+              <span style="font-size:0.8rem;color:var(--text-muted);margin-left:8px">Let DUMB poll Diskovarr for approved requests</span>
             </div>
 
-            <div id="dumb-fields" style="<%= dumbApp && dumbApp.enabled ? '' : 'display:none' %>">
+            <div id="dumb-fields">
               <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:14px 16px;margin-bottom:16px;font-size:0.83rem;line-height:1.6">
                 <p style="margin:0 0 6px;font-weight:600;color:var(--text)">How to connect DUMB:</p>
                 <ol style="margin:0;padding-left:20px;color:var(--text-muted)">
@@ -1059,7 +1149,7 @@
               <div class="conn-field-group" style="max-width:520px">
                 <span class="conn-field-label">DUMB API Key</span>
                 <div class="conn-input-wrap">
-                  <input type="password" id="dumb-api-key" class="conn-input" readonly value="<%= dumbApp && dumbApp.api_key ? '••••••••' : '' %>" autocomplete="off">
+                  <input type="password" id="dumb-api-key" class="conn-input" readonly value="<%= dumbHasApiKey ? '••••••••' : '' %>" autocomplete="off">
                   <div class="conn-input-btns">
                     <button type="button" class="conn-input-icon-btn" id="dumb-key-eye-btn" onclick="toggleFieldVis('dumb-api-key', this)" title="Show / hide"><svg width="20" height="20" viewBox="0 0 24 24" fill="#fff"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg></button>
                     <button type="button" class="conn-input-icon-btn" id="dumb-key-copy-btn" onclick="dumbCopyKey()" title="Copy to clipboard"><svg width="20" height="20" viewBox="0 0 24 24" fill="#fff"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg></button>
@@ -1859,6 +1949,113 @@
         if (data.success) {
           showToast('User settings saved');
           closeUserSettingsModal();
+        } else {
+          showToast('Save failed: ' + (data.error || ''), true);
+        }
+      } catch (err) {
+        showToast('Save failed: ' + err.message, true);
+      }
+    }
+
+    // ── Bulk user settings ─────────────────────────────────────────
+
+    function getSelectedUserIds() {
+      return Array.from(document.querySelectorAll('.user-select-cb:checked')).map(cb => cb.value);
+    }
+
+    function toggleSelectAll(checked) {
+      document.querySelectorAll('.user-select-cb').forEach(cb => { cb.checked = checked; });
+      onUserSelectChange();
+    }
+
+    function onUserSelectChange() {
+      const ids = getSelectedUserIds();
+      const count = ids.length;
+      const toolbar = document.getElementById('bulk-edit-toolbar');
+      const countEl = document.getElementById('bulk-selected-count');
+      if (count > 0) {
+        toolbar.style.display = 'flex';
+        countEl.textContent = count + ' user' + (count === 1 ? '' : 's') + ' selected';
+      } else {
+        toolbar.style.display = 'none';
+      }
+      // Sync select-all checkbox state
+      const allCbs = document.querySelectorAll('.user-select-cb');
+      const allChecked = allCbs.length > 0 && Array.from(allCbs).every(cb => cb.checked);
+      document.getElementById('user-select-all').checked = allChecked;
+    }
+
+    function clearSelection() {
+      document.querySelectorAll('.user-select-cb').forEach(cb => { cb.checked = false; });
+      document.getElementById('user-select-all').checked = false;
+      document.getElementById('bulk-edit-toolbar').style.display = 'none';
+    }
+
+    function openBulkModal() {
+      const ids = getSelectedUserIds();
+      if (ids.length === 0) return;
+      document.getElementById('bulk-modal-desc').textContent = ids.length + ' user' + (ids.length === 1 ? '' : 's') + ' selected — fields set to "No change" will not be modified.';
+      // Reset all fields to default / no change
+      document.getElementById('bms-override-global').value = 'nochange';
+      document.getElementById('bms-limits-fields').style.display = 'none';
+      document.getElementById('bms-movie-unlimited').checked = false;
+      document.getElementById('bms-movie-fields').style.display = 'flex';
+      document.getElementById('bms-movie-count').value = 5;
+      document.getElementById('bms-movie-days').value = 7;
+      document.getElementById('bms-season-unlimited').checked = false;
+      document.getElementById('bms-season-fields').style.display = 'flex';
+      document.getElementById('bms-season-count').value = 5;
+      document.getElementById('bms-season-days').value = 7;
+      document.getElementById('bms-auto-approve-movies').value = 'nochange';
+      document.getElementById('bms-auto-approve-tv').value = 'nochange';
+      document.getElementById('bms-is-admin').value = 'nochange';
+      document.getElementById('bulk-settings-modal').style.display = 'flex';
+    }
+
+    function closeBulkModal() {
+      document.getElementById('bulk-settings-modal').style.display = 'none';
+    }
+
+    function onBmsOverrideChange(val) {
+      document.getElementById('bms-limits-fields').style.display = val === 'enable' ? 'flex' : 'none';
+    }
+    function onBmsMovieUnlimitedChange(checked) {
+      document.getElementById('bms-movie-fields').style.display = checked ? 'none' : 'flex';
+    }
+    function onBmsSeasonUnlimitedChange(checked) {
+      document.getElementById('bms-season-fields').style.display = checked ? 'none' : 'flex';
+    }
+
+    async function saveBulkSettings() {
+      const ids = getSelectedUserIds();
+      if (ids.length === 0) return;
+      const overrideGlobal = document.getElementById('bms-override-global').value;
+      const payload = {
+        userIds: ids,
+        overrideGlobal: overrideGlobal !== 'nochange' ? overrideGlobal : undefined,
+        auto_approve_movies: document.getElementById('bms-auto-approve-movies').value !== 'nochange' ? document.getElementById('bms-auto-approve-movies').value : undefined,
+        auto_approve_tv:     document.getElementById('bms-auto-approve-tv').value    !== 'nochange' ? document.getElementById('bms-auto-approve-tv').value    : undefined,
+        is_admin:            document.getElementById('bms-is-admin').value           !== 'nochange' ? document.getElementById('bms-is-admin').value           : undefined,
+      };
+      if (overrideGlobal === 'enable') {
+        const movieUnlimited = document.getElementById('bms-movie-unlimited').checked;
+        payload.movieLimit       = movieUnlimited ? 0 : (parseInt(document.getElementById('bms-movie-count').value) || 1);
+        payload.movieWindowDays  = movieUnlimited ? 7 : (parseInt(document.getElementById('bms-movie-days').value) || 7);
+        const seasonUnlimited = document.getElementById('bms-season-unlimited').checked;
+        payload.seasonLimit      = seasonUnlimited ? 0 : (parseInt(document.getElementById('bms-season-count').value) || 1);
+        payload.tvWindowDays     = seasonUnlimited ? 7 : (parseInt(document.getElementById('bms-season-days').value) || 7);
+      }
+      try {
+        const r = await fetch('/admin/users/bulk-settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const data = await r.json();
+        if (data.success) {
+          showToast('Updated ' + data.updated + ' user' + (data.updated === 1 ? '' : 's'));
+          closeBulkModal();
+          clearSelection();
         } else {
           showToast('Save failed: ' + (data.error || ''), true);
         }
@@ -2780,31 +2977,6 @@
         });
         showToast('DUMB mode set to ' + mode);
       } catch (e) { showToast('Failed: ' + e.message, true); }
-    }
-
-    async function dumbToggleEnabled(val) {
-      var lbl = document.getElementById('lbl-dumb-enabled');
-      var fields = document.getElementById('dumb-fields');
-      if (lbl) lbl.textContent = val ? 'Enabled' : 'Disabled';
-      if (fields) fields.style.display = val ? '' : 'none';
-      try {
-        await fetch('/admin/riven/dumb/enable', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ enabled: val }),
-        });
-        if (val) {
-          var cfg = await fetch('/admin/riven/dumb/config').then(r => r.json());
-          var keyEl = document.getElementById('dumb-api-key');
-          if (keyEl && cfg.hasApiKey && !keyEl.value) keyEl.value = '••••••••';
-        }
-        showToast('DUMB integration ' + (val ? 'enabled' : 'disabled'));
-      } catch (e) {
-        showToast('Failed: ' + e.message, true);
-        var toggle = document.getElementById('toggle-dumb-enabled');
-        if (toggle) toggle.checked = !val;
-        if (lbl) lbl.textContent = !val ? 'Enabled' : 'Disabled';
-        if (fields) fields.style.display = !val ? '' : 'none';
-      }
     }
 
     async function dumbRegenKey() {

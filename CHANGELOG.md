@@ -4,6 +4,27 @@ All notable changes are documented here. Versioning follows [Semantic Versioning
 
 ---
 
+## v1.17.2 — 2026-03-21
+
+### Added
+
+- **Bulk user settings** — select multiple users in Admin → Users and apply the same settings override to all at once. Each field (request limit override, auto-approve movies/TV, admin privileges) has a three-state selector so only the fields you care about are changed; everything else is left as-is.
+- **Season bubbles on TV requests** — the request queue now shows individual season number chips (S1 S2 S3…) for each TV request so you can see at a glance how many seasons were requested. New requests derive this from the show's total season count via TMDB.
+- **Request age** — the queue Date column is now a relative age (e.g. "3 hours ago", "2 days ago") instead of an absolute date.
+- **Info modal credits** — a "Created by" line at the bottom of the info modal links to the GitHub profiles of the project contributors.
+
+### Fixed
+
+- **DUMB queue polling** — DUMB was silently fetching 0 items from the approved queue. Three root causes fixed: approved requests were returned with `media.status=5` (AVAILABLE) instead of `3` (PROCESSING) so DUMB filtered them out; the `/movie/:id` and `/tv/:id` detail endpoints needed by DUMB to look up IMDb IDs were missing; and the request object was missing the `type` and `media.media_type` fields that DUMB accesses internally, causing AttributeErrors that crashed the polling loop.
+- **Agregarr service user attribution** — requests via the shim were all attributed to the generic app user (`__app_1__`) instead of the named Agregarr service users. Fixed by reading the `X-Api-User` header that Agregarr sends for impersonation and looking up the matching service user record.
+- **Agregarr requests always pending** — shim was hardcoding `status='pending'` regardless of auto-approve settings. Fixed to call `getEffectiveAutoApprove()` so requests auto-approve when the global or per-user setting allows it.
+- **Agregarr requests with non-TMDB IDs** — requests whose TMDB ID returns 404 (e.g. AniList IDs sent by Agregarr) were stored with a numeric title. These are now silently skipped and a clean 201 is returned so Agregarr's sync continues.
+- **Agregarr rate limit response** — hitting a per-user season or movie limit returned 403, which caused Agregarr's sync to freeze. Rate-limited requests now receive a silent 201 success response so the sync continues uninterrupted.
+- **Approve request with `service='none'`** — requests queued via the shim are stored with `service='none'`. Approving them returned "Invalid service". The approve endpoint now picks the best available service dynamically when `service='none'`.
+- **Delete confirmation modal** — browsers that had suppressed the native `confirm()` dialog always returned false, making it impossible to delete requests. Replaced with a custom in-page modal that also supports a "don't ask again" checkbox backed by localStorage.
+
+---
+
 ## v1.17.1 — 2026-03-21
 
 ### Added

@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/style.css?v=33">
+  <link rel="stylesheet" href="/css/style.css?v=36">
   <link rel="stylesheet" href="/theme.css?c=<%= themeParam %>" id="theme-css">
   <style>
     .queue-page { max-width: 1100px; margin: 0 auto; padding: 0 16px 48px; }
@@ -111,6 +111,21 @@
   </div>
 
   <!-- Edit Request Modal -->
+  <!-- Delete confirmation modal -->
+  <div class="edit-modal-backdrop" id="delete-confirm-modal">
+    <div class="edit-modal-card" style="max-width:380px">
+      <h3>Delete Request</h3>
+      <p style="color:var(--text-secondary);font-size:0.9rem;margin:8px 0 16px">Are you sure you want to permanently delete this request?</p>
+      <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem;color:var(--text-secondary);margin-bottom:20px;cursor:pointer">
+        <input type="checkbox" id="delete-dont-ask"> Don't ask again on this device
+      </label>
+      <div class="edit-modal-actions">
+        <button class="edit-modal-cancel" onclick="closeDeleteModal()">Cancel</button>
+        <button class="edit-modal-save" style="background:var(--accent-red,#e53e3e)" onclick="confirmDelete()">Delete</button>
+      </div>
+    </div>
+  </div>
+
   <div class="edit-modal-backdrop" id="edit-request-modal">
     <div class="edit-modal-card">
       <h3>Edit Request</h3>
@@ -163,8 +178,17 @@
 
     function fmtDate(ts) {
       if (!ts) return '';
-      var d = new Date(ts * 1000);
-      return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+      var diff = Math.floor(Date.now() / 1000) - ts;
+      if (diff < 3600) {
+        var m = Math.max(1, Math.floor(diff / 60));
+        return m + ' min' + (m === 1 ? '' : 's') + ' ago';
+      }
+      if (diff < 86400) {
+        var h = Math.floor(diff / 3600);
+        return h + ' hour' + (h === 1 ? '' : 's') + ' ago';
+      }
+      var d = Math.floor(diff / 86400);
+      return d + ' day' + (d === 1 ? '' : 's') + ' ago';
     }
 
     async function loadQueue(status, page) {
@@ -202,7 +226,7 @@
       }
 
       var html = '<table class="queue-table"><thead><tr>' +
-        '<th>Title</th>' + (IS_ADMIN ? '<th>User</th>' : '') + '<th>Type</th><th>Date</th><th>Status</th><th>Actions</th>' +
+        '<th>Title</th>' + (IS_ADMIN ? '<th>User</th>' : '') + '<th>Type</th><th>Age</th><th>Status</th><th>Actions</th>' +
         '</tr></thead><tbody>';
 
       data.requests.forEach(function (r) {
@@ -224,6 +248,21 @@
         if (r.year) meta.push('<span class="queue-year">' + r.year + '</span>');
         if (r.contentRating) meta.push('<span class="content-rating-badge">' + escHtml(r.contentRating) + '</span>');
         if (meta.length) html += '<div style="display:flex;gap:8px;align-items:center">' + meta.join('') + '</div>';
+        if (r.media_type === 'tv') {
+          var seaNums = null;
+          if (r.seasons_json) {
+            try { seaNums = JSON.parse(r.seasons_json); } catch(e) {}
+          }
+          html += '<div class="season-bubbles">';
+          if (Array.isArray(seaNums) && seaNums.length > 0) {
+            seaNums.slice().sort(function(a,b){return a-b;}).forEach(function(s) {
+              html += '<span class="season-bubble">S' + s + '</span>';
+            });
+          } else {
+            html += '<span class="season-bubble season-bubble-all">All Seasons</span>';
+          }
+          html += '</div>';
+        }
         if (r.denial_note) html += '<div class="deny-note">' + escHtml(r.denial_note) + '</div>';
         html += '</div></div>';
         html += '</td>';
@@ -328,8 +367,33 @@
       }
     }
 
+    var _deleteTargetId = null;
+
     async function deleteRequest(id) {
-      if (!confirm('Delete this request permanently?')) return;
+      if (localStorage.getItem('diskovarr_skip_delete_confirm') === '1') {
+        await doDelete(id);
+      } else {
+        _deleteTargetId = id;
+        document.getElementById('delete-dont-ask').checked = false;
+        document.getElementById('delete-confirm-modal').classList.add('open');
+      }
+    }
+
+    function closeDeleteModal() {
+      _deleteTargetId = null;
+      document.getElementById('delete-confirm-modal').classList.remove('open');
+    }
+
+    async function confirmDelete() {
+      if (document.getElementById('delete-dont-ask').checked) {
+        localStorage.setItem('diskovarr_skip_delete_confirm', '1');
+      }
+      var id = _deleteTargetId;
+      closeDeleteModal();
+      await doDelete(id);
+    }
+
+    async function doDelete(id) {
       try {
         var res = await fetch('/api/queue/' + id, { method: 'DELETE' });
         var data = await res.json();
@@ -417,9 +481,12 @@
       }
     }
 
-    // Close modal on backdrop click
+    // Close modals on backdrop click
     document.getElementById('edit-request-modal').addEventListener('click', function (e) {
       if (e.target === this) editModalClose();
+    });
+    document.getElementById('delete-confirm-modal').addEventListener('click', function (e) {
+      if (e.target === this) closeDeleteModal();
     });
 
     // Filter buttons
