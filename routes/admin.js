@@ -141,6 +141,10 @@ router.get('/', requireAdmin, async (req, res) => {
       const apps = db.listApiApps().filter(a => a.type === 'agregarr');
       return apps[0] || null;
     })(),
+    dumbApp: (() => {
+      const apps = db.listApiApps().filter(a => a.type === 'dumb');
+      return apps[0] || null;
+    })(),
   });
 });
 
@@ -355,6 +359,7 @@ router.get('/connections/reveal', requireAdmin, (req, res) => {
     sonarrApiKey:    db.getSetting('sonarr_api_key', '')    || '',
     diskovarrApiKey: db.getSetting('diskovarr_api_key', '') || '',
     agregarrApiKey:  (() => { const a = db.listApiApps().find(x => x.type === 'agregarr'); return a ? a.api_key : ''; })(),
+    dumbApiKey:      (() => { const a = db.listApiApps().find(x => x.type === 'dumb');      return a ? a.api_key : ''; })(),
   });
 });
 

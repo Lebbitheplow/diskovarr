@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/style.css?v=33">
+  <link rel="stylesheet" href="/css/style.css?v=34">
   <link rel="stylesheet" href="/theme.css?c=<%= themeParam %>">
 </head>
 <body>
@@ -36,6 +36,7 @@
             <% if (query) { %>
               <button type="button" class="search-page-clear" id="search-page-clear" aria-label="Clear">✕</button>
             <% } %>
+            <div class="search-page-dropdown" id="search-page-dropdown"></div>
           </div>
         </form>
       </div>
@@ -120,6 +121,6 @@
     };
   </script>
   <script src="/js/watchlist.js?v=8"></script>
-  <script src="/js/search-app.js?v=15"></script>
+  <script src="/js/search-app.js?v=16"></script>
 </body>
 </html>

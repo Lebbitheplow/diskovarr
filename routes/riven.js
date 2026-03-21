@@ -241,6 +241,7 @@ router.get('/browse', (req, res) => {
 
 // GET /admin/riven/config — return current config (keys masked)
 router.get('/config', (req, res) => {
+  const dumbApp = db.listApiApps().find(a => a.type === 'dumb') || null;
   res.json({
     url: getRivenUrl(),
     apiKey: getRivenApiKey() ? '••••••••' : '',
@@ -248,17 +249,69 @@ router.get('/config', (req, res) => {
     hasApiKey: !!getRivenApiKey(),
     hasRdKey: !!getRdApiKey(),
     enabled: db.getSetting('riven_enabled', '0') === '1',
+    dumbEnabled: db.getSetting('dumb_enabled', '0') === '1',
+    dumbRequestMode: db.getSetting('dumb_request_mode', 'pull'),
+    dumbHasApiKey: !!(dumbApp?.api_key),
   });
 });
 
 // POST /admin/riven/config/save
 router.post('/config/save', (req, res) => {
-  const { url, apiKey, rdApiKey, enabled } = req.body;
+  const { url, apiKey, rdApiKey, enabled, dumbEnabled, dumbRequestMode } = req.body;
   if (url !== undefined) db.setSetting('riven_url', url.trim());
   if (apiKey && apiKey !== '••••••••') db.setSetting('riven_api_key', apiKey.trim());
   if (rdApiKey && rdApiKey !== '••••••••') db.setSetting('riven_rd_api_key', rdApiKey.trim());
   if (enabled !== undefined) db.setSetting('riven_enabled', enabled ? '1' : '0');
+  if (dumbEnabled !== undefined) db.setSetting('dumb_enabled', dumbEnabled ? '1' : '0');
+  if (dumbRequestMode !== undefined) db.setSetting('dumb_request_mode', dumbRequestMode);
   res.json({ ok: true });
+});
+
+// Riven validates Overseerr API keys with an exact length check of 68 characters.
+// Use 34 random bytes (68 hex chars) for all DUMB keys.
+function generateDumbKey() {
+  const { randomBytes } = require('crypto');
+  return randomBytes(34).toString('hex');
+}
+
+// GET /admin/riven/dumb/config — get DUMB app state (auto-creates app row)
+router.get('/dumb/config', (req, res) => {
+  let app = db.listApiApps().find(a => a.type === 'dumb') || null;
+  if (!app) {
+    app = db.createApiApp('DUMB', 'dumb');
+    // Override the default 64-char key with a 68-char key Riven will accept
+    const key68 = generateDumbKey();
+    db.prepare('UPDATE api_apps SET api_key = ?, enabled = 0 WHERE id = ?').run(key68, app.id);
+    app = db.getApiApp(app.id);
+  } else if (app.api_key && app.api_key.length !== 68) {
+    // Fix any existing key that's the wrong length
+    const key68 = generateDumbKey();
+    db.prepare('UPDATE api_apps SET api_key = ? WHERE id = ?').run(key68, app.id);
+    app = db.getApiApp(app.id);
+  }
+  res.json({ hasApiKey: !!app.api_key, enabled: !!app.enabled });
+});
+
+// POST /admin/riven/dumb/enable — toggle DUMB integration on/off
+router.post('/dumb/enable', (req, res) => {
+  const { enabled } = req.body;
+  let app = db.listApiApps().find(a => a.type === 'dumb');
+  if (!app) app = db.createApiApp('DUMB', 'dumb');
+  db.updateApiApp(app.id, { enabled: !!enabled });
+  db.setSetting('dumb_enabled', enabled ? '1' : '0');
+  res.json({ ok: true, enabled: !!enabled });
+});
+
+// POST /admin/riven/dumb/regenerate-key — create or regenerate DUMB API key (68 chars)
+router.post('/dumb/regenerate-key', (req, res) => {
+  const newKey = generateDumbKey();
+  let app = db.listApiApps().find(a => a.type === 'dumb');
+  if (!app) {
+    app = db.createApiApp('DUMB', 'dumb');
+    db.updateApiApp(app.id, { enabled: true });
+  }
+  db.prepare('UPDATE api_apps SET api_key = ? WHERE id = ?').run(newKey, app.id);
+  res.json({ ok: true, apiKey: newKey });
 });
 
 // POST /admin/riven/config/test

@@ -1,5 +1,15 @@
 [
   {
+    "version": "1.17.1",
+    "date": "2026-03-21",
+    "changes": [
+      "DUMB request polling — DUMB connects to Diskovarr as its Overseerr source; enable in Admin → Connections → Riven → DUMB Integration; choose Pull (DUMB polls /api/v1/request) or Push (Diskovarr pushes to Riven on approval); DUMB marks content available via PUT /api/v1/media/:id/available",
+      "Search page autocomplete — TMDB suggestions on the search results page search bar, matching the nav bar behaviour",
+      "Fix: DUMB API key generated as 68 characters to satisfy Riven's Overseerr key length validation",
+      "Fix: Admin session cookie sameSite hardened from lax to strict"
+    ]
+  },
+  {
     "version": "1.17.0",
     "date": "2026-03-21",
     "changes": [

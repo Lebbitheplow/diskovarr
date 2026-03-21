@@ -32,6 +32,7 @@
     var form = document.getElementById('search-page-form');
     var input = document.getElementById('search-page-input');
     var clearBtn = document.getElementById('search-page-clear');
+    var dropdown = document.getElementById('search-page-dropdown');
 
     if (clearBtn) {
       clearBtn.addEventListener('click', function () {
@@ -47,6 +48,117 @@
         if (q) window.location.href = '/search?q=' + encodeURIComponent(q);
       });
     }
+
+    // ── Autocomplete ───────────────────────────────────────────────────────
+    if (!input || !dropdown) return;
+
+    var suggestTimer = null;
+    var activeIdx = -1;
+    var suggestions = [];
+
+    function closeDropdown() {
+      dropdown.innerHTML = '';
+      dropdown.classList.remove('open');
+      activeIdx = -1;
+      suggestions = [];
+    }
+
+    function navigateTo(q) {
+      closeDropdown();
+      window.location.href = '/search?q=' + encodeURIComponent(q);
+    }
+
+    function renderDropdown(results) {
+      dropdown.innerHTML = '';
+      if (!results.length) { closeDropdown(); return; }
+      suggestions = results;
+      activeIdx = -1;
+      results.forEach(function (item) {
+        var row = document.createElement('div');
+        row.className = 'hero-suggest-row';
+        var poster = document.createElement('div');
+        poster.className = 'hero-suggest-poster';
+        if (item.posterUrl) {
+          var img = document.createElement('img');
+          img.src = item.posterUrl; img.alt = ''; img.loading = 'lazy';
+          poster.appendChild(img);
+        } else { poster.textContent = (item.title || '?').charAt(0); }
+        var text = document.createElement('div');
+        text.className = 'hero-suggest-text';
+        var titleSpan = document.createElement('span');
+        titleSpan.className = 'hero-suggest-title';
+        titleSpan.textContent = item.title;
+        var metaSpan = document.createElement('span');
+        metaSpan.className = 'hero-suggest-meta';
+        var parts = [];
+        if (item.year) parts.push(item.year);
+        parts.push(item.mediaType === 'movie' ? 'Movie' : 'TV Show');
+        metaSpan.textContent = parts.join(' · ');
+        text.appendChild(titleSpan);
+        text.appendChild(metaSpan);
+        row.appendChild(poster);
+        row.appendChild(text);
+        row.addEventListener('mousedown', function (e) {
+          e.preventDefault();
+          navigateTo(item.title);
+        });
+        dropdown.appendChild(row);
+      });
+      var allRow = document.createElement('div');
+      allRow.className = 'hero-suggest-row hero-suggest-all';
+      allRow.textContent = 'See all results for "' + input.value.trim() + '"';
+      allRow.addEventListener('mousedown', function (e) {
+        e.preventDefault();
+        navigateTo(input.value.trim());
+      });
+      dropdown.appendChild(allRow);
+      dropdown.classList.add('open');
+    }
+
+    function setActive(idx) {
+      var rows = dropdown.querySelectorAll('.hero-suggest-row');
+      rows.forEach(function (r) { r.classList.remove('active'); });
+      activeIdx = idx;
+      if (idx >= 0 && idx < rows.length) rows[idx].classList.add('active');
+    }
+
+    async function fetchSuggestions(q) {
+      try {
+        var r = await fetch('/api/search/suggest?q=' + encodeURIComponent(q));
+        if (!r.ok) return;
+        var data = await r.json();
+        if (input.value.trim() === q) renderDropdown(data.results || []);
+      } catch { /* ignore */ }
+    }
+
+    input.addEventListener('input', function () {
+      var q = input.value.trim();
+      clearTimeout(suggestTimer);
+      if (q.length < 2) { closeDropdown(); return; }
+      suggestTimer = setTimeout(function () { fetchSuggestions(q); }, 280);
+    });
+
+    input.addEventListener('keydown', function (e) {
+      var rows = dropdown.querySelectorAll('.hero-suggest-row');
+      if (e.key === 'ArrowDown') { e.preventDefault(); setActive(Math.min(activeIdx + 1, rows.length - 1)); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); setActive(Math.max(activeIdx - 1, -1)); }
+      else if (e.key === 'Enter') {
+        e.preventDefault();
+        if (activeIdx >= 0 && activeIdx < suggestions.length) { navigateTo(suggestions[activeIdx].title); }
+        else { var q = input.value.trim(); if (q) navigateTo(q); }
+      } else if (e.key === 'Escape') {
+        closeDropdown();
+        input.blur();
+      }
+    });
+
+    input.addEventListener('blur', function () {
+      setTimeout(closeDropdown, 150);
+    });
+
+    document.addEventListener('click', function (e) {
+      if (!input.closest('.search-page-input-wrap').contains(e.target)) closeDropdown();
+    });
   }
 
   // ── Request dialog ─────────────────────────────────────────────────────────

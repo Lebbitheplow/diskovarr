@@ -797,6 +797,11 @@ async function submitRequestToService(requestData) {
       throw new Error(`Sonarr error: ${body}`);
     }
   } else if (service === 'riven') {
+    // DUMB pull mode: skip the push — DUMB polls /api/v1/request?filter=approved instead
+    if (db.getSetting('dumb_enabled', '0') === '1' && db.getSetting('dumb_request_mode', 'pull') === 'pull') {
+      logger.info(`[riven] DUMB pull mode active — skipping push for tmdbId=${tmdbId}`);
+      return;
+    }
     if (!c.rivenEnabled || !c.rivenUrl) {
       throw new Error('Riven requests not configured');
     }

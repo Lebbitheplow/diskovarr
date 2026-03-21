@@ -1020,6 +1020,55 @@
             API keys are auto-read from <code style="font-size:0.78rem;background:var(--bg-card);padding:1px 4px;border-radius:3px">/home/lebbi/docker/DUMB/data/riven/settings.json</code> — you only need to override them here if the auto-detection fails.
             Find the Riven API key via: <code style="font-size:0.78rem;background:var(--bg-card);padding:1px 4px;border-radius:3px">cat /home/lebbi/docker/DUMB/data/riven/settings.json | python3 -c "import json,sys;print(json.load(sys.stdin)['api_key'])"</code>
           </p>
+
+          <!-- DUMB Integration subsection -->
+          <div style="margin:20px 0 0;padding:16px;border-top:1px solid var(--border)">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+              <div>
+                <span style="font-size:0.9rem;font-weight:600;color:var(--text)">DUMB Integration</span>
+                <span style="font-size:0.8rem;color:var(--text-muted);margin-left:8px">Let DUMB poll Diskovarr for approved requests</span>
+              </div>
+              <div class="conn-toggle-wrap">
+                <span class="conn-toggle-label" id="lbl-dumb-enabled"><%= dumbApp && dumbApp.enabled ? 'Enabled' : 'Disabled' %></span>
+                <label class="slide-toggle" title="Enable DUMB integration">
+                  <input type="checkbox" id="toggle-dumb-enabled" <%= dumbApp && dumbApp.enabled ? 'checked' : '' %> onchange="dumbToggleEnabled(this.checked)">
+                  <span class="slide-track"></span>
+                </label>
+              </div>
+            </div>
+
+            <div id="dumb-fields" style="<%= dumbApp && dumbApp.enabled ? '' : 'display:none' %>">
+              <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:14px 16px;margin-bottom:16px;font-size:0.83rem;line-height:1.6">
+                <p style="margin:0 0 6px;font-weight:600;color:var(--text)">How to connect DUMB:</p>
+                <ol style="margin:0;padding-left:20px;color:var(--text-muted)">
+                  <li>In DUMB settings, set <strong style="color:var(--text)">Overseerr URL</strong> to <code id="dumb-url-hint" style="font-size:0.8rem;background:var(--bg-surface);padding:1px 5px;border-radius:3px">http://your-server:3232</code></li>
+                  <li>Set <strong style="color:var(--text)">Overseerr API Key</strong> to the key below</li>
+                  <li>Choose request mode, then save</li>
+                </ol>
+              </div>
+
+              <div class="conn-field-group" style="margin-bottom:14px">
+                <span class="conn-field-label">Request Mode</span>
+                <div style="display:flex;gap:6px;align-items:center;margin-top:6px">
+                  <button type="button" id="dumb-mode-pull" class="service-opt-btn <%= connections.dumbRequestMode !== 'push' ? 'service-opt-active' : '' %>" onclick="dumbSetMode('pull')">Pull (DUMB polls Diskovarr)</button>
+                  <button type="button" id="dumb-mode-push" class="service-opt-btn <%= connections.dumbRequestMode === 'push' ? 'service-opt-active' : '' %>" onclick="dumbSetMode('push')">Push (Diskovarr pushes to Riven)</button>
+                </div>
+                <p id="dumb-mode-desc" style="font-size:0.78rem;color:var(--text-muted);margin:6px 0 0"><%= connections.dumbRequestMode === 'push' ? 'Diskovarr pushes to Riven immediately on approval — same as before' : 'DUMB polls /api/v1/request?filter=approved — no push from Diskovarr' %></p>
+              </div>
+
+              <div class="conn-field-group" style="max-width:520px">
+                <span class="conn-field-label">DUMB API Key</span>
+                <div class="conn-input-wrap">
+                  <input type="password" id="dumb-api-key" class="conn-input" readonly value="<%= dumbApp && dumbApp.api_key ? '••••••••' : '' %>" autocomplete="off">
+                  <div class="conn-input-btns">
+                    <button type="button" class="conn-input-icon-btn" id="dumb-key-eye-btn" onclick="toggleFieldVis('dumb-api-key', this)" title="Show / hide"><svg width="20" height="20" viewBox="0 0 24 24" fill="#fff"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg></button>
+                    <button type="button" class="conn-input-icon-btn" id="dumb-key-copy-btn" onclick="dumbCopyKey()" title="Copy to clipboard"><svg width="20" height="20" viewBox="0 0 24 24" fill="#fff"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg></button>
+                  </div>
+                </div>
+              </div>
+              <button class="btn-admin conn-action-btn btn-danger" id="btn-dumb-regen" onclick="dumbRegenKey()" style="margin-top:4px">Regenerate Key</button>
+            </div>
+          </div>
         </div>
 
       </section>
@@ -2300,6 +2349,7 @@
       'conn-sonarr-key':    'sonarrApiKey',
       'settings-api-key':   'diskovarrApiKey',
       'agregarr-api-key':   'agregarrApiKey',
+      'dumb-api-key':       'dumbApiKey',
     };
     var _revealedKeys = null;
 
@@ -2694,6 +2744,91 @@
         renderAgregarrServiceUsers(d.serviceUsers || []);
         showToast('Service account removed');
       } catch (e) { showToast('Failed: ' + e.message, true); }
+    }
+
+    // ── DUMB Integration ────────────────────────────────────────────────────────
+
+    (async function loadDumbConfig() {
+      try {
+        var d = await fetch('/admin/riven/config').then(r => r.json());
+        dumbApplyModeUI(d.dumbRequestMode || 'pull');
+        var hint = document.getElementById('dumb-url-hint');
+        if (hint) hint.textContent = window.location.protocol + '//' + window.location.host;
+        // Ensure key placeholder is set if key exists
+        var keyEl = document.getElementById('dumb-api-key');
+        if (keyEl && d.dumbHasApiKey && !keyEl.value) keyEl.value = '••••••••';
+      } catch {}
+    })();
+
+    function dumbApplyModeUI(mode) {
+      var pullBtn = document.getElementById('dumb-mode-pull');
+      var pushBtn = document.getElementById('dumb-mode-push');
+      var desc = document.getElementById('dumb-mode-desc');
+      if (pullBtn) pullBtn.className = 'service-opt-btn' + (mode === 'pull' ? ' service-opt-active' : '');
+      if (pushBtn) pushBtn.className = 'service-opt-btn' + (mode === 'push' ? ' service-opt-active' : '');
+      if (desc) desc.textContent = mode === 'push'
+        ? 'Diskovarr pushes to Riven immediately on approval — same as before'
+        : 'DUMB polls /api/v1/request?filter=approved — no push from Diskovarr';
+    }
+
+    async function dumbSetMode(mode) {
+      dumbApplyModeUI(mode);
+      try {
+        await fetch('/admin/riven/config/save', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ dumbRequestMode: mode }),
+        });
+        showToast('DUMB mode set to ' + mode);
+      } catch (e) { showToast('Failed: ' + e.message, true); }
+    }
+
+    async function dumbToggleEnabled(val) {
+      var lbl = document.getElementById('lbl-dumb-enabled');
+      var fields = document.getElementById('dumb-fields');
+      if (lbl) lbl.textContent = val ? 'Enabled' : 'Disabled';
+      if (fields) fields.style.display = val ? '' : 'none';
+      try {
+        await fetch('/admin/riven/dumb/enable', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled: val }),
+        });
+        if (val) {
+          var cfg = await fetch('/admin/riven/dumb/config').then(r => r.json());
+          var keyEl = document.getElementById('dumb-api-key');
+          if (keyEl && cfg.hasApiKey && !keyEl.value) keyEl.value = '••••••••';
+        }
+        showToast('DUMB integration ' + (val ? 'enabled' : 'disabled'));
+      } catch (e) {
+        showToast('Failed: ' + e.message, true);
+        var toggle = document.getElementById('toggle-dumb-enabled');
+        if (toggle) toggle.checked = !val;
+        if (lbl) lbl.textContent = !val ? 'Enabled' : 'Disabled';
+        if (fields) fields.style.display = !val ? '' : 'none';
+      }
+    }
+
+    async function dumbRegenKey() {
+      if (!confirm('Regenerate the DUMB API key? You will need to update DUMB settings.')) return;
+      try {
+        var d = await fetch('/admin/riven/dumb/regenerate-key', { method: 'POST' }).then(r => r.json());
+        var keyEl = document.getElementById('dumb-api-key');
+        keyEl.value = d.apiKey;
+        keyEl.type = 'text';
+        var eyeBtn = document.getElementById('dumb-key-eye-btn');
+        if (eyeBtn) eyeBtn.innerHTML = EYE_OFF_ICON;
+        showToast('DUMB API key regenerated — update DUMB settings');
+      } catch (e) { showToast('Failed: ' + e.message, true); }
+    }
+
+    async function dumbCopyKey() {
+      var val = document.getElementById('dumb-api-key').value;
+      try {
+        await navigator.clipboard.writeText(val);
+        var btn = document.getElementById('dumb-key-copy-btn');
+        var orig = btn.innerHTML;
+        btn.innerHTML = '✓';
+        setTimeout(function() { btn.innerHTML = orig; }, 1500);
+      } catch (e) { showToast('Could not copy', true); }
     }
 
   </script>
