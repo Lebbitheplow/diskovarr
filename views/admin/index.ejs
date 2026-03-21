@@ -16,7 +16,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/style.css?v=31">
-  <link rel="stylesheet" href="/css/admin.css?v=30">
+  <link rel="stylesheet" href="/css/admin.css?v=52">
   <link rel="stylesheet" href="/theme.css?c=<%= themeParam %>" id="theme-css">
 </head>
 <body>
@@ -740,26 +740,34 @@
           </div>
         </div>
 
-        <!-- Default request service toggle — only shown when both sides are configured -->
-        <% const hasBothSides = connections.overseerrEnabled && connections.overseerrUrl &&
-             ((connections.radarrEnabled && connections.radarrUrl) || (connections.sonarrEnabled && connections.sonarrUrl)); %>
+        <!-- Default request service — only shown when multiple request options are configured -->
+        <% const hasOverseerrSide = connections.overseerrEnabled && !!connections.overseerrUrl;
+           const hasRivenSide = connections.rivenEnabled; // URL is optional (has default)
+           const hasDirectSide = (connections.radarrEnabled && !!connections.radarrUrl) || (connections.sonarrEnabled && !!connections.sonarrUrl);
+           const hasBothSides = [hasOverseerrSide, hasRivenSide, hasDirectSide].filter(Boolean).length >= 2;
+           const defaultSvc = connections.defaultRequestService || 'overseerr';
+           const svcDesc = defaultSvc === 'direct' ? 'Sonarr/Radarr is the default' : defaultSvc === 'riven' ? 'Riven is the default' : 'Overseerr is the default';
+        %>
         <div class="conn-block" id="default-service-block" style="<%= hasBothSides ? '' : 'display:none' %>">
           <div class="conn-block-header" style="border-bottom:none;padding-bottom:0">
             <div class="conn-block-meta">
               <span class="conn-block-name">Default app for requests</span>
-              <span class="conn-block-desc" id="default-service-desc">
-                <%= (connections.defaultRequestService === 'direct') ? 'Sonarr/Radarr is the default' : 'Overseerr is the default' %>
-              </span>
+              <span class="conn-block-desc" id="default-service-desc"><%= svcDesc %></span>
             </div>
-            <div class="conn-toggle-wrap" style="gap:10px;align-items:center">
-              <span id="lbl-overseerr-opt" class="<%= (connections.defaultRequestService !== 'direct') ? 'service-label-active' : 'service-label-inactive' %>">Overseerr</span>
-              <label class="slide-toggle slide-toggle-choice">
-                <input type="checkbox" id="toggle-default-service"
-                  <%= (connections.defaultRequestService === 'direct') ? 'checked' : '' %>
-                  onchange="onDefaultServiceChange(this.checked)">
-                <span class="slide-track"></span>
-              </label>
-              <span id="lbl-sonarr-opt" class="<%= (connections.defaultRequestService === 'direct') ? 'service-label-active' : 'service-label-inactive' %>">Sonarr/Radarr</span>
+            <!-- Always render all 3 buttons; JS shows/hides based on configured services -->
+            <div class="conn-toggle-wrap" style="gap:6px;align-items:center">
+              <button type="button" id="dsvc-btn-overseerr"
+                class="service-opt-btn <%= defaultSvc !== 'direct' && defaultSvc !== 'riven' ? 'service-opt-active' : '' %>"
+                style="<%= !hasOverseerrSide ? 'display:none' : '' %>"
+                onclick="setDefaultService('overseerr')">Overseerr</button>
+              <button type="button" id="dsvc-btn-riven"
+                class="service-opt-btn <%= defaultSvc === 'riven' ? 'service-opt-active' : '' %>"
+                style="<%= !hasRivenSide ? 'display:none' : '' %>"
+                onclick="setDefaultService('riven')">Riven</button>
+              <button type="button" id="dsvc-btn-direct"
+                class="service-opt-btn <%= defaultSvc === 'direct' ? 'service-opt-active' : '' %>"
+                style="<%= !hasDirectSide ? 'display:none' : '' %>"
+                onclick="setDefaultService('direct')">Sonarr/Radarr</button>
             </div>
           </div>
           <div class="conn-block-header" style="border-bottom:none;padding-top:10px;margin-top:10px;border-top:1px solid var(--border)">
@@ -958,7 +966,119 @@
           </div>
         </div>
 
+        <!-- Riven / DUMB -->
+        <div class="conn-block">
+          <div class="conn-block-header">
+            <div class="conn-block-meta">
+              <span class="conn-block-name">Riven / DUMB</span>
+              <span class="conn-block-desc">Manual torrent browser — search Torrentio and add cached RD torrents to Riven</span>
+            </div>
+            <div class="conn-toggle-wrap">
+              <span class="conn-toggle-label" id="lbl-riven-enabled"><%= connections.rivenEnabled ? 'Enabled' : 'Disabled' %></span>
+              <label class="slide-toggle" title="Enable Riven / DUMB features">
+                <input type="checkbox" id="toggle-riven-enabled"
+                  <%= connections.rivenEnabled ? 'checked' : '' %>
+                  onchange="onRivenEnabledToggle(this.checked)">
+                <span class="slide-track"></span>
+              </label>
+            </div>
+          </div>
+          <div class="conn-block-fields">
+            <div class="conn-field-group conn-field-host">
+              <span class="conn-field-label">Riven URL</span>
+              <input type="text" id="conn-riven-url" class="conn-input"
+                placeholder="http://127.0.0.1:8082"
+                value="">
+            </div>
+            <div class="conn-field-group conn-field-key">
+              <span class="conn-field-label">API Key <span class="conn-field-optional">auto-read from DUMB</span></span>
+              <div class="conn-input-wrap">
+                <input type="password" id="conn-riven-key" class="conn-input"
+                  placeholder="Auto-detected from /docker/DUMB/data/riven/settings.json"
+                  autocomplete="new-password">
+                <div class="conn-input-btns">
+                  <button type="button" class="conn-input-icon-btn" onclick="toggleFieldVis('conn-riven-key', this)" title="Show / hide"></button>
+                </div>
+              </div>
+            </div>
+            <div class="conn-field-group conn-field-key">
+              <span class="conn-field-label">Real-Debrid Key <span class="conn-field-optional">auto-read from DUMB</span></span>
+              <div class="conn-input-wrap">
+                <input type="password" id="conn-riven-rdkey" class="conn-input"
+                  placeholder="Auto-detected from RIVEN_DOWNLOADERS_REAL_DEBRID_API_KEY"
+                  autocomplete="new-password">
+                <div class="conn-input-btns">
+                  <button type="button" class="conn-input-icon-btn" onclick="toggleFieldVis('conn-riven-rdkey', this)" title="Show / hide"></button>
+                </div>
+              </div>
+            </div>
+            <button class="btn-admin conn-action-btn" id="btn-riven-test" onclick="rivenTestConnection()">Test</button>
+            <button class="btn-admin btn-primary conn-action-btn" id="btn-riven-save" onclick="rivenSaveConfig()">Save</button>
+            <button class="btn-admin btn-primary conn-action-btn" id="btn-riven-browse" style="background:var(--accent);color:#000;<%= connections.rivenEnabled ? '' : 'display:none' %>" onclick="window.location.href='/admin/riven/browse'">Browse Torrents &rarr;</button>
+          </div>
+          <p style="font-size:0.78rem;color:var(--text-muted);margin:10px 16px 0;line-height:1.5">
+            API keys are auto-read from <code style="font-size:0.78rem;background:var(--bg-card);padding:1px 4px;border-radius:3px">/home/lebbi/docker/DUMB/data/riven/settings.json</code> — you only need to override them here if the auto-detection fails.
+            Find the Riven API key via: <code style="font-size:0.78rem;background:var(--bg-card);padding:1px 4px;border-radius:3px">cat /home/lebbi/docker/DUMB/data/riven/settings.json | python3 -c "import json,sys;print(json.load(sys.stdin)['api_key'])"</code>
+          </p>
+        </div>
+
       </section>
+
+      <!-- ── Agregarr Integration ── -->
+      <section class="admin-section">
+        <h2 class="admin-section-title">Agregarr Integration</h2>
+        <p class="section-desc" style="margin-bottom:20px">Allows Agregarr (and other Overseerr-compatible apps) to send requests directly to Diskovarr. Configure Agregarr to use Diskovarr as its Overseerr instance.</p>
+
+        <div class="conn-block" id="agregarr-block">
+          <div class="conn-block-header">
+            <div class="conn-block-meta">
+              <span class="conn-block-name">Agregarr</span>
+              <span class="conn-block-desc">Overseerr-compatible API shim — lets Agregarr send requests to Diskovarr</span>
+            </div>
+            <div class="conn-toggle-wrap">
+              <span class="conn-toggle-label" id="lbl-agregarr-enabled"><%= agregarrApp && agregarrApp.enabled ? 'Enabled' : 'Disabled' %></span>
+              <label class="slide-toggle" title="Enable Agregarr integration">
+                <input type="checkbox" id="toggle-agregarr-enabled" <%= agregarrApp && agregarrApp.enabled ? 'checked' : '' %> onchange="agregarrToggleEnabled(this.checked)">
+                <span class="slide-track"></span>
+              </label>
+            </div>
+          </div>
+
+          <div class="conn-block-fields">
+            <!-- Setup instructions -->
+            <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:14px 16px;margin-bottom:16px;font-size:0.83rem;line-height:1.6">
+              <p style="margin:0 0 6px;font-weight:600;color:var(--text)">How to configure in Agregarr:</p>
+              <ol style="margin:0;padding-left:20px;color:var(--text-muted)">
+                <li>Open Agregarr → Settings → Overseerr</li>
+                <li>Set <strong style="color:var(--text)">URL</strong> to your Diskovarr address (e.g. <code id="agregarr-url-hint" style="font-size:0.8rem;background:var(--bg-surface);padding:1px 5px;border-radius:3px">http://your-server:3232</code>)</li>
+                <li>Set <strong style="color:var(--text)">API Key</strong> to the key below</li>
+                <li>Save — Agregarr will create its service users automatically</li>
+              </ol>
+            </div>
+
+            <!-- API Key display -->
+            <div class="conn-field-group" style="max-width:520px">
+              <span class="conn-field-label">Agregarr API Key</span>
+              <div class="conn-input-wrap">
+                <input type="password" id="agregarr-api-key" class="conn-input" readonly value="<%= agregarrApp && agregarrApp.api_key ? '••••••••' : '' %>" autocomplete="off">
+                <div class="conn-input-btns">
+                  <button type="button" class="conn-input-icon-btn" id="agregarr-key-eye-btn" onclick="toggleFieldVis('agregarr-api-key', this)" title="Show / hide"><svg width="20" height="20" viewBox="0 0 24 24" fill="#fff"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg></button>
+                  <button type="button" class="conn-input-icon-btn" id="agregarr-key-copy-btn" onclick="copyAgregarrKey()" title="Copy to clipboard"><svg width="20" height="20" viewBox="0 0 24 24" fill="#fff"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg></button>
+                </div>
+              </div>
+            </div>
+
+            <button class="btn-admin conn-action-btn btn-danger" id="btn-agregarr-regen" onclick="agregarrRegenKey()" style="margin-top:4px">Regenerate Key</button>
+          </div>
+
+          <!-- Service Users (created by Agregarr) -->
+          <div id="agregarr-svc-users" style="margin:16px 0 0;padding:14px 16px;border-top:1px solid var(--border);display:none">
+            <p style="font-size:0.82rem;font-weight:600;color:var(--text);margin:0 0 10px">Service Accounts (created by Agregarr)</p>
+            <div id="agregarr-svc-users-list" style="display:flex;flex-direction:column;gap:6px"></div>
+          </div>
+        </div>
+      </section>
+
     </div><!-- /panel-connections -->
 
     <!-- ══════════════════════════════════════════════════════════ -->
@@ -2152,14 +2272,24 @@
       var osOn  = document.getElementById('toggle-overseerr')?.checked && getUrlValue('overseerr');
       var rrOn  = document.getElementById('toggle-radarr')?.checked   && getUrlValue('radarr');
       var snOn  = document.getElementById('toggle-sonarr')?.checked   && getUrlValue('sonarr');
+      var rvOn  = document.getElementById('toggle-riven-enabled')?.checked;
+      // Show/hide individual buttons
+      var osBtn  = document.getElementById('dsvc-btn-overseerr');
+      var rvBtn  = document.getElementById('dsvc-btn-riven');
+      var dirBtn = document.getElementById('dsvc-btn-direct');
+      if (osBtn)  osBtn.style.display  = osOn        ? '' : 'none';
+      if (rvBtn)  rvBtn.style.display  = rvOn        ? '' : 'none';
+      if (dirBtn) dirBtn.style.display = (rrOn || snOn) ? '' : 'none';
+      // Show block when at least 2 options are visible
+      var visibleCount = [!!osOn, !!rvOn, !!(rrOn || snOn)].filter(Boolean).length;
       var block = document.getElementById('default-service-block');
-      if (block) block.style.display = (osOn && (rrOn || snOn)) ? '' : 'none';
+      if (block) block.style.display = visibleCount >= 2 ? '' : 'none';
     }
 
     // ── Password field eye / copy ───────────────────────────────────
-    var EYE_ICON = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
-    var EYE_OFF_ICON = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';
-    var COPY_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+    var EYE_ICON = '<svg width="20" height="20" viewBox="0 0 24 24" fill="#fff"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg>';
+    var EYE_OFF_ICON = '<svg width="20" height="20" viewBox="0 0 24 24" fill="#fff"><path d="M12 7c2.76 0 5 2.24 5 5 0 .65-.13 1.26-.36 1.83l2.92 2.92c1.51-1.26 2.7-2.89 3.43-4.75-1.73-4.39-6-7.5-11-7.5-1.4 0-2.74.25-3.98.7l2.16 2.16C10.74 7.13 11.35 7 12 7zM2 4.27l2.28 2.28.46.46C3.08 8.3 1.78 10.02 1 12c1.73 4.39 6 7.5 11 7.5 1.55 0 3.03-.3 4.38-.84l.42.42L19.73 22 21 20.73 3.27 3 2 4.27zM7.53 9.8l1.55 1.55c-.05.21-.08.43-.08.65 0 1.66 1.34 3 3 3 .22 0 .44-.03.65-.08l1.55 1.55c-.67.33-1.41.53-2.2.53-2.76 0-5-2.24-5-5 0-.79.2-1.53.53-2.2zm4.31-.78l3.15 3.15.02-.16c0-1.66-1.34-3-3-3l-.17.01z"/></svg>';
+    var COPY_ICON = '<svg width="20" height="20" viewBox="0 0 24 24" fill="#fff"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>';
 
     var FIELD_KEY_MAP = {
       'conn-plex-token':    'plexToken',
@@ -2169,6 +2299,7 @@
       'conn-radarr-key':    'radarrApiKey',
       'conn-sonarr-key':    'sonarrApiKey',
       'settings-api-key':   'diskovarrApiKey',
+      'agregarr-api-key':   'agregarrApiKey',
     };
     var _revealedKeys = null;
 
@@ -2237,6 +2368,10 @@
       if (copyBtn) copyBtn.innerHTML = COPY_ICON;
       var eyeBtn = document.getElementById('api-key-eye-btn');
       if (eyeBtn) eyeBtn.innerHTML = EYE_ICON;
+      var agCopyBtn = document.getElementById('agregarr-key-copy-btn');
+      if (agCopyBtn) agCopyBtn.innerHTML = COPY_ICON;
+      var agEyeBtn = document.getElementById('agregarr-key-eye-btn');
+      if (agEyeBtn) agEyeBtn.innerHTML = EYE_ICON;
     });
 
     // Save Plex or Tautulli (no toggle — always required)
@@ -2322,10 +2457,11 @@
     }
 
     // ── Default request service toggle ──────────────────────────
-    async function onDefaultServiceChange(isDirect) {
-      var value = isDirect ? 'direct' : 'overseerr';
+    async function onDefaultServiceChange(isDirect, leftSvc) {
+      var value = isDirect ? 'direct' : (leftSvc || 'overseerr');
       var desc = document.getElementById('default-service-desc');
-      desc.textContent = isDirect ? 'Sonarr/Radarr is the default' : 'Overseerr is the default';
+      var descMap = { direct: 'Sonarr/Radarr is the default', riven: 'Riven is the default', overseerr: 'Overseerr is the default' };
+      if (desc) desc.textContent = descMap[value] || (value + ' is the default');
       var lblOs = document.getElementById('lbl-overseerr-opt');
       var lblSn = document.getElementById('lbl-sonarr-opt');
       if (lblOs) lblOs.className = isDirect ? 'service-label-inactive' : 'service-label-active';
@@ -2336,6 +2472,46 @@
       }).then(r => r.json());
       if (d.success) showToast('Default request service saved');
       else showToast('Save failed', true);
+    }
+
+    async function setDefaultService(value) {
+      var descMap = { direct: 'Sonarr/Radarr is the default', riven: 'Riven is the default', overseerr: 'Overseerr is the default' };
+      var desc = document.getElementById('default-service-desc');
+      if (desc) desc.textContent = descMap[value] || (value + ' is the default');
+      ['overseerr', 'riven', 'direct'].forEach(function (svc) {
+        var btn = document.getElementById('dsvc-btn-' + svc);
+        if (btn) btn.className = 'service-opt-btn' + (svc === value ? ' service-opt-active' : '');
+      });
+      var d = await fetch('/admin/connections/save', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ default_request_service: value }),
+      }).then(r => r.json());
+      if (d.success) showToast('Default request service saved');
+      else showToast('Save failed', true);
+    }
+
+    async function onRivenEnabledToggle(checked) {
+      var lbl = document.getElementById('lbl-riven-enabled');
+      if (lbl) lbl.textContent = checked ? 'Enabled' : 'Disabled';
+      var browseBtn = document.getElementById('btn-riven-browse');
+      if (browseBtn) browseBtn.style.display = checked ? '' : 'none';
+      try {
+        var d = await fetch('/admin/riven/config/save', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled: checked }),
+        }).then(r => r.json());
+        if (d.ok) {
+          showToast('Riven / DUMB ' + (checked ? 'enabled' : 'disabled'));
+          refreshDefaultServiceBlock();
+        } else {
+          showToast('Save failed', true);
+          document.getElementById('toggle-riven-enabled').checked = !checked;
+          if (browseBtn) browseBtn.style.display = !checked ? '' : 'none';
+        }
+      } catch (e) {
+        showToast('Save failed: ' + e.message, true);
+        document.getElementById('toggle-riven-enabled').checked = !checked;
+      }
     }
 
     // ── Advanced settings panels ────────────────────────────────
@@ -2398,6 +2574,126 @@
       } else {
         showToast('Save failed', true);
       }
+    }
+
+    // ── Riven / DUMB conn-block ─────────────────────────────────
+    (async function loadRivenConfig() {
+      try {
+        var d = await fetch('/admin/riven/config').then(r => r.json());
+        if (d.url) document.getElementById('conn-riven-url').value = d.url;
+        if (d.hasApiKey) document.getElementById('conn-riven-key').value = '••••••••';
+        if (d.hasRdKey) document.getElementById('conn-riven-rdkey').value = '••••••••';
+        var toggle = document.getElementById('toggle-riven-enabled');
+        var lbl = document.getElementById('lbl-riven-enabled');
+        if (toggle) toggle.checked = !!d.enabled;
+        if (lbl) lbl.textContent = d.enabled ? 'Enabled' : 'Disabled';
+        var browseBtn = document.getElementById('btn-riven-browse');
+        if (browseBtn) browseBtn.style.display = d.enabled ? '' : 'none';
+        refreshDefaultServiceBlock();
+      } catch {}
+    })();
+
+    async function rivenSaveConfig() {
+      var url = document.getElementById('conn-riven-url').value.trim();
+      var apiKey = document.getElementById('conn-riven-key').value;
+      var rdApiKey = document.getElementById('conn-riven-rdkey').value;
+      var btn = document.getElementById('btn-riven-save');
+      btn.disabled = true;
+      try {
+        var d = await fetch('/admin/riven/config/save', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url, apiKey, rdApiKey }),
+        }).then(r => r.json());
+        if (d.ok) showToast('Riven config saved');
+        else showToast('Save failed', true);
+      } catch (e) { showToast('Save failed: ' + e.message, true); }
+      btn.disabled = false;
+    }
+
+    async function rivenTestConnection() {
+      var btn = document.getElementById('btn-riven-test');
+      btn.disabled = true;
+      btn.textContent = 'Testing…';
+      try {
+        var d = await fetch('/admin/riven/config/test', { method: 'POST' }).then(r => r.json());
+        if (d.ok) showToast(d.message || 'Connected');
+        else showToast(d.error || 'Connection failed', true);
+      } catch (e) { showToast('Test failed: ' + e.message, true); }
+      btn.disabled = false;
+      btn.textContent = 'Test';
+    }
+
+    // ── Agregarr Integration ──────────────────────────────────────────────────
+    // Set URL hint
+    (function() {
+      var hint = document.getElementById('agregarr-url-hint');
+      if (hint) hint.textContent = window.location.protocol + '//' + window.location.host;
+    })();
+
+    (async function loadAgregarrServiceUsers() {
+      try {
+        var d = await fetch('/admin/agregarr/config').then(r => r.json());
+        renderAgregarrServiceUsers(d.serviceUsers || []);
+      } catch (e) { /* ignore */ }
+    })();
+
+    function renderAgregarrServiceUsers(users) {
+      var wrap = document.getElementById('agregarr-svc-users');
+      var list = document.getElementById('agregarr-svc-users-list');
+      if (!wrap || !list) return;
+      if (!users.length) { wrap.style.display = 'none'; return; }
+      wrap.style.display = 'block';
+      list.innerHTML = users.map(function(u) {
+        return '<div style="display:flex;align-items:center;gap:10px;padding:6px 10px;background:var(--bg-card);border:1px solid var(--border);border-radius:6px">'
+          + '<span style="font-size:0.78rem;background:var(--accent);color:#000;padding:1px 6px;border-radius:4px;font-weight:600">bot</span>'
+          + '<span style="font-size:0.83rem;font-weight:500">' + escHtml(u.username) + '</span>'
+          + '<span style="font-size:0.78rem;color:var(--text-muted);flex:1">' + escHtml(u.email || '') + '</span>'
+          + '<button class="btn-admin btn-sm btn-danger" onclick="deleteAgregarrServiceUser(' + u.id + ')" style="padding:2px 8px;font-size:0.75rem">Remove</button>'
+          + '</div>';
+      }).join('');
+    }
+
+    async function agregarrToggleEnabled(val) {
+      var lbl = document.getElementById('lbl-agregarr-enabled');
+      try {
+        await fetch('/admin/agregarr/enable', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: val }) });
+        lbl.textContent = val ? 'Enabled' : 'Disabled';
+        showToast('Agregarr integration ' + (val ? 'enabled' : 'disabled'));
+      } catch (e) { showToast('Failed: ' + e.message, true); }
+    }
+
+    async function agregarrRegenKey() {
+      if (!confirm('Regenerate the Agregarr API key? You will need to update Agregarr settings.')) return;
+      try {
+        var d = await fetch('/admin/agregarr/regenerate-key', { method: 'POST' }).then(r => r.json());
+        var keyEl = document.getElementById('agregarr-api-key');
+        keyEl.value = d.apiKey;
+        keyEl.type = 'text';
+        var eyeBtn = document.getElementById('agregarr-key-eye-btn');
+        if (eyeBtn) eyeBtn.innerHTML = EYE_OFF_ICON;
+        showToast('API key regenerated — update Agregarr settings');
+      } catch (e) { showToast('Failed: ' + e.message, true); }
+    }
+
+    async function copyAgregarrKey() {
+      var val = document.getElementById('agregarr-api-key').value;
+      try {
+        await navigator.clipboard.writeText(val);
+        var btn = document.getElementById('agregarr-key-copy-btn');
+        var orig = btn.innerHTML;
+        btn.innerHTML = '✓';
+        setTimeout(function() { btn.innerHTML = orig; }, 1500);
+      } catch (e) { showToast('Could not copy', true); }
+    }
+
+    async function deleteAgregarrServiceUser(id) {
+      if (!confirm('Remove this service account? Agregarr will recreate it next sync.')) return;
+      try {
+        await fetch('/admin/agregarr/service-users/' + id, { method: 'DELETE' });
+        var d = await fetch('/admin/agregarr/config').then(r => r.json());
+        renderAgregarrServiceUsers(d.serviceUsers || []);
+        showToast('Service account removed');
+      } catch (e) { showToast('Failed: ' + e.message, true); }
     }
 
   </script>

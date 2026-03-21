@@ -139,8 +139,9 @@ router.get('/explore', requireAuth, (req, res) => {
     overseerr: connections.overseerrEnabled && !!connections.overseerrUrl,
     radarr: connections.radarrEnabled && !!connections.radarrUrl,
     sonarr: connections.sonarrEnabled && !!connections.sonarrUrl,
+    riven: connections.rivenEnabled && !!connections.rivenUrl,
   };
-  const hasAnyService = services.overseerr || services.radarr || services.sonarr;
+  const hasAnyService = services.overseerr || services.radarr || services.sonarr || services.riven;
   const ownerUserId = db.getOwnerUserId();
   res.render('explore', {
     ...pageLocals(req), userId, username, thumb, currentPath: '/explore',
@@ -159,8 +160,9 @@ router.get('/search', requireAuth, (req, res) => {
     overseerr: connections.overseerrEnabled && !!connections.overseerrUrl,
     radarr: connections.radarrEnabled && !!connections.radarrUrl,
     sonarr: connections.sonarrEnabled && !!connections.sonarrUrl,
+    riven: connections.rivenEnabled && !!connections.rivenUrl,
   };
-  const hasAnyService = services.overseerr || services.radarr || services.sonarr;
+  const hasAnyService = services.overseerr || services.radarr || services.sonarr || services.riven;
   const query = (req.query.q || '').trim();
   res.render('search', {
     ...pageLocals(req), userId, username, thumb, currentPath: '/search',

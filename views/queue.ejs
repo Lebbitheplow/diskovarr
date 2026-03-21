@@ -228,7 +228,16 @@
         html += '</div></div>';
         html += '</td>';
 
-        html += IS_ADMIN ? '<td class="queue-user">' + escHtml(r.username || r.user_id) + '</td>' : '';
+        if (IS_ADMIN) {
+          var isBot = r.user_id && r.user_id.startsWith('__svc_');
+          var userCell = isBot
+            ? '<span style="display:inline-flex;align-items:center;gap:5px">'
+              + '<span style="font-size:0.7rem;background:var(--accent);color:#000;padding:1px 5px;border-radius:4px;font-weight:700;letter-spacing:0.02em">bot</span>'
+              + escHtml(r.username || r.user_id)
+              + '</span>'
+            : escHtml(r.username || r.user_id);
+          html += '<td class="queue-user">' + userCell + '</td>';
+        }
         html += '<td><span class="type-badge ' + (r.media_type === 'movie' ? 'type-movie' : 'type-tv') + '">' + (r.media_type === 'movie' ? 'Movie' : 'TV') + '</span></td>';
         html += '<td>' + fmtDate(r.requested_at) + '</td>';
         html += '<td><span class="status-badge-' + ds + '">' + (STATUS_LABELS[ds] || ds) + '</span></td>';

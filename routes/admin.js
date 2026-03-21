@@ -137,6 +137,10 @@ router.get('/', requireAdmin, async (req, res) => {
     verboseLoggingEnabled: db.getSetting('verbose_logging_enabled', '0') === '1',
     hasApiKey: !!db.getSetting('diskovarr_api_key', ''),
     appPublicUrl: db.getSetting('app_public_url', ''),
+    agregarrApp: (() => {
+      const apps = db.listApiApps().filter(a => a.type === 'agregarr');
+      return apps[0] || null;
+    })(),
   });
 });
 
@@ -350,6 +354,7 @@ router.get('/connections/reveal', requireAdmin, (req, res) => {
     radarrApiKey:    db.getSetting('radarr_api_key', '')    || '',
     sonarrApiKey:    db.getSetting('sonarr_api_key', '')    || '',
     diskovarrApiKey: db.getSetting('diskovarr_api_key', '') || '',
+    agregarrApiKey:  (() => { const a = db.listApiApps().find(x => x.type === 'agregarr'); return a ? a.api_key : ''; })(),
   });
 });
 
@@ -848,5 +853,46 @@ router.post('/settings/pushover/test', requireAdmin, async (req, res) => {
   }
 });
 
+// ── Agregarr / API Apps management ───────────────────────────────────────────
+
+// GET /admin/agregarr/config — get the Agregarr app config (creates app if none exists)
+router.get('/agregarr/config', requireAdmin, (req, res) => {
+  let apps = db.listApiApps().filter(a => a.type === 'agregarr');
+  let app = apps[0] || null;
+  if (!app) {
+    // Auto-create the Agregarr app entry on first visit
+    app = db.createApiApp('Agregarr', 'agregarr');
+    // Disable it by default — admin must explicitly enable
+    db.updateApiApp(app.id, { enabled: false });
+    app = db.getApiApp(app.id);
+  }
+  const serviceUsers = db.getServiceUsersByApp(app.id);
+  res.json({ app, serviceUsers });
+});
+
+// POST /admin/agregarr/enable — toggle enabled state
+router.post('/agregarr/enable', requireAdmin, (req, res) => {
+  const { enabled } = req.body;
+  let app = db.listApiApps().find(a => a.type === 'agregarr');
+  if (!app) app = db.createApiApp('Agregarr', 'agregarr');
+  db.updateApiApp(app.id, { enabled: !!enabled });
+  res.json({ ok: true, enabled: !!enabled });
+});
+
+// POST /admin/agregarr/regenerate-key — regenerate the app API key
+router.post('/agregarr/regenerate-key', requireAdmin, (req, res) => {
+  let app = db.listApiApps().find(a => a.type === 'agregarr');
+  if (!app) return res.status(404).json({ error: 'Agregarr app not found' });
+  const newKey = db.regenerateApiAppKey(app.id);
+  res.json({ ok: true, apiKey: newKey });
+});
+
+// DELETE /admin/agregarr/service-users/:id — remove a service user
+router.delete('/agregarr/service-users/:id', requireAdmin, (req, res) => {
+  db.deleteServiceUser(req.params.id);
+  res.json({ ok: true });
+});
+
 module.exports = router;
 module.exports.shouldAutoSync = shouldAutoSync;
+module.exports.requireAdmin = requireAdmin;

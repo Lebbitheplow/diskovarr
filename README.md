@@ -39,7 +39,9 @@ Each user can configure: region, language, notification preferences (per event t
 Two-tab panel at `/admin`:
 
 - **Settings** — library sync controls, per-user watch sync, cache management, server owner, watchlist/playlist mode, theme color (8 presets + color wheel), app public URL, and full per-user settings with action buttons (re-sync, clear watched, clear dismissals, clear requests)
-- **Connections** — configure Plex, Tautulli, TMDB, Overseerr, Radarr, and Sonarr with masked API key fields, test buttons, and slide toggles — no file edits or restarts needed
+- **Connections** — configure Plex, Tautulli, TMDB, Overseerr, Radarr, Sonarr, Agregarr, and Riven/DUMB with masked API key fields, test buttons, and slide toggles — no file edits or restarts needed
+- **Riven/DUMB torrent browser** — search any title, browse Torrentio results with Real-Debrid cache status, and inject a torrent directly into Riven from the admin panel. Includes a season selector for TV shows and manual magnet paste fallback.
+- **Agregarr** — enable the Overseerr-compatible API shim so Agregarr can auto-request missing collection items through Diskovarr. Service users are created automatically; their requests appear in the queue with a bot badge.
 
 ---
 
@@ -59,10 +61,13 @@ Configure from **Admin → Notifications**. Multiple events of the same type wit
 
 ## Requirements
 
-- **Docker** (recommended) or Node.js ≥ 23.4.0
-- **Plex Media Server** — local network access required
-- **Tautulli** — provides watch history used for preference scoring
-- Optional: TMDB API key (free) to enable Requests tab; Overseerr / Radarr / Sonarr for request routing
+- **[Docker](https://docs.docker.com/get-docker/)** (recommended) or Node.js ≥ 23.4.0
+- **[Plex Media Server](https://www.plex.tv/media-server-downloads/)** — local network access required
+- **[Tautulli](https://github.com/Tautulli/Tautulli)** — provides watch history used for preference scoring
+- Optional: free [TMDB API key](https://www.themoviedb.org/settings/api) to enable the Requests tab
+- Optional request routing: **[Overseerr](https://github.com/sct/overseerr)** · **[Radarr](https://github.com/Radarr/Radarr)** · **[Sonarr](https://github.com/Sonarr/Sonarr)**
+- Optional collection management: **[Agregarr](https://github.com/agregarr/agregarr)**
+- Optional torrent injection: **[DUMB](https://github.com/I-am-PUID-0/DUMB)** (Riven + Real-Debrid)
 
 > Diskovarr is designed for a single Plex server and its users. Users must be members of your configured Plex server — the app verifies membership during OAuth sign-in.
 
@@ -148,7 +153,7 @@ sudo systemctl enable --now diskovarr
 | `PLEX_TV_SECTION_ID` | TV/Anime library section ID (default: `2`) |
 | `PORT` | Port to listen on (default: `3232`) |
 
-> **Tip:** Plex, Tautulli, TMDB, Overseerr, Radarr, and Sonarr can all be configured or updated from **Admin → Connections** without touching any files or restarting.
+> **Tip:** Plex, Tautulli, TMDB, Overseerr, Radarr, Sonarr, Agregarr, and Riven/DUMB can all be configured or updated from **Admin → Connections** without touching any files or restarting.
 
 ---
 

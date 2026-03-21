@@ -201,20 +201,27 @@
     var isMovie = item.mediaType === 'movie';
     var s = cfg.services;
     var hasOverseerr = s.overseerr;
+    var hasRiven     = s.riven;
     var hasDirect    = isMovie ? s.radarr : s.sonarr;
     var directName   = isMovie ? 'Radarr' : 'Sonarr';
     var directSvc    = isMovie ? 'radarr' : 'sonarr';
 
     subEl.textContent = item.year ? item.year + ' · ' + (isMovie ? 'Movie' : 'TV Show') : (isMovie ? 'Movie' : 'TV Show');
 
-    var hasBothSides = hasOverseerr && hasDirect;
+    // Determine default aggregator (overseerr / riven) based on admin preference
+    var hasAggregator = hasOverseerr || hasRiven;
+    var defaultAggregator = hasOverseerr ? 'overseerr' : (hasRiven ? 'riven' : null);
+    if (s.defaultService === 'riven' && hasRiven)     defaultAggregator = 'riven';
+    if (s.defaultService === 'overseerr' && hasOverseerr) defaultAggregator = 'overseerr';
+
+    var hasBothSides = hasAggregator && hasDirect;
     var defaultSvc;
     if (!cfg.hasAnyService) {
       defaultSvc = 'none';
     } else if (hasBothSides) {
-      defaultSvc = (s.defaultService === 'direct') ? directSvc : 'overseerr';
+      defaultSvc = (s.defaultService === 'direct') ? directSvc : defaultAggregator;
     } else {
-      defaultSvc = hasOverseerr ? 'overseerr' : directSvc;
+      defaultSvc = hasAggregator ? defaultAggregator : directSvc;
     }
 
     actionsEl.innerHTML = '';
@@ -232,11 +239,15 @@
       actionsEl.parentNode.insertBefore(pickerEl, actionsEl);
     }
 
-    var canSeeAdvanced = hasBothSides && (cfg.directRequestAccess !== 'admin' || cfg.isOwner);
-    if (canSeeAdvanced) {
-      var altSvc  = (defaultSvc === 'overseerr') ? directSvc : 'overseerr';
-      var altName = (defaultSvc === 'overseerr') ? directName : 'Overseerr';
+    // Build alt options for Advanced panel
+    var altOptions = [];
+    if (defaultSvc !== 'overseerr' && hasOverseerr) altOptions.push({ svc: 'overseerr', name: 'Overseerr' });
+    if (defaultSvc !== 'riven'     && hasRiven)     altOptions.push({ svc: 'riven',     name: 'Riven' });
+    if (defaultSvc !== directSvc   && hasDirect && (cfg.directRequestAccess !== 'admin' || cfg.isOwner)) {
+      altOptions.push({ svc: directSvc, name: directName });
+    }
 
+    if (altOptions.length > 0) {
       var advWrap = document.createElement('div');
       advWrap.className = 'request-dialog-advanced';
 
@@ -249,12 +260,16 @@
       advPanel.className = 'request-dialog-adv-panel';
       advPanel.style.display = 'none';
 
-      var altBtn = document.createElement('button');
-      altBtn.className = 'btn-dialog-alt';
-      altBtn.textContent = 'Send to ' + altName + ' instead';
-      altBtn.type = 'button';
-      altBtn.onclick = function () { submitRequest(item, altSvc, showSeasonPicker ? getSelectedSeasons() : null); };
-      advPanel.appendChild(altBtn);
+      altOptions.forEach(function (opt) {
+        var altBtn = document.createElement('button');
+        altBtn.className = 'btn-dialog-alt';
+        altBtn.textContent = 'Send to ' + opt.name + ' instead';
+        altBtn.type = 'button';
+        (function (sv) {
+          altBtn.onclick = function () { submitRequest(item, sv, showSeasonPicker ? getSelectedSeasons() : null); };
+        })(opt.svc);
+        advPanel.appendChild(altBtn);
+      });
 
       advToggle.onclick = function () {
         var open = advPanel.style.display === 'none';
