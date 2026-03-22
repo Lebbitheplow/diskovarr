@@ -8,7 +8,7 @@ Sign in with Plex · Browse curated picks · Request missing titles · Manage yo
 
 </div>
 
-![Diskovarr home screen](docs/screenshots/home.png)
+![Diskovarr home screen](docs/screenshots/home-v2.png)
 
 ---
 
