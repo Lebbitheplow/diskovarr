@@ -550,6 +550,28 @@
   opacity: 0.6;
 }
 
+.version-docs-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  padding: 3px 10px;
+  border-radius: 999px;
+  text-decoration: none;
+  letter-spacing: 0.02em;
+  transition: color 0.15s, border-color 0.15s;
+  margin-left: auto;
+}
+
+.version-docs-link:hover {
+  color: var(--text);
+  border-color: var(--text-muted);
+}
+
 /* ── Admin tabs ──────────────────────────────────────────────── */
 
 .admin-tabs {

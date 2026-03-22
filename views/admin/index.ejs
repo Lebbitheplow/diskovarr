@@ -16,7 +16,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/style.css?v=50">
-  <link rel="stylesheet" href="/css/admin.css?v=54">
+  <link rel="stylesheet" href="/css/admin.css?v=55">
   <link rel="stylesheet" href="/theme.css?c=<%= themeParam %>" id="theme-css">
 </head>
 <body>
@@ -64,6 +64,10 @@
       <% } else if (latestVersion) { %>
         <span class="version-uptodate">up to date</span>
       <% } %>
+      <a class="version-docs-link" href="https://diskovarr.com/#docs" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13" aria-hidden="true"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+        Documentation
+      </a>
     </div>
 
     <!-- ── Tab navigation ───────────────────────────────────────── -->
@@ -865,7 +869,7 @@
            const hasDirectSide = (connections.radarrEnabled && !!connections.radarrUrl) || (connections.sonarrEnabled && !!connections.sonarrUrl);
            const hasBothSides = [hasOverseerrSide, hasRivenSide, hasDirectSide].filter(Boolean).length >= 2;
            const defaultSvc = connections.defaultRequestService || 'overseerr';
-           const svcDesc = defaultSvc === 'direct' ? 'Sonarr/Radarr is the default' : defaultSvc === 'riven' ? 'Riven is the default' : 'Overseerr is the default';
+           const svcDesc = defaultSvc === 'direct' ? 'Sonarr/Radarr is the default' : defaultSvc === 'riven' ? 'DUMB is the default' : 'Overseerr is the default';
         %>
         <div class="conn-block" id="default-service-block" style="<%= hasBothSides ? '' : 'display:none' %>">
           <div class="conn-block-header" style="border-bottom:none;padding-bottom:0">
@@ -882,7 +886,7 @@
               <button type="button" id="dsvc-btn-riven"
                 class="service-opt-btn <%= defaultSvc === 'riven' ? 'service-opt-active' : '' %>"
                 style="<%= !hasRivenSide ? 'display:none' : '' %>"
-                onclick="setDefaultService('riven')">Riven</button>
+                onclick="setDefaultService('riven')">DUMB</button>
               <button type="button" id="dsvc-btn-direct"
                 class="service-opt-btn <%= defaultSvc === 'direct' ? 'service-opt-active' : '' %>"
                 style="<%= !hasDirectSide ? 'display:none' : '' %>"
@@ -1085,16 +1089,16 @@
           </div>
         </div>
 
-        <!-- Riven / DUMB -->
+        <!-- DUMB / Riven -->
         <div class="conn-block">
           <div class="conn-block-header">
             <div class="conn-block-meta">
-              <span class="conn-block-name">Riven / DUMB <button type="button" class="agent-info-btn" onclick="openAgentInfo('riven-keys')" title="API key info">&#9432;</button></span>
-              <span class="conn-block-desc">Manual torrent browser — search Torrentio and add cached RD torrents to Riven</span>
+              <span class="conn-block-name">DUMB / Riven <button type="button" class="agent-info-btn" onclick="openAgentInfo('riven-keys')" title="API key info">&#9432;</button></span>
+              <span class="conn-block-desc">All-in-one debrid media stack — routes approved requests through DUMB's Riven component and enables the torrent browser</span>
             </div>
             <div class="conn-toggle-wrap">
               <span class="conn-toggle-label" id="lbl-riven-enabled"><%= connections.rivenEnabled ? 'Enabled' : 'Disabled' %></span>
-              <label class="slide-toggle" title="Enable Riven / DUMB features">
+              <label class="slide-toggle" title="Enable DUMB / Riven features">
                 <input type="checkbox" id="toggle-riven-enabled"
                   <%= connections.rivenEnabled ? 'checked' : '' %>
                   onchange="onRivenEnabledToggle(this.checked)">
@@ -1104,7 +1108,7 @@
           </div>
           <div class="conn-block-fields">
             <div class="conn-field-group conn-field-host">
-              <span class="conn-field-label">Riven URL</span>
+              <span class="conn-field-label">Riven URL <span class="conn-field-optional">DUMB component</span></span>
               <input type="text" id="conn-riven-url" class="conn-input"
                 placeholder="http://127.0.0.1:8082"
                 value="">
@@ -1159,10 +1163,10 @@
                 <div class="conn-field-group" style="margin-left:auto">
                   <span class="conn-field-label">Request Mode</span>
                   <div style="display:flex;gap:6px;align-items:center;margin-top:6px">
-                    <button type="button" id="dumb-mode-pull" class="service-opt-btn <%= connections.dumbRequestMode !== 'push' ? 'service-opt-active' : '' %>" onclick="dumbSetMode('pull')">Pull from Diskovarr</button>
-                    <button type="button" id="dumb-mode-push" class="service-opt-btn <%= connections.dumbRequestMode === 'push' ? 'service-opt-active' : '' %>" onclick="dumbSetMode('push')">Push to Riven</button>
+                    <button type="button" id="dumb-mode-pull" class="service-opt-btn <%= connections.dumbRequestMode !== 'push' ? 'service-opt-active' : '' %>" onclick="dumbSetMode('pull')">Pull (DUMB polls)</button>
+                    <button type="button" id="dumb-mode-push" class="service-opt-btn <%= connections.dumbRequestMode === 'push' ? 'service-opt-active' : '' %>" onclick="dumbSetMode('push')">Push (instant)</button>
                   </div>
-                  <p id="dumb-mode-desc" style="font-size:0.78rem;color:var(--text-muted);margin:6px 0 0"><%= connections.dumbRequestMode === 'push' ? 'Diskovarr pushes to Riven on approval' : 'DUMB polls Diskovarr for approved requests' %></p>
+                  <p id="dumb-mode-desc" style="font-size:0.78rem;color:var(--text-muted);margin:6px 0 0"><%= connections.dumbRequestMode === 'push' ? 'Diskovarr pushes to Riven on approval (lower latency, requires Riven reachable)' : 'DUMB polls /api/v1/request?filter=approved on a schedule — no push from Diskovarr' %></p>
                 </div>
               </div>
             </div>
@@ -1488,7 +1492,7 @@
     <div id="agent-info-riven-keys" style="display:none;position:fixed;inset:0;z-index:1100;background:rgba(0,0,0,0.75);align-items:center;justify-content:center" onclick="if(event.target===this)closeAgentInfo('riven-keys')">
       <div style="background:var(--bg-secondary);border-radius:14px;padding:28px;width:min(520px,92vw);border:1px solid var(--border);position:relative;max-height:88vh;overflow-y:auto">
         <button onclick="closeAgentInfo('riven-keys')" style="position:absolute;top:14px;right:16px;background:none;border:none;color:var(--text-secondary);font-size:1.3rem;cursor:pointer;line-height:1" title="Close">&times;</button>
-        <h3 style="margin:0 0 16px;font-size:1.05rem">Riven / DUMB API Keys</h3>
+        <h3 style="margin:0 0 16px;font-size:1.05rem">DUMB / Riven API Keys</h3>
         <div style="font-size:0.88rem;line-height:1.7;color:var(--text-secondary);display:flex;flex-direction:column;gap:12px">
           <div style="background:var(--bg-elevated);border-radius:8px;padding:12px">
             <p style="font-weight:600;color:var(--text-primary);margin:0 0 4px">Auto-detection</p>
@@ -2840,7 +2844,7 @@
     async function onDefaultServiceChange(isDirect, leftSvc) {
       var value = isDirect ? 'direct' : (leftSvc || 'overseerr');
       var desc = document.getElementById('default-service-desc');
-      var descMap = { direct: 'Sonarr/Radarr is the default', riven: 'Riven is the default', overseerr: 'Overseerr is the default' };
+      var descMap = { direct: 'Sonarr/Radarr is the default', riven: 'DUMB is the default', overseerr: 'Overseerr is the default' };
       if (desc) desc.textContent = descMap[value] || (value + ' is the default');
       var lblOs = document.getElementById('lbl-overseerr-opt');
       var lblSn = document.getElementById('lbl-sonarr-opt');
@@ -2855,7 +2859,7 @@
     }
 
     async function setDefaultService(value) {
-      var descMap = { direct: 'Sonarr/Radarr is the default', riven: 'Riven is the default', overseerr: 'Overseerr is the default' };
+      var descMap = { direct: 'Sonarr/Radarr is the default', riven: 'DUMB is the default', overseerr: 'Overseerr is the default' };
       var desc = document.getElementById('default-service-desc');
       if (desc) desc.textContent = descMap[value] || (value + ' is the default');
       ['overseerr', 'riven', 'direct'].forEach(function (svc) {
@@ -2881,7 +2885,7 @@
           body: JSON.stringify({ enabled: checked }),
         }).then(r => r.json());
         if (d.ok) {
-          showToast('Riven / DUMB ' + (checked ? 'enabled' : 'disabled'));
+          showToast('DUMB / Riven ' + (checked ? 'enabled' : 'disabled'));
           refreshDefaultServiceBlock();
         } else {
           showToast('Save failed', true);
@@ -3097,8 +3101,8 @@
       if (pullBtn) pullBtn.className = 'service-opt-btn' + (mode === 'pull' ? ' service-opt-active' : '');
       if (pushBtn) pushBtn.className = 'service-opt-btn' + (mode === 'push' ? ' service-opt-active' : '');
       if (desc) desc.textContent = mode === 'push'
-        ? 'Diskovarr pushes to Riven immediately on approval — same as before'
-        : 'DUMB polls /api/v1/request?filter=approved — no push from Diskovarr';
+        ? 'Diskovarr pushes to Riven on approval (lower latency, requires Riven reachable)'
+        : 'DUMB polls /api/v1/request?filter=approved on a schedule — no push from Diskovarr';
     }
 
     async function dumbSetMode(mode) {

@@ -10,50 +10,6 @@ const tmdbService = require('../services/tmdb');
 const overseerrService = require('../services/overseerr');
 const db = require('../db/database');
 const logger = require('../services/logger');
-const dgram = require('dgram');
-
-// GDM (Good Day Mate) — Plex local network client discovery
-// Sends to both UDP broadcast (255.255.255.255) and multicast (239.0.0.250) on port 32412
-// Also returns address:port for each discovered device for use in direct casting
-function discoverGdmClients(timeoutMs = 2000) {
-  return new Promise(resolve => {
-    const clients = [];
-    const seenIds = new Set();
-    let sock;
-    try {
-      sock = dgram.createSocket('udp4');
-    } catch (e) {
-      return resolve(clients);
-    }
-    const done = () => { try { sock.close(); } catch (_) {} resolve(clients); };
-    const timer = setTimeout(done, timeoutMs);
-
-    sock.on('error', () => { clearTimeout(timer); done(); });
-    sock.on('message', (msg, rinfo) => {
-      const text = msg.toString();
-      const get = (key) => { const m = text.match(new RegExp(key + ':\\s*(.+)')); return m ? m[1].trim() : ''; };
-      const id = get('Machine-Identifier') || get('Resource-Identifier');
-      const name = get('Name');
-      const product = get('Product');
-      const playerPort = get('Port') || '32500';
-      if (id && name && !seenIds.has(id)) {
-        seenIds.add(id);
-        clients.push({ name, machineIdentifier: id, product, platform: 'GDM',
-                       address: rinfo.address, port: parseInt(playerPort, 10) || 32500 });
-      }
-    });
-
-    sock.bind(() => {
-      try {
-        sock.setBroadcast(true);
-        const msg = Buffer.from('M-SEARCH * HTTP/1.0\n\n');
-        // Send to both broadcast and multicast — different Plex clients listen on different addresses
-        sock.send(msg, 0, msg.length, 32412, '255.255.255.255');
-        sock.send(msg, 0, msg.length, 32412, '239.0.0.250');
-      } catch (e) { clearTimeout(timer); done(); }
-    });
-  });
-}
 
 router.use(requireAuth);
 
@@ -353,49 +309,36 @@ router.get('/discover/genres', async (req, res) => {
   }
 });
 
-// GET /api/clients — list Plex player clients
-// Sources: resources API (cloud, modern), server /clients (active LAN), devices.xml (TV-product fallback), GDM (UDP broadcast)
-// devices.xml is legacy but needed for TV devices that only appear there (e.g. Plex for Android (TV) with provides=controller)
+// GET /api/clients — list Plex player clients for the logged-in user
+// Uses plex.tv cloud sources only (user's own token) so each user sees their own devices.
+// Server-side sources (PMS /clients, GDM UDP) are intentionally excluded — they discover
+// devices on the server's LAN and would expose the admin's devices to all users.
 router.get('/clients', async (req, res) => {
   try {
-    const { token: userToken, serverToken } = req.session.plexUser;
-    const castToken = serverToken || userToken;
-    const plexUrl = plexService.getPlexUrl();
-
-    const [[resourcesResult, serverClientsResult, devicesXmlResult], gdmClients] = await Promise.all([
-      Promise.allSettled([
-        fetch('https://plex.tv/api/v2/resources?includeHttps=1&includeRelay=1&includeIPv6=1', {
-          headers: {
-            'X-Plex-Token': userToken,
-            'X-Plex-Client-Identifier': 'diskovarr-app',
-            'X-Plex-Product': 'Diskovarr',
-            'Accept': 'application/json',
-          },
-          signal: AbortSignal.timeout(10000),
-        }),
-        fetch(`${plexUrl}/clients`, {
-          headers: {
-            'X-Plex-Token': castToken,
-            'X-Plex-Client-Identifier': 'diskovarr-app',
-            'Accept': 'application/xml',
-          },
-          signal: AbortSignal.timeout(8000),
-        }),
-        fetch('https://plex.tv/devices.xml', {
-          headers: {
-            'X-Plex-Token': userToken,
-            'X-Plex-Client-Identifier': 'diskovarr-app',
-          },
-          signal: AbortSignal.timeout(10000),
-        }),
-      ]),
-      discoverGdmClients(2000),
-    ]);
-
+    const { token: userToken } = req.session.plexUser;
     const clients = [];
     const seenIds = new Set();
 
-    // Source 1: plex.tv/api/v2/resources — cloud-registered clients with presence info
+    const [resourcesResult, devicesXmlResult] = await Promise.allSettled([
+      fetch('https://plex.tv/api/v2/resources?includeHttps=1&includeRelay=1&includeIPv6=1', {
+        headers: {
+          'X-Plex-Token': userToken,
+          'X-Plex-Client-Identifier': 'diskovarr-app',
+          'X-Plex-Product': 'Diskovarr',
+          'Accept': 'application/json',
+        },
+        signal: AbortSignal.timeout(10000),
+      }),
+      fetch('https://plex.tv/devices.xml', {
+        headers: {
+          'X-Plex-Token': userToken,
+          'X-Plex-Client-Identifier': 'diskovarr-app',
+        },
+        signal: AbortSignal.timeout(10000),
+      }),
+    ]);
+
+    // Primary: plex.tv/api/v2/resources — cloud-registered clients with relay connection info
     if (resourcesResult.status === 'fulfilled' && resourcesResult.value?.ok) {
       const resources = await resourcesResult.value.json().catch(() => []);
       for (const r of (Array.isArray(resources) ? resources : [])) {
@@ -410,24 +353,8 @@ router.get('/clients', async (req, res) => {
       logger.warn('/api/clients: resources fetch failed:', resourcesResult.reason?.message || resourcesResult.value?.status);
     }
 
-    // Source 2: {server}/clients — active clients currently connected to this PMS (catches local TVs)
-    if (serverClientsResult.status === 'fulfilled' && serverClientsResult.value?.ok) {
-      const xml = await serverClientsResult.value.text().catch(() => '');
-      for (const match of xml.matchAll(/<Player\s([^>]*?)(?:\/>|>)/gs)) {
-        const attrs = {};
-        for (const a of match[1].matchAll(/(\w+)="([^"]*)"/g)) attrs[a[1]] = a[2];
-        const id = attrs.machineIdentifier;
-        if (id && !seenIds.has(id)) {
-          clients.push({ name: attrs.title || attrs.name || id, machineIdentifier: id, product: attrs.product || '', platform: attrs.platform || '' });
-          seenIds.add(id);
-        }
-      }
-    } else {
-      logger.debug('/api/clients: server /clients fetch skipped or failed:', serverClientsResult.reason?.message || serverClientsResult.value?.status);
-    }
-
-    // Source 3: devices.xml — fallback for TV devices not in resources (e.g. provides=controller)
-    // Filter by product to TV-type apps only; avoids pulling in Plexamp, Plex Dash, phones, etc.
+    // Fallback: devices.xml — catches TV-type devices that register as provides=controller
+    // TV-product filter avoids pulling in Plexamp, Plex Dash, phones, etc.
     const TV_PRODUCT_RE = /\(TV\)|HTPC|Roku|Apple TV/i;
     if (devicesXmlResult.status === 'fulfilled' && devicesXmlResult.value?.ok) {
       const xml = await devicesXmlResult.value.text().catch(() => '');
@@ -445,20 +372,6 @@ router.get('/clients', async (req, res) => {
       logger.debug('/api/clients: devices.xml fetch skipped or failed:', devicesXmlResult.reason?.message || devicesXmlResult.value?.status);
     }
 
-    // Source 4: GDM (local UDP broadcast) — catches LAN clients not in cloud registry
-    // GDM returns the device's system name (e.g. "AFTHA001"), not the friendly Plex name.
-    // Check if we already have a resources entry for this machine ID and use its name instead.
-    for (const g of gdmClients) {
-      if (g.machineIdentifier && !seenIds.has(g.machineIdentifier)) {
-        const existing = clients.find(c => c.machineIdentifier === g.machineIdentifier);
-        if (!existing) {
-          clients.push({ name: g.name, machineIdentifier: g.machineIdentifier, product: g.product || '', platform: g.platform || '' });
-          seenIds.add(g.machineIdentifier);
-        }
-      }
-    }
-    if (gdmClients.length) logger.debug(`/api/clients: GDM found ${gdmClients.length} client(s), total=${clients.length}`);
-
     logger.debug(`/api/clients: user=${req.session.plexUser.id} total=${clients.length}`);
     res.json({ clients });
   } catch (err) {
@@ -468,7 +381,8 @@ router.get('/clients', async (req, res) => {
 });
 
 // POST /api/cast — body: { ratingKey, clientId }
-// Protocol: create PlayQueue first, then send playMedia to player directly or via PMS relay
+// Protocol: create PlayQueue on PMS, look up player relay via plex.tv resources, send playMedia.
+// Uses the user's own token throughout so commands reach the user's own devices.
 router.post('/cast', async (req, res) => {
   try {
     const { ratingKey, clientId } = req.body;
@@ -476,14 +390,13 @@ router.post('/cast', async (req, res) => {
     if (!/^\d+$/.test(String(ratingKey))) return res.status(400).json({ error: 'Invalid ratingKey' });
 
     const { serverToken, token: userToken } = req.session.plexUser;
-    const castToken = serverToken || userToken;
     const plexUrl = plexService.getPlexUrl();
     const serverId = plexService.getPlexServerId ? plexService.getPlexServerId() : process.env.PLEX_SERVER_ID;
     const urlObj = new URL(plexUrl);
     const pmsAddress = urlObj.hostname;
     const pmsPort = urlObj.port || '32400';
 
-    // Step 1: Create a PlayQueue on the PMS — required by Plex protocol for reliable playback
+    // Step 1: Create a PlayQueue on the PMS (content lives here, use server token)
     let containerKey = null;
     try {
       const pqParams = new URLSearchParams({
@@ -493,7 +406,7 @@ router.post('/cast', async (req, res) => {
       });
       const pqRes = await fetch(`${plexUrl}/playQueues?${pqParams}`, {
         method: 'POST',
-        headers: { 'X-Plex-Token': castToken, 'X-Plex-Client-Identifier': 'DISKOVARR', 'Accept': 'application/xml' },
+        headers: { 'X-Plex-Token': serverToken || userToken, 'X-Plex-Client-Identifier': 'DISKOVARR', 'Accept': 'application/xml' },
         signal: AbortSignal.timeout(8000),
       });
       if (pqRes.ok) {
@@ -505,54 +418,35 @@ router.post('/cast', async (req, res) => {
       logger.debug('/api/cast: PlayQueue creation failed, continuing without:', e.message);
     }
 
-    // Step 2: Discover the player's direct connection URI
-    // Priority: PMS /clients (active local) > plex.tv resources connections > GDM
+    // Step 2: Look up the player's connection URI via plex.tv resources (user's token)
+    // Relay connections work cross-network for all users; local connections are tried second
+    // as a fallback for users on the same LAN as their device.
     let playerUri = null;
-
-    // Check PMS /clients for active local connection
     try {
-      const clientsRes = await fetch(`${plexUrl}/clients`, {
-        headers: { 'X-Plex-Token': castToken, 'X-Plex-Client-Identifier': 'DISKOVARR', 'Accept': 'application/xml' },
-        signal: AbortSignal.timeout(5000),
+      const resRes = await fetch('https://plex.tv/api/v2/resources?includeHttps=1&includeRelay=1', {
+        headers: { 'X-Plex-Token': userToken, 'X-Plex-Client-Identifier': 'DISKOVARR', 'Accept': 'application/json' },
+        signal: AbortSignal.timeout(8000),
       });
-      if (clientsRes.ok) {
-        const xml = await clientsRes.text();
-        for (const m of xml.matchAll(/<(?:Server|Player)\s([^>]*?)(?:\/>|>)/gs)) {
-          const attrs = {};
-          for (const a of m[1].matchAll(/(\w+)="([^"]*)"/g)) attrs[a[1]] = a[2];
-          if (attrs.machineIdentifier === clientId) {
-            playerUri = `http://${attrs.host || attrs.address}:${attrs.port || 32500}`;
+      if (resRes.ok) {
+        const resources = await resRes.json().catch(() => []);
+        for (const r of (Array.isArray(resources) ? resources : [])) {
+          if (r.clientIdentifier === clientId && Array.isArray(r.connections) && r.connections.length) {
+            // Relay first (works from any network), local second (same-LAN only)
+            const sorted = [...r.connections].sort((a, b) => (b.relay ? 1 : 0) - (a.relay ? 1 : 0));
+            playerUri = sorted[0].uri;
             break;
           }
         }
       }
-    } catch (e) { /* ignore */ }
-
-    // Check plex.tv resources API for connection URIs (covers cloud-registered players + relay)
-    if (!playerUri) {
-      try {
-        const resRes = await fetch('https://plex.tv/api/v2/resources?includeHttps=1&includeRelay=1', {
-          headers: { 'X-Plex-Token': userToken, 'X-Plex-Client-Identifier': 'DISKOVARR', 'Accept': 'application/json' },
-          signal: AbortSignal.timeout(8000),
-        });
-        if (resRes.ok) {
-          const resources = await resRes.json().catch(() => []);
-          for (const r of (Array.isArray(resources) ? resources : [])) {
-            if (r.clientIdentifier === clientId && Array.isArray(r.connections) && r.connections.length) {
-              // Prefer local non-relay connections, fall back to relay
-              const sorted = [...r.connections].sort((a, b) => {
-                if (a.local && !a.relay) return -1;
-                if (b.local && !b.relay) return 1;
-                return (a.relay ? 1 : 0) - (b.relay ? 1 : 0);
-              });
-              playerUri = sorted[0].uri;
-            }
-          }
-        }
-      } catch (e) { /* ignore */ }
+    } catch (e) {
+      logger.debug('/api/cast: resources lookup failed:', e.message);
     }
 
-    // Step 3: Build playMedia params
+    if (!playerUri) {
+      return res.status(400).json({ error: 'Player not found. Make sure your Plex app is open on your TV.' });
+    }
+
+    // Step 3: Send playMedia to the player using the user's token
     const params = new URLSearchParams({
       key: `/library/metadata/${ratingKey}`,
       ratingKey: String(ratingKey),
@@ -565,31 +459,20 @@ router.post('/cast', async (req, res) => {
     });
     if (containerKey) params.set('containerKey', containerKey);
 
-    const castHeaders = {
-      'Accept': 'application/json',
-      'X-Plex-Token': castToken,
-      'X-Plex-Target-Client-Identifier': clientId,
-      'X-Plex-Client-Identifier': 'DISKOVARR',
-    };
+    const castUrl = `${playerUri}/player/playback/playMedia?${params}`;
+    const r = await fetch(castUrl, {
+      headers: {
+        'Accept': 'application/json',
+        'X-Plex-Token': userToken,
+        'X-Plex-Target-Client-Identifier': clientId,
+        'X-Plex-Client-Identifier': 'DISKOVARR',
+      },
+      signal: AbortSignal.timeout(10000),
+    });
 
-    // Step 4: Try direct player URI first; fall back to PMS relay
-    const attempts = playerUri
-      ? [`${playerUri}/player/playback/playMedia?${params}`, `${plexUrl}/player/playback/playMedia?${params}`]
-      : [`${plexUrl}/player/playback/playMedia?${params}`];
-
-    let lastStatus = null;
-    for (const url of attempts) {
-      try {
-        const r = await fetch(url, { headers: castHeaders, signal: AbortSignal.timeout(10000) });
-        logger.debug(`/api/cast: ${url.includes('192.168') || url.includes(playerUri) ? 'direct' : 'relay'} → ${r.status}`);
-        if (r.ok) return res.json({ success: true });
-        lastStatus = r.status;
-      } catch (e) {
-        logger.debug(`/api/cast: attempt failed: ${e.message}`);
-      }
-    }
-
-    res.status(400).json({ error: `Cast failed (status ${lastStatus})` });
+    logger.debug(`/api/cast: ${castUrl} → ${r.status}`);
+    if (r.ok) return res.json({ success: true });
+    res.status(400).json({ error: `Cast failed (status ${r.status})` });
   } catch (err) {
     logger.error('/api/cast error:', err.message);
     res.status(500).json({ error: err.message });

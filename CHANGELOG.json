@@ -1,5 +1,15 @@
 [
   {
+    "version": "1.17.6",
+    "date": "2026-03-22",
+    "changes": [
+      "Documentation site \u2014 full setup guide and documentation now live at diskovarr.com. Covers installation, all admin panel settings, every page, integrations, and the full API reference.",
+      "Documentation link in admin panel \u2014 a Documentation pill in the admin panel version strip links directly to the docs site, visible on all tabs.",
+      "Fix: Cast to TV device isolation \u2014 GDM (UDP broadcast) and PMS /clients removed as device discovery sources; both ran on the server\u2019s local network, exposing the admin\u2019s Plex players to all users. Device lookup now uses plex.tv/api/v2/resources and devices.xml with each user\u2019s own token so every user sees only their own registered devices.",
+      "Fix: Cast to TV remote casting \u2014 playMedia was being sent with the server admin token, which cannot control another user\u2019s Plex client. The command is now sent with the requesting user\u2019s own token. Connection lookup also prefers relay connections (work from any network) over local LAN connections, fixing cast failures for users on a different network than the server."
+    ]
+  },
+  {
     "version": "1.17.5",
     "date": "2026-03-22",
     "changes": [

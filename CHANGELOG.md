@@ -4,6 +4,20 @@ All notable changes are documented here. Versioning follows [Semantic Versioning
 
 ---
 
+## v1.17.6 — 2026-03-22
+
+### Added
+
+- **Documentation site** — full documentation and setup guide is now live at [diskovarr.com](https://diskovarr.com). Covers installation, all admin panel settings, every page, integrations, and the full API reference.
+- **Documentation link in admin panel** — a Documentation pill link in the admin panel version strip links directly to the docs site. Visible on all tabs.
+
+### Fixed
+
+- **Cast to TV — device isolation**: Removed GDM (UDP broadcast) and PMS `/clients` as device discovery sources. Both methods run on the server's local network, causing all users to see the admin's Plex player devices instead of their own. Device lookup now uses `plex.tv/api/v2/resources` and `devices.xml` with each user's own Plex token exclusively, so every user only sees devices registered to their account.
+- **Cast to TV — remote casting**: The cast command was being sent with the server admin token (`castToken = serverToken || userToken`), which cannot control another user's Plex client. playMedia is now sent using the requesting user's own token. Connection lookup also now prefers relay connections (which work across any network) over local LAN connections, fixing cast failures for users not on the same network as the server.
+
+---
+
 ## v1.17.5 — 2026-03-22
 
 ### Added
