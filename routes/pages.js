@@ -7,11 +7,20 @@ const APP_VERSION = require('../package.json').version;
 
 const CHANGELOG = (() => { try { return require('../CHANGELOG.json'); } catch { return []; } })();
 
+function bgGradientCss() {
+  const color = db.getThemeColor();
+  const r = parseInt(color.slice(1, 3), 16);
+  const g = parseInt(color.slice(3, 5), 16);
+  const b = parseInt(color.slice(5, 7), 16);
+  return `body{background-image:radial-gradient(ellipse 50% 50% at 50% 0%,rgba(${r},${g},${b},0.28) 0%,transparent 100%),radial-gradient(ellipse 60% 40% at 50% 100%,rgba(${r},${g},${b},0.12) 0%,transparent 100%);background-attachment:fixed;}`;
+}
+
 function pageLocals(req) {
   const isQueueAdmin = !!(req && (req.session?.isAdmin || req.session?.isPlexAdminUser));
   return {
     discoverEnabled: db.isDiscoverEnabled(),
     themeParam: themeParam(),
+    bgGradientCss: bgGradientCss(),
     appVersion: APP_VERSION,
     isQueueAdmin,
     changelog: CHANGELOG,
@@ -33,13 +42,15 @@ router.get('/theme.css', (req, res) => {
 
   const css = `:root {
   --accent: ${color};
+  --accent-rgb: ${r}, ${g}, ${b};
   --accent-dim: rgba(${r}, ${g}, ${b}, 0.15);
   --accent-dim2: rgba(${r}, ${g}, ${b}, 0.20);
   --accent-glow: rgba(${r}, ${g}, ${b}, 0.08);
   --accent-border: rgba(${r}, ${g}, ${b}, 0.4);
   --accent-shadow: rgba(${r}, ${g}, ${b}, 0.4);
   --accent-hover: ${hover};
-}\n`;
+}
+\n`;
   res.setHeader('Content-Type', 'text/css');
   res.setHeader('Cache-Control', 'no-cache, no-store');
   res.send(css);
@@ -140,6 +151,7 @@ router.get('/explore', requireAuth, (req, res) => {
     radarr: connections.radarrEnabled && !!connections.radarrUrl,
     sonarr: connections.sonarrEnabled && !!connections.sonarrUrl,
     riven: connections.rivenEnabled && !!connections.rivenUrl,
+    defaultService: connections.defaultRequestService || 'overseerr',
   };
   const hasAnyService = services.overseerr || services.radarr || services.sonarr || services.riven;
   const ownerUserId = db.getOwnerUserId();
@@ -161,6 +173,7 @@ router.get('/search', requireAuth, (req, res) => {
     radarr: connections.radarrEnabled && !!connections.radarrUrl,
     sonarr: connections.sonarrEnabled && !!connections.sonarrUrl,
     riven: connections.rivenEnabled && !!connections.rivenUrl,
+    defaultService: connections.defaultRequestService || 'overseerr',
   };
   const hasAnyService = services.overseerr || services.radarr || services.sonarr || services.riven;
   const query = (req.query.q || '').trim();

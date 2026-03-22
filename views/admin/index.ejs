@@ -15,11 +15,12 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/style.css?v=31">
+  <link rel="stylesheet" href="/css/style.css?v=45">
   <link rel="stylesheet" href="/css/admin.css?v=52">
   <link rel="stylesheet" href="/theme.css?c=<%= themeParam %>" id="theme-css">
 </head>
 <body>
+  <style id="bg-gradient-style"><%- bgGradientCss %></style>
   <nav class="nav">
     <div class="nav-inner">
       <a href="/" class="nav-logo">
@@ -1735,6 +1736,11 @@
       if (d.success) {
         const link = document.getElementById('theme-css');
         if (link) link.href = '/theme.css?c=' + encodeURIComponent(d.color);
+        // Update background gradient in real-time
+        var _c = d.color.replace('#','');
+        var _r = parseInt(_c.slice(0,2),16), _g = parseInt(_c.slice(2,4),16), _b = parseInt(_c.slice(4,6),16);
+        var _gs = document.getElementById('bg-gradient-style');
+        if (_gs) _gs.textContent = 'body{background-image:radial-gradient(ellipse 50% 50% at 50% 0%,rgba('+_r+','+_g+','+_b+',0.28) 0%,transparent 100%),radial-gradient(ellipse 60% 40% at 50% 100%,rgba('+_r+','+_g+','+_b+',0.12) 0%,transparent 100%);background-attachment:fixed;}';
         showToast('Theme color updated');
       } else {
         showToast(d.error || 'Failed to update color', true);

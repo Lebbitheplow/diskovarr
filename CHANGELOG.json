@@ -1,5 +1,13 @@
 [
   {
+    "version": "1.17.4",
+    "date": "2026-03-21",
+    "changes": [
+      "Accent-colored background gradient — all pages now show a subtle radial glow using the current accent color; spotlight from top center with a softer glow at the bottom. Updates in real-time when accent color is changed in the admin panel.",
+      "Fix: Default request service setting was not being passed to the frontend on explore and search pages, causing requests to always route to Overseerr regardless of admin settings."
+    ]
+  },
+  {
     "version": "1.17.3",
     "date": "2026-03-21",
     "changes": [

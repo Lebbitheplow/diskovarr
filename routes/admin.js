@@ -8,6 +8,14 @@ const discoverRecommender = require('../services/discoverRecommender');
 const logger = require('../services/logger');
 const { version: APP_VERSION } = require('../package.json');
 
+function bgGradientCss() {
+  const color = db.getThemeColor();
+  const r = parseInt(color.slice(1, 3), 16);
+  const g = parseInt(color.slice(3, 5), 16);
+  const b = parseInt(color.slice(5, 7), 16);
+  return `body{background-image:radial-gradient(ellipse 50% 50% at 50% 0%,rgba(${r},${g},${b},0.28) 0%,transparent 100%),radial-gradient(ellipse 60% 40% at 50% 100%,rgba(${r},${g},${b},0.12) 0%,transparent 100%);background-attachment:fixed;}`;
+}
+
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10,
@@ -126,6 +134,7 @@ router.get('/', requireAdmin, async (req, res) => {
     knownUsers: db.getKnownUsers(),
     connections: db.getConnectionSettings(),
     themeParam: encodeURIComponent(db.getThemeColor()),
+    bgGradientCss: bgGradientCss(),
     appVersion: APP_VERSION,
     latestVersion,
     updateAvailable: isNewerVersion(latestVersion, APP_VERSION),
@@ -713,6 +722,7 @@ router.get('/user-settings/:userId', requireAdmin, (req, res) => {
     settings,
     saved,
     themeParam: encodeURIComponent(db.getThemeColor()),
+    bgGradientCss: bgGradientCss(),
     appVersion: APP_VERSION,
     connections: db.getConnectionSettings(),
     individualSeasonsEnabled: db.isIndividualSeasonsEnabled(),

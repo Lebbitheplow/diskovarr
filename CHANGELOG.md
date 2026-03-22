@@ -4,6 +4,18 @@ All notable changes are documented here. Versioning follows [Semantic Versioning
 
 ---
 
+## v1.17.4 — 2026-03-21
+
+### Added
+
+- **Accent-colored background gradient** — all pages now have a subtle radial glow that uses the current accent color. The spotlight fades in from the top center and a softer glow anchors the bottom, giving the app a cohesive ambient feel. The gradient updates in real-time when the accent color is changed in the admin panel — no page refresh needed.
+
+### Fixed
+
+- **Requests routing to wrong service** — the default request service setting was not being passed to the frontend on the explore and search pages, causing requests to always fall back to Overseerr regardless of what was configured in admin settings.
+
+---
+
 ## v1.17.3 — 2026-03-21
 
 ### Fixed
