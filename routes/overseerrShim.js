@@ -305,9 +305,11 @@ router.post('/request', async (req, res) => {
   }
 
   try {
-    // Resolve title from TMDB cache; fetch live if missing
+    // Resolve title from TMDB cache; fetch live if missing or if TV show lacks
+    // numberOfSeasons (old cache entries pre-date that field — without it, rate
+    // limits fall back to seasonsCount=1 and are bypassed for large shows).
     let cached = db.getTmdbCache(mediaId, mediaType);
-    if (!cached && db.hasTmdbKey()) {
+    if ((!cached || (mediaType === 'tv' && !cached.numberOfSeasons)) && db.hasTmdbKey()) {
       try {
         const details = await tmdb.getItemDetails(mediaId, mediaType === 'tv' ? 'tv' : 'movie');
         if (details) {
@@ -341,9 +343,21 @@ router.post('/request', async (req, res) => {
     }
     const seasonsCount = seasonsArray ? seasonsArray.length : 1;
 
-    // Rate limit check — must happen after TMDB fetch so seasonsCount reflects the real
-    // season count (Agregarr doesn't send a seasons array; we derive it from numberOfSeasons).
-    // Silently return 201 so automated callers like Agregarr don't freeze on 4xx.
+    // For rate limiting TV shows: charge the TOTAL season count from TMDB, not
+    // just the explicitly requested seasons. Agregarr always sends seasons:[1] as
+    // a convention, but a 50-season show should exhaust the limit proportionally.
+    // This count is also what gets stored in seasons_count so the running window
+    // sum (countRecentSeasonRequests) stays accurate across requests.
+    const limitSeasonsCount = (mediaType === 'tv' && cached?.numberOfSeasons > 0)
+      ? cached.numberOfSeasons
+      : seasonsCount;
+    if (mediaType === 'tv' && !cached?.numberOfSeasons) {
+      logger.warn(`[shim] tmdbId=${mediaId} "${title}": numberOfSeasons unknown — rate limit charges ${seasonsCount} (explicit) instead of full show count`);
+    }
+
+    // Rate limit check — must happen after TMDB fetch so limitSeasonsCount reflects
+    // the real total season count. Silently return 201 so automated callers like
+    // Agregarr don't freeze on 4xx.
     const limits = db.getEffectiveLimits(userId);
     if (limits) {
       if (mediaType === 'movie' && limits.movieLimit > 0) {
@@ -361,8 +375,9 @@ router.post('/request', async (req, res) => {
       }
       if (mediaType === 'tv' && limits.seasonLimit > 0) {
         const count = db.countRecentSeasonRequests(userId, limits.seasonWindowDays);
-        if (count + seasonsCount > limits.seasonLimit) {
-          logger.debug(`[shim] rate limit: user=${userId} season limit ${limits.seasonLimit}/${limits.seasonWindowDays}d reached (${count} used, +${seasonsCount} requested) — silently dropping`);
+        logger.debug(`[shim] season limit check: user=${userId} limit=${limits.seasonLimit}/${limits.seasonWindowDays}d used=${count} charging=${limitSeasonsCount} (show has ${cached?.numberOfSeasons ?? '?'} total seasons) title="${title}"`);
+        if (count + limitSeasonsCount > limits.seasonLimit) {
+          logger.info(`[shim] rate limit blocked: user=${userId} limit=${limits.seasonLimit}/${limits.seasonWindowDays}d — ${count} used + ${limitSeasonsCount} needed = ${count + limitSeasonsCount} > limit — dropping "${title}"`);
           return res.status(201).json({
             id: 0, status: 1,
             media: { id: Number(mediaId), mediaType, tmdbId: Number(mediaId), status: 1 },
@@ -402,7 +417,10 @@ router.post('/request', async (req, res) => {
     // Shim requests are queued in Diskovarr only — never routed to Radarr/Sonarr.
     // Respect the global auto-approve setting.
     const status = db.getEffectiveAutoApprove(userId, mediaType) ? 'approved' : 'pending';
-    db.addDiscoverRequestWithStatus(userId, mediaId, mediaType, title, 'none', seasonsCount, status, seasonsArray, posterUrl);
+    // Store limitSeasonsCount (TMDB total) in seasons_count so the running window
+    // sum stays accurate for future rate limit checks. seasons_json still holds the
+    // explicit seasons list Agregarr sent (for display purposes).
+    db.addDiscoverRequestWithStatus(userId, mediaId, mediaType, title, 'none', limitSeasonsCount, status, seasonsArray, posterUrl);
     logger.info(`[shim] Request ${status}: user=${userId} tmdbId=${mediaId} type=${mediaType} title="${title}"`);
 
     const row = db.prepare('SELECT * FROM discover_requests WHERE user_id = ? AND tmdb_id = ? ORDER BY id DESC LIMIT 1').get(userId, Number(mediaId));

@@ -641,7 +641,7 @@ function scoreItem(item, profile, dismissedKeys, watchedKeys, tmdbEnrich) {
     if (hasSpecific && ra !== rb) return ra - rb;
     return b.pts - a.pts;
   });
-  const reasons = signals.slice(0, 3).map(s => s.reason);
+  const reasons = signals.map(s => s.reason).filter(r => r && r.trim()).slice(0, 3);
 
   return { ...item, score, reasons, _primarySignal: signals[0]?.type };
 }

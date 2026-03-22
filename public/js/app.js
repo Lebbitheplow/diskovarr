@@ -183,7 +183,7 @@
     // Genre chips
     const genresEl = document.getElementById('lib-modal-genres');
     genresEl.innerHTML = '';
-    (item.genres || []).slice(0, 5).forEach(function (g) {
+    (item.genres || []).filter(function (g) { return g && g.trim(); }).slice(0, 5).forEach(function (g) {
       const chip = document.createElement('span');
       chip.className = 'genre-tag';
       chip.textContent = g;
@@ -477,6 +477,10 @@
   const MATURE_RATINGS = new Set(['r', 'tv-ma', 'nc-17', 'x', 'nr']);
 
   function isMatureEnabled() {
+    // Prefer server-stored value (embedded at page load); fall back to localStorage
+    if (window.DISKOVARR && window.DISKOVARR.showMature !== undefined) {
+      return window.DISKOVARR.showMature;
+    }
     return localStorage.getItem('matureEnabled') === 'true';
   }
 
@@ -582,7 +586,7 @@
     if (item.reasons && item.reasons.length > 0) {
       const reasons = document.createElement('div');
       reasons.className = 'card-reasons';
-      item.reasons.slice(0, 2).forEach(r => {
+      item.reasons.filter(r => r && r.trim()).slice(0, 2).forEach(r => {
         reasons.appendChild(makeReasonTag(r));
       });
       info.appendChild(reasons);
@@ -743,8 +747,16 @@
     if (matureToggle) {
       matureToggle.checked = isMatureEnabled();
       matureToggle.addEventListener('change', function () {
-        localStorage.setItem('matureEnabled', matureToggle.checked ? 'true' : 'false');
+        const checked = matureToggle.checked;
+        localStorage.setItem('matureEnabled', checked ? 'true' : 'false');
+        if (window.DISKOVARR) window.DISKOVARR.showMature = checked;
         applyMatureFilter();
+        // Persist to server so pool selection and pre-warming use the stored pref
+        fetch('/api/user/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ show_mature: checked }),
+        }).catch(function () {});
       });
     }
 

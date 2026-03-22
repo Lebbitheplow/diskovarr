@@ -83,6 +83,12 @@ db.exec(`
     pools TEXT NOT NULL,
     built_at INTEGER NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS discover_candidates_cache (
+    pool_key   TEXT PRIMARY KEY,
+    candidate_ids TEXT NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
 `);
 
 const stmtAdd = db.prepare(
@@ -259,6 +265,8 @@ function countRecentSeasonRequests(userId, windowDays) {
  'ALTER TABLE user_request_limits ADD COLUMN auto_request_movies INTEGER DEFAULT 0',
  'ALTER TABLE user_request_limits ADD COLUMN auto_request_tv INTEGER DEFAULT 0',
  'ALTER TABLE user_request_limits ADD COLUMN allow_requests_override INTEGER DEFAULT 0',
+ 'ALTER TABLE user_request_limits ADD COLUMN landing_page TEXT DEFAULT NULL',
+ 'ALTER TABLE user_request_limits ADD COLUMN show_mature INTEGER DEFAULT 0',
 ].forEach(sql => { try { db.exec(sql); } catch (e) { if (!e.message.includes('duplicate column')) throw e; } });
 
 // Initialize global auto-request settings if not set
@@ -339,7 +347,7 @@ function rowToItem(r) {
     thumb: r.thumb,
     art: r.art || null,
     type: r.type,
-    genres: JSON.parse(r.genres || '[]'),
+    genres: JSON.parse(r.genres || '[]').filter(g => g && g.trim()),
     directors: JSON.parse(r.directors || '[]'),
     cast: JSON.parse(r.cast || '[]'),
     audienceRating: r.audience_rating,
@@ -415,7 +423,8 @@ function getAdminStats() {
       ku.thumb,
       ku.seen_at AS last_login,
       COALESCE(w.watched_count, 0) AS watched_count,
-      COALESCE(w.last_sync, s.last_sync) AS last_sync
+      COALESCE(w.last_sync, s.last_sync) AS last_sync,
+      COALESCE(r.request_count, 0) AS request_count
     FROM (
       SELECT SUBSTR(key, 9) AS uid, last_sync
       FROM sync_log WHERE key LIKE 'watched_%'
@@ -425,6 +434,10 @@ function getAdminStats() {
       FROM user_watched GROUP BY user_id
     ) w ON w.user_id = s.uid
     LEFT JOIN known_users ku ON ku.user_id = s.uid
+    LEFT JOIN (
+      SELECT user_id, COUNT(*) as request_count
+      FROM discover_requests GROUP BY user_id
+    ) r ON r.user_id = s.uid
     ORDER BY last_sync DESC
   `).all();
 
@@ -767,6 +780,38 @@ function getKnownUserIds() {
   return db.prepare('SELECT DISTINCT user_id FROM discover_pool_cache').all().map(r => r.user_id);
 }
 
+// ── Shared discover candidates cache ─────────────────────────────────────────
+
+function getDiscoverCandidates(poolKey) {
+  const row = db.prepare('SELECT candidate_ids, updated_at FROM discover_candidates_cache WHERE pool_key = ?').get(poolKey);
+  if (!row) return null;
+  try { return { items: JSON.parse(row.candidate_ids), updatedAt: row.updated_at }; } catch { return null; }
+}
+
+function setDiscoverCandidates(poolKey, items) {
+  db.prepare('INSERT OR REPLACE INTO discover_candidates_cache (pool_key, candidate_ids, updated_at) VALUES (?, ?, ?)')
+    .run(poolKey, JSON.stringify(items), Date.now());
+}
+
+// Returns all distinct pref combos across known users (for background pool refresh)
+function getAllUserPrefsForDiscover() {
+  const rows = db.prepare(`
+    SELECT DISTINCT url.region, url.language, url.show_mature
+    FROM known_users ku
+    LEFT JOIN user_request_limits url ON url.user_id = ku.user_id
+  `).all();
+  // Always include the default (no prefs) combo so pool is available before first login
+  const combos = rows.map(r => ({
+    region: r.region || null,
+    language: r.language || null,
+    show_mature: !!r.show_mature,
+  }));
+  if (!combos.some(c => !c.region && !c.language && !c.show_mature)) {
+    combos.push({ region: null, language: null, show_mature: false });
+  }
+  return combos;
+}
+
 function isIndividualSeasonsEnabled() {
   return getSetting('individual_seasons_enabled', '0') === '1';
 }
@@ -859,6 +904,7 @@ function getUserSettings(userId) {
     language: limits?.language || null,
     auto_request_movies: limits ? !!limits.auto_request_movies : false,
     auto_request_tv: limits ? !!limits.auto_request_tv : false,
+    landing_page: limits?.landing_page || null,
   };
 }
 
@@ -876,12 +922,13 @@ function saveUserSettings(userId, settings) {
     language = null,
     auto_request_movies = false,
     auto_request_tv = false,
+    landing_page = null,
   } = settings;
 
   db.prepare(`
     INSERT OR REPLACE INTO user_request_limits
-      (user_id, override_enabled, movie_limit, movie_window_days, season_limit, season_window_days, auto_approve_movies, auto_approve_tv, region, language, auto_request_movies, auto_request_tv)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (user_id, override_enabled, movie_limit, movie_window_days, season_limit, season_window_days, auto_approve_movies, auto_approve_tv, region, language, auto_request_movies, auto_request_tv, landing_page)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     String(userId),
     overrideGlobal ? 1 : 0,
@@ -895,6 +942,7 @@ function saveUserSettings(userId, settings) {
     language || null,
     auto_request_movies ? 1 : 0,
     auto_request_tv ? 1 : 0,
+    landing_page || null,
   );
 
   // Ensure user row exists in known_users before updating is_admin
@@ -932,20 +980,22 @@ function getRequestById(id) {
 }
 
 function getUserPreferences(userId) {
-  const row = db.prepare('SELECT region, language, auto_request_movies, auto_request_tv FROM user_request_limits WHERE user_id = ?').get(String(userId));
+  const row = db.prepare('SELECT region, language, auto_request_movies, auto_request_tv, landing_page, show_mature FROM user_request_limits WHERE user_id = ?').get(String(userId));
   return {
     region: row?.region || null,
     language: row?.language || null,
     auto_request_movies: row ? !!row.auto_request_movies : false,
     auto_request_tv: row ? !!row.auto_request_tv : false,
+    landing_page: row?.landing_page || null,
+    show_mature: row ? !!row.show_mature : false,
   };
 }
 
-function setUserPreferences(userId, { region, language, auto_request_movies, auto_request_tv }) {
+function setUserPreferences(userId, { region, language, auto_request_movies, auto_request_tv, landing_page, show_mature }) {
   // Ensure row exists first
   db.prepare('INSERT OR IGNORE INTO user_request_limits (user_id) VALUES (?)').run(String(userId));
-  db.prepare('UPDATE user_request_limits SET region = ?, language = ?, auto_request_movies = ?, auto_request_tv = ? WHERE user_id = ?')
-    .run(region || null, language || null, auto_request_movies ? 1 : 0, auto_request_tv ? 1 : 0, String(userId));
+  db.prepare('UPDATE user_request_limits SET region = ?, language = ?, auto_request_movies = ?, auto_request_tv = ?, landing_page = ?, show_mature = ? WHERE user_id = ?')
+    .run(region || null, language || null, auto_request_movies ? 1 : 0, auto_request_tv ? 1 : 0, landing_page || null, show_mature ? 1 : 0, String(userId));
 }
 
 function getUserRequests(userId, limit = 20, offset = 0, statusFilter = null) {
@@ -1413,6 +1463,7 @@ module.exports = {
   addDiscoverRequest, getRequestedTmdbIds, getAllRequestedTmdbIds, getRecentRequests,
   addExploreDismissal, getExploreDismissedIds,
   getDiscoverPool, setDiscoverPool, getKnownUserIds,
+  getDiscoverCandidates, setDiscoverCandidates, getAllUserPrefsForDiscover,
   isIndividualSeasonsEnabled,
   getLandingPage,
   getDirectRequestAccess,

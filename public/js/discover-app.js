@@ -98,6 +98,32 @@
     }
   }
 
+  // ── Follow (notify when available) ───────────────────────────────────────
+
+  async function followItem(item, btnEl) {
+    if (btnEl) { btnEl.disabled = true; btnEl.textContent = '…'; }
+    try {
+      var r = await fetch('/api/explore/follow', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tmdbId: item.tmdbId, mediaType: item.mediaType, title: item.title }),
+      });
+      if (!r.ok) throw new Error('Follow failed');
+      item.isMyRequest = true;
+      if (btnEl) { btnEl.textContent = 'Requested ✓'; btnEl.className = btnEl.className.replace('btn-request-sent', '') + ' btn-request-sent'; }
+      // Update all cards showing this item
+      document.querySelectorAll('[data-request-tmdb="' + item.tmdbId + '"]').forEach(function (b) {
+        b.textContent = 'Requested ✓';
+        b.disabled = true;
+        if (!b.className.includes('btn-request-sent')) b.className += ' btn-request-sent';
+      });
+      showToast('You\'ll be notified when ' + (item.title || 'this title') + ' is available', 'add');
+    } catch (err) {
+      if (btnEl) { btnEl.disabled = false; btnEl.textContent = 'Notify Me'; }
+      showToast('Could not follow: ' + err.message, 'error');
+    }
+  }
+
   // ── Request dialog ────────────────────────────────────────────────────────
 
   var pendingRequest = null;
@@ -463,7 +489,7 @@
     var genresEl = document.getElementById('detail-modal-genres');
     genresEl.innerHTML = '';
     if (item.genres && item.genres.length > 0) {
-      item.genres.slice(0, 5).forEach(function (g) {
+      item.genres.filter(function (g) { return g && g.trim(); }).slice(0, 5).forEach(function (g) {
         var tag = document.createElement('span');
         tag.className = 'genre-tag';
         tag.textContent = g;
@@ -502,12 +528,18 @@
     var actEl = document.getElementById('detail-modal-actions');
     actEl.innerHTML = '';
     var reqBtn = document.createElement('button');
-    reqBtn.className = 'btn-request' + (item.isRequested ? ' btn-request-sent' : '');
+    var _isMyReq = item.isMyRequest;
+    var _isReq = item.isRequested;
+    reqBtn.className = 'btn-request' + (_isMyReq ? ' btn-request-sent' : '');
     reqBtn.setAttribute('data-request-tmdb', String(item.tmdbId));
-    reqBtn.textContent = item.isRequested ? 'Requested ✓' : 'Request';
-    reqBtn.disabled = item.isRequested;
+    reqBtn.textContent = _isMyReq ? 'Requested ✓' : (_isReq ? 'Notify Me' : 'Request');
+    reqBtn.disabled = _isMyReq;
     reqBtn.addEventListener('click', function () {
-      if (!item.isRequested) {
+      if (_isMyReq) return;
+      if (_isReq) {
+        closeDetailModal();
+        followItem(item, reqBtn);
+      } else {
         closeDetailModal();
         openRequestDialog(item);
       }
@@ -521,6 +553,63 @@
       dismissItem(item, null);
     });
     actEl.appendChild(notInterestedBtn);
+
+    // Cast to TV — only for items already in the Plex library
+    if (item.ratingKey) {
+      var CAST_ICON = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="15" height="15" fill="currentColor" style="vertical-align:-2px;margin-right:6px"><path d="M1 18v3h3c0-1.66-1.34-3-3-3zm0-4v2c2.76 0 5 2.24 5 5h2c0-3.87-3.13-7-7-7zm0-4v2c4.97 0 9 4.03 9 9h2C12 14.14 7.03 9 1 10zm20-7H3C1.9 3 1 3.9 1 5v3h2V5h18v14h-7v2h7c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"/></svg>Cast to TV';
+      var castWrap = document.createElement('div');
+      castWrap.className = 'modal-cast-wrap';
+      var castBtn = document.createElement('button');
+      castBtn.className = 'modal-btn modal-btn-cast';
+      castBtn.innerHTML = CAST_ICON;
+      var clientPicker = document.createElement('div');
+      clientPicker.className = 'modal-cast-picker';
+      clientPicker.style.display = 'none';
+      castWrap.appendChild(castBtn);
+      castWrap.appendChild(clientPicker);
+      actEl.appendChild(castWrap);
+
+      castBtn.addEventListener('click', async function () {
+        if (clientPicker.style.display !== 'none') { clientPicker.style.display = 'none'; return; }
+        castBtn.textContent = '…';
+        castBtn.disabled = true;
+        try {
+          var cr = await fetch('/api/clients');
+          var cd = await cr.json();
+          clientPicker.innerHTML = '';
+          if (!cd.clients || cd.clients.length === 0) {
+            clientPicker.innerHTML = '<span class="cast-no-clients">No Plex clients found.<br>Open your Plex app on your TV first.</span>';
+          } else {
+            cd.clients.forEach(function (client) {
+              var btn = document.createElement('button');
+              btn.className = 'cast-client-btn';
+              btn.textContent = client.name + (client.product ? ' · ' + client.product : '');
+              btn.addEventListener('click', async function () {
+                btn.textContent = 'Casting…';
+                btn.disabled = true;
+                try {
+                  var pr = await fetch('/api/cast', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ratingKey: item.ratingKey, clientId: client.machineIdentifier }),
+                  });
+                  var pd = await pr.json();
+                  if (!pr.ok || pd.error) { showToast(pd.error || 'Cast failed', 'error'); btn.textContent = client.name; btn.disabled = false; }
+                  else { showToast('Playing on ' + client.name); clientPicker.style.display = 'none'; }
+                } catch (err) { showToast(err.message || 'Cast failed', 'error'); btn.textContent = client.name; btn.disabled = false; }
+              });
+              clientPicker.appendChild(btn);
+            });
+          }
+          clientPicker.style.display = 'block';
+        } catch {
+          showToast('Could not fetch clients', 'error');
+        } finally {
+          castBtn.innerHTML = CAST_ICON;
+          castBtn.disabled = false;
+        }
+      });
+    }
 
     var tmdbLink = document.createElement('a');
     tmdbLink.className = 'btn-tmdb-link';
@@ -599,13 +688,20 @@
     var overlayActions = document.createElement('div');
     overlayActions.className = 'card-overlay-actions';
     var reqOverlayBtn = document.createElement('button');
-    reqOverlayBtn.className = 'btn-icon btn-request' + (item.isRequested ? ' btn-request-sent' : '');
+    var _overlayIsMyReq = item.isMyRequest;
+    var _overlayIsReq = item.isRequested;
+    reqOverlayBtn.className = 'btn-icon btn-request' + (_overlayIsMyReq ? ' btn-request-sent' : '');
     reqOverlayBtn.setAttribute('data-request-tmdb', String(item.tmdbId));
-    reqOverlayBtn.textContent = item.isRequested ? 'Requested ✓' : 'Request';
-    reqOverlayBtn.disabled = item.isRequested;
+    reqOverlayBtn.textContent = _overlayIsMyReq ? 'Requested ✓' : (_overlayIsReq ? 'Notify Me' : 'Request');
+    reqOverlayBtn.disabled = _overlayIsMyReq;
     reqOverlayBtn.addEventListener('click', function (e) {
       e.stopPropagation();
-      if (!item.isRequested) openRequestDialog(item);
+      if (_overlayIsMyReq) return;
+      if (_overlayIsReq) {
+        followItem(item, reqOverlayBtn);
+      } else {
+        openRequestDialog(item);
+      }
     });
     overlayActions.appendChild(reqOverlayBtn);
     var dismissCardBtn = document.createElement('button');
@@ -748,7 +844,15 @@
   }
 
   function isMatureEnabled() {
+    // Prefer server-stored value (embedded at page load); fall back to localStorage
+    if (window.EXPLORE_CONFIG && window.EXPLORE_CONFIG.showMature !== undefined) {
+      return window.EXPLORE_CONFIG.showMature;
+    }
     return localStorage.getItem('matureEnabled') === 'true';
+  }
+
+  function isHideRequestedEnabled() {
+    return localStorage.getItem('hideRequested') === 'true';
   }
 
   // ── Building progress bar ─────────────────────────────────────────────────
@@ -777,7 +881,10 @@
   async function fetchAndRender(shuffle) {
     if (shuffle) showSkeletons();
     try {
-      var url = '/api/explore/recommendations?mature=true';
+      var params = [];
+      if (isMatureEnabled()) params.push('mature=true');
+      if (isHideRequestedEnabled()) params.push('hideRequested=true');
+      var url = '/api/explore/recommendations' + (params.length ? '?' + params.join('&') : '');
       var r = await fetch(url);
       var data = await r.json();
 
@@ -866,10 +973,27 @@
     if (toggle) {
       toggle.checked = isMatureEnabled();
       toggle.addEventListener('change', function () {
-        localStorage.setItem('matureEnabled', toggle.checked ? 'true' : 'false');
+        var checked = toggle.checked;
+        localStorage.setItem('matureEnabled', checked ? 'true' : 'false');
+        if (window.EXPLORE_CONFIG) window.EXPLORE_CONFIG.showMature = checked;
         applyMatureFilter();
+        // Persist to server so pool selection uses the stored pref
+        fetch('/api/user/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ show_mature: checked }),
+        }).catch(function () {});
       });
     }
+    var hideReqToggle = document.getElementById('hide-requested-toggle');
+    if (hideReqToggle) {
+      hideReqToggle.checked = isHideRequestedEnabled();
+      hideReqToggle.addEventListener('change', function () {
+        localStorage.setItem('hideRequested', hideReqToggle.checked ? 'true' : 'false');
+        fetchAndRender(false);
+      });
+    }
+
     var shuffleBtn = document.getElementById('btn-shuffle-all');
     if (shuffleBtn) {
       shuffleBtn.addEventListener('click', function () {

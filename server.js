@@ -303,6 +303,28 @@ app.listen(PORT, '0.0.0.0', () => {
     logger.warn('Periodic rec pre-warm failed:', err.message)
   ), 25 * 60 * 1000);
 
+  const discoverRecommender = require('./services/discoverRecommender');
+
+  // Refresh shared TMDB candidate pools every 6 hours (genre/trending/anime pages,
+  // filtered by each unique region+language+mature combo found in user prefs)
+  setInterval(() => discoverRecommender.refreshSharedCandidatePools()
+    .catch(err => logger.warn('Discover pool refresh failed:', err.message)),
+    6 * 60 * 60 * 1000
+  );
+
+  // Keep per-user discover caches warm every 28 min (re-score shared candidates
+  // against each user's watch history so /explore loads instantly)
+  setInterval(() => discoverRecommender.warmAllUserDiscoverCaches()
+    .catch(err => logger.warn('Discover cache pre-warm failed:', err.message)),
+    28 * 60 * 1000
+  );
+
+  // On startup: build shared candidate pools ~90s after start (after library sync settles)
+  setTimeout(() => discoverRecommender.refreshSharedCandidatePools()
+    .catch(err => logger.warn('Initial discover pool build failed:', err.message)),
+    90_000
+  );
+
   // Start notification delivery service
   notificationService.start();
 

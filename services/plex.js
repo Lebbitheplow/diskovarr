@@ -37,7 +37,7 @@ async function plexFetch(path, token) {
 }
 
 function parseMediaItem(video) {
-  const genres = (video.Genre || []).map(g => g.tag);
+  const genres = (video.Genre || []).map(g => g.tag).filter(g => g && g.trim());
   const directors = (video.Director || []).map(d => d.tag);
   const cast = (video.Role || []).slice(0, 10).map(r => r.tag);
   const year = video.year || parseInt((video.originallyAvailableAt || '').slice(0, 4)) || 0;

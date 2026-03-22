@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/style.css?v=45">
+  <link rel="stylesheet" href="/css/style.css?v=49">
   <link rel="stylesheet" href="/theme.css?c=<%= themeParam %>" id="theme-css">
   <style>
     .queue-page { max-width: 1100px; margin: 0 auto; padding: 0 16px 48px; }
@@ -257,9 +257,17 @@
           }
           html += '<div class="season-bubbles">';
           if (Array.isArray(seaNums) && seaNums.length > 0) {
-            seaNums.slice().sort(function(a,b){return a-b;}).forEach(function(s) {
-              html += '<span class="season-bubble">S' + s + '</span>';
-            });
+            var sorted = seaNums.slice().sort(function(a,b){return a-b;});
+            if (sorted.length > 9) {
+              html += '<span class="season-bubble season-bubble-ellipsis">...</span>';
+              sorted.slice(-8).forEach(function(s) {
+                html += '<span class="season-bubble">S' + s + '</span>';
+              });
+            } else {
+              sorted.forEach(function(s) {
+                html += '<span class="season-bubble">S' + s + '</span>';
+              });
+            }
           } else {
             html += '<span class="season-bubble season-bubble-all">All Seasons</span>';
           }

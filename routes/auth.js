@@ -110,7 +110,8 @@ router.get('/check-pin', checkPinLimiter, async (req, res) => {
     delete req.session.plexPinCode;
 
     logger.info(`Plex login success: user=${userData.id} username="${username}" ip=${req.ip}`);
-    const landingPage = db.getLandingPage();
+    const userPrefs = db.getUserPreferences(String(userData.id));
+    const landingPage = userPrefs.landing_page || db.getLandingPage();
     const landingUrl = (landingPage === 'explore') ? '/explore?welcome=1' : '/?welcome=1';
     return res.json({ status: 'authorized', landingUrl });
   } catch (err) {

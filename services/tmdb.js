@@ -197,12 +197,15 @@ async function getPersonCandidates(name, mediaType) {
 }
 
 // Discover movies/TV by genre IDs with configurable sort
-async function discoverByGenreIds(mediaType, genreIds, page = 1, sortBy = 'popularity.desc') {
+async function discoverByGenreIds(mediaType, genreIds, page = 1, sortBy = 'popularity.desc', opts = {}) {
   if (!genreIds || genreIds.length === 0) return [];
   try {
     const genreParam = genreIds.join(',');
+    const regionParam = opts.region ? `&region=${encodeURIComponent(opts.region)}` : '';
+    const langParam = opts.language ? `&with_original_language=${encodeURIComponent(opts.language)}` : '';
+    const adultParam = opts.includeAdult ? 'true' : 'false';
     const json = await tmdbFetch(
-      `/discover/${mediaType}?with_genres=${genreParam}&sort_by=${sortBy}&vote_average.gte=6.5&vote_count.gte=50&include_adult=false&page=${page}`
+      `/discover/${mediaType}?with_genres=${genreParam}&sort_by=${sortBy}&vote_average.gte=6.5&vote_count.gte=50&include_adult=${adultParam}&page=${page}${regionParam}${langParam}`
     );
     if (!json) return [];
     return (json.results || []).map(r => ({
@@ -235,10 +238,13 @@ async function discoverAnime(page = 1) {
 }
 
 // Discover by keyword ID (e.g. "time loop", "based on novel") — highly targeted
-async function discoverByKeywordId(mediaType, keywordId, page = 1) {
+async function discoverByKeywordId(mediaType, keywordId, page = 1, opts = {}) {
   try {
+    const regionParam = opts.region ? `&region=${encodeURIComponent(opts.region)}` : '';
+    const langParam = opts.language ? `&with_original_language=${encodeURIComponent(opts.language)}` : '';
+    const adultParam = opts.includeAdult ? 'true' : 'false';
     const json = await tmdbFetch(
-      `/discover/${mediaType}?with_keywords=${keywordId}&sort_by=popularity.desc&vote_average.gte=6.0&vote_count.gte=30&include_adult=false&page=${page}`
+      `/discover/${mediaType}?with_keywords=${keywordId}&sort_by=popularity.desc&vote_average.gte=6.0&vote_count.gte=30&include_adult=${adultParam}&page=${page}${regionParam}${langParam}`
     );
     if (!json) return [];
     return (json.results || []).map(r => ({
@@ -253,9 +259,10 @@ async function discoverByKeywordId(mediaType, keywordId, page = 1) {
 }
 
 // Trending movies or TV this week
-async function getTrending(mediaType, page = 1) {
+async function getTrending(mediaType, page = 1, opts = {}) {
   try {
-    const json = await tmdbFetch(`/trending/${mediaType}/week?page=${page}&include_adult=false`);
+    const adultParam = opts.includeAdult ? 'true' : 'false';
+    const json = await tmdbFetch(`/trending/${mediaType}/week?page=${page}&include_adult=${adultParam}`);
     if (!json) return [];
     return (json.results || []).map(r => ({
       tmdbId: r.id,

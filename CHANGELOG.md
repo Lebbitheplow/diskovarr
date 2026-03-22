@@ -4,6 +4,35 @@ All notable changes are documented here. Versioning follows [Semantic Versioning
 
 ---
 
+## v1.17.5 — 2026-03-22
+
+### Added
+
+- **Per-user default landing page** — users can now choose whether to land on Diskovarr or Diskovarr Requests after signing in, via My Settings. Admins can also set this per-user in the admin panel. Only shown when Diskovarr Requests is enabled. Removed the server-wide landing page setting from the admin panel.
+- **Request count in admin user table** — the Users tab in the admin panel now shows a Requests column with each user's total request count.
+- **Larger nav logo** — the Diskovarr icon in the top-left navbar is slightly larger for better visibility.
+- **Admin users pagination** — the Users tab now paginates at 10 users per page (configurable to 25 or 50 via a dropdown). The per-page selector is always visible. Pagination loads in place without reloading the page or losing your scroll position.
+
+### Fixed
+
+- **Show/hide eye icons invisible in connections tab** — the reveal buttons on API key fields (Plex, Tautulli, TMDB, Overseerr, Radarr, Sonarr, Riven) had no visible icon. They now show the same eye icon used on the DUMB and Agregarr fields. Hovering no longer causes the icon to disappear.
+- **Connections tab layout cleanup** — the Riven/DUMB and Agregarr blocks no longer show large inline instruction boxes. Setup instructions and API key hints are now accessible via an ⓘ info icon next to each block header. The DUMB request mode selector is repositioned to the right side of the key row. DUMB and Agregarr API key fields are wider for easier reading.
+
+- **Season limit bypass** — service users with a per-season limit (e.g. 20 seasons per 4 days) could bypass it because the cost was calculated from the explicit seasons list in the request body. Automated tools like Agregarr always send `seasons:[1]`, so every show counted as 1 season regardless of actual size. The limit now charges the full TMDB season count for each show, and that value is stored in the DB so the rolling window stays accurate.
+- **Season bubbles overflowing on queue page** — shows with more than 9 seasons selected would produce a very wide row. The season bubble list now truncates to a `...` ellipsis bubble followed by the last 8 seasons, keeping the row compact while still showing the most recent seasons.
+- **Experimental cast: bedroom TV not discoverable or castable** — several issues prevented casting to local smart TVs. GDM discovery was only broadcasting to `255.255.255.255`; it now also sends to the Plex multicast address `239.0.0.250`. The cast endpoint was not creating a PlayQueue before sending `playMedia`, which is required by the Plex protocol. Direct player connection lookup was added as the primary cast path before falling back to the PMS relay.
+- **Empty recommendation tag bubbles** — items with low-confidence "recently released" signals were given a `null` reason label, which rendered as a blank bubble on recommendation cards. Null and empty reasons are now filtered out before being returned.
+- **API endpoint reference incomplete** — the collapsible endpoint reference in Admin → General was missing issues, watchlist add/remove, explore, notifications, dismiss, and genres endpoints. It now documents all 28 public API endpoints organized by category.
+
+### Improved
+
+- **TMDB discover pipeline** — region and language preferences (set in My Settings) are now applied directly to TMDB discover queries (`region=`, `with_original_language=`). The mature content toggle is now stored server-side and controls `include_adult` at TMDB query time — mature content is excluded from the candidate pool itself rather than just hidden client-side. Discover candidates are pre-fetched once per unique region+language+mature combination and shared across all users with matching preferences; only the per-user scoring step runs per user. A 28-minute background job keeps each user's Explore cache warm so the page loads instantly. The 6-hour background job refreshes the shared candidate pools for each pref combo found in the DB.
+- **Shared TMDB detail cache** — when the shared candidate pool is built, full item details (genres, keywords, cast, directors, studios, ratings, trailers) are fetched and cached in the database once per item. All users score against the same enriched data regardless of their preferences — no duplicate API calls. Per-user candidates (TMDB recommendations and similar titles from your watch history, person-based matches, keyword discovery, Plex related items) are still fetched per user on first load and refreshed in the background, ensuring the recommendation quality reflects your personal watch history.
+- **Requested items in recommendations** — items that have been requested but are not yet in the library now appear in recommendations with a "Requested" badge. If the item was requested by someone else, clicking the request button creates a follow entry — you will be notified when the title becomes available, the same as the original requester.
+- **Hide Requested toggle** — a new toggle on the Explore page hides requested items from all recommendation and trending sections (server-side). Toggle state persists across sessions.
+
+---
+
 ## v1.17.4 — 2026-03-21
 
 ### Added

@@ -15,8 +15,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/style.css?v=45">
-  <link rel="stylesheet" href="/css/admin.css?v=52">
+  <link rel="stylesheet" href="/css/style.css?v=50">
+  <link rel="stylesheet" href="/css/admin.css?v=54">
   <link rel="stylesheet" href="/theme.css?c=<%= themeParam %>" id="theme-css">
 </head>
 <body>
@@ -84,25 +84,7 @@
         <div class="admin-section-header">
           <h2 class="section-title">App Options</h2>
         </div>
-        <p style="font-size:0.72rem;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:#fff;margin-bottom:8px">Set Landing Page</p>
-        <p class="section-desc" style="margin-bottom:20px">
-          Controls app-wide behavior and navigation defaults.
-        </p>
-        <div style="display:flex;align-items:center;gap:16px">
-          <span id="lbl-landing-home" class="<%= landingPage !== 'explore' ? 'service-label-active' : 'service-label-inactive' %>">Diskovarr</span>
-          <label class="slide-toggle slide-toggle-choice" title="<%= !connections.discoverEnabled ? 'Enable Diskovarr Requests in Connections first' : '' %>">
-            <input type="checkbox" id="toggle-landing-page"
-              <%= landingPage === 'explore' ? 'checked' : '' %>
-              <%= !connections.discoverEnabled ? 'disabled' : '' %>
-              onchange="onLandingPageChange(this.checked)">
-            <span class="slide-track"></span>
-          </label>
-          <span id="lbl-landing-explore" class="<%= landingPage === 'explore' && connections.discoverEnabled ? 'service-label-active' : 'service-label-inactive' %>">Diskovarr Requests</span>
-        </div>
-        <p class="section-desc" style="margin-top:10px;font-size:0.82rem">
-          Sets which page users land on after signing in. Diskovarr = personalized recommendation feed. Diskovarr Requests = content not yet in the library.
-        </p>
-        <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
+        <div style="margin-top:0;padding-top:0;border-top:none">
           <label class="settings-label" style="font-size:0.85rem;font-weight:500;color:#fff;display:block;margin-bottom:6px">
             App Public URL
             <span style="color:var(--text-muted);font-weight:400"> — required for Discord bot avatar</span>
@@ -222,44 +204,77 @@
         </div>
         <p class="section-desc">Use this key to authenticate external applications with Diskovarr's API. Send it as an <code>Authorization: Bearer &lt;key&gt;</code> or <code>X-Api-Key</code> header. The key grants admin-level access to all API endpoints.</p>
 
-        <div class="conn-field-group" style="max-width:520px;margin-bottom:0.75rem">
-          <span class="conn-field-label">API Key</span>
-          <div class="conn-input-wrap">
-            <input type="password" id="settings-api-key" class="conn-input" readonly
-              value="<%= hasApiKey ? '••••••••' : '' %>"
-              placeholder="No key generated yet">
-            <div class="conn-input-btns">
-              <% if (hasApiKey) { %>
-                <button type="button" class="conn-input-icon-btn" id="api-key-eye-btn"
-                  onclick="toggleFieldVis('settings-api-key', this)" title="Show / hide"></button>
-                <button type="button" class="conn-input-icon-btn" id="api-key-copy-btn"
-                  onclick="copyApiKey()" title="Copy to clipboard"></button>
-              <% } %>
+        <div class="conn-block-fields">
+          <div class="conn-field-group" style="flex:1;min-width:240px;max-width:520px">
+            <span class="conn-field-label">API Key</span>
+            <div class="conn-input-wrap">
+              <input type="password" id="settings-api-key" class="conn-input" readonly
+                value="<%= hasApiKey ? '••••••••' : '' %>"
+                placeholder="No key generated yet">
+              <div class="conn-input-btns">
+                <% if (hasApiKey) { %>
+                  <button type="button" class="conn-input-icon-btn" id="api-key-eye-btn"
+                    onclick="toggleFieldVis('settings-api-key', this)" title="Show / hide"></button>
+                  <button type="button" class="conn-input-icon-btn" id="api-key-copy-btn"
+                    onclick="copyApiKey()" title="Copy to clipboard"></button>
+                <% } %>
+              </div>
             </div>
           </div>
+          <button class="btn-admin btn-primary" onclick="generateApiKey()">
+            <%= hasApiKey ? 'Regenerate Key' : 'Generate API Key' %>
+          </button>
         </div>
-        <button class="btn-admin btn-primary" onclick="generateApiKey()">
-          <%= hasApiKey ? 'Regenerate Key' : 'Generate API Key' %>
-        </button>
 
         <!-- Inline API endpoint reference -->
         <details style="margin-top:1.5rem">
           <summary style="cursor:pointer;font-size:0.85rem;color:var(--text-secondary);user-select:none">API Endpoint Reference</summary>
           <div class="api-docs" style="margin-top:0.75rem;font-size:0.82rem;line-height:1.7">
-            <p style="margin-bottom:0.5rem;color:var(--text-secondary)">All endpoints require authentication. Prefix with your Diskovarr base URL.</p>
+            <p style="margin-bottom:0.5rem;color:var(--text-secondary)">All endpoints require a valid session cookie or <code>Authorization: Bearer &lt;key&gt;</code> / <code>X-Api-Key</code> header. Prefix paths with your Diskovarr base URL.</p>
             <table class="api-docs-table">
               <thead><tr><th>Method</th><th>Path</th><th>Description</th></tr></thead>
               <tbody>
-                <tr><td>GET</td><td>/api/recommendations</td><td>Personalized recommendations for authenticated user</td></tr>
-                <tr><td>GET</td><td>/api/search?q=&lt;query&gt;</td><td>Full-text library search with pagination</td></tr>
-                <tr><td>GET</td><td>/api/discover</td><td>Browse library with type/genre/decade/rating filters</td></tr>
-                <tr><td>GET</td><td>/api/watchlist</td><td>Authenticated user's watchlist</td></tr>
-                <tr><td>POST</td><td>/api/request</td><td>Submit a media request (body: tmdbId, mediaType, seasons)</td></tr>
-                <tr><td>GET</td><td>/api/queue</td><td>All requests — pending, approved, denied (admin)</td></tr>
-                <tr><td>PUT</td><td>/api/queue/:id</td><td>Edit request service or seasons (admin)</td></tr>
-                <tr><td>POST</td><td>/api/queue/:id/approve</td><td>Approve a pending request (admin)</td></tr>
-                <tr><td>POST</td><td>/api/queue/:id/deny</td><td>Deny a request with optional note (admin)</td></tr>
-                <tr><td>DELETE</td><td>/api/queue/:id</td><td>Delete a request (admin)</td></tr>
+                <tr class="api-docs-section"><td colspan="3">Recommendations &amp; Discovery</td></tr>
+                <tr><td>GET</td><td>/api/recommendations</td><td>Personalized library recommendations for the authenticated user</td></tr>
+                <tr><td>GET</td><td>/api/explore/recommendations</td><td>TMDB-based explore recommendations — params: <code>page</code>, <code>genres</code>, <code>mediaType</code></td></tr>
+                <tr><td>GET</td><td>/api/explore/services</td><td>Available request services configured on this instance</td></tr>
+                <tr><td>POST</td><td>/api/explore/dismiss</td><td>Dismiss an explore recommendation — body: <code>tmdbId</code>, <code>mediaType</code></td></tr>
+                <tr><td>POST</td><td>/api/dismiss</td><td>Dismiss a library recommendation — body: <code>ratingKey</code></td></tr>
+                <tr><td>DELETE</td><td>/api/dismiss</td><td>Un-dismiss a library recommendation — body: <code>ratingKey</code></td></tr>
+
+                <tr class="api-docs-section"><td colspan="3">Library &amp; Search</td></tr>
+                <tr><td>GET</td><td>/api/search</td><td>Full-text library search — params: <code>q</code>, <code>page</code>, <code>limit</code>, <code>type</code></td></tr>
+                <tr><td>GET</td><td>/api/search/suggest</td><td>TMDB autocomplete suggestions — params: <code>q</code></td></tr>
+                <tr><td>GET</td><td>/api/discover</td><td>Browse library — params: <code>type</code>, <code>genre</code>, <code>decade</code>, <code>minRating</code>, <code>page</code></td></tr>
+                <tr><td>GET</td><td>/api/discover/genres</td><td>All genres present in the library, grouped by media type</td></tr>
+
+                <tr class="api-docs-section"><td colspan="3">Watchlist</td></tr>
+                <tr><td>GET</td><td>/api/watchlist</td><td>Authenticated user's watchlist items</td></tr>
+                <tr><td>POST</td><td>/api/watchlist/add</td><td>Add item to watchlist — body: <code>ratingKey</code></td></tr>
+                <tr><td>POST</td><td>/api/watchlist/remove</td><td>Remove item from watchlist — body: <code>ratingKey</code></td></tr>
+
+                <tr class="api-docs-section"><td colspan="3">Requests</td></tr>
+                <tr><td>POST</td><td>/api/request</td><td>Submit a media request — body: <code>tmdbId</code>, <code>mediaType</code>, <code>service</code>, <code>title</code>, <code>year</code>, <code>seasons[]</code></td></tr>
+                <tr><td>GET</td><td>/api/queue</td><td>List requests — params: <code>status</code> (all/pending/approved/denied), <code>page</code>, <code>limit</code>. Admins see all; users see their own.</td></tr>
+                <tr><td>PUT</td><td>/api/queue/:id</td><td>Edit a request's service or seasons — admin only</td></tr>
+                <tr><td>POST</td><td>/api/queue/:id/approve</td><td>Approve a pending request — admin only, body: <code>service</code> (optional)</td></tr>
+                <tr><td>POST</td><td>/api/queue/:id/deny</td><td>Deny a request — admin only, body: <code>note</code> (optional)</td></tr>
+                <tr><td>DELETE</td><td>/api/queue/:id</td><td>Delete a request — admin only</td></tr>
+
+                <tr class="api-docs-section"><td colspan="3">Issues</td></tr>
+                <tr><td>POST</td><td>/api/issues</td><td>Report an issue — body: <code>ratingKey</code>, <code>title</code>, <code>mediaType</code>, <code>scope</code>, <code>description</code>, <code>scopeSeason</code>, <code>scopeEpisode</code></td></tr>
+                <tr><td>GET</td><td>/api/issues</td><td>List issues — params: <code>status</code> (all/open/resolved/closed), <code>page</code>, <code>limit</code>. Admins see all; users see their own.</td></tr>
+                <tr><td>POST</td><td>/api/issues/:id/resolve</td><td>Mark an issue resolved — admin only, body: <code>note</code> (optional)</td></tr>
+                <tr><td>POST</td><td>/api/issues/:id/close</td><td>Close an issue — admin only, body: <code>note</code> (optional)</td></tr>
+                <tr><td>DELETE</td><td>/api/issues/:id</td><td>Delete an issue — admin only</td></tr>
+                <tr><td>GET</td><td>/api/issues/:id/comments</td><td>Get comments on an issue</td></tr>
+                <tr><td>POST</td><td>/api/issues/:id/comments</td><td>Add a comment — body: <code>body</code></td></tr>
+                <tr><td>DELETE</td><td>/api/issues/:id/comments/:commentId</td><td>Delete a comment</td></tr>
+
+                <tr class="api-docs-section"><td colspan="3">Notifications</td></tr>
+                <tr><td>GET</td><td>/api/notifications</td><td>Get notifications for the authenticated user — param: <code>countOnly=1</code> to fetch unread count only</td></tr>
+                <tr><td>POST</td><td>/api/notifications/read</td><td>Mark notifications read — body: <code>ids[]</code> or <code>all: true</code></td></tr>
+                <tr><td>DELETE</td><td>/api/notifications/:id</td><td>Delete a notification</td></tr>
               </tbody>
             </table>
           </div>
@@ -336,17 +351,18 @@
         <% if (stats.users.length === 0) { %>
           <p class="empty-state" style="padding:20px 0">No users have synced yet.</p>
         <% } else { %>
-          <div class="user-table-wrap">
-          <div class="user-table" style="<%= connections.discoverEnabled ? 'grid-template-columns: 36px minmax(140px,1fr) 110px 120px 120px' : 'grid-template-columns: 36px minmax(140px,1fr) 110px 120px' %>">
-            <div class="user-table-header" style="<%= connections.discoverEnabled ? 'grid-template-columns: 36px minmax(140px,1fr) 110px 120px 120px' : 'grid-template-columns: 36px minmax(140px,1fr) 110px 120px' %>">
+          <div class="user-table-wrap" id="user-table-wrap">
+          <div class="user-table" id="user-table-grid" style="<%= connections.discoverEnabled ? 'grid-template-columns: 36px minmax(140px,1fr) 110px 80px 120px 120px' : 'grid-template-columns: 36px minmax(140px,1fr) 110px 80px 120px' %>">
+            <div class="user-table-header" style="<%= connections.discoverEnabled ? 'grid-template-columns: 36px minmax(140px,1fr) 110px 80px 120px 120px' : 'grid-template-columns: 36px minmax(140px,1fr) 110px 80px 120px' %>">
               <span style="display:flex;align-items:center"><input type="checkbox" id="user-select-all" class="themed-checkbox" onchange="toggleSelectAll(this.checked)" title="Select all"></span>
               <span>User</span>
               <span>Watched Items</span>
+              <span>Requests</span>
               <span>Last Visit</span>
               <% if (connections.discoverEnabled) { %><span>Settings</span><% } %>
             </div>
             <% for (const user of stats.users) { %>
-              <div class="user-table-row" id="user-row-<%= user.user_id %>" style="<%= connections.discoverEnabled ? 'grid-template-columns: 36px minmax(140px,1fr) 110px 120px 120px' : 'grid-template-columns: 36px minmax(140px,1fr) 110px 120px' %>">
+              <div class="user-table-row" id="user-row-<%= user.user_id %>" style="<%= connections.discoverEnabled ? 'grid-template-columns: 36px minmax(140px,1fr) 110px 80px 120px 120px' : 'grid-template-columns: 36px minmax(140px,1fr) 110px 80px 120px' %>">
                 <span style="display:flex;align-items:center"><input type="checkbox" class="themed-checkbox user-select-cb" value="<%= user.user_id %>" onchange="onUserSelectChange()"></span>
                 <span class="user-id">
                   <% if (user.thumb) { %>
@@ -356,6 +372,7 @@
                   <span class="user-id-sub"><%= user.user_id %></span>
                 </span>
                 <span class="watched-count-cell" data-count="<%= user.watched_count %>"><%= user.watched_count.toLocaleString() %> items</span>
+                <span><%= user.request_count > 0 ? user.request_count.toLocaleString() : '—' %></span>
                 <span><%= user.last_login ? relativeTime(user.last_login) : 'Never' %></span>
                 <% if (connections.discoverEnabled) { %>
                   <div>
@@ -374,19 +391,21 @@
             <button class="btn-admin btn-sm" onclick="clearSelection()">Clear</button>
           </div>
 
-          <% if (userTotalPages > 1) { %>
-          <div style="display:flex;align-items:center;gap:10px;margin-top:16px;font-size:0.85rem;color:var(--text-secondary)">
-            <% if (userPage > 1) { %>
-              <a class="btn-admin btn-sm" href="/admin?userPage=<%= userPage - 1 %>&userPerPage=<%= userPerPage %>#users-tab">&#8249; Prev</a>
+          <% if (stats.users.length > 0 || totalUsers > 0) { %>
+          <div id="user-pagination" style="display:flex;align-items:center;gap:10px;margin-top:16px;font-size:0.85rem;color:var(--text-secondary);flex-wrap:wrap">
+            <% if (userTotalPages > 1) { %>
+              <% if (userPage > 1) { %>
+                <button class="btn-admin btn-sm" onclick="loadUsersPage(<%= userPage - 1 %>)">&#8249; Prev</button>
+              <% } %>
+              <span id="user-page-label">Page <%= userPage %> of <%= userTotalPages %> (<%= totalUsers %> users)</span>
+              <% if (userPage < userTotalPages) { %>
+                <button class="btn-admin btn-sm" onclick="loadUsersPage(<%= userPage + 1 %>)">Next &#8250;</button>
+              <% } %>
             <% } %>
-            <span>Page <%= userPage %> of <%= userTotalPages %> (<%= totalUsers %> users)</span>
-            <% if (userPage < userTotalPages) { %>
-              <a class="btn-admin btn-sm" href="/admin?userPage=<%= userPage + 1 %>&userPerPage=<%= userPerPage %>#users-tab">Next &#8250;</a>
-            <% } %>
-            <select onchange="window.location='/admin?userPage=1&userPerPage='+this.value+'#users-tab'" style="padding:4px 8px;border-radius:5px;border:1px solid var(--border);background:var(--bg-elevated);color:var(--text);font-size:0.82rem">
-              <option value="10" <%= userPerPage === 10 ? 'selected' : '' %>>10/page</option>
-              <option value="25" <%= userPerPage === 25 ? 'selected' : '' %>>25/page</option>
-              <option value="50" <%= userPerPage === 50 ? 'selected' : '' %>>50/page</option>
+            <select id="user-perpage-select" onchange="loadUsersPage(1, parseInt(this.value))" style="padding:4px 8px;border-radius:5px;border:1px solid var(--border);background:var(--bg-elevated);color:var(--text);font-size:0.82rem">
+              <option value="10" <%= userPerPage === 10 ? 'selected' : '' %>>10 / page</option>
+              <option value="25" <%= userPerPage === 25 ? 'selected' : '' %>>25 / page</option>
+              <option value="50" <%= userPerPage === 50 ? 'selected' : '' %>>50 / page</option>
             </select>
           </div>
           <% } %>
@@ -1070,7 +1089,7 @@
         <div class="conn-block">
           <div class="conn-block-header">
             <div class="conn-block-meta">
-              <span class="conn-block-name">Riven / DUMB</span>
+              <span class="conn-block-name">Riven / DUMB <button type="button" class="agent-info-btn" onclick="openAgentInfo('riven-keys')" title="API key info">&#9432;</button></span>
               <span class="conn-block-desc">Manual torrent browser — search Torrentio and add cached RD torrents to Riven</span>
             </div>
             <div class="conn-toggle-wrap">
@@ -1116,48 +1135,36 @@
             <button class="btn-admin btn-primary conn-action-btn" id="btn-riven-save" onclick="rivenSaveConfig()">Save</button>
             <button class="btn-admin btn-primary conn-action-btn" id="btn-riven-browse" style="background:var(--accent);color:#000;<%= connections.rivenEnabled ? '' : 'display:none' %>" onclick="window.location.href='/admin/riven/browse'">Browse Torrents &rarr;</button>
           </div>
-          <p style="font-size:0.78rem;color:var(--text-muted);margin:10px 16px 0;line-height:1.5">
-            API keys are auto-read from <code style="font-size:0.78rem;background:var(--bg-card);padding:1px 4px;border-radius:3px">/home/lebbi/docker/DUMB/data/riven/settings.json</code> — you only need to override them here if the auto-detection fails.
-            Find the Riven API key via: <code style="font-size:0.78rem;background:var(--bg-card);padding:1px 4px;border-radius:3px">cat /home/lebbi/docker/DUMB/data/riven/settings.json | python3 -c "import json,sys;print(json.load(sys.stdin)['api_key'])"</code>
-          </p>
 
           <!-- DUMB Integration subsection -->
           <div style="margin:20px 0 0;padding:16px;border-top:1px solid var(--border)">
             <div style="margin-bottom:12px">
-              <span style="font-size:0.9rem;font-weight:600;color:var(--text)">DUMB Integration</span>
+              <span style="font-size:0.9rem;font-weight:600;color:var(--text)">DUMB Integration <button type="button" class="agent-info-btn" onclick="openAgentInfo('dumb-connect')" title="How to connect DUMB">&#9432;</button></span>
               <span style="font-size:0.8rem;color:var(--text-muted);margin-left:8px">Let DUMB poll Diskovarr for approved requests</span>
             </div>
 
             <div id="dumb-fields">
-              <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:14px 16px;margin-bottom:16px;font-size:0.83rem;line-height:1.6">
-                <p style="margin:0 0 6px;font-weight:600;color:var(--text)">How to connect DUMB:</p>
-                <ol style="margin:0;padding-left:20px;color:var(--text-muted)">
-                  <li>In DUMB settings, set <strong style="color:var(--text)">Overseerr URL</strong> to <code id="dumb-url-hint" style="font-size:0.8rem;background:var(--bg-surface);padding:1px 5px;border-radius:3px">http://your-server:3232</code></li>
-                  <li>Set <strong style="color:var(--text)">Overseerr API Key</strong> to the key below</li>
-                  <li>Choose request mode, then save</li>
-                </ol>
-              </div>
-
-              <div class="conn-field-group" style="margin-bottom:14px">
-                <span class="conn-field-label">Request Mode</span>
-                <div style="display:flex;gap:6px;align-items:center;margin-top:6px">
-                  <button type="button" id="dumb-mode-pull" class="service-opt-btn <%= connections.dumbRequestMode !== 'push' ? 'service-opt-active' : '' %>" onclick="dumbSetMode('pull')">Pull (DUMB polls Diskovarr)</button>
-                  <button type="button" id="dumb-mode-push" class="service-opt-btn <%= connections.dumbRequestMode === 'push' ? 'service-opt-active' : '' %>" onclick="dumbSetMode('push')">Push (Diskovarr pushes to Riven)</button>
-                </div>
-                <p id="dumb-mode-desc" style="font-size:0.78rem;color:var(--text-muted);margin:6px 0 0"><%= connections.dumbRequestMode === 'push' ? 'Diskovarr pushes to Riven immediately on approval — same as before' : 'DUMB polls /api/v1/request?filter=approved — no push from Diskovarr' %></p>
-              </div>
-
-              <div class="conn-field-group" style="max-width:520px">
-                <span class="conn-field-label">DUMB API Key</span>
-                <div class="conn-input-wrap">
-                  <input type="password" id="dumb-api-key" class="conn-input" readonly value="<%= dumbHasApiKey ? '••••••••' : '' %>" autocomplete="off">
-                  <div class="conn-input-btns">
-                    <button type="button" class="conn-input-icon-btn" id="dumb-key-eye-btn" onclick="toggleFieldVis('dumb-api-key', this)" title="Show / hide"><svg width="20" height="20" viewBox="0 0 24 24" fill="#fff"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg></button>
-                    <button type="button" class="conn-input-icon-btn" id="dumb-key-copy-btn" onclick="dumbCopyKey()" title="Copy to clipboard"><svg width="20" height="20" viewBox="0 0 24 24" fill="#fff"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg></button>
+              <div class="conn-block-fields">
+                <div class="conn-field-group" style="flex:1;min-width:240px;max-width:640px">
+                  <span class="conn-field-label">DUMB API Key</span>
+                  <div class="conn-input-wrap">
+                    <input type="password" id="dumb-api-key" class="conn-input" readonly value="<%= dumbHasApiKey ? '••••••••' : '' %>" autocomplete="off">
+                    <div class="conn-input-btns">
+                      <button type="button" class="conn-input-icon-btn" id="dumb-key-eye-btn" onclick="toggleFieldVis('dumb-api-key', this)" title="Show / hide"><svg width="20" height="20" viewBox="0 0 24 24" fill="#fff"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg></button>
+                      <button type="button" class="conn-input-icon-btn" id="dumb-key-copy-btn" onclick="dumbCopyKey()" title="Copy to clipboard"><svg width="20" height="20" viewBox="0 0 24 24" fill="#fff"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg></button>
+                    </div>
                   </div>
                 </div>
+                <button class="btn-admin conn-action-btn btn-danger" id="btn-dumb-regen" onclick="dumbRegenKey()">Regenerate Key</button>
+                <div class="conn-field-group" style="margin-left:auto">
+                  <span class="conn-field-label">Request Mode</span>
+                  <div style="display:flex;gap:6px;align-items:center;margin-top:6px">
+                    <button type="button" id="dumb-mode-pull" class="service-opt-btn <%= connections.dumbRequestMode !== 'push' ? 'service-opt-active' : '' %>" onclick="dumbSetMode('pull')">Pull from Diskovarr</button>
+                    <button type="button" id="dumb-mode-push" class="service-opt-btn <%= connections.dumbRequestMode === 'push' ? 'service-opt-active' : '' %>" onclick="dumbSetMode('push')">Push to Riven</button>
+                  </div>
+                  <p id="dumb-mode-desc" style="font-size:0.78rem;color:var(--text-muted);margin:6px 0 0"><%= connections.dumbRequestMode === 'push' ? 'Diskovarr pushes to Riven on approval' : 'DUMB polls Diskovarr for approved requests' %></p>
+                </div>
               </div>
-              <button class="btn-admin conn-action-btn btn-danger" id="btn-dumb-regen" onclick="dumbRegenKey()" style="margin-top:4px">Regenerate Key</button>
             </div>
           </div>
         </div>
@@ -1172,7 +1179,7 @@
         <div class="conn-block" id="agregarr-block">
           <div class="conn-block-header">
             <div class="conn-block-meta">
-              <span class="conn-block-name">Agregarr</span>
+              <span class="conn-block-name">Agregarr <button type="button" class="agent-info-btn" onclick="openAgentInfo('agregarr-connect')" title="How to configure in Agregarr">&#9432;</button></span>
               <span class="conn-block-desc">Overseerr-compatible API shim — lets Agregarr send requests to Diskovarr</span>
             </div>
             <div class="conn-toggle-wrap">
@@ -1185,19 +1192,8 @@
           </div>
 
           <div class="conn-block-fields">
-            <!-- Setup instructions -->
-            <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:14px 16px;margin-bottom:16px;font-size:0.83rem;line-height:1.6">
-              <p style="margin:0 0 6px;font-weight:600;color:var(--text)">How to configure in Agregarr:</p>
-              <ol style="margin:0;padding-left:20px;color:var(--text-muted)">
-                <li>Open Agregarr → Settings → Overseerr</li>
-                <li>Set <strong style="color:var(--text)">URL</strong> to your Diskovarr address (e.g. <code id="agregarr-url-hint" style="font-size:0.8rem;background:var(--bg-surface);padding:1px 5px;border-radius:3px">http://your-server:3232</code>)</li>
-                <li>Set <strong style="color:var(--text)">API Key</strong> to the key below</li>
-                <li>Save — Agregarr will create its service users automatically</li>
-              </ol>
-            </div>
-
             <!-- API Key display -->
-            <div class="conn-field-group" style="max-width:520px">
+            <div class="conn-field-group" style="flex:1;min-width:240px;max-width:640px">
               <span class="conn-field-label">Agregarr API Key</span>
               <div class="conn-input-wrap">
                 <input type="password" id="agregarr-api-key" class="conn-input" readonly value="<%= agregarrApp && agregarrApp.api_key ? '••••••••' : '' %>" autocomplete="off">
@@ -1483,6 +1479,69 @@
           <div>
             <p style="font-weight:600;color:var(--text-primary);margin:0 0 4px">Notification types</p>
             <p style="margin:0"><strong>New request pending / Auto-approved</strong> — admin alerts for incoming requests. <strong>Approved / Denied</strong> — notify the requester when an admin acts. <strong>Available</strong> — notify when content appears in Plex. <strong>Request processing error</strong> — admin alert when a request fails to submit to Radarr/Sonarr/Overseerr.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Riven key info modal ──────────────────────────────────── -->
+    <div id="agent-info-riven-keys" style="display:none;position:fixed;inset:0;z-index:1100;background:rgba(0,0,0,0.75);align-items:center;justify-content:center" onclick="if(event.target===this)closeAgentInfo('riven-keys')">
+      <div style="background:var(--bg-secondary);border-radius:14px;padding:28px;width:min(520px,92vw);border:1px solid var(--border);position:relative;max-height:88vh;overflow-y:auto">
+        <button onclick="closeAgentInfo('riven-keys')" style="position:absolute;top:14px;right:16px;background:none;border:none;color:var(--text-secondary);font-size:1.3rem;cursor:pointer;line-height:1" title="Close">&times;</button>
+        <h3 style="margin:0 0 16px;font-size:1.05rem">Riven / DUMB API Keys</h3>
+        <div style="font-size:0.88rem;line-height:1.7;color:var(--text-secondary);display:flex;flex-direction:column;gap:12px">
+          <div style="background:var(--bg-elevated);border-radius:8px;padding:12px">
+            <p style="font-weight:600;color:var(--text-primary);margin:0 0 4px">Auto-detection</p>
+            <p style="margin:0">API keys are automatically read from <code style="font-size:0.8rem;background:var(--bg-secondary);padding:1px 4px;border-radius:3px">/home/lebbi/docker/DUMB/data/riven/settings.json</code>. You only need to fill them in here if auto-detection fails.</p>
+          </div>
+          <div style="background:var(--bg-elevated);border-radius:8px;padding:12px">
+            <p style="font-weight:600;color:var(--text-primary);margin:0 0 4px">Finding the Riven API key manually</p>
+            <p style="margin:0 0 6px">Run this on the server:</p>
+            <code style="display:block;font-size:0.78rem;background:var(--bg-secondary);padding:8px 10px;border-radius:6px;word-break:break-all">cat /home/lebbi/docker/DUMB/data/riven/settings.json | python3 -c "import json,sys;print(json.load(sys.stdin)['api_key'])"</code>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── DUMB connect info modal ────────────────────────────────── -->
+    <div id="agent-info-dumb-connect" style="display:none;position:fixed;inset:0;z-index:1100;background:rgba(0,0,0,0.75);align-items:center;justify-content:center" onclick="if(event.target===this)closeAgentInfo('dumb-connect')">
+      <div style="background:var(--bg-secondary);border-radius:14px;padding:28px;width:min(520px,92vw);border:1px solid var(--border);position:relative;max-height:88vh;overflow-y:auto">
+        <button onclick="closeAgentInfo('dumb-connect')" style="position:absolute;top:14px;right:16px;background:none;border:none;color:var(--text-secondary);font-size:1.3rem;cursor:pointer;line-height:1" title="Close">&times;</button>
+        <h3 style="margin:0 0 16px;font-size:1.05rem">How to connect DUMB</h3>
+        <div style="font-size:0.88rem;line-height:1.7;color:var(--text-secondary);display:flex;flex-direction:column;gap:12px">
+          <div style="background:var(--bg-elevated);border-radius:8px;padding:12px">
+            <ol style="margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px">
+              <li>In DUMB settings, set <strong style="color:var(--text-primary)">Overseerr URL</strong> to <code style="font-size:0.8rem;background:var(--bg-secondary);padding:1px 5px;border-radius:3px" id="dumb-url-hint">http://your-server:3232</code></li>
+              <li>Set <strong style="color:var(--text-primary)">Overseerr API Key</strong> to the DUMB API Key shown in this block</li>
+              <li>Choose a request mode (Pull or Push), then save</li>
+            </ol>
+          </div>
+          <div style="background:var(--bg-elevated);border-radius:8px;padding:12px">
+            <p style="font-weight:600;color:var(--text-primary);margin:0 0 4px">Pull vs Push</p>
+            <p style="margin:0 0 4px"><strong style="color:var(--text-primary)">Pull</strong> — DUMB polls <code style="font-size:0.8rem;background:var(--bg-secondary);padding:1px 4px;border-radius:3px">/api/v1/request?filter=approved</code> on a schedule. No action needed from Diskovarr.</p>
+            <p style="margin:0"><strong style="color:var(--text-primary)">Push</strong> — Diskovarr immediately pushes to Riven when a request is approved. Lower latency but requires Riven to be reachable.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Agregarr connect info modal ──────────────────────────── -->
+    <div id="agent-info-agregarr-connect" style="display:none;position:fixed;inset:0;z-index:1100;background:rgba(0,0,0,0.75);align-items:center;justify-content:center" onclick="if(event.target===this)closeAgentInfo('agregarr-connect')">
+      <div style="background:var(--bg-secondary);border-radius:14px;padding:28px;width:min(520px,92vw);border:1px solid var(--border);position:relative;max-height:88vh;overflow-y:auto">
+        <button onclick="closeAgentInfo('agregarr-connect')" style="position:absolute;top:14px;right:16px;background:none;border:none;color:var(--text-secondary);font-size:1.3rem;cursor:pointer;line-height:1" title="Close">&times;</button>
+        <h3 style="margin:0 0 16px;font-size:1.05rem">How to configure in Agregarr</h3>
+        <div style="font-size:0.88rem;line-height:1.7;color:var(--text-secondary);display:flex;flex-direction:column;gap:12px">
+          <div style="background:var(--bg-elevated);border-radius:8px;padding:12px">
+            <ol style="margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px">
+              <li>Open Agregarr → <strong style="color:var(--text-primary)">Settings → Overseerr</strong></li>
+              <li>Set <strong style="color:var(--text-primary)">URL</strong> to your Diskovarr address (e.g. <code style="font-size:0.8rem;background:var(--bg-secondary);padding:1px 5px;border-radius:3px">http://your-server:3232</code>)</li>
+              <li>Set <strong style="color:var(--text-primary)">API Key</strong> to the Agregarr API Key shown in this block</li>
+              <li>Save — Agregarr will create its service users automatically</li>
+            </ol>
+          </div>
+          <div style="background:var(--bg-elevated);border-radius:8px;padding:12px">
+            <p style="font-weight:600;color:var(--text-primary);margin:0 0 4px">Service accounts</p>
+            <p style="margin:0">Agregarr creates one service user per collection type (e.g. TMDBAgregarr, NetworksAgregarr). Each appears in the Service Accounts list below the API key. You can set per-user request limits for each one from the Users tab.</p>
           </div>
         </div>
       </div>
@@ -1780,23 +1839,6 @@
       }
     }
 
-    // ── Individual season requests ─────────────────────────────────
-    async function onLandingPageChange(explore) {
-      const lblHome    = document.getElementById('lbl-landing-home');
-      const lblExplore = document.getElementById('lbl-landing-explore');
-      if (lblHome)    lblHome.className    = explore ? 'service-label-inactive' : 'service-label-active';
-      if (lblExplore) lblExplore.className = explore ? 'service-label-active'   : 'service-label-inactive';
-      const body = { landing_page: explore ? 'explore' : 'home' };
-      try {
-        const r = await fetch('/admin/connections/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-        const data = await r.json();
-        if (data.success) showToast(explore ? 'Landing page set to Diskovarr Requests' : 'Landing page set to Diskovarr');
-        else showToast('Save failed', true);
-      } catch (err) {
-        showToast('Save failed: ' + err.message, true);
-      }
-    }
-
     async function saveAppPublicUrl() {
       var val = document.getElementById('app-public-url').value.trim();
       var d = await fetch('/admin/connections/save', {
@@ -1961,6 +2003,91 @@
       } catch (err) {
         showToast('Save failed: ' + err.message, true);
       }
+    }
+
+    // ── In-place user pagination ───────────────────────────────────
+
+    var _usersPage = <%= userPage %>;
+    var _usersPerPage = <%= userPerPage %>;
+    var _userDiscoverEnabled = <%= connections.discoverEnabled ? 'true' : 'false' %>;
+    var _userTotalUsers = <%= totalUsers %>;
+
+    function _escHtmlUsers(s) {
+      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    function _relativeTimeUsers(unixTs) {
+      if (!unixTs) return 'Never';
+      var diff = Math.floor(Date.now() / 1000) - unixTs;
+      if (diff < 60) return 'just now';
+      if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+      if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+      return Math.floor(diff / 86400) + 'd ago';
+    }
+
+    function _renderUserRow(user) {
+      var cols = _userDiscoverEnabled
+        ? '36px minmax(140px,1fr) 110px 80px 120px 120px'
+        : '36px minmax(140px,1fr) 110px 80px 120px';
+      var thumb = user.thumb
+        ? '<img src="' + _escHtmlUsers(user.thumb) + '" class="user-avatar-sm" alt="" onerror="this.style.display=\'none\'">'
+        : '';
+      var editCol = _userDiscoverEnabled
+        ? '<div><a class="btn-admin btn-sm" href="/admin/user-settings/' + _escHtmlUsers(user.user_id) + '">Edit</a></div>'
+        : '';
+      var reqCount = user.request_count > 0 ? Number(user.request_count).toLocaleString() : '\u2014';
+      return '<div class="user-table-row" id="user-row-' + _escHtmlUsers(user.user_id) + '" style="grid-template-columns:' + cols + '">'
+        + '<span style="display:flex;align-items:center"><input type="checkbox" class="themed-checkbox user-select-cb" value="' + _escHtmlUsers(user.user_id) + '" onchange="onUserSelectChange()"></span>'
+        + '<span class="user-id">' + thumb + '<span>' + _escHtmlUsers(user.username || user.user_id) + '</span><span class="user-id-sub">' + _escHtmlUsers(user.user_id) + '</span></span>'
+        + '<span class="watched-count-cell" data-count="' + user.watched_count + '">' + Number(user.watched_count).toLocaleString() + ' items</span>'
+        + '<span>' + reqCount + '</span>'
+        + '<span>' + _relativeTimeUsers(user.last_login) + '</span>'
+        + editCol
+        + '</div>';
+    }
+
+    function _renderUserPagination(page, perPage, totalPages, total) {
+      var html = '';
+      if (totalPages > 1) {
+        if (page > 1) html += '<button class="btn-admin btn-sm" onclick="loadUsersPage(' + (page - 1) + ')">&#8249; Prev</button>';
+        html += '<span id="user-page-label">Page ' + page + ' of ' + totalPages + ' (' + total + ' users)</span>';
+        if (page < totalPages) html += '<button class="btn-admin btn-sm" onclick="loadUsersPage(' + (page + 1) + ')">Next &#8250;</button>';
+      }
+      html += '<select id="user-perpage-select" onchange="loadUsersPage(1, parseInt(this.value))" style="padding:4px 8px;border-radius:5px;border:1px solid var(--border);background:var(--bg-elevated);color:var(--text);font-size:0.82rem">'
+        + '<option value="10"' + (perPage === 10 ? ' selected' : '') + '>10 / page</option>'
+        + '<option value="25"' + (perPage === 25 ? ' selected' : '') + '>25 / page</option>'
+        + '<option value="50"' + (perPage === 50 ? ' selected' : '') + '>50 / page</option>'
+        + '</select>';
+      return html;
+    }
+
+    function loadUsersPage(page, perPage) {
+      perPage = perPage || _usersPerPage;
+      fetch('/admin/users?page=' + page + '&perPage=' + perPage)
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          _usersPage = data.page;
+          _usersPerPage = data.perPage;
+          _userTotalUsers = data.total;
+          // Re-render rows (keep header, replace body rows)
+          var grid = document.getElementById('user-table-grid');
+          var header = grid.querySelector('.user-table-header');
+          grid.innerHTML = '';
+          if (header) grid.appendChild(header);
+          data.users.forEach(function(user) {
+            var div = document.createElement('div');
+            div.innerHTML = _renderUserRow(user);
+            grid.appendChild(div.firstChild);
+          });
+          // Re-render pagination
+          var pag = document.getElementById('user-pagination');
+          if (pag) pag.innerHTML = _renderUserPagination(data.page, data.perPage, data.totalPages, data.total);
+          // Reset selection state
+          var selAll = document.getElementById('user-select-all');
+          if (selAll) selAll.checked = false;
+          onUserSelectChange();
+        })
+        .catch(function() { showToast('Failed to load users', true); });
     }
 
     // ── Bulk user settings ─────────────────────────────────────────

@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/style.css?v=45">
+  <link rel="stylesheet" href="/css/style.css?v=49">
   <link rel="stylesheet" href="/theme.css?c=<%= themeParam %>" id="theme-css">
   <style>
     .settings-page { max-width: 700px; margin: 0 auto; padding: 0 16px 64px; }
@@ -109,6 +109,23 @@
           <option value="th" <%= prefs.language === 'th' ? 'selected' : '' %>>Thai</option>
         </select>
       </div>
+
+      <% if (discoverEnabled) { %>
+      <div class="settings-field" style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border)">
+        <label class="settings-label">Default Landing Page</label>
+        <p class="settings-desc">Choose which page you land on after signing in.</p>
+        <div style="display:flex;align-items:center;gap:12px">
+          <span id="lp-home" class="landing-label <%= prefs.landing_page !== 'explore' ? 'landing-label-active' : '' %>">Diskovarr</span>
+          <label class="slide-toggle slide-toggle-always-on">
+            <input type="checkbox" id="pref-landing-page" <%= prefs.landing_page === 'explore' ? 'checked' : '' %>
+              onchange="setLandingPref(this.checked ? 'explore' : 'home')">
+            <span class="slide-track"></span>
+          </label>
+          <span id="lp-explore" class="landing-label <%= prefs.landing_page === 'explore' ? 'landing-label-active' : '' %>">Diskovarr Requests</span>
+        </div>
+        <input type="hidden" id="pref-landing-page-val" value="<%= prefs.landing_page === 'explore' ? 'explore' : 'home' %>">
+      </div>
+      <% } %>
 
       <button class="btn-settings-save" onclick="savePreferences()">Save Preferences</button>
     </div>
@@ -249,6 +266,12 @@
   </div>
 
   <script>
+    function setLandingPref(val) {
+      document.getElementById('pref-landing-page-val').value = val;
+      document.getElementById('lp-home').className = 'landing-label' + (val === 'home' ? ' landing-label-active' : '');
+      document.getElementById('lp-explore').className = 'landing-label' + (val === 'explore' ? ' landing-label-active' : '');
+    }
+
     function showToast(msg, isError) {
       var t = document.getElementById('settings-toast');
       t.textContent = msg;
@@ -262,9 +285,11 @@
       var region   = document.getElementById('pref-region').value;
       var language = document.getElementById('pref-language').value;
       var getChecked = function(id, def) { var el = document.getElementById(id); return el ? el.checked : def; };
+      var landingEl = document.getElementById('pref-landing-page');
       var payload = {
         region:   region   || null,
         language: language || null,
+        landing_page: document.getElementById('pref-landing-page-val') ? document.getElementById('pref-landing-page-val').value : null,
         notify_approved:  getChecked('notif-approved', true),
         notify_denied:    getChecked('notif-denied', true),
         notify_available: getChecked('notif-available', true),

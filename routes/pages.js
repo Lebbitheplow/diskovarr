@@ -132,7 +132,8 @@ function themeParam() {
 // Home page — requires auth
 router.get('/', requireAuth, (req, res) => {
   const { id: userId, username, thumb } = req.session.plexUser;
-  res.render('home', { ...pageLocals(req), userId, username, thumb, currentPath: '/' });
+  const prefs = db.getUserPreferences(userId);
+  res.render('home', { ...pageLocals(req), userId, username, thumb, currentPath: '/', showMature: !!prefs.show_mature });
 });
 
 // Diskovarr View (library browse) — requires auth
@@ -155,12 +156,14 @@ router.get('/explore', requireAuth, (req, res) => {
   };
   const hasAnyService = services.overseerr || services.radarr || services.sonarr || services.riven;
   const ownerUserId = db.getOwnerUserId();
+  const explorePrefs = db.getUserPreferences(userId);
   res.render('explore', {
     ...pageLocals(req), userId, username, thumb, currentPath: '/explore',
     services, hasAnyService,
     individualSeasonsEnabled: db.isIndividualSeasonsEnabled(),
     directRequestAccess: db.getDirectRequestAccess(),
     isOwner: userId === ownerUserId,
+    showMature: !!explorePrefs.show_mature,
   });
 });
 
@@ -225,6 +228,7 @@ router.get('/settings', requireAuth, (req, res) => {
   const prefs = db.getUserPreferences(userId);
   res.render('settings', {
     ...pageLocals(req), userId, username, thumb, currentPath: '/settings', prefs,
+    discoverEnabled: db.isDiscoverEnabled(),
     notificationPrefs: db.getUserNotificationPrefs(userId),
     discordAgentEnabled: (() => { try { const c = JSON.parse(db.getSetting('discord_agent', 'null')); return c?.enabled === true; } catch { return false; } })(),
     discordMode: (() => { try { return JSON.parse(db.getSetting('discord_agent', 'null'))?.mode || 'webhook'; } catch { return 'webhook'; } })(),

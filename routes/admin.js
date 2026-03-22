@@ -111,11 +111,22 @@ router.post('/logout', requireAdmin, (req, res) => {
   res.redirect('/admin/login');
 });
 
+// ── Users JSON endpoint (for in-place pagination) ────────────────────────────
+
+router.get('/users', requireAdmin, (req, res) => {
+  const page = Math.max(1, parseInt(req.query.page) || 1);
+  const perPage = [10, 25, 50].includes(parseInt(req.query.perPage)) ? parseInt(req.query.perPage) : 10;
+  const allUsers = db.getAdminStats().users;
+  const total = allUsers.length;
+  const users = allUsers.slice((page - 1) * perPage, page * perPage);
+  res.json({ users, page, perPage, total, totalPages: Math.ceil(total / perPage) });
+});
+
 // ── Main admin page ───────────────────────────────────────────────────────────
 
 router.get('/', requireAdmin, async (req, res) => {
   const userPage = Math.max(1, parseInt(req.query.userPage) || 1);
-  const userPerPage = [10, 25, 50].includes(parseInt(req.query.userPerPage)) ? parseInt(req.query.userPerPage) : 25;
+  const userPerPage = [10, 25, 50].includes(parseInt(req.query.userPerPage)) ? parseInt(req.query.userPerPage) : 10;
   const stats = db.getAdminStats();
   const totalUsers = stats.users.length;
   const pagedUsers = stats.users.slice((userPage - 1) * userPerPage, userPage * userPerPage);
@@ -139,7 +150,6 @@ router.get('/', requireAdmin, async (req, res) => {
     latestVersion,
     updateAvailable: isNewerVersion(latestVersion, APP_VERSION),
     individualSeasonsEnabled: db.isIndividualSeasonsEnabled(),
-    landingPage: db.getLandingPage(),
     directRequestAccess: db.getDirectRequestAccess(),
     globalLimits: db.getGlobalRequestLimits(),
     userLimitOverrides: db.getAllUserRequestLimitOverrides(),
@@ -329,14 +339,13 @@ const CONNECTION_KEYS = [
   'sonarr_url', 'sonarr_api_key', 'sonarr_enabled', 'sonarr_quality_profile_id', 'sonarr_quality_profile_name',
   'default_request_service',
   'individual_seasons_enabled',
-  'landing_page',
   'direct_request_access',
   'app_public_url',
 ];
 
 router.post('/connections/save', requireAdmin, (req, res) => {
   const body = req.body;
-  const BOOL_KEYS = new Set(['discover_enabled','overseerr_enabled','radarr_enabled','sonarr_enabled','individual_seasons_enabled','landing_page','direct_request_access']);
+  const BOOL_KEYS = new Set(['discover_enabled','overseerr_enabled','radarr_enabled','sonarr_enabled','individual_seasons_enabled','direct_request_access']);
   for (const key of CONNECTION_KEYS) {
     if (key in body) {
       // Checkboxes send '1' when checked, absent when unchecked — only default to '0' for boolean keys
@@ -726,6 +735,7 @@ router.get('/user-settings/:userId', requireAdmin, (req, res) => {
     appVersion: APP_VERSION,
     connections: db.getConnectionSettings(),
     individualSeasonsEnabled: db.isIndividualSeasonsEnabled(),
+    discoverEnabled: db.isDiscoverEnabled(),
     notificationPrefs: db.getUserNotificationPrefs(userId),
     discordAgentEnabled: discordConfig?.enabled === true,
     discordMode: discordConfig?.mode || 'webhook',
@@ -740,7 +750,7 @@ router.post('/user-settings/:userId', requireAdmin, (req, res) => {
   const {
     movieLimit, seasonLimit, movieWindowDays, tvWindowDays,
     overrideGlobal, auto_approve_movies, auto_approve_tv, is_admin,
-    region, language, auto_request_movies, auto_request_tv,
+    region, language, auto_request_movies, auto_request_tv, landing_page,
     notify_approved, notify_denied, notify_available,
     discord_webhook, discord_enabled, pushover_user_key, pushover_enabled,
     notify_pending, notify_auto_approved, notify_process_failed,
@@ -759,6 +769,7 @@ router.post('/user-settings/:userId', requireAdmin, (req, res) => {
     language: language || null,
     auto_request_movies: auto_request_movies === '1' || auto_request_movies === true,
     auto_request_tv: auto_request_tv === '1' || auto_request_tv === true,
+    landing_page: landing_page || null,
   });
   const { discord_user_id } = req.body;
   db.setUserNotificationPrefs(userId, {

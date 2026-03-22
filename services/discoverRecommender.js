@@ -5,7 +5,12 @@ const { buildPreferenceProfile, partialShuffle, tieredSample } = require('./reco
 const db = require('../db/database');
 
 const CACHE_TTL = 6 * 60 * 60 * 1000; // 6 hours
+const CANDIDATES_TTL = 8 * 60 * 60 * 1000; // 8 hours for shared candidate pool
 const POOL_SIZES = { topPicks: 300, movies: 400, tvShows: 300, anime: 150 };
+
+function makePoolKey(region, language, showMature) {
+  return `${region || ''}:${language || ''}:${showMature ? '1' : '0'}`;
+}
 
 // Per-user in-memory cache: userId -> { pools, builtAt }
 const discoverCache = new Map();
@@ -248,7 +253,102 @@ async function getTopWatchedTmdbIds(userId) {
   return { topMovieIds, topTvIds, topMovieKeys, topTvKeys };
 }
 
+/**
+ * Fetch and enrich the shared set of TMDB candidates for a given pref combo.
+ * Covers genre discovery + trending + anime — parts identical for all users
+ * with the same region/language/mature settings.
+ * Per-user parts (TMDB recs from watch history, person/keyword candidates)
+ * are still fetched inside buildDiscoverPools.
+ *
+ * Calls getItemDetails on all collected IDs to pre-populate tmdb_cache and
+ * stores full enriched item objects in discover_candidates_cache (8hr TTL).
+ * Returns Array<enrichedItem> — ready for scoring, no re-fetch needed.
+ */
+async function fetchSharedCandidates(opts = {}) {
+  const poolKey = makePoolKey(opts.region, opts.language, opts.includeAdult);
+  const cached = db.getDiscoverCandidates(poolKey);
+  if (cached && Date.now() - cached.updatedAt < CANDIDATES_TTL) {
+    console.log(`[discoverRec] Shared candidates cache hit for key "${poolKey}" (${cached.items.length} items)`);
+    return cached.items;
+  }
+
+  console.log(`[discoverRec] Building shared candidates for key "${poolKey}"...`);
+  const seen = new Map(); // key -> { tmdbId, mediaType }
+
+  function addId(tmdbId, mediaType) {
+    if (!tmdbId) return;
+    const mt = mediaType === 'tv' || mediaType === 'show' ? 'tv' : 'movie';
+    seen.set(`${tmdbId}:${mt}`, { tmdbId, mediaType: mt });
+  }
+
+  // Genre discovery — ALL genres in the maps (not just user's top genres)
+  // so the shared pool covers any user regardless of their preferences.
+  const popularPages = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+  const ratedPages = [1, 2, 3, 4, 5];
+
+  const genrePromises = [
+    ...Object.values(tmdbService.MOVIE_GENRE_MAP).flatMap(ids => [
+      ...popularPages.map(p => tmdbService.discoverByGenreIds('movie', ids, p, 'popularity.desc', opts).then(recs => recs.forEach(r => addId(r.tmdbId, 'movie')))),
+      ...ratedPages.map(p => tmdbService.discoverByGenreIds('movie', ids, p, 'vote_average.desc', opts).then(recs => recs.forEach(r => addId(r.tmdbId, 'movie')))),
+    ]),
+    ...Object.values(tmdbService.TV_GENRE_MAP).flatMap(ids => [
+      ...popularPages.map(p => tmdbService.discoverByGenreIds('tv', ids, p, 'popularity.desc', opts).then(recs => recs.forEach(r => addId(r.tmdbId, 'tv')))),
+      ...ratedPages.map(p => tmdbService.discoverByGenreIds('tv', ids, p, 'vote_average.desc', opts).then(recs => recs.forEach(r => addId(r.tmdbId, 'tv')))),
+    ]),
+  ];
+
+  // Trending (global — no region, only mature flag matters)
+  const trendingPromises = [
+    ...[1, 2, 3, 4, 5].map(p => tmdbService.getTrending('movie', p, { includeAdult: opts.includeAdult }).then(recs => recs.forEach(r => addId(r.tmdbId, 'movie')))),
+    ...[1, 2, 3, 4, 5].map(p => tmdbService.getTrending('tv', p, { includeAdult: opts.includeAdult }).then(recs => recs.forEach(r => addId(r.tmdbId, 'tv')))),
+  ];
+
+  // Anime — always JP origin, no regional filter
+  const animePromise = Promise.all([1, 2, 3, 4, 5, 6, 7, 8].map(p => tmdbService.discoverAnime(p)))
+    .then(pages => pages.flat().forEach(r => addId(r.tmdbId, 'tv')));
+
+  await Promise.all([...genrePromises, ...trendingPromises, animePromise]);
+
+  const idList = [...seen.values()];
+  console.log(`[discoverRec] Fetching details for ${idList.length} shared candidates (key "${poolKey}")...`);
+
+  // Enrich all candidates — populates tmdb_cache so per-user builds are instant DB hits.
+  // Only delay between batches when items are actually uncached (real API calls).
+  const today = new Date().toISOString().slice(0, 10);
+  const enriched = [];
+  const BATCH = 15;
+  for (let i = 0; i < idList.length; i += BATCH) {
+    const batch = idList.slice(i, i + BATCH);
+    // Check which items are already in tmdb_cache before fetching
+    const hadUncached = batch.some(({ tmdbId, mediaType }) => !db.getTmdbCache(tmdbId, mediaType));
+    const results = await Promise.all(batch.map(({ tmdbId, mediaType }) =>
+      tmdbService.getItemDetails(tmdbId, mediaType)
+    ));
+    for (const item of results) {
+      if (!item) continue;
+      if (item.releaseDate && item.releaseDate > today) continue;
+      enriched.push(item);
+    }
+    // Only rate-limit delay when we actually made API calls
+    if (hadUncached && i + BATCH < idList.length) {
+      await new Promise(r => setTimeout(r, 80));
+    }
+  }
+
+  console.log(`[discoverRec] Shared candidates enriched: ${enriched.length} items for key "${poolKey}"`);
+  db.setDiscoverCandidates(poolKey, enriched);
+  return enriched;
+}
+
 async function buildDiscoverPools(userId, userToken) {
+  // Read user's stored preferences for pool selection
+  const prefs = db.getUserPreferences(userId);
+  const discoverOpts = {
+    region: prefs.region || null,
+    language: prefs.language || null,
+    includeAdult: !!prefs.show_mature,
+  };
+
   const [movies, tv, watchedKeys] = await Promise.all([
     plexService.getLibraryItems(db.getSetting('plex_movies_section', null) || process.env.PLEX_MOVIES_SECTION_ID || '1'),
     plexService.getLibraryItems(db.getSetting('plex_tv_section', null) || process.env.PLEX_TV_SECTION_ID || '2'),
@@ -286,7 +386,7 @@ async function buildDiscoverPools(userId, userToken) {
 
   function isAlreadyHave(tmdbId, mediaType, title, year) {
     if (libraryTmdbIds.has(String(tmdbId))) return true;
-    if (requestedIds.has(`${tmdbId}:${mediaType}`)) return true;
+    // Requested items are NOT excluded — they appear as candidates with isRequested flag
     if (isInLibraryByTitle(title, year)) return true;
     return false;
   }
@@ -350,61 +450,32 @@ async function buildDiscoverPools(userId, userToken) {
     console.log(`[discoverRec] Plex /related added ${relatedSeeds.size} second-hop seeds for user ${userId}`);
   })();
 
-  // 4. Genre-based discovery — top 8 genres, 10 pages popularity + 5 pages by rating
-  // Two passes per genre: popularity (mainstream) + vote_average (hidden gems)
-  let genreDiscoverPromises = [];
-  if (profile) {
-    const topMovieGenres = [...profile.genreWeights.entries()]
-      .sort((a, b) => b[1] - a[1]).slice(0, 8).map(([g]) => g);
-    const topTvGenres = [...profile.genreWeights.entries()]
-      .sort((a, b) => b[1] - a[1]).slice(0, 8).map(([g]) => g);
-
-    const popularPages = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-    const ratedPages = [1, 2, 3, 4, 5];
-
-    genreDiscoverPromises = [
-      ...topMovieGenres.flatMap(g => {
-        const ids = tmdbService.MOVIE_GENRE_MAP[g];
-        if (!ids) return [];
-        return [
-          ...popularPages.map(p => tmdbService.discoverByGenreIds('movie', ids, p, 'popularity.desc').then(recs => recs.forEach(r => addCandidate(r.tmdbId, 'movie', r.title, r.year)))),
-          ...ratedPages.map(p => tmdbService.discoverByGenreIds('movie', ids, p, 'vote_average.desc').then(recs => recs.forEach(r => addCandidate(r.tmdbId, 'movie', r.title, r.year)))),
-        ];
-      }),
-      ...topTvGenres.flatMap(g => {
-        const ids = tmdbService.TV_GENRE_MAP[g];
-        if (!ids) return [];
-        return [
-          ...popularPages.map(p => tmdbService.discoverByGenreIds('tv', ids, p, 'popularity.desc').then(recs => recs.forEach(r => addCandidate(r.tmdbId, 'tv', r.title, r.year)))),
-          ...ratedPages.map(p => tmdbService.discoverByGenreIds('tv', ids, p, 'vote_average.desc').then(recs => recs.forEach(r => addCandidate(r.tmdbId, 'tv', r.title, r.year)))),
-        ];
-      }),
-    ];
-  }
+  // 4. Shared candidates (genre discovery + trending + anime) — fetched once per
+  //    region+language+mature combo and reused across all users with matching prefs.
+  //    Returns pre-enriched items — no getItemDetails call needed for these.
+  let sharedEnrichedItems = [];
+  const sharedCandidatesPromise = fetchSharedCandidates(discoverOpts).then(items => {
+    sharedEnrichedItems = items;
+    // Register in candidateSet for deduplication (per-user candidates won't re-add)
+    for (const item of items) {
+      if (!item?.tmdbId) continue;
+      const mt = item.mediaType === 'tv' || item.mediaType === 'show' ? 'tv' : 'movie';
+      candidateSet.set(`${item.tmdbId}:${mt}`, { tmdbId: item.tmdbId, mediaType: mt });
+    }
+    console.log(`[discoverRec] Loaded ${items.length} pre-enriched shared candidates for user ${userId}`);
+  });
 
   // 3b. Interest seeds: TMDB recs for watchlisted items + recent requests
   // Items the user has explicitly shown interest in act as additional seed sources.
   // Uses the interestSimilarMap built in buildPreferenceProfile (already cached).
-  let interestSeedPromises = [];
   if (profile?.interestSimilarMap?.size) {
-    // The interestSimilarMap already contains the recommended tmdbIds — add them directly
     for (const [tmdbId, entry] of profile.interestSimilarMap) {
       addCandidate(tmdbId, entry.mediaType || 'movie', null, null);
     }
     console.log(`[discoverRec] Added ${profile.interestSimilarMap.size} interest-seeded candidates for user ${userId}`);
   }
 
-  // 4. Trending movies + TV (5 pages each)
-  const trendingMoviePromise = Promise.all([1,2,3,4,5].map(p => tmdbService.getTrending('movie', p)))
-    .then(pages => pages.flat().forEach(r => addCandidate(r.tmdbId, 'movie', r.title, r.year)));
-  const trendingTvPromise = Promise.all([1,2,3,4,5].map(p => tmdbService.getTrending('tv', p)))
-    .then(pages => pages.flat().forEach(r => addCandidate(r.tmdbId, 'tv', r.title, r.year)));
-
-  // 5. Anime discover (8 pages)
-  const animePromise = Promise.all([1,2,3,4,5,6,7,8].map(p => tmdbService.discoverAnime(p)))
-    .then(pages => pages.flat().forEach(r => addCandidate(r.tmdbId, 'tv', r.title, r.year)));
-
-  // 6. Person-based candidates: top 20 actors + top 12 directors (movie + TV)
+  // 5. Person-based candidates: top 20 actors + top 12 directors (movie + TV)
   let personPromises = [];
   if (profile) {
     const topActors = [...profile.actorWeights.entries()]
@@ -435,40 +506,51 @@ async function buildDiscoverPools(userId, userToken) {
     const topKeywords = [...profile.keywordIdWeights.entries()]
       .sort((a, b) => b[1].weight - a[1].weight).slice(0, 20);
     keywordPromises = topKeywords.flatMap(([id]) => [
-      tmdbService.discoverByKeywordId('movie', id, 1).then(recs => recs.forEach(r => addCandidate(r.tmdbId, 'movie', r.title, r.year))),
-      tmdbService.discoverByKeywordId('movie', id, 2).then(recs => recs.forEach(r => addCandidate(r.tmdbId, 'movie', r.title, r.year))),
-      tmdbService.discoverByKeywordId('movie', id, 3).then(recs => recs.forEach(r => addCandidate(r.tmdbId, 'movie', r.title, r.year))),
-      tmdbService.discoverByKeywordId('tv', id, 1).then(recs => recs.forEach(r => addCandidate(r.tmdbId, 'tv', r.title, r.year))),
-      tmdbService.discoverByKeywordId('tv', id, 2).then(recs => recs.forEach(r => addCandidate(r.tmdbId, 'tv', r.title, r.year))),
-      tmdbService.discoverByKeywordId('tv', id, 3).then(recs => recs.forEach(r => addCandidate(r.tmdbId, 'tv', r.title, r.year))),
+      tmdbService.discoverByKeywordId('movie', id, 1, discoverOpts).then(recs => recs.forEach(r => addCandidate(r.tmdbId, 'movie', r.title, r.year))),
+      tmdbService.discoverByKeywordId('movie', id, 2, discoverOpts).then(recs => recs.forEach(r => addCandidate(r.tmdbId, 'movie', r.title, r.year))),
+      tmdbService.discoverByKeywordId('movie', id, 3, discoverOpts).then(recs => recs.forEach(r => addCandidate(r.tmdbId, 'movie', r.title, r.year))),
+      tmdbService.discoverByKeywordId('tv', id, 1, discoverOpts).then(recs => recs.forEach(r => addCandidate(r.tmdbId, 'tv', r.title, r.year))),
+      tmdbService.discoverByKeywordId('tv', id, 2, discoverOpts).then(recs => recs.forEach(r => addCandidate(r.tmdbId, 'tv', r.title, r.year))),
+      tmdbService.discoverByKeywordId('tv', id, 3, discoverOpts).then(recs => recs.forEach(r => addCandidate(r.tmdbId, 'tv', r.title, r.year))),
     ]);
   }
 
-  await Promise.all([...movieRecPromises, ...movieSimPromises, ...tvRecPromises, ...tvSimPromises, ...genreDiscoverPromises, trendingMoviePromise, trendingTvPromise, animePromise, ...personPromises, ...keywordPromises, plexRelatedPromise]);
+  await Promise.all([...movieRecPromises, ...movieSimPromises, ...tvRecPromises, ...tvSimPromises, sharedCandidatesPromise, ...personPromises, ...keywordPromises, plexRelatedPromise]);
 
   // ── Fetch details for all candidates ────────────────────────────────────
-  const candidates = [...candidateSet.values()];
-  console.log(`[discoverRec] Fetching details for ${candidates.length} candidates for user ${userId}`);
+  // Shared candidates are pre-enriched — only fetch details for per-user candidates.
+  const sharedKeys = new Set(sharedEnrichedItems.map(i => `${i.tmdbId}:${i.mediaType}`));
+  const perUserCandidates = [...candidateSet.values()].filter(
+    c => !sharedKeys.has(`${c.tmdbId}:${c.mediaType}`)
+  );
+  console.log(`[discoverRec] Fetching details for ${perUserCandidates.length} per-user candidates (${sharedEnrichedItems.length} shared pre-enriched) for user ${userId}`);
 
-  // Fetch in batches of 10 to be rate-limit friendly, with small delays for uncached items
-  const detailedItems = [];
-  const BATCH = 10;
-  for (let i = 0; i < candidates.length; i += BATCH) {
-    const batch = candidates.slice(i, i + BATCH);
+  const today = new Date().toISOString().slice(0, 10);
+
+  // Filter pre-enriched shared items against this user's library/requests
+  const detailedItems = sharedEnrichedItems.filter(item => {
+    if (!item) return false;
+    if (isAlreadyHave(item.tmdbId, item.mediaType, item.title, item.year)) return false;
+    if (item.releaseDate && item.releaseDate > today) return false;
+    return true;
+  });
+
+  // Fetch per-user candidates — only delay when actual API calls are made
+  const BATCH = 15;
+  for (let i = 0; i < perUserCandidates.length; i += BATCH) {
+    const batch = perUserCandidates.slice(i, i + BATCH);
+    const hadUncached = batch.some(({ tmdbId, mediaType }) => !db.getTmdbCache(tmdbId, mediaType));
     const batchResults = await Promise.all(batch.map(({ tmdbId, mediaType }) =>
       tmdbService.getItemDetails(tmdbId, mediaType)
     ));
-    const today = new Date().toISOString().slice(0, 10);
     detailedItems.push(...batchResults.filter(item => {
       if (!item) return false;
       if (isAlreadyHave(item.tmdbId, item.mediaType, item.title, item.year)) return false;
-      // Exclude items with a future release date
       if (item.releaseDate && item.releaseDate > today) return false;
       return true;
     }));
-    // Small delay between batches only if any were uncached
-    if (i + BATCH < candidates.length) {
-      await new Promise(r => setTimeout(r, 100));
+    if (hadUncached && i + BATCH < perUserCandidates.length) {
+      await new Promise(r => setTimeout(r, 80));
     }
   }
 
@@ -536,7 +618,7 @@ async function buildTrendingSections(requestedIds, dismissedIds, libraryTmdbIds,
   }
   function isInLibrary(tmdbId, mediaType, title, year) {
     if (libraryTmdbIds.has(String(tmdbId))) return true;
-    if (requestedIds.has(`${tmdbId}:${mediaType}`)) return true;
+    // Do NOT filter by requestedIds — requested items show in trending with a badge
     const norm = normTitle(title);
     if (libraryTitleYears.has(norm + '|' + (year || ''))) return true;
     if (year) {
@@ -547,9 +629,10 @@ async function buildTrendingSections(requestedIds, dismissedIds, libraryTmdbIds,
   }
 
   // Fetch 3 pages per type (60 candidates). tmdbFetch caches page results in-process.
+  const trendingOpts = { includeAdult: mature };
   const [moviePages, tvPages] = await Promise.all([
-    Promise.all([1, 2, 3].map(p => tmdbService.getTrending('movie', p))),
-    Promise.all([1, 2, 3].map(p => tmdbService.getTrending('tv', p))),
+    Promise.all([1, 2, 3].map(p => tmdbService.getTrending('movie', p, trendingOpts))),
+    Promise.all([1, 2, 3].map(p => tmdbService.getTrending('tv', p, trendingOpts))),
   ]);
 
   async function enrichAndFilter(candidates, mediaType) {
@@ -565,8 +648,10 @@ async function buildTrendingSections(requestedIds, dismissedIds, libraryTmdbIds,
 
     return details
       .filter(item => item && !isInLibrary(item.tmdbId, item.mediaType, item.title, item.year))
-      .filter(item => mature || !item.adult)
-      .filter(item => !item.isAnime) // anime has its own section
+      // Adult content is already excluded at query time via include_adult=false/true on getTrending.
+      // Applying our broader computed adult flag (which includes TV-MA/R-rated mainstream shows)
+      // here would remove too many popular titles from trending.
+      .filter(item => !item.isAnime)
       .slice(0, 50)
       .map(item => ({
         ...item,
@@ -583,7 +668,10 @@ async function buildTrendingSections(requestedIds, dismissedIds, libraryTmdbIds,
   return { trendingMovies, trendingTV };
 }
 
-async function getDiscoverRecommendations(userId, userToken, { mature = false } = {}) {
+async function getDiscoverRecommendations(userId, userToken, { mature, hideRequested = false } = {}) {
+  // Use stored preference as authoritative source; runtime param can override for post-filter
+  const prefs = db.getUserPreferences(userId);
+  if (mature === undefined) mature = !!prefs.show_mature;
   const userIdStr = String(userId);
 
   // 1. Check in-memory cache
@@ -614,14 +702,20 @@ async function getDiscoverRecommendations(userId, userToken, { mature = false } 
   }
 
   // Sample fresh results from pools on every call
-  const requestedIds = db.getAllRequestedTmdbIds();
+  const requestedIds = db.getAllRequestedTmdbIds();       // global: any user's request
+  const userRequestedIds = db.getRequestedTmdbIds(userId); // this user's own requests
   const dismissedIds = db.getExploreDismissedIds(userId);
 
   function filterAndMark(items) {
     return items
       .filter(item => !dismissedIds.has(`${item.tmdbId}:${item.mediaType}`))
       .filter(item => mature || !item.adult)
-      .map(item => ({ ...item, isRequested: requestedIds.has(`${item.tmdbId}:${item.mediaType}`) }));
+      .filter(item => !hideRequested || !requestedIds.has(`${item.tmdbId}:${item.mediaType}`))
+      .map(item => ({
+        ...item,
+        isRequested: requestedIds.has(`${item.tmdbId}:${item.mediaType}`),
+        isMyRequest: userRequestedIds.has(`${item.tmdbId}:${item.mediaType}`),
+      }));
   }
 
   // Trending sections run in parallel with the pool sampling — they use
@@ -633,14 +727,70 @@ async function getDiscoverRecommendations(userId, userToken, { mature = false } 
     buildTrendingSections(requestedIds, dismissedIds, libraryTmdbIds, libraryTitleYears, mature),
   ]);
 
+  function markTrending(items) {
+    return items
+      .filter(item => !hideRequested || !requestedIds.has(`${item.tmdbId}:${item.mediaType}`))
+      .map(item => ({
+        ...item,
+        isMyRequest: userRequestedIds.has(`${item.tmdbId}:${item.mediaType}`),
+      }));
+  }
+
   return {
     topPicks: filterAndMark(partialShuffle(pools.topPicks, Math.min(72, pools.topPicks.length))),
     movies: filterAndMark(tieredSample(pools.movies, 60)),
     tvShows: filterAndMark(tieredSample(pools.tvShows, 60)),
     anime: filterAndMark(tieredSample(pools.anime, 60)),
-    trendingMovies: trendingResult.trendingMovies,
-    trendingTV: trendingResult.trendingTV,
+    trendingMovies: markTrending(trendingResult.trendingMovies),
+    trendingTV: markTrending(trendingResult.trendingTV),
   };
+}
+
+/**
+ * Refresh shared TMDB candidate pools for every unique pref combo in the DB.
+ * Called by the 6-hour background job in server.js.
+ * Force-refreshes stale pools; skips ones that are still fresh.
+ */
+async function refreshSharedCandidatePools() {
+  const combos = db.getAllUserPrefsForDiscover();
+  console.log(`[discoverRec] refreshSharedCandidatePools: ${combos.length} pref combo(s)`);
+  for (const { region, language, show_mature } of combos) {
+    const opts = { region, language, includeAdult: !!show_mature };
+    const poolKey = makePoolKey(region, language, show_mature);
+    const cached = db.getDiscoverCandidates(poolKey);
+    if (cached && Date.now() - cached.updatedAt < CANDIDATES_TTL) {
+      console.log(`[discoverRec] Shared pool "${poolKey}" is fresh, skipping`);
+      continue;
+    }
+    try {
+      await fetchSharedCandidates(opts);
+    } catch (err) {
+      console.warn(`[discoverRec] refreshSharedCandidatePools failed for "${poolKey}":`, err.message);
+    }
+  }
+}
+
+/**
+ * Re-score shared candidates for every known user and update their discover_pool_cache.
+ * Mirrors recommender.warmAllUserCaches() — called by the 28-min background job in server.js.
+ */
+async function warmAllUserDiscoverCaches() {
+  const userIds = db.getKnownUserIds();
+  if (!userIds.length) return;
+  console.log(`[discoverRec] warmAllUserDiscoverCaches: ${userIds.length} user(s)`);
+  // Get a representative admin token for Plex API calls (needed for watchedKeys)
+  const plexAdminToken = plexService.getAdminToken ? plexService.getAdminToken() : null;
+  for (const userId of userIds) {
+    try {
+      const userToken = plexAdminToken; // use admin token as fallback; per-user token not available here
+      const pools = await buildDiscoverPools(userId, userToken);
+      const builtAt = Date.now();
+      discoverCache.set(String(userId), { pools, builtAt });
+      db.setDiscoverPool(String(userId), pools, builtAt);
+    } catch (err) {
+      console.warn(`[discoverRec] warmAllUserDiscoverCaches failed for user ${userId}:`, err.message);
+    }
+  }
 }
 
 module.exports = {
@@ -648,4 +798,6 @@ module.exports = {
   invalidateUserCache,
   invalidateAllCaches,
   scheduleRebuild,
+  refreshSharedCandidatePools,
+  warmAllUserDiscoverCaches,
 };

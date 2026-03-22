@@ -526,7 +526,7 @@
     var genresEl = document.getElementById('detail-modal-genres');
     genresEl.innerHTML = '';
     if (item.genres && item.genres.length > 0) {
-      item.genres.slice(0, 5).forEach(function (g) {
+      item.genres.filter(function (g) { return g && g.trim(); }).slice(0, 5).forEach(function (g) {
         var tag = document.createElement('span');
         tag.className = 'genre-tag';
         tag.textContent = g;

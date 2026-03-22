@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Diskovarr — User Settings</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-  <link rel="stylesheet" href="/css/style.css?v=45">
+  <link rel="stylesheet" href="/css/style.css?v=49">
   <link rel="stylesheet" href="/css/admin.css?v=31">
   <link rel="stylesheet" href="/theme.css?c=<%= themeParam %>" id="theme-css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -193,6 +193,24 @@
         </div>
       </div>
 
+      <!-- Landing Page -->
+      <% if (discoverEnabled) { %>
+      <div class="settings-section">
+        <p class="settings-section-title">Landing Page</p>
+        <p style="font-size:0.82rem;color:var(--text-secondary);margin:0 0 16px">Which page this user lands on after signing in.</p>
+        <div style="display:flex;align-items:center;gap:12px">
+          <span id="lpu-home" class="landing-label <%= settings.landing_page !== 'explore' ? 'landing-label-active' : '' %>">Diskovarr</span>
+          <label class="slide-toggle slide-toggle-always-on">
+            <input type="checkbox" id="toggle-landing-user" <%= settings.landing_page === 'explore' ? 'checked' : '' %>
+              onchange="setLandingUser(this.checked ? 'explore' : 'home')">
+            <span class="slide-track"></span>
+          </label>
+          <span id="lpu-explore" class="landing-label <%= settings.landing_page === 'explore' ? 'landing-label-active' : '' %>">Diskovarr Requests</span>
+        </div>
+        <input type="hidden" name="landing_page" id="landing-page-val" value="<%= settings.landing_page === 'explore' ? 'explore' : 'home' %>">
+      </div>
+      <% } %>
+
       <!-- Auto-Request Watchlist -->
       <% if (connections.discoverEnabled) { %>
       <div class="settings-section">
@@ -372,6 +390,12 @@
   </div>
 
   <script>
+    function setLandingUser(val) {
+      document.getElementById('landing-page-val').value = val;
+      document.getElementById('lpu-home').className = 'landing-label' + (val === 'home' ? ' landing-label-active' : '');
+      document.getElementById('lpu-explore').className = 'landing-label' + (val === 'explore' ? ' landing-label-active' : '');
+    }
+
     async function doAction(type) {
       var uid = '<%= userId %>';
       var status = document.getElementById('action-status');

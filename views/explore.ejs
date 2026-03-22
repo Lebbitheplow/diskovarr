@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/style.css?v=45">
+  <link rel="stylesheet" href="/css/style.css?v=49">
   <link rel="stylesheet" href="/theme.css?c=<%= themeParam %>">
 </head>
 <body>
@@ -20,11 +20,18 @@
       <h1 class="hero-title">Diskovarr <span class="accent">Requests</span></h1>
       <p class="hero-sub">Everything here is <strong>not yet in the library</strong> — picked for your taste based on your watch history. <em style="opacity:0.6;font-size:0.9em">Your first visit may take a minute to process.</em></p>
       <div class="hero-controls hero-controls-split">
-        <label class="toggle-label">
-          <input type="checkbox" id="mature-toggle" class="toggle-checkbox">
-          <span class="toggle-switch"></span>
-          <span class="toggle-text">Show mature content <span style="opacity:0.55;font-size:0.82em;font-weight:400">(R &amp; TV-MA)</span></span>
-        </label>
+        <div style="display:flex;flex-direction:column;gap:10px;">
+          <label class="toggle-label">
+            <input type="checkbox" id="mature-toggle" class="toggle-checkbox">
+            <span class="toggle-switch"></span>
+            <span class="toggle-text">Show mature content <span style="opacity:0.55;font-size:0.82em;font-weight:400">(R &amp; TV-MA)</span></span>
+          </label>
+          <label class="toggle-label">
+            <input type="checkbox" id="hide-requested-toggle" class="toggle-checkbox">
+            <span class="toggle-switch"></span>
+            <span class="toggle-text">Hide requested</span>
+          </label>
+        </div>
         <button type="button" id="btn-shuffle-all" class="btn-shuffle-all" title="Refresh picks">↺</button>
       </div>
 
@@ -199,8 +206,9 @@
       individualSeasonsEnabled: <%= individualSeasonsEnabled ? 'true' : 'false' %>,
       directRequestAccess: "<%= directRequestAccess %>",
       isOwner: <%= isOwner ? 'true' : 'false' %>,
+      showMature: <%= showMature ? 'true' : 'false' %>,
     };
   </script>
-  <script src="/js/discover-app.js?v=27"></script>
+  <script src="/js/discover-app.js?v=31"></script>
 </body>
 </html>
