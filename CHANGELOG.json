@@ -1,5 +1,20 @@
 [
   {
+    "version": "1.17.8",
+    "date": "2026-03-23",
+    "changes": [
+      "Watched status on tiles and modals \u2014 items you have already watched show a green checkmark badge on the poster thumbnail and a Watched pill in the detail modal.",
+      "Queue \u2014 Available filter button shows all approved requests that are now in your Plex library.",
+      "Queue \u2014 sortable column headers \u2014 clicking Title, User, Type, Age, or Status sorts the full queue server-side across all pages with an arrow indicator.",
+      "Queue \u2014 larger posters \u2014 request row poster thumbnails increased from 40\u00d760 to 52\u00d778 px.",
+      "README \u2014 Docker Hub install instructions added to the Installation section.",
+      "Fix: Watched count showing ~715 for all users \u2014 Tautulli history was being fetched with Plex user IDs not present in Tautulli, returning full shared history. Sync now validates user IDs against Tautulli\u2019s user list and skips unknown users.",
+      "Fix: Content-available notifications now open the item modal for that title instead of navigating to the queue.",
+      "Fix: Read notifications in the bell dropdown are now clickable.",
+      "Fix: Notification modal poster not loading \u2014 full HTTPS image URLs were being wrapped in the Plex poster proxy, causing them to fail. HTTP/HTTPS URLs are now passed through directly."
+    ]
+  },
+  {
     "version": "1.17.7",
     "date": "2026-03-22",
     "changes": [

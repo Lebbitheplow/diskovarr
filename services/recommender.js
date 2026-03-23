@@ -814,14 +814,16 @@ async function getRecommendations(userId, userToken) {
   };
 
   const watchlistKeys = new Set(db.getWatchlistFromDb(userIdStr));
-  return attachWatchlistStatus(result, watchlistKeys);
+  const watchedKeys = db.getWatchedKeysFromDb(userIdStr);
+  return attachItemStatus(result, watchlistKeys, watchedKeys);
 }
 
-function attachWatchlistStatus(result, watchlistKeys) {
+function attachItemStatus(result, watchlistKeys, watchedKeys) {
   function markItems(items) {
     return items.map(item => ({
       ...item,
       isInWatchlist: watchlistKeys.has(item.ratingKey),
+      isWatched: watchedKeys.has(item.ratingKey),
     }));
   }
   return {

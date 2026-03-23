@@ -37,6 +37,7 @@
 
   function posterUrl(thumb) {
     if (!thumb) return null;
+    if (thumb.startsWith('http://') || thumb.startsWith('https://')) return thumb;
     return '/api/poster?path=' + encodeURIComponent(thumb);
   }
 
@@ -138,6 +139,13 @@
       badge.textContent = item.contentRating;
       metaEl.appendChild(document.createTextNode(' · '));
       metaEl.appendChild(badge);
+    }
+    if (item.isWatched) {
+      const watchedPill = document.createElement('span');
+      watchedPill.className = 'modal-watched-pill';
+      watchedPill.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="11" height="11"><polyline points="20 6 9 17 4 12"/></svg> Watched';
+      metaEl.appendChild(document.createTextNode(' · '));
+      metaEl.appendChild(watchedPill);
     }
 
     // Ratings (RT badges)
@@ -525,6 +533,15 @@
       posterLink.appendChild(makePlaceholder(item.title));
     }
 
+    // --- Watched badge ---
+    if (item.isWatched) {
+      const watchedBadge = document.createElement('div');
+      watchedBadge.className = 'card-watched-badge';
+      watchedBadge.title = 'Watched';
+      watchedBadge.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+      posterLink.appendChild(watchedBadge);
+    }
+
     // --- Overlay with action buttons ---
     const overlay = document.createElement('div');
     overlay.className = 'card-overlay';
@@ -794,4 +811,42 @@
         });
       });
   });
+
+  // ── Open modal from URL params (e.g. from notification click) ──────────────
+  (function () {
+    const params = new URLSearchParams(window.location.search);
+    const tmdbId = params.get('openModal');
+    const mediaType = params.get('mediaType');
+    if (!tmdbId || !mediaType) return;
+    // Clear the params from the URL immediately
+    history.replaceState(null, '', window.location.pathname);
+    // Fetch item details and open modal
+    fetch('/api/search/details?tmdbId=' + encodeURIComponent(tmdbId) + '&type=' + encodeURIComponent(mediaType))
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        if (!data) return;
+        // Map search/details response to library modal format
+        openModal({
+          ratingKey: data.ratingKey || null,
+          title: data.title,
+          year: data.year,
+          type: mediaType === 'tv' ? 'show' : 'movie',
+          thumb: data.posterUrl || data.thumb || null,
+          art: data.backdropUrl || data.art || null,
+          rating: data.rating || null,
+          audienceRating: data.audienceRating || null,
+          contentRating: data.contentRating || null,
+          genres: data.genres || [],
+          summary: data.summary || data.overview || '',
+          directors: data.directors || [],
+          cast: data.cast || [],
+          studio: data.studio || null,
+          tmdbId: tmdbId,
+          isWatched: data.isWatched || false,
+          isInWatchlist: data.isInWatchlist || false,
+        });
+      })
+      .catch(function () {});
+  })();
+
 })();

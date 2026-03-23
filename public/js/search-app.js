@@ -852,6 +852,15 @@
     }
     posterWrap.appendChild(badge);
 
+    // Watched badge
+    if (item.isWatched) {
+      var watchedBadge = document.createElement('div');
+      watchedBadge.className = 'card-watched-badge';
+      watchedBadge.title = 'Watched';
+      watchedBadge.innerHTML = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+      posterWrap.appendChild(watchedBadge);
+    }
+
     // Overlay (only for non-library items — library items use watchlist.js on the card)
     var overlay = document.createElement('div');
     overlay.className = 'card-overlay';

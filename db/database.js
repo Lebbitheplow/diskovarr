@@ -836,14 +836,17 @@ function getPendingRequests() {
   `).all();
 }
 
-function getAllRequests(limit = 20, offset = 0, statusFilter = null) {
+function getAllRequests(limit = 20, offset = 0, statusFilter = null, orderBy = 'requested_at', orderDir = 'DESC') {
+  const ALLOWED_COLS = { title: 'dr.title', username: 'COALESCE(ku.username, dr.user_id)', media_type: 'dr.media_type', requested_at: 'dr.requested_at', status: 'dr.status' };
+  const col = ALLOWED_COLS[orderBy] || 'dr.requested_at';
+  const dir = orderDir === 'ASC' ? 'ASC' : 'DESC';
   const where = statusFilter && statusFilter !== 'all' ? `WHERE dr.status = '${statusFilter}'` : '';
   const rows = db.prepare(`
     SELECT dr.*, COALESCE(ku.username, dr.user_id) AS username, ku.thumb AS user_thumb
     FROM discover_requests dr
     LEFT JOIN known_users ku ON ku.user_id = dr.user_id
     ${where}
-    ORDER BY dr.requested_at DESC
+    ORDER BY ${col} ${dir}
     LIMIT ? OFFSET ?
   `).all(Number(limit), Number(offset));
   const countRow = db.prepare(`
@@ -998,7 +1001,10 @@ function setUserPreferences(userId, { region, language, auto_request_movies, aut
     .run(region || null, language || null, auto_request_movies ? 1 : 0, auto_request_tv ? 1 : 0, landing_page || null, show_mature ? 1 : 0, String(userId));
 }
 
-function getUserRequests(userId, limit = 20, offset = 0, statusFilter = null) {
+function getUserRequests(userId, limit = 20, offset = 0, statusFilter = null, orderBy = 'requested_at', orderDir = 'DESC') {
+  const ALLOWED_COLS = { title: 'dr.title', username: 'COALESCE(ku.username, dr.user_id)', media_type: 'dr.media_type', requested_at: 'dr.requested_at', status: 'dr.status' };
+  const col = ALLOWED_COLS[orderBy] || 'dr.requested_at';
+  const dir = orderDir === 'ASC' ? 'ASC' : 'DESC';
   const where = statusFilter && statusFilter !== 'all'
     ? `WHERE dr.user_id = ? AND dr.status = '${statusFilter}'`
     : 'WHERE dr.user_id = ?';
@@ -1007,7 +1013,7 @@ function getUserRequests(userId, limit = 20, offset = 0, statusFilter = null) {
     FROM discover_requests dr
     LEFT JOIN known_users ku ON ku.user_id = dr.user_id
     ${where}
-    ORDER BY dr.requested_at DESC
+    ORDER BY ${col} ${dir}
     LIMIT ? OFFSET ?
   `).all(String(userId), Number(limit), Number(offset));
   const countRow = db.prepare(`SELECT COUNT(*) as cnt FROM discover_requests dr ${where}`).get(String(userId));

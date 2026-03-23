@@ -114,7 +114,12 @@ router.get('/poster', async (req, res) => {
 router.get('/watchlist', (req, res) => {
   const { id: userId } = req.session.plexUser;
   const keys = db.getWatchlistFromDb(userId);
-  res.json({ items: keys.map(k => ({ ratingKey: k })) });
+  const watchedKeys = db.getWatchedKeysFromDb(userId);
+  const items = keys.map(k => ({
+    ratingKey: k,
+    isWatched: watchedKeys.has(String(k)),
+  }));
+  res.json({ items });
 });
 
 // POST /api/watchlist/add
@@ -206,7 +211,6 @@ router.get('/discover', async (req, res) => {
       minRating = '0',
       sort = 'recommended',
       page = '1',
-      includeWatched = 'false',
       q = '',
     } = req.query;
 
@@ -216,12 +220,12 @@ router.get('/discover', async (req, res) => {
     const genreList = genres ? genres.split(',').map(g => g.trim().toLowerCase()).filter(Boolean) : [];
     const searchQuery = q.trim().toLowerCase();
 
-    const [movies, tv, watchedKeys, dismissedKeys] = await Promise.all([
+    const [movies, tv, dismissedKeys] = await Promise.all([
       plexService.getLibraryItems(plexService.MOVIES_SECTION),
       plexService.getLibraryItems(plexService.TV_SECTION),
-      includeWatched === 'true' ? Promise.resolve(new Set()) : plexService.getWatchedKeys(userId, userToken),
       Promise.resolve(db.getDismissals(userId)),
     ]);
+    const watchedKeys = db.getWatchedKeysFromDb(String(userId));
 
     // Categorise TV
     const animeItems = tv.filter(i => i.genres.some(g => g.toLowerCase() === 'anime'));
@@ -236,7 +240,6 @@ router.get('/discover', async (req, res) => {
     // Apply filters
     let filtered = pool.filter(item => {
       if (dismissedKeys.has(item.ratingKey)) return false;
-      if (watchedKeys.has(item.ratingKey)) return false;
       if (searchQuery && !item.title.toLowerCase().includes(searchQuery)) return false;
       if (item.audienceRating < minRatingNum) return false;
       if (genreList.length > 0) {
@@ -272,7 +275,7 @@ router.get('/discover', async (req, res) => {
     // Get all available genres from the pool for the filter UI
     const allGenres = [...new Set(pool.flatMap(i => i.genres))].sort();
 
-    // Attach watchlist status from local DB (no Plex API needed)
+    // Attach watchlist and watched status from local DB (no Plex API needed)
     const watchlistKeys = new Set(db.getWatchlistFromDb(userId));
 
     const itemsWithWatchlist = items.map(item => ({
@@ -280,6 +283,7 @@ router.get('/discover', async (req, res) => {
       deepLink: plexService.getDeepLink(item.ratingKey),
       plexAppLink: plexService.getAppLink(item.ratingKey),
       isInWatchlist: watchlistKeys.has(item.ratingKey),
+      isWatched: watchedKeys.has(item.ratingKey),
     }));
 
     res.json({
@@ -613,6 +617,7 @@ router.get('/search', async (req, res) => {
         plexService.getLibraryItems(plexService.TV_SECTION),
       ]);
       const watchlistKeys = new Set(db.getWatchlistFromDb(userId));
+      const watchedKeys = db.getWatchedKeysFromDb(String(userId));
       const ql = q.toLowerCase();
       const matched = [...movies, ...tv]
         .filter(item => (item.title || '').toLowerCase().includes(ql))
@@ -629,6 +634,7 @@ router.get('/search', async (req, res) => {
           deepLink: plexService.getDeepLink(item.ratingKey),
           plexAppLink: plexService.getAppLink(item.ratingKey),
           isInWatchlist: watchlistKeys.has(item.ratingKey),
+          isWatched: watchedKeys.has(item.ratingKey),
           isRequested: false,
         }));
       return res.json({ results: matched, total: matched.length, pages: 1, page: 1, query: q });
@@ -655,6 +661,7 @@ router.get('/search', async (req, res) => {
     }
 
     const watchlistKeys = new Set(db.getWatchlistFromDb(userId));
+    const watchedKeys = db.getWatchedKeysFromDb(String(userId));
     const requestedIds = db.getAllRequestedTmdbIds();
 
     const results = (json?.results || [])
@@ -675,6 +682,7 @@ router.get('/search', async (req, res) => {
           deepLink: libItem ? plexService.getDeepLink(libItem.ratingKey) : null,
           plexAppLink: libItem ? plexService.getAppLink(libItem.ratingKey) : null,
           isInWatchlist: libItem ? watchlistKeys.has(libItem.ratingKey) : false,
+          isWatched: libItem ? watchedKeys.has(libItem.ratingKey) : false,
           isRequested: !libItem && requestedIds.has(`${r.id}:${r.media_type}`),
         };
       });
@@ -1104,25 +1112,31 @@ router.get('/queue', async (req, res) => {
   const isAdmin = !!(req.session.isAdmin || req.session.isPlexAdminUser)
     || db.getPrivilegedUserIds().includes(String(req.session.plexUser.id));
   const userId = req.session.plexUser.id;
-  const { status = 'all', page = '1', limit: limitParam = '25' } = req.query;
+  const { status = 'all', page = '1', limit: limitParam = '25', sort: sortParam = 'requested_at', sortDir: sortDirParam = 'DESC' } = req.query;
   const limit = Math.min(100, Math.max(1, parseInt(limitParam) || 25));
   const pageNum = Math.max(1, parseInt(page) || 1);
+  const ALLOWED_SORT_COLS = ['title', 'username', 'media_type', 'requested_at', 'status'];
+  const sortCol = ALLOWED_SORT_COLS.includes(sortParam) ? sortParam : 'requested_at';
+  const sortDir = sortDirParam === 'ASC' ? 'ASC' : 'DESC';
 
-  // 'requested' is a computed displayStatus (approved + not in library) — fetch all approved
-  // and filter in memory; otherwise use DB-level pagination
+  // 'requested' and 'available' are computed displayStatuses derived from approved rows:
+  //   requested = approved + NOT in library
+  //   available = approved + IN library
+  // Both require fetching all approved and filtering in memory.
   const libraryTmdbIds = db.getLibraryTmdbIds();
-  const isRequestedFilter = status === 'requested';
-  const dbStatus = isRequestedFilter ? 'approved' : status;
+  const isComputedFilter = status === 'requested' || status === 'available';
+  const dbStatus = isComputedFilter ? 'approved' : status;
 
   let rows, total;
-  if (isRequestedFilter) {
-    // Fetch all approved without pagination, filter in memory, then slice
-    const all = isAdmin ? db.getAllRequests(10000, 0, 'approved') : db.getUserRequests(userId, 10000, 0, 'approved');
-    const filtered = all.rows.filter(r => !libraryTmdbIds.has(String(r.tmdb_id)));
+  if (isComputedFilter) {
+    const all = isAdmin ? db.getAllRequests(10000, 0, 'approved', sortCol, sortDir) : db.getUserRequests(userId, 10000, 0, 'approved', sortCol, sortDir);
+    const filtered = all.rows.filter(r =>
+      status === 'available' ? libraryTmdbIds.has(String(r.tmdb_id)) : !libraryTmdbIds.has(String(r.tmdb_id))
+    );
     total = filtered.length;
     rows = filtered.slice((pageNum - 1) * limit, pageNum * limit);
   } else {
-    ({ rows, total } = isAdmin ? db.getAllRequests(limit, (pageNum - 1) * limit, dbStatus) : db.getUserRequests(userId, limit, (pageNum - 1) * limit, dbStatus));
+    ({ rows, total } = isAdmin ? db.getAllRequests(limit, (pageNum - 1) * limit, dbStatus, sortCol, sortDir) : db.getUserRequests(userId, limit, (pageNum - 1) * limit, dbStatus, sortCol, sortDir));
   }
 
   // Fetch TMDB details on-demand for rows with no cache entry, or TV rows whose

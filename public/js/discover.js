@@ -8,7 +8,6 @@
     minRating: 0,
     sort: 'rating',
     genres: new Set(),
-    includeWatched: false,
     search: '',
     page: 1,
     totalPages: 1,
@@ -27,7 +26,6 @@
     setupDecadeChips();
     setupRatingSlider();
     setupSort();
-    setupIncludeWatched();
     fetchResults(true);
   }
 
@@ -153,15 +151,6 @@
     });
   }
 
-  // ── Include watched ────────────────────────────────────────────────
-
-  function setupIncludeWatched() {
-    document.getElementById('filter-include-watched').addEventListener('change', e => {
-      state.includeWatched = e.target.checked;
-      fetchResults(true);
-    });
-  }
-
   // ── Clear all filters ──────────────────────────────────────────────
 
   window.clearAllFilters = function () {
@@ -170,7 +159,6 @@
     state.minRating = 0;
     state.sort = 'rating';
     state.genres.clear();
-    state.includeWatched = false;
     state.search = '';
 
     document.querySelectorAll('#filter-type .chip').forEach((b, i) => b.classList.toggle('active', i === 0));
@@ -179,7 +167,6 @@
     document.getElementById('filter-rating').value = 0;
     document.getElementById('rating-value').textContent = 'Any';
     document.getElementById('filter-sort').value = 'rating';
-    document.getElementById('filter-include-watched').checked = false;
     const searchInput = document.getElementById('filter-search');
     if (searchInput) { searchInput.value = ''; }
     const searchClear = document.getElementById('search-clear');
@@ -213,7 +200,6 @@
       minRating: state.minRating,
       sort: state.sort,
       genres: [...state.genres].join(','),
-      includeWatched: state.includeWatched,
       page: state.page,
       q: state.search,
     });

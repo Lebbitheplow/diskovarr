@@ -7,6 +7,27 @@ function getTautulliKey() {
   return db.getSetting('tautulli_api_key', null) || process.env.TAUTULLI_API_KEY;
 }
 
+// Cache of valid Plex user IDs known to Tautulli (refreshed hourly)
+let _tautulliUserIds = null;
+let _tautulliUserIdsFetchedAt = 0;
+const TAUTULLI_USERS_TTL = 3600 * 1000;
+
+async function getValidTautulliUserIds() {
+  if (_tautulliUserIds && Date.now() - _tautulliUserIdsFetchedAt < TAUTULLI_USERS_TTL) {
+    return _tautulliUserIds;
+  }
+  try {
+    const data = await tautulliGet('get_users');
+    const users = Array.isArray(data) ? data : [];
+    // Tautulli's get_users returns objects with a user_id that matches the Plex account ID
+    _tautulliUserIds = new Set(users.map(u => String(u.user_id)).filter(Boolean));
+    _tautulliUserIdsFetchedAt = Date.now();
+    return _tautulliUserIds;
+  } catch {
+    return null; // null means "skip the check, allow all"
+  }
+}
+
 async function tautulliGet(cmd, params = {}) {
   const query = new URLSearchParams({
     apikey: getTautulliKey(),
@@ -28,6 +49,8 @@ async function tautulliGet(cmd, params = {}) {
  */
 async function getWatchedMovieKeys(userId) {
   try {
+    const validIds = await getValidTautulliUserIds();
+    if (validIds && !validIds.has(String(userId))) return new Set();
     const data = await tautulliGet('get_history', {
       user_id: String(userId),
       length: 10000,
@@ -53,6 +76,8 @@ async function getWatchedMovieKeys(userId) {
  */
 async function getWatchedShowKeys(userId) {
   try {
+    const validIds = await getValidTautulliUserIds();
+    if (validIds && !validIds.has(String(userId))) return new Set();
     const data = await tautulliGet('get_history', {
       user_id: String(userId),
       length: 20000,
@@ -78,6 +103,8 @@ async function getWatchedShowKeys(userId) {
  */
 async function getFullHistory(userId) {
   try {
+    const validIds = await getValidTautulliUserIds();
+    if (validIds && !validIds.has(String(userId))) return [];
     const [movieData, episodeData] = await Promise.all([
       tautulliGet('get_history', {
         user_id: String(userId),

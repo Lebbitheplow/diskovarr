@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/style.css?v=49">
+  <link rel="stylesheet" href="/css/style.css?v=50">
   <link rel="stylesheet" href="/theme.css?c=<%= themeParam %>" id="theme-css">
   <style>
     .queue-page { max-width: 1100px; margin: 0 auto; padding: 0 16px 48px; }
@@ -30,8 +30,12 @@
     .status-badge-requested { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 0.75rem; font-weight: 600; background: rgba(0,180,216,0.12); color: #00b4d8; border: 1px solid rgba(0,180,216,0.3); }
     .status-badge-available { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 0.75rem; font-weight: 600; background: rgba(0,200,100,0.12); color: #00c864; border: 1px solid rgba(0,200,100,0.25); }
     .status-badge-denied { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 0.75rem; font-weight: 600; background: rgba(255,60,60,0.12); color: #ff5252; border: 1px solid rgba(255,60,60,0.25); }
-    .queue-poster { width: 40px; height: 60px; border-radius: 4px; object-fit: cover; background: var(--bg-elevated); flex-shrink: 0; }
-    .queue-poster-placeholder { width: 40px; height: 60px; border-radius: 4px; background: var(--bg-elevated); border: 1px solid var(--border); flex-shrink: 0; display: flex; align-items: center; justify-content: center; color: var(--text-secondary); font-size: 0.7rem; }
+    .queue-poster { width: 52px; height: 78px; border-radius: 4px; object-fit: cover; background: var(--bg-elevated); flex-shrink: 0; }
+    .queue-poster-placeholder { width: 52px; height: 78px; border-radius: 4px; background: var(--bg-elevated); border: 1px solid var(--border); flex-shrink: 0; display: flex; align-items: center; justify-content: center; color: var(--text-secondary); font-size: 0.7rem; }
+    .queue-table th.sortable { cursor: pointer; user-select: none; }
+    .queue-table th.sortable:hover { color: var(--text-primary); }
+    .queue-table th.sort-asc::after { content: ' ↑'; color: var(--accent); }
+    .queue-table th.sort-desc::after { content: ' ↓'; color: var(--accent); }
     .queue-title-cell { display: flex; align-items: center; gap: 10px; }
     .queue-title-info { display: flex; flex-direction: column; gap: 2px; }
     .queue-year { font-size: 0.75rem; color: var(--text-secondary); }
@@ -92,6 +96,7 @@
       <button class="queue-filter-btn active" data-status="all">All</button>
       <button class="queue-filter-btn" data-status="pending">Pending <span id="pending-count-label"></span></button>
       <button class="queue-filter-btn" data-status="requested">Requested</button>
+      <button class="queue-filter-btn" data-status="available">Available</button>
       <button class="queue-filter-btn" data-status="approved">Approved</button>
       <button class="queue-filter-btn" data-status="denied">Denied</button>
     </div>
@@ -193,6 +198,9 @@
       return d + ' day' + (d === 1 ? '' : 's') + ' ago';
     }
 
+    var currentSortCol = 'requested_at';
+    var currentSortDir = 'DESC';
+
     async function loadQueue(status, page) {
       currentStatus = status || 'all';
       currentPage = page || 1;
@@ -201,16 +209,26 @@
       container.innerHTML = '<div class="queue-loading">Loading...</div>';
 
       try {
-        var res = await fetch('/api/queue?status=' + encodeURIComponent(currentStatus) + '&page=' + currentPage + '&limit=' + perPage);
+        var res = await fetch('/api/queue?status=' + encodeURIComponent(currentStatus) + '&page=' + currentPage + '&limit=' + perPage + '&sort=' + currentSortCol + '&sortDir=' + currentSortDir);
         if (!res.ok) throw new Error('Failed to load queue');
         var data = await res.json();
         totalPages = data.totalPages || 1;
         renderQueue(data);
+        updateSortHeaders();
         updatePagination(data.page, data.totalPages, data.total);
         updatePendingCount();
       } catch (err) {
         container.innerHTML = '<div class="queue-empty">Failed to load requests: ' + err.message + '</div>';
       }
+    }
+
+    function updateSortHeaders() {
+      document.querySelectorAll('th.sortable').forEach(function (t) {
+        t.classList.remove('sort-asc', 'sort-desc');
+        if (t.dataset.col === currentSortCol) {
+          t.classList.add(currentSortDir === 'ASC' ? 'sort-asc' : 'sort-desc');
+        }
+      });
     }
 
     var STATUS_LABELS = {
@@ -228,13 +246,19 @@
       }
 
       var html = '<table class="queue-table"><thead><tr>' +
-        '<th>Title</th>' + (IS_ADMIN ? '<th>User</th>' : '') + '<th>Type</th><th>Age</th><th>Status</th><th>Actions</th>' +
+        '<th class="sortable" data-col="title">Title</th>' + (IS_ADMIN ? '<th class="sortable" data-col="user">User</th>' : '') + '<th class="sortable" data-col="type">Type</th><th class="sortable" data-col="age">Age</th><th class="sortable" data-col="status">Status</th><th>Actions</th>' +
         '</tr></thead><tbody>';
 
       data.requests.forEach(function (r) {
         var isPending = r.status === 'pending';
         var ds = r.displayStatus || r.status;
-        html += '<tr class="' + (isPending ? 'pending-row' : '') + '" id="req-row-' + r.id + '">';
+        html += '<tr class="' + (isPending ? 'pending-row' : '') + '" id="req-row-' + r.id + '"'
+          + ' data-sort_title="' + escHtml((r.title||'').toLowerCase()) + '"'
+          + ' data-sort_user="' + escHtml((r.username||'').toLowerCase()) + '"'
+          + ' data-sort_type="' + escHtml((r.media_type||'').toLowerCase()) + '"'
+          + ' data-sort_age="' + (r.requested_at||0) + '"'
+          + ' data-sort_status="' + escHtml((r.displayStatus||r.status||'').toLowerCase()) + '"'
+          + '>';
 
         // Title cell with poster
         html += '<td>';
@@ -543,11 +567,32 @@
       });
     });
 
+    // Column sort — server-side
+    var COL_TO_SORT = { title: 'title', user: 'username', type: 'media_type', age: 'requested_at', status: 'status' };
+    document.addEventListener('click', function (e) {
+      var th = e.target.closest('th.sortable');
+      if (!th) return;
+      var col = COL_TO_SORT[th.dataset.col] || 'requested_at';
+      if (currentSortCol === col) {
+        currentSortDir = currentSortDir === 'ASC' ? 'DESC' : 'ASC';
+      } else {
+        currentSortCol = col;
+        currentSortDir = 'ASC';
+      }
+      loadQueue(currentStatus, 1);
+    });
+
     // Restore saved per-page selection
     document.getElementById('queue-per-page').value = perPage;
 
-    // Initial load + auto-refresh pending count every 30s
-    loadQueue('all', 1);
+    // Initial load — respect ?filter= URL param
+    var initFilter = new URLSearchParams(window.location.search).get('filter') || 'all';
+    var initBtn = document.querySelector('.queue-filter-btn[data-status="' + initFilter + '"]');
+    if (initBtn) {
+      document.querySelectorAll('.queue-filter-btn').forEach(function(b) { b.classList.remove('active'); });
+      initBtn.classList.add('active');
+    }
+    loadQueue(initFilter, 1);
     setInterval(updatePendingCount, 30000);
   </script>
 </body>

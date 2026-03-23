@@ -21,13 +21,13 @@ Personalized recommendations in four carousels — **Top Picks, Movies, TV Shows
 Content not yet in your Plex library, scored by the same preference engine. Requires a free TMDB API key and at least one request service (Overseerr, Radarr, or Sonarr). Cards show why each title was recommended; the Request button routes to whichever service is enabled. Unreleased titles are automatically excluded. When a requested title appears in the library, the requester gets a bell notification plus optional Discord and Pushover delivery.
 
 ### Filter (Diskovarr View)
-Full library browser with filters for type, decade, genre, minimum rating, sort order, and watched status.
+Full library browser with filters for type, decade, genre, minimum rating, and sort order. Watched items are always included and shown with a green checkmark badge on their poster.
 
 ### Watchlist
 Syncs to the native **Plex.tv Watchlist** by default. Server owners can switch to **Playlist mode** (a private server-side playlist) — useful when the Plex Watchlist triggers download automation like pd_zurg.
 
 ### Queue
-Request queue for all users. Users view and manage their own requests. Admins and elevated users can approve, deny (with optional note), edit, or delete any request. Admins can set per-user request limits and auto-approve overrides.
+Request queue for all users. Users view and manage their own requests. Admins and elevated users can approve, deny (with optional note), edit, or delete any request. Filter tabs include All, Pending, Requested, Approved, Available (requests whose content has arrived in the library), and Denied. Column headers are clickable to sort by title, user, type, age, or status. Admins can set per-user request limits and auto-approve overrides.
 
 ### Issues
 Report problems with library items directly from any detail modal — broken file, wrong metadata, audio sync, etc. TV shows include a scope selector: Entire Series, Specific Season, or Specific Episode. Submitted issues appear at `/issues`; admins resolve or close them with an optional note delivered back to the reporter as a notification.
@@ -76,7 +76,24 @@ Configure from **Admin → Notifications**. Multiple events of the same type wit
 
 ## Installation
 
-### Docker (recommended)
+### Docker Hub (easiest)
+
+```bash
+docker pull lebbi/diskovarr:latest
+
+docker run -d --name diskovarr \
+  -p 3232:3232 \
+  -v $(pwd)/data:/app/data \
+  -e SESSION_SECRET=changeme \
+  -e ADMIN_PASSWORD=changeme \
+  -e PLEX_URL=http://your-plex-ip:32400 \
+  -e PLEX_TOKEN=your_plex_token \
+  lebbi/diskovarr:latest
+```
+
+**Update:** `docker pull lebbi/diskovarr:latest && docker restart diskovarr`
+
+### Docker Compose (recommended for production)
 
 ```bash
 curl -o docker-compose.yml https://raw.githubusercontent.com/Lebbitheplow/diskovarr/master/docker-compose.yml
@@ -84,9 +101,9 @@ curl -o docker-compose.yml https://raw.githubusercontent.com/Lebbitheplow/diskov
 docker compose up -d
 ```
 
-Open `http://your-server:3232`. The library syncs from Plex on first startup (30–60 seconds). Subsequent starts load from the local cache instantly.
-
 **Update:** `docker compose pull && docker compose up -d`
+
+Open `http://your-server:3232`. The library syncs from Plex on first startup (30–60 seconds). Subsequent starts load from the local cache instantly.
 
 > The `./data` volume contains the SQLite databases — don't delete it between updates.
 
