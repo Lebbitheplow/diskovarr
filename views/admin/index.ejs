@@ -230,59 +230,10 @@
           </button>
         </div>
 
-        <!-- Inline API endpoint reference -->
-        <details style="margin-top:1.5rem">
-          <summary style="cursor:pointer;font-size:0.85rem;color:var(--text-secondary);user-select:none">API Endpoint Reference</summary>
-          <div class="api-docs" style="margin-top:0.75rem;font-size:0.82rem;line-height:1.7">
-            <p style="margin-bottom:0.5rem;color:var(--text-secondary)">All endpoints require a valid session cookie or <code>Authorization: Bearer &lt;key&gt;</code> / <code>X-Api-Key</code> header. Prefix paths with your Diskovarr base URL.</p>
-            <table class="api-docs-table">
-              <thead><tr><th>Method</th><th>Path</th><th>Description</th></tr></thead>
-              <tbody>
-                <tr class="api-docs-section"><td colspan="3">Recommendations &amp; Discovery</td></tr>
-                <tr><td>GET</td><td>/api/recommendations</td><td>Personalized library recommendations for the authenticated user</td></tr>
-                <tr><td>GET</td><td>/api/explore/recommendations</td><td>TMDB-based explore recommendations — params: <code>page</code>, <code>genres</code>, <code>mediaType</code></td></tr>
-                <tr><td>GET</td><td>/api/explore/services</td><td>Available request services configured on this instance</td></tr>
-                <tr><td>POST</td><td>/api/explore/dismiss</td><td>Dismiss an explore recommendation — body: <code>tmdbId</code>, <code>mediaType</code></td></tr>
-                <tr><td>POST</td><td>/api/dismiss</td><td>Dismiss a library recommendation — body: <code>ratingKey</code></td></tr>
-                <tr><td>DELETE</td><td>/api/dismiss</td><td>Un-dismiss a library recommendation — body: <code>ratingKey</code></td></tr>
-
-                <tr class="api-docs-section"><td colspan="3">Library &amp; Search</td></tr>
-                <tr><td>GET</td><td>/api/search</td><td>Full-text library search — params: <code>q</code>, <code>page</code>, <code>limit</code>, <code>type</code></td></tr>
-                <tr><td>GET</td><td>/api/search/suggest</td><td>TMDB autocomplete suggestions — params: <code>q</code></td></tr>
-                <tr><td>GET</td><td>/api/discover</td><td>Browse library — params: <code>type</code>, <code>genre</code>, <code>decade</code>, <code>minRating</code>, <code>page</code></td></tr>
-                <tr><td>GET</td><td>/api/discover/genres</td><td>All genres present in the library, grouped by media type</td></tr>
-
-                <tr class="api-docs-section"><td colspan="3">Watchlist</td></tr>
-                <tr><td>GET</td><td>/api/watchlist</td><td>Authenticated user's watchlist items</td></tr>
-                <tr><td>POST</td><td>/api/watchlist/add</td><td>Add item to watchlist — body: <code>ratingKey</code></td></tr>
-                <tr><td>POST</td><td>/api/watchlist/remove</td><td>Remove item from watchlist — body: <code>ratingKey</code></td></tr>
-
-                <tr class="api-docs-section"><td colspan="3">Requests</td></tr>
-                <tr><td>POST</td><td>/api/request</td><td>Submit a media request — body: <code>tmdbId</code>, <code>mediaType</code>, <code>service</code>, <code>title</code>, <code>year</code>, <code>seasons[]</code></td></tr>
-                <tr><td>GET</td><td>/api/queue</td><td>List requests — params: <code>status</code> (all/pending/approved/denied), <code>page</code>, <code>limit</code>. Admins see all; users see their own.</td></tr>
-                <tr><td>PUT</td><td>/api/queue/:id</td><td>Edit a request's service or seasons — admin only</td></tr>
-                <tr><td>POST</td><td>/api/queue/:id/approve</td><td>Approve a pending request — admin only, body: <code>service</code> (optional)</td></tr>
-                <tr><td>POST</td><td>/api/queue/:id/deny</td><td>Deny a request — admin only, body: <code>note</code> (optional)</td></tr>
-                <tr><td>DELETE</td><td>/api/queue/:id</td><td>Delete a request — admin only</td></tr>
-
-                <tr class="api-docs-section"><td colspan="3">Issues</td></tr>
-                <tr><td>POST</td><td>/api/issues</td><td>Report an issue — body: <code>ratingKey</code>, <code>title</code>, <code>mediaType</code>, <code>scope</code>, <code>description</code>, <code>scopeSeason</code>, <code>scopeEpisode</code></td></tr>
-                <tr><td>GET</td><td>/api/issues</td><td>List issues — params: <code>status</code> (all/open/resolved/closed), <code>page</code>, <code>limit</code>. Admins see all; users see their own.</td></tr>
-                <tr><td>POST</td><td>/api/issues/:id/resolve</td><td>Mark an issue resolved — admin only, body: <code>note</code> (optional)</td></tr>
-                <tr><td>POST</td><td>/api/issues/:id/close</td><td>Close an issue — admin only, body: <code>note</code> (optional)</td></tr>
-                <tr><td>DELETE</td><td>/api/issues/:id</td><td>Delete an issue — admin only</td></tr>
-                <tr><td>GET</td><td>/api/issues/:id/comments</td><td>Get comments on an issue</td></tr>
-                <tr><td>POST</td><td>/api/issues/:id/comments</td><td>Add a comment — body: <code>body</code></td></tr>
-                <tr><td>DELETE</td><td>/api/issues/:id/comments/:commentId</td><td>Delete a comment</td></tr>
-
-                <tr class="api-docs-section"><td colspan="3">Notifications</td></tr>
-                <tr><td>GET</td><td>/api/notifications</td><td>Get notifications for the authenticated user — param: <code>countOnly=1</code> to fetch unread count only</td></tr>
-                <tr><td>POST</td><td>/api/notifications/read</td><td>Mark notifications read — body: <code>ids[]</code> or <code>all: true</code></td></tr>
-                <tr><td>DELETE</td><td>/api/notifications/:id</td><td>Delete a notification</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </details>
+        <p style="margin-top:1.25rem;font-size:0.85rem;color:var(--text-secondary)">
+          View the full API endpoint reference in the
+          <a href="https://diskovarr.com/#api-reference" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none">documentation &rarr;</a>
+        </p>
       </section>
 
     </div><!-- /panel-settings -->

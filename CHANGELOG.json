@@ -1,5 +1,13 @@
 [
   {
+    "version": "1.17.7",
+    "date": "2026-03-22",
+    "changes": [
+      "Fix: Torrent browser \u2014 Browse Torrents page returned a 500 error on load due to a missing bgGradientCss variable not being passed to the view from the riven route.",
+      "Fix: Admin panel DUMB/Riven wording \u2014 section headers, toggle labels, default service button, and mode descriptions updated to lead with DUMB throughout the admin panel."
+    ]
+  },
+  {
     "version": "1.17.6",
     "date": "2026-03-22",
     "changes": [

@@ -4,6 +4,15 @@ All notable changes are documented here. Versioning follows [Semantic Versioning
 
 ---
 
+## v1.17.7 — 2026-03-22
+
+### Fixed
+
+- **Torrent browser — internal server error**: The Browse Torrents page returned a 500 error on load due to a missing `bgGradientCss` variable not being passed to the view from the riven route.
+- **Admin panel — DUMB/Riven wording**: Section headers, toggle labels, default service button, and mode descriptions updated to lead with DUMB rather than Riven throughout the admin panel.
+
+---
+
 ## v1.17.6 — 2026-03-22
 
 ### Added
