@@ -4,6 +4,25 @@ All notable changes are documented here. Versioning follows [Semantic Versioning
 
 ---
 
+## v1.17.9 — 2026-03-24
+
+### Added
+
+- **Overseerr Compat API — new shim endpoints**: Added `GET /request/:id`, `GET /user/:id/requests`, `GET /user/:id/quota`, `GET /user/:id/watchlist`, `GET /status`, `GET /status/appdata`, `GET /media`, `GET /media/:id`, `GET/POST /settings/discover`, `GET /settings/plex`, `GET /settings/radarr`, `GET /settings/sonarr`, `GET /settings/about`, `GET /settings/jobs`, `POST /settings/jobs/:jobId/run`, and all standard notification settings stubs. Fills out the Overseerr API surface to prevent future compatibility gaps with DUMB, Agregarr, and Homarr.
+
+### Changed
+
+- **Unified Overseerr Compat API key** — replaced separate per-app DUMB and Agregarr API keys with a single shared key managed in Admin → General → Overseerr Compat API. The enable toggle and service accounts list moved from the Connections tab to General Settings. DUMB and Agregarr sections in Connections now show a Copy Key button that references the shared key. Legacy DUMB/Agregarr keys remain valid until Regenerate is used.
+- **Agregarr removed from Connections tab** — Agregarr no longer has a dedicated section in Connections. Configuration (enable toggle, key, service accounts) is now entirely in Admin → General → Overseerr Compat API.
+- **Regenerate compat key invalidates legacy keys** — clicking Regenerate in the Overseerr Compat API section now also disables any old DUMB- or Agregarr-type app entries, so there is only ever one valid key after regeneration.
+- **Generate/Regenerate button state** — both the Diskovarr API Key and Overseerr Compat Key buttons now read "Generate Key" when no key exists and "Regenerate Key" (styled red) once one is set.
+- **Overseerr shim — availability status** — `GET /api/v1/request` now returns `media.status=5` (Available) for requests whose content is already in the Plex library, instead of always returning 3 (Processing). Homarr's media-requests-list widget now correctly shows availability.
+- **Overseerr shim — request count breakdown** — `GET /api/v1/request/count` now includes `movie` and `tv` counts in addition to `pending`, `approved`, `declined`, and `total`.
+- **Copy icon fix** — the copy button on API key fields now shows a clipboard icon instead of the eye/reveal icon.
+- **Documentation site updated** — diskovarr.com guide updated to reflect unified compat key, new Agregarr setup flow (Admin → General), DUMB bridge instructions updated, reverse proxy setup sections removed from installation guides, and all "Riven/DUMB" references changed to "DUMB/Riven".
+
+---
+
 ## v1.17.8 — 2026-03-23
 
 ### Added

@@ -161,6 +161,11 @@ router.get('/', requireAdmin, async (req, res) => {
       return apps[0] || null;
     })(),
     dumbHasApiKey: !!(db.listApiApps().find(a => a.type === 'dumb')?.api_key),
+    compatApp: (() => {
+      let app = db.listApiApps().find(a => a.type === 'compat');
+      if (!app) app = db.createApiApp('Overseerr Compat', 'compat');
+      return app;
+    })(),
   });
 });
 
@@ -375,6 +380,7 @@ router.get('/connections/reveal', requireAdmin, (req, res) => {
     diskovarrApiKey: db.getSetting('diskovarr_api_key', '') || '',
     agregarrApiKey:  (() => { const a = db.listApiApps().find(x => x.type === 'agregarr'); return a ? a.api_key : ''; })(),
     dumbApiKey:      (() => { const a = db.listApiApps().find(x => x.type === 'dumb');      return a ? a.api_key : ''; })(),
+    compatApiKey:    (() => { const a = db.listApiApps().find(x => x.type === 'compat');    return a ? a.api_key : ''; })(),
   });
 });
 
@@ -953,6 +959,40 @@ router.post('/agregarr/regenerate-key', requireAdmin, (req, res) => {
 router.delete('/agregarr/service-users/:id', requireAdmin, (req, res) => {
   db.deleteServiceUser(req.params.id);
   res.json({ ok: true });
+});
+
+// ── Shared Overseerr Compat key management ────────────────────────────────────
+
+// GET /admin/agregarr/config now returns compat app users (backward-compat URL kept)
+// Overrides the earlier route definition with the same path
+router.get('/compat/config', requireAdmin, (req, res) => {
+  let app = db.listApiApps().find(a => a.type === 'compat');
+  if (!app) app = db.createApiApp('Overseerr Compat', 'compat');
+  const serviceUsers = db.getServiceUsersByApp(app.id);
+  res.json({ app, serviceUsers });
+});
+
+// POST /admin/compat/enable — toggle compat integration on/off
+router.post('/compat/enable', requireAdmin, (req, res) => {
+  const { enabled } = req.body;
+  let app = db.listApiApps().find(a => a.type === 'compat');
+  if (!app) app = db.createApiApp('Overseerr Compat', 'compat');
+  db.updateApiApp(app.id, { enabled: !!enabled });
+  res.json({ ok: true, enabled: !!enabled });
+});
+
+// POST /admin/compat/regenerate-key — regenerate the shared compat key
+// Also disables any legacy per-app keys (type='dumb', type='agregarr') so only
+// the new compat key is valid going forward.
+router.post('/compat/regenerate-key', requireAdmin, (req, res) => {
+  let app = db.listApiApps().find(a => a.type === 'compat');
+  if (!app) app = db.createApiApp('Overseerr Compat', 'compat');
+  const newKey = db.regenerateApiAppKey(app.id);
+  // Invalidate legacy per-app keys
+  for (const legacy of db.listApiApps().filter(a => a.type === 'dumb' || a.type === 'agregarr')) {
+    db.updateApiApp(legacy.id, { enabled: false });
+  }
+  res.json({ ok: true, apiKey: newKey });
 });
 
 module.exports = router;

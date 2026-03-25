@@ -1,5 +1,20 @@
 [
   {
+    "version": "1.17.9",
+    "date": "2026-03-24",
+    "changes": [
+      "Unified Overseerr Compat API key — replaced separate DUMB and Agregarr keys with a single shared key in Admin → General. Enable toggle and service accounts moved from Connections to General Settings. Legacy keys remain valid until Regenerate is used.",
+      "Agregarr removed from Connections tab — configuration now entirely in Admin → General → Overseerr Compat API.",
+      "Regenerating the compat key now also disables old DUMB/Agregarr-type app entries, ensuring only one valid key after regeneration.",
+      "Generate/Regenerate button now reads 'Generate Key' when no key exists and 'Regenerate Key' (red) once set — applies to both the Diskovarr API Key and Overseerr Compat Key.",
+      "Overseerr shim — media.status now returns 5 (Available) for requests whose content is already in the Plex library. Homarr media-requests-list widget now shows correct availability.",
+      "Overseerr shim — /request/count now includes movie and tv breakdown counts.",
+      "Overseerr shim — added GET /request/:id, GET /user/:id/requests, GET /user/:id/quota, GET /user/:id/watchlist, GET /status, GET /status/appdata, GET /media, GET /media/:id, settings endpoints, and notification settings stubs.",
+      "Copy icon fix — copy buttons on API key fields now show a clipboard icon instead of the eye icon.",
+      "Documentation updated — diskovarr.com guide reflects unified compat key, updated Agregarr and DUMB setup flows, reverse proxy sections removed from install guides, all Riven/DUMB references updated to DUMB/Riven."
+    ]
+  },
+  {
     "version": "1.17.8",
     "date": "2026-03-23",
     "changes": [

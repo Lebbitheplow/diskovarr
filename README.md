@@ -39,10 +39,10 @@ Each user can configure: region, language, notification preferences (per event t
 Two-tab panel at `/admin`:
 
 - **Settings** — library sync controls, per-user watch sync, cache management, server owner, watchlist/playlist mode, theme color (8 presets + color wheel), app public URL, and full per-user settings with action buttons (re-sync, clear watched, clear dismissals, clear requests)
-- **Connections** — configure Plex, Tautulli, TMDB, Overseerr, Radarr, Sonarr, Agregarr, and Riven/DUMB with masked API key fields, test buttons, and slide toggles — no file edits or restarts needed
-- **Riven/DUMB torrent browser** — search any title, browse Torrentio results with Real-Debrid cache status, and inject a torrent directly into Riven from the admin panel. Includes a season selector for TV shows and manual magnet paste fallback.
-- **DUMB request polling** — enable in Admin → Connections → Riven → DUMB Integration. Generates a dedicated API key; enter your Diskovarr URL and that key in DUMB as its Overseerr connection. In Pull mode DUMB polls `/api/v1/request?filter=approved` and marks content available when downloaded. In Push mode Diskovarr pushes IMDB IDs directly to Riven on approval (original behaviour).
-- **Agregarr** — enable the Overseerr-compatible API shim so Agregarr can auto-request missing collection items through Diskovarr. Service users are created automatically; their requests appear in the queue with a bot badge.
+- **Connections** — configure Plex, Tautulli, TMDB, Overseerr, Radarr, Sonarr, and DUMB/Riven with masked API key fields, test buttons, and slide toggles — no file edits or restarts needed
+- **DUMB/Riven torrent browser** — search any title, browse Torrentio results with Real-Debrid cache status, and inject a torrent directly into Riven from the admin panel. Includes a season selector for TV shows and manual magnet paste fallback.
+- **DUMB request polling** — enable in Admin → Connections → DUMB/Riven → DUMB Integration. Enter your Diskovarr URL and the Overseerr Compat Key (Admin → General) in DUMB as its Overseerr connection. In Pull mode DUMB polls `/api/v1/request?filter=approved` and marks content available when downloaded. In Push mode Diskovarr pushes IMDB IDs directly to Riven on approval (original behaviour).
+- **Overseerr-compatible API** — Diskovarr exposes a full Overseerr-compatible API at `/api/v1/`. Any app that supports Overseerr — including **Agregarr**, **DUMB**, and **Homarr** — can connect using your Diskovarr URL and the Overseerr Compat Key from Admin → General. Agregarr service accounts are created automatically; their requests appear in the queue with a bot badge.
 
 ---
 
@@ -171,7 +171,7 @@ sudo systemctl enable --now diskovarr
 | `PLEX_TV_SECTION_ID` | TV/Anime library section ID (default: `2`) |
 | `PORT` | Port to listen on (default: `3232`) |
 
-> **Tip:** Plex, Tautulli, TMDB, Overseerr, Radarr, Sonarr, Agregarr, and Riven/DUMB can all be configured or updated from **Admin → Connections** without touching any files or restarting.
+> **Tip:** Plex, Tautulli, TMDB, Overseerr, Radarr, Sonarr, and DUMB/Riven can all be configured or updated from **Admin → Connections** without touching any files or restarting.
 
 ---
 
