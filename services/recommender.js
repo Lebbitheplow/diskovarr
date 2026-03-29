@@ -92,6 +92,7 @@ function normalizeMap(map) {
  *   completion — ≥95% watched: ×1.3
  *   rewatched  — watched N times: ×(1 + 0.4*(N-1)), capped at ×2.5
  *   star rating— 5★(10): ×2.5, 4★(8): ×2.0, 3★(6): ×1.5, ≤2★: ×0.4 (negative signal)
+ *   episodes   — TV only: ×2.0 if ≥90% of show watched; else ×(1 + log10(watched)), capped ×2.0
  *
  * For each director/actor/studio we also track the "trigger" item —
  * the watched item with the highest weight — so we can say
@@ -317,8 +318,17 @@ async function buildPreferenceProfile(userId, libraryMap) {
                      : starRating >= 5 ? 1.5
                      : starRating > 0  ? 0.4  // rated poorly → down-weight
                      : 1.0;
+    const epMult     = entry.media_type === 'show'
+                     ? (() => {
+                         const watched = entry.episodeCount || 1;
+                         const total   = item.leafCount || null;
+                         // If we know the total and user watched ≥90% → full signal
+                         if (total && watched / total >= 0.9) return 2.0;
+                         return Math.min(2.0, 1 + Math.log10(watched));
+                       })()
+                     : 1.0;
 
-    const weight = recency * completion * rewatch * starMult;
+    const weight = recency * completion * rewatch * starMult * epMult;
     const isHighlyRated = starRating >= 8;
     const trigger = { title: item.title, weight, isHighlyRated };
 

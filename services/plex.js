@@ -64,6 +64,7 @@ function parseMediaItem(video) {
     audienceRatingImage: video.audienceRatingImage || '',
     studio: video.studio || '',
     tmdbId,
+    leafCount: video.type === 'show' ? (parseInt(video.leafCount) || null) : null,
   };
 }
 

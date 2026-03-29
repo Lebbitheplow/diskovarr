@@ -248,6 +248,7 @@ function countRecentSeasonRequests(userId, windowDays) {
   "ALTER TABLE library_items ADD COLUMN studio TEXT DEFAULT ''",
   'ALTER TABLE library_items ADD COLUMN tmdb_id TEXT DEFAULT NULL',
   'ALTER TABLE library_items ADD COLUMN art TEXT DEFAULT NULL',
+  'ALTER TABLE library_items ADD COLUMN leaf_count INTEGER DEFAULT NULL',
   'ALTER TABLE discover_requests ADD COLUMN seasons_count INTEGER DEFAULT 1',
   "ALTER TABLE discover_requests ADD COLUMN status TEXT NOT NULL DEFAULT 'approved'",
   'ALTER TABLE discover_requests ADD COLUMN denial_note TEXT',
@@ -319,8 +320,8 @@ const stmtUpsertItem = db.prepare(`
   INSERT OR REPLACE INTO library_items
     (rating_key, section_id, title, year, thumb, art, type, genres, directors, cast,
      audience_rating, content_rating, added_at, summary, synced_at,
-     rating, rating_image, audience_rating_image, studio, tmdb_id)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     rating, rating_image, audience_rating_image, studio, tmdb_id, leaf_count)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
 
 function upsertManyItems(items) {
@@ -332,7 +333,7 @@ function upsertManyItems(items) {
         item.audienceRating, item.contentRating, item.addedAt, item.summary,
         Math.floor(Date.now() / 1000),
         item.rating, item.ratingImage, item.audienceRatingImage, item.studio,
-        item.tmdbId || null
+        item.tmdbId || null, item.leafCount ?? null
       );
     }
   });
@@ -359,6 +360,7 @@ function rowToItem(r) {
     audienceRatingImage: r.audience_rating_image || '',
     studio: r.studio || '',
     tmdbId: r.tmdb_id || null,
+    leafCount: r.leaf_count ?? null,
   };
 }
 

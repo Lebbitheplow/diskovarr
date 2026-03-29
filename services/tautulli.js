@@ -131,6 +131,12 @@ async function getFullHistory(userId) {
     }));
 
     // For episodes, use grandparent (show) as the entity to build show preferences
+    // Count how many episodes were watched per show for weighting purposes
+    const showEpisodeCounts = new Map();
+    for (const r of (episodeData.data || [])) {
+      const key = String(r.grandparent_rating_key);
+      showEpisodeCounts.set(key, (showEpisodeCounts.get(key) || 0) + 1);
+    }
     const seenShows = new Set();
     const shows = [];
     for (const r of (episodeData.data || [])) {
@@ -143,6 +149,7 @@ async function getFullHistory(userId) {
           watched_at: r.date || 0,
           percent_complete: 100,
           media_type: 'show',
+          episodeCount: showEpisodeCounts.get(key) || 1,
         });
       }
     }

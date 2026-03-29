@@ -510,8 +510,8 @@ router.post('/request', async (req, res) => {
 
 // GET /api/v1/request — Agregarr fetches existing requests for dedup cache
 router.get('/request', (req, res) => {
-  const { filter, take = '100', skip = '0' } = req.query;
-  const limit = Math.min(500, Math.max(1, parseInt(take) || 100));
+  const { filter, take = '500', skip = '0' } = req.query;
+  const limit = Math.min(1000, Math.max(1, parseInt(take) || 500));
   const offset = Math.max(0, parseInt(skip) || 0);
   const statusFilter = filter === 'pending' ? 'pending'
     : filter === 'approved' ? 'approved'

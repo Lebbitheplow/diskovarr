@@ -4,6 +4,14 @@ All notable changes are documented here. Versioning follows [Semantic Versioning
 
 ---
 
+## v1.17.10 — 2026-03-29
+
+### Changed
+
+- **Recommendation engine — episode count weighting**: TV shows you've watched more of now score higher in recommendations. A show's weight gets a multiplier of up to ×2.0 based on episode count watched: `min(2.0, 1 + log₁₀(episodes watched))`. Short series watched in full (≥90% of total episodes) always receive the full ×2.0 signal regardless of episode count, so a 5-episode limited series watched completely is treated the same as a 10-episode season.
+
+---
+
 ## v1.17.9 — 2026-03-24
 
 ### Added
