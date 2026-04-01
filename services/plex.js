@@ -137,6 +137,47 @@ async function getLibraryItems(sectionId) {
   return fetchSection(String(sectionId));
 }
 
+// Fetch a single item by ratingKey and upsert it into the DB + in-memory cache.
+// Used by the Plex WebSocket handler to process individual new items exactly as
+// Tautulli does — no full library scan, just the specific item that was added.
+// For episodes, fetches the parent show instead (library_items stores shows, not episodes).
+async function fetchAndUpsertItem(ratingKey, sectionId) {
+  const data = await plexFetch(`/library/metadata/${ratingKey}?includeGuids=1`);
+  const item = data?.MediaContainer?.Metadata?.[0];
+  if (!item) return null;
+
+  // Episode → fetch the parent show instead
+  if (item.type === 'episode') {
+    const showKey = item.grandparentRatingKey;
+    if (!showKey) return null;
+    return fetchAndUpsertItem(String(showKey), sectionId);
+  }
+
+  // Season → fetch the parent show
+  if (item.type === 'season') {
+    const showKey = item.parentRatingKey;
+    if (!showKey) return null;
+    return fetchAndUpsertItem(String(showKey), sectionId);
+  }
+
+  if (item.type !== 'movie' && item.type !== 'show') return null;
+
+  const sid = sectionId || String(item.librarySectionID);
+  const parsed = { ...parseMediaItem(item), sectionId: sid };
+
+  db.upsertManyItems([parsed]);
+
+  // Update in-memory cache in place so getLibraryItems returns the latest data
+  const cached = libraryCache.get(sid);
+  if (cached) {
+    const idx = cached.data.findIndex(i => i.ratingKey === parsed.ratingKey);
+    if (idx >= 0) cached.data[idx] = parsed;
+    else cached.data.push(parsed);
+  }
+
+  return parsed;
+}
+
 async function warmCache() {
   await Promise.all([fetchSection(getMoviesSection()), fetchSection(getTvSection())]);
 }
@@ -496,6 +537,7 @@ module.exports = {
   syncLibrarySection,
   warmCache,
   invalidateCache,
+  fetchAndUpsertItem,
   getWatchlist,
   addToWatchlist,
   removeFromWatchlist,

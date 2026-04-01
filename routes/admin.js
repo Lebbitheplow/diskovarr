@@ -499,6 +499,60 @@ router.post('/connections/test/plex', requireAdmin, async (req, res) => {
   }
 });
 
+// ── Plex OAuth ────────────────────────────────────────────────────────────────
+// Generates a Plex PIN and returns the auth popup URL. No auth required so it
+// works before Plex is configured (first-time setup flow).
+router.get('/plex/auth-url', requireAdmin, async (req, res) => {
+  try {
+    const clientId = db.getSetting('plex_oauth_client_id', null) || (() => {
+      const id = require('crypto').randomUUID();
+      db.setSetting('plex_oauth_client_id', id);
+      return id;
+    })();
+    const r = await fetch('https://plex.tv/api/v2/pins', {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+        'X-Plex-Product': 'Diskovarr',
+        'X-Plex-Client-Identifier': clientId,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: 'strong=true',
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!r.ok) return res.status(502).json({ error: `Plex returned ${r.status}` });
+    const { id, code } = await r.json();
+    const authUrl = `https://app.plex.tv/auth#?clientID=${encodeURIComponent(clientId)}&code=${encodeURIComponent(code)}&context%5Bdevice%5D%5Bproduct%5D=Diskovarr`;
+    res.json({ authUrl, pinId: id, clientId });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Polls plex.tv for whether the PIN was approved. On success saves the token.
+router.get('/plex/check-pin/:pinId', requireAdmin, async (req, res) => {
+  try {
+    const clientId = db.getSetting('plex_oauth_client_id', null);
+    if (!clientId) return res.status(400).json({ error: 'No OAuth session in progress' });
+    const r = await fetch(`https://plex.tv/api/v2/pins/${encodeURIComponent(req.params.pinId)}`, {
+      headers: {
+        'Accept': 'application/json',
+        'X-Plex-Client-Identifier': clientId,
+      },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!r.ok) return res.status(502).json({ error: `Plex returned ${r.status}` });
+    const { authToken } = await r.json();
+    if (authToken) {
+      db.setSetting('plex_token', authToken);
+      plexService.invalidateCache();
+    }
+    res.json({ authorized: !!authToken, token: authToken || null });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── Cache operations ──────────────────────────────────────────────────────────
 
 router.post('/cache/clear/recommendations', requireAdmin, (req, res) => {

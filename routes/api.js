@@ -1505,6 +1505,7 @@ router.post('/user/settings', (req, res) => {
           notify_issue_new, notify_issue_update, notify_issue_comment } = req.body;
   // Read current prefs so partial updates (e.g. only show_mature) don't reset other fields
   const oldPrefs = db.getUserPreferences(userId);
+  const oldNotif = db.getUserNotificationPrefs(userId);
   const newRegion      = region      !== undefined ? (region      || null) : oldPrefs.region;
   const newLanguage    = language    !== undefined ? (language    || null) : oldPrefs.language;
   const newLandingPage = landing_page !== undefined ? (landing_page || null) : oldPrefs.landing_page;
@@ -1521,21 +1522,25 @@ router.post('/user/settings', (req, res) => {
   if (poolChanged) {
     try { require('../services/discoverRecommender').invalidateUserCache(userId); } catch {}
   }
+  // Helper: preserve existing value when field is absent from request body
+  const _b = (val, fallback) => val === undefined ? fallback : (val !== false && val !== 'false');
+  const _s = (val, fallback) => val === undefined ? fallback : (val || null);
+  const _e = (val, fallback) => val === undefined ? fallback : (val === true || val === 'true');
   db.setUserNotificationPrefs(userId, {
-    notify_approved:      notify_approved      !== false && notify_approved      !== 'false',
-    notify_denied:        notify_denied        !== false && notify_denied        !== 'false',
-    notify_available:     notify_available     !== false && notify_available     !== 'false',
-    discord_webhook:      discord_webhook       || null,
-    discord_enabled:      discord_enabled       === true || discord_enabled       === 'true',
-    discord_user_id:      discord_user_id       || null,
-    pushover_user_key:    pushover_user_key     || null,
-    pushover_enabled:     pushover_enabled      === true || pushover_enabled      === 'true',
-    notify_pending:       notify_pending        !== false && notify_pending        !== 'false',
-    notify_auto_approved: notify_auto_approved  !== false && notify_auto_approved  !== 'false',
-    notify_process_failed: notify_process_failed !== false && notify_process_failed !== 'false',
-    notify_issue_new:     notify_issue_new     !== false && notify_issue_new     !== 'false',
-    notify_issue_update:  notify_issue_update  !== false && notify_issue_update  !== 'false',
-    notify_issue_comment: notify_issue_comment !== false && notify_issue_comment !== 'false',
+    notify_approved:       _b(notify_approved,      oldNotif.notify_approved),
+    notify_denied:         _b(notify_denied,         oldNotif.notify_denied),
+    notify_available:      _b(notify_available,      oldNotif.notify_available),
+    discord_webhook:       _s(discord_webhook,       oldNotif.discord_webhook),
+    discord_enabled:       _e(discord_enabled,       oldNotif.discord_enabled),
+    discord_user_id:       _s(discord_user_id,       oldNotif.discord_user_id),
+    pushover_user_key:     _s(pushover_user_key,     oldNotif.pushover_user_key),
+    pushover_enabled:      _e(pushover_enabled,      oldNotif.pushover_enabled),
+    notify_pending:        _b(notify_pending,        oldNotif.notify_pending),
+    notify_auto_approved:  _b(notify_auto_approved,  oldNotif.notify_auto_approved),
+    notify_process_failed: _b(notify_process_failed, oldNotif.notify_process_failed),
+    notify_issue_new:      _b(notify_issue_new,      oldNotif.notify_issue_new),
+    notify_issue_update:   _b(notify_issue_update,   oldNotif.notify_issue_update),
+    notify_issue_comment:  _b(notify_issue_comment,  oldNotif.notify_issue_comment),
   });
   res.json({ ok: true });
 });

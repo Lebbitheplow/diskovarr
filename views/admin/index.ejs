@@ -769,6 +769,7 @@
                 </div>
               </div>
             </div>
+            <button class="btn-admin conn-action-btn" id="btn-plex-oauth" onclick="startPlexOAuth()">Sign in with Plex</button>
             <button class="btn-admin conn-action-btn" onclick="testCoreService('plex')">Test</button>
             <button class="btn-admin btn-primary conn-action-btn" onclick="saveCoreService('plex')">Save</button>
           </div>
@@ -2678,6 +2679,41 @@
     });
 
     // Save Plex or Tautulli (no toggle — always required)
+    async function startPlexOAuth() {
+      const btn = document.getElementById('btn-plex-oauth');
+      btn.disabled = true;
+      btn.textContent = 'Waiting for Plex...';
+      try {
+        const d = await fetch('/admin/plex/auth-url').then(r => r.json());
+        if (d.error) { showToast(d.error, true); return; }
+        const popup = window.open(d.authUrl, 'plexauth', 'width=800,height=700,scrollbars=yes');
+        let attempts = 0;
+        const poll = setInterval(async () => {
+          attempts++;
+          if (attempts > 120 || !popup || popup.closed) {
+            clearInterval(poll);
+            btn.disabled = false;
+            btn.textContent = 'Sign in with Plex';
+            if (attempts > 120) showToast('Plex auth timed out', true);
+            return;
+          }
+          const p = await fetch(`/admin/plex/check-pin/${d.pinId}`).then(r => r.json()).catch(() => ({}));
+          if (p.authorized) {
+            clearInterval(poll);
+            if (popup && !popup.closed) popup.close();
+            btn.disabled = false;
+            btn.textContent = 'Sign in with Plex';
+            document.getElementById('conn-plex-token').value = '••••••••';
+            showToast('Plex token saved — enter your Plex URL and save');
+          }
+        }, 2000);
+      } catch (e) {
+        showToast('Failed to start Plex auth', true);
+        btn.disabled = false;
+        btn.textContent = 'Sign in with Plex';
+      }
+    }
+
     async function saveCoreService(service) {
       var body = {};
       if (service === 'plex') {

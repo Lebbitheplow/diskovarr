@@ -4,6 +4,19 @@ All notable changes are documented here. Versioning follows [Semantic Versioning
 
 ---
 
+## v1.17.11 — 2026-04-01
+
+### Added
+
+- **Sign in to Plex button** — the Connections → Plex page now has a **Sign in to Plex** button. Clicking it opens a Plex OAuth flow and automatically retrieves and fills in your admin token, eliminating the need to manually locate it via Plex Web XML.
+
+### Fixed
+
+- **User settings persistence** — per-user settings (landing page, request limits, overrides) were not being carried over correctly in certain scenarios and are now reliably saved and applied.
+- **Plex real-time sync — WebSocket** — the WebSocket connection for detecting new Plex library content is now fully fixed and operational. The Plex webhook integration has been removed; new-content detection runs entirely over the persistent WebSocket.
+
+---
+
 ## v1.17.10 — 2026-03-29
 
 ### Changed

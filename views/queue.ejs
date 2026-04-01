@@ -73,6 +73,10 @@
     .edit-season-list { display: flex; flex-wrap: wrap; gap: 6px 12px; margin-top: 6px; }
     .edit-season-list label { font-size: 0.82rem; }
     .edit-modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+    .edit-modal-cancel { padding: 7px 16px; border-radius: 7px; border: 1px solid var(--border); background: var(--bg-elevated); color: var(--text); font-size: 0.88rem; cursor: pointer; transition: background 0.15s; }
+    .edit-modal-cancel:hover { background: var(--bg-hover, var(--border)); }
+    .edit-modal-save { padding: 7px 16px; border-radius: 7px; border: none; background: var(--accent); color: #fff; font-size: 0.88rem; font-weight: 600; cursor: pointer; transition: opacity 0.15s; }
+    .edit-modal-save:hover { opacity: 0.85; }
     .table-scroll-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
     @media (max-width: 600px) {
       .queue-table th:nth-child(3), .queue-table td:nth-child(3) { display: none; }

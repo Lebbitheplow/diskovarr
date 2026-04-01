@@ -1,5 +1,14 @@
 [
   {
+    "version": "1.17.11",
+    "date": "2026-04-01",
+    "changes": [
+      "Sign in to Plex button — the Connections → Plex page now has a Sign in to Plex button that opens a Plex OAuth flow and automatically retrieves and fills in your admin token.",
+      "User settings persistence fix — per-user settings were not being carried over correctly in certain scenarios and are now reliably saved and applied.",
+      "Plex real-time sync — WebSocket fully fixed and operational. Plex webhook integration removed; new-content detection now runs entirely over the persistent WebSocket."
+    ]
+  },
+  {
     "version": "1.17.10",
     "date": "2026-03-29",
     "changes": [

@@ -120,26 +120,6 @@ app.use((req, res, next) => {
 // Routes
 app.use('/auth', require('./routes/auth'));
 
-// Plex webhook — must be before the /api router (which requires auth)
-// Register this URL in Plex Settings → Webhooks (requires Plex Pass)
-app.post('/api/webhooks/plex', express.raw({ type: '*/*', limit: '2mb' }), (req, res) => {
-  res.sendStatus(200); // always ACK immediately
-  try {
-    const raw = req.body.toString('utf8');
-    // Plex sends multipart/form-data — extract the JSON payload field
-    const match = raw.match(/name="payload"\r?\n\r?\n([\s\S]*?)\r?\n--/);
-    if (!match) return;
-    const payload = JSON.parse(match[1]);
-    if (payload?.event === 'library.new') {
-      const plexService = require('./services/plex');
-      plexService.invalidateCache();
-      process.nextTick(() => process.emit('diskovarr:checkFulfilled'));
-    }
-  } catch (err) {
-    logger.warn('Plex webhook error:', err.message);
-  }
-});
-
 // Overseerr-compatible shim — must be before /api (has its own auth)
 app.use('/api/v1', require('./routes/overseerrShim'));
 app.use('/api', require('./routes/api'));
@@ -347,17 +327,32 @@ app.listen(PORT, '0.0.0.0', () => {
         logger.info('Plex WebSocket connected');
       };
 
+      // Collect new item ratingKeys from WebSocket events. Keyed by ratingKey so
+      // duplicates within the same burst are deduplicated automatically.
+      const _pendingItems = new Map(); // ratingKey -> sectionId
+      let _wsDebounce = null;
       ws.onmessage = ({ data }) => {
         try {
           const container = JSON.parse(data)?.NotificationContainer;
           if (container?.type !== 'timeline') return;
-          const hasNew = (container.TimelineEntry || []).some(
-            e => e.state === 5 && e.identifier === 'com.plexapp.plugins.library'
-          );
-          if (hasNew) {
-            plexService.invalidateCache();
-            process.nextTick(() => process.emit('diskovarr:checkFulfilled'));
+          for (const e of (container.TimelineEntry || [])) {
+            if (e.state === 5 && e.identifier === 'com.plexapp.plugins.library') {
+              _pendingItems.set(String(e.itemID), String(e.sectionID));
+            }
           }
+          if (_pendingItems.size === 0) return;
+          // Debounce: collect events for 3s, then fetch each new item individually
+          // from Plex (same method Tautulli uses — no full library scan).
+          if (_wsDebounce) clearTimeout(_wsDebounce);
+          _wsDebounce = setTimeout(async () => {
+            _wsDebounce = null;
+            const batch = new Map(_pendingItems);
+            _pendingItems.clear();
+            await Promise.all([...batch.entries()].map(([ratingKey, sectionId]) =>
+              plexService.fetchAndUpsertItem(ratingKey, sectionId).catch(() => null)
+            ));
+            checkFulfilledRequests().catch(err => logger.warn('checkFulfilledRequests (ws) error:', err.message));
+          }, 3000);
         } catch {}
       };
 
