@@ -66,7 +66,7 @@ img {
 .nav {
   position: sticky;
   top: 0;
-  z-index: 300;
+  z-index: 100;
   isolation: isolate;
   height: var(--nav-height);
   background: rgba(15, 15, 15, 0.85);
@@ -109,8 +109,6 @@ img {
   display: flex;
   align-items: center;
   gap: 12px;
-
-  position: relative;
 }
 
 .nav-avatar {
@@ -233,10 +231,10 @@ img {
 /* ── FAB popup menu (desktop: drops down from user button) ────── */
 .nav-fab-menu {
   display: block;
-  position: absolute;
-  top: calc(var(--nav-height) - 14px);
+  position: fixed;
+  top: calc(var(--nav-height) + 6px);
   bottom: auto;
-  right: 0;
+  right: 16px;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
