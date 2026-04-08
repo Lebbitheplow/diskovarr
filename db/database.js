@@ -258,7 +258,7 @@ function countRecentSeasonRequests(userId, windowDays) {
   'ALTER TABLE known_users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0',
   'ALTER TABLE user_request_limits ADD COLUMN auto_approve_movies INTEGER',
   'ALTER TABLE user_request_limits ADD COLUMN auto_approve_tv INTEGER',
-].forEach(sql => { try { db.exec(sql); } catch (e) { if (!e.message.includes('duplicate column')) throw e; } });
+].forEach(sql => { try { db.exec(sql); } catch (e) { if (!e.message.includes('duplicate column') && !e.message.includes('no such table')) throw e; } });
 
 // Segment B migrations: user preferences
 ['ALTER TABLE user_request_limits ADD COLUMN region TEXT DEFAULT NULL',
