@@ -109,6 +109,8 @@ img {
   display: flex;
   align-items: center;
   gap: 12px;
+
+  position: relative;
 }
 
 .nav-avatar {
@@ -231,10 +233,10 @@ img {
 /* ── FAB popup menu (desktop: drops down from user button) ────── */
 .nav-fab-menu {
   display: block;
-  position: fixed;
-  top: calc(var(--nav-height) + 6px);
+  position: absolute;
+  top: calc(var(--nav-height) - 14px);
   bottom: auto;
-  right: 16px;
+  right: 0;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);

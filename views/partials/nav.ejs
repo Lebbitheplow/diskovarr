@@ -68,6 +68,25 @@
           <span class="nav-fab-initial"><%= username.charAt(0).toUpperCase() %></span>
         <% } %>
       </button>
+
+      <!-- Mobile popup menu (slides up from FAB) -->
+      <div class="nav-fab-menu" id="nav-fab-menu" aria-hidden="true">
+        <div class="nav-fab-menu-user">
+          <% if (thumb) { %>
+            <img class="nav-fab-menu-avatar" src="/api/poster?path=<%= encodeURIComponent(thumb) %>" alt="<%= username %>" onerror="this.style.display='none'">
+          <% } else { %>
+            <div class="nav-fab-menu-avatar-placeholder"><%= username.charAt(0).toUpperCase() %></div>
+          <% } %>
+          <span class="nav-fab-menu-username"><%= username %></span>
+        </div>
+        <a href="/settings" class="nav-fab-menu-link">&#9881; Settings</a>
+        <a href="/watchlist" class="nav-fab-menu-link">◈ Watchlist</a>
+        <a href="/queue" class="nav-fab-menu-link">&#9776; Queue</a>
+        <a href="/issues" class="nav-fab-menu-link">&#9888; Issues</a>
+        <a href="/admin" class="nav-fab-menu-link">&#9881; Admin</a>
+        <button class="nav-fab-menu-link nav-fab-menu-info" id="nav-info-btn-mobile">ℹ About</button>
+        <a href="/auth/logout" class="nav-fab-menu-link nav-fab-menu-signout">Sign out</a>
+      </div>
     </div>
 
   </div>
@@ -90,25 +109,6 @@
     <span class="nav-fab-initial"><%= username.charAt(0).toUpperCase() %></span>
   <% } %>
 </button>
-
-<!-- Mobile popup menu (slides up from FAB) -->
-<div class="nav-fab-menu" id="nav-fab-menu" aria-hidden="true">
-  <div class="nav-fab-menu-user">
-    <% if (thumb) { %>
-      <img class="nav-fab-menu-avatar" src="/api/poster?path=<%= encodeURIComponent(thumb) %>" alt="<%= username %>" onerror="this.style.display='none'">
-    <% } else { %>
-      <div class="nav-fab-menu-avatar-placeholder"><%= username.charAt(0).toUpperCase() %></div>
-    <% } %>
-    <span class="nav-fab-menu-username"><%= username %></span>
-  </div>
-  <a href="/settings" class="nav-fab-menu-link">&#9881; Settings</a>
-  <a href="/watchlist" class="nav-fab-menu-link">◈ Watchlist</a>
-  <a href="/queue" class="nav-fab-menu-link">&#9776; Queue</a>
-  <a href="/issues" class="nav-fab-menu-link">&#9888; Issues</a>
-  <a href="/admin" class="nav-fab-menu-link">&#9881; Admin</a>
-  <button class="nav-fab-menu-link nav-fab-menu-info" id="nav-info-btn-mobile">ℹ About</button>
-  <a href="/auth/logout" class="nav-fab-menu-link nav-fab-menu-signout">Sign out</a>
-</div>
 
 <div class="nav-overlay" id="nav-overlay"></div>
 
