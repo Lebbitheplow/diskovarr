@@ -234,7 +234,7 @@ img {
   position: fixed;
   top: calc(var(--nav-height) + 6px);
   bottom: auto;
-  right: 16px;
+  right: 24px;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);

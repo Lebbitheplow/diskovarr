@@ -214,12 +214,18 @@
     if (!menu) return;
 
     function open() {
+      var userBtn = document.getElementById('nav-user-btn');
+      if (userBtn && getComputedStyle(userBtn).display !== 'none') {
+        var rect = userBtn.getBoundingClientRect();
+        menu.style.top = (rect.bottom + 6) + 'px';
+        menu.style.right = (window.innerWidth - rect.right) + 'px';
+        menu.style.bottom = '';
+      }
       menu.classList.add('open');
       menu.setAttribute('aria-hidden', 'false');
       overlay.classList.add('open');
       var fab = document.getElementById('nav-fab');
       if (fab) { fab.classList.add('open'); fab.setAttribute('aria-expanded', 'true'); }
-      var userBtn = document.getElementById('nav-user-btn');
       if (userBtn) { userBtn.classList.add('open'); userBtn.setAttribute('aria-expanded', 'true'); }
     }
     function close() {
