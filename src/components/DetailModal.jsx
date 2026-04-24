@@ -280,7 +280,7 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest, onNot
   }, [item?.ratingKey, success, toastError])
 
   useEffect(() => {
-    if (!item?.tmdbId || !inLibrary) {
+    if (!item?.tmdbId) {
       setTrailerKey(null)
       return
     }
@@ -299,7 +299,7 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest, onNot
         trailerRef.current.classList.remove('active')
       }
     }
-  }, [item?.tmdbId, inLibrary])
+  }, [item?.tmdbId])
 
   const handleClose = useCallback(() => {
     if (trailerRef.current) {
