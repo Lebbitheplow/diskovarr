@@ -19,10 +19,8 @@ function LogoIcon() {
   )
 }
 
-const DISCOVER_ENABLED = import.meta.env.VITE_DISCOVER_ENABLED !== 'false'
-
 export default function NavigationBar() {
-  const { user, logout } = useAuth()
+  const { user, logout, discoverAvailable } = useAuth()
   const { showToast } = useToast()
   const navigate = useNavigate()
   const location = useLocation()
@@ -47,7 +45,7 @@ export default function NavigationBar() {
 
   const navTabs = [
     { path: '/', label: 'Diskovarr' },
-    ...(DISCOVER_ENABLED ? [{ path: '/explore', label: 'Diskovarr Requests' }] : []),
+    ...(discoverAvailable ? [{ path: '/explore', label: 'Diskovarr Requests' }] : []),
     { path: '/discover', label: 'Filter', icon: true },
   ]
 
@@ -412,7 +410,7 @@ export default function NavigationBar() {
                 <div className="info-modal-section-title">Diskovarr</div>
                 <p>Your personalized recommendation feed. Diskovarr analyzes your Plex watch history — directors, actors, studios, and genres you enjoy — to surface content you haven't seen yet. Dismiss anything you're not interested in and it won't appear again.</p>
               </div>
-              {DISCOVER_ENABLED && (
+              {discoverAvailable && (
                 <div className="info-modal-section">
                   <div className="info-modal-section-title">Diskovarr Requests</div>
                   <p>Recommendations for content <strong>not yet in the library</strong>, picked based on your watch history. Use the search bar to find any specific title and request it directly. Click <em>Request</em> on any title to send it to Overseerr (or Radarr/Sonarr) for download. Requested items are tracked so you won't be prompted to request them again.</p>

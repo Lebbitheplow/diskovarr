@@ -11,6 +11,7 @@ lerna-debug.log*
 node_modules
 
 # Build output
+dist/
 dist-ssr
 
 # Environment — copy .env.example and fill in your values
@@ -30,6 +31,9 @@ start-vite.js
 
 # Original CSS backups from EJS→React migration
 public/original-*.css
+
+# Claude Code
+CLAUDE.md
 
 # Editor directories and files
 .vscode/*

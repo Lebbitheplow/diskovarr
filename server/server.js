@@ -213,4 +213,47 @@ app.get('*', (req, res) => {
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Diskovarr server running on port ${PORT}`)
+
+  const discoverRecommender = require('./services/discoverRecommender')
+  const recommender = require('./services/recommender')
+  const plexService = require('./services/plex')
+  const logger = require('./services/logger')
+
+  // On startup: sync library from DB/Plex, then pre-warm caches
+  setTimeout(async () => {
+    try {
+      await plexService.warmCache()
+      logger.info('Library synced successfully on startup')
+    } catch (err) {
+      logger.warn('Startup library sync failed:', err.message)
+    }
+
+    // Pre-warm recommendation caches 30s after library sync
+    setTimeout(() => recommender.warmAllUserCaches().catch(err =>
+      logger.warn('Rec pre-warm failed:', err.message)
+    ), 30_000)
+
+    // Build shared TMDB candidate pools ~90s after start so first user gets fast results
+    setTimeout(() => discoverRecommender.refreshSharedCandidatePools()
+      .catch(err => logger.warn('Initial discover pool build failed:', err.message)),
+      90_000
+    )
+  }, 2000)
+
+  // Refresh shared TMDB candidates every 6 hours
+  setInterval(() => discoverRecommender.refreshSharedCandidatePools()
+    .catch(err => logger.warn('Discover pool refresh failed:', err.message)),
+    6 * 60 * 60 * 1000
+  )
+
+  // Keep per-user discover caches warm every 28 min
+  setInterval(() => discoverRecommender.warmAllUserDiscoverCaches()
+    .catch(err => logger.warn('Discover cache pre-warm failed:', err.message)),
+    28 * 60 * 1000
+  )
+
+  // Keep rec caches warm every 25 min
+  setInterval(() => recommender.warmAllUserCaches().catch(err =>
+    logger.warn('Periodic rec pre-warm failed:', err.message)
+  ), 25 * 60 * 1000)
 })
