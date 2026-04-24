@@ -291,7 +291,7 @@ db.exec(`
   'ALTER TABLE known_users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0',
   'ALTER TABLE user_request_limits ADD COLUMN auto_approve_movies INTEGER',
   'ALTER TABLE user_request_limits ADD COLUMN auto_approve_tv INTEGER',
-].forEach(sql => { try { db.exec(sql); } catch (e) { if (!e.message.includes('duplicate column')) throw e; } });
+].forEach(sql => { try { db.exec(sql); } catch (e) { if (!e.message.includes('duplicate column') && !e.message.includes('no such table')) throw e; } });
 
 // Segment B migrations: user preferences
 ['ALTER TABLE user_request_limits ADD COLUMN region TEXT DEFAULT NULL',
@@ -301,7 +301,7 @@ db.exec(`
  'ALTER TABLE user_request_limits ADD COLUMN allow_requests_override INTEGER DEFAULT 0',
  'ALTER TABLE user_request_limits ADD COLUMN landing_page TEXT DEFAULT NULL',
  'ALTER TABLE user_request_limits ADD COLUMN show_mature INTEGER DEFAULT 0',
-].forEach(sql => { try { db.exec(sql); } catch (e) { if (!e.message.includes('duplicate column')) throw e; } });
+].forEach(sql => { try { db.exec(sql); } catch (e) { if (!e.message.includes('duplicate column') && !e.message.includes('no such table')) throw e; } });
 
 // Initialize global auto-request settings if not set
 if (!db.prepare("SELECT 1 FROM settings WHERE key = 'auto_request_watchlist_movies'").get()) {
@@ -554,7 +554,7 @@ db.exec(`
 ['ALTER TABLE watchlist ADD COLUMN plex_playlist_id TEXT',
  'ALTER TABLE watchlist ADD COLUMN plex_item_id TEXT',
  'ALTER TABLE watchlist ADD COLUMN plex_guid TEXT',
-].forEach(sql => { try { db.exec(sql); } catch (e) { if (!e.message.includes('duplicate column')) throw e; } });
+].forEach(sql => { try { db.exec(sql); } catch (e) { if (!e.message.includes('duplicate column') && !e.message.includes('no such table')) throw e; } });
 
 function addToWatchlistDb(userId, ratingKey) {
   db.prepare(`INSERT OR IGNORE INTO watchlist (user_id, rating_key, added_at) VALUES (?, ?, ?)`)
@@ -670,8 +670,8 @@ function getConnectionSettings() {
     plexToken: !!(getSetting('plex_token', '') || process.env.PLEX_TOKEN),
     tautulliUrl: getSetting('tautulli_url', '') || process.env.TAUTULLI_URL || '',
     tautulliApiKey: !!(getSetting('tautulli_api_key', '') || process.env.TAUTULLI_API_KEY),
-    tmdbApiKey: getSetting('tmdb_api_key', ''),
-    discoverEnabled: getSetting('discover_enabled', '0') === '1',
+    tmdbApiKey: getSetting('tmdb_api_key', '') || process.env.TMDB_API_KEY || '',
+    discoverEnabled: getSetting('discover_enabled', '1') === '1',
     overseerrUrl: getSetting('overseerr_url', ''),
     overseerrApiKey: getSetting('overseerr_api_key', ''),
     overseerrEnabled: getSetting('overseerr_enabled', '0') === '1',
@@ -696,11 +696,11 @@ function getConnectionSettings() {
 
 // Tab is visible if the toggle is on (TMDB key checked separately at recommendation time)
 function isDiscoverEnabled() {
-  return getSetting('discover_enabled', '0') === '1';
+  return getSetting('discover_enabled', '1') === '1';
 }
 
 function hasTmdbKey() {
-  return !!getSetting('tmdb_api_key', '');
+  return !!(getSetting('tmdb_api_key', '') || process.env.TMDB_API_KEY);
 }
 
 // ── TMDB cache ────────────────────────────────────────────────────────────────

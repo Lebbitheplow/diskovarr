@@ -6,6 +6,7 @@ import {
   plexApi,
   exploreApi,
   issuesApi,
+  queueApi,
 } from '../services/api'
 import MediaCard from '../components/MediaCard'
 import SkeletonLoader from '../components/SkeletonLoader'
@@ -40,6 +41,7 @@ export default function Search() {
   const [requestItem, setRequestItem] = useState(null)
   const [seasons, setSeasons] = useState([])
   const [selectedSeasons, setSelectedSeasons] = useState(['all'])
+  const [services, setServices] = useState({})
   const suggestTimerRef = useRef(null)
   const searchInputRef = useRef(null)
 
@@ -100,6 +102,7 @@ export default function Search() {
       fetchSearchResults(true)
     }
     loadWatchlist()
+    exploreApi.getServices().then(({ data }) => setServices(data || {})).catch(() => {})
   }, [initialQuery, fetchSearchResults, loadWatchlist])
 
   const handleSubmit = useCallback((e) => {
@@ -202,18 +205,25 @@ export default function Search() {
     } catch { /* ignore */ }
   }, [])
 
-  const handleSubmitRequest = useCallback(async () => {
+  const handleSubmitRequest = useCallback(async (service) => {
     if (!requestItem) return
     const seasons = selectedSeasons[0] === 'all' || selectedSeasons.length === 0 ? null : selectedSeasons.map(Number)
     try {
-      await exploreApi.followRecommendation(requestItem.tmdbId, requestItem.mediaType)
-      toastSuccess('You\'ll be notified when ' + requestItem.title + ' is available')
+      await queueApi.createRequest({
+        tmdbId: requestItem.tmdbId,
+        mediaType: requestItem.mediaType,
+        title: requestItem.title,
+        year: requestItem.year || null,
+        service: service || services.defaultService || 'overseerr',
+        seasons: seasons,
+      })
+      toastSuccess('Request submitted for ' + requestItem.title)
       setRequestItem(null)
       setSelectedSeasons(['all'])
     } catch (e) {
       toastError(e.message || 'Request failed')
     }
-  }, [requestItem, selectedSeasons, toastSuccess, toastError])
+  }, [requestItem, selectedSeasons, toastSuccess, toastError, services])
 
   useEffect(() => {
     if (requestItem) {
@@ -382,8 +392,17 @@ export default function Search() {
             thumb: selectedItem.posterUrl,
             art: selectedItem.backdropUrl,
             mediaType: selectedItem.mediaType,
+            inLibrary: selectedItem.inLibrary,
           }}
           onClose={() => setSelectedItem(null)}
+          onRequest={() => {
+            setRequestItem(selectedItem)
+            setSelectedItem(null)
+          }}
+          onNotify={() => {
+            setRequestItem(selectedItem)
+            setSelectedItem(null)
+          }}
         />
       )}
 
@@ -398,35 +417,92 @@ export default function Search() {
             </p>
             {requestItem.mediaType === 'tv' && seasons.length > 0 && (
               <div style={{ marginBottom: '16px' }}>
-                <label className="edit-field-label">Seasons</label>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  <label style={{ fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <input
-                      type="checkbox"
-                      checked={selectedSeasons[0] === 'all' && selectedSeasons.length === 1}
-                      onChange={() => setSelectedSeasons(['all'])}
-                    />
-                    All Seasons
-                  </label>
+                <label style={{ display: 'block', fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: '5px' }}>Seasons</label>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                  <button
+                    type="button"
+                    className={'chip-sm' + (selectedSeasons[0] === 'all' ? ' active' : '')}
+                    style={{ border: '1px solid var(--border)', cursor: 'pointer' }}
+                    onClick={() => setSelectedSeasons(['all'])}
+                  >
+                    All
+                  </button>
                   {seasons.map(s => (
-                    <label key={s} style={{ fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <input
-                        type="checkbox"
-                        checked={!selectedSeasons.includes('all') && selectedSeasons.includes(String(s))}
-                        onChange={() => handleSeasonToggle(s)}
-                      />
-                      Season {s}
-                    </label>
+                    <button
+                      type="button"
+                      key={s}
+                      className={'chip-sm' + (!selectedSeasons.includes('all') && selectedSeasons.includes(String(s)) ? ' active' : '')}
+                      style={{ border: '1px solid var(--border)', cursor: 'pointer' }}
+                      onClick={() => handleSeasonToggle(s)}
+                    >
+                      {s}
+                    </button>
                   ))}
                 </div>
               </div>
             )}
-            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '16px' }}>
-              <button className="chip-sm" onClick={() => setRequestItem(null)}>Cancel</button>
-              <button className="chip-sm" style={{ background: 'var(--accent)', color: '#000', fontWeight: '600', border: 'none' }} onClick={handleSubmitRequest}>
-                Request
-              </button>
-            </div>
+            {(() => {
+              const hasOverseerr = services.overseerr
+              const hasRiven = services.riven
+              const hasDirect = requestItem.mediaType === 'movie' ? services.radarr : services.sonarr
+              const directName = requestItem.mediaType === 'movie' ? 'Radarr' : 'Sonarr'
+              const directSvc = requestItem.mediaType === 'movie' ? 'radarr' : 'sonarr'
+              const hasAggregator = hasOverseerr || hasRiven
+              const defaultAggregator = hasOverseerr ? 'overseerr' : (hasRiven ? 'riven' : null)
+              const hasBothSides = hasAggregator && hasDirect
+              const defaultSvc = !hasOverseerr && !hasRiven && !hasDirect ? 'none'
+                : hasBothSides
+                  ? (services.defaultService === 'direct' ? directSvc : defaultAggregator)
+                  : hasAggregator ? defaultAggregator : directSvc
+              const altOptions = []
+              if (defaultSvc !== 'overseerr' && hasOverseerr) altOptions.push({ svc: 'overseerr', name: 'Overseerr' })
+              if (defaultSvc !== 'riven' && hasRiven) altOptions.push({ svc: 'riven', name: 'Riven' })
+              if (defaultSvc !== directSvc && hasDirect) altOptions.push({ svc: directSvc, name: directName })
+              return (
+                <>
+                  {altOptions.length > 0 && (
+                    <div style={{ marginBottom: '12px' }}>
+                      <button
+                        type="button"
+                        className="chip-sm"
+                        style={{ border: '1px solid var(--border)', cursor: 'pointer', width: '100%', textAlign: 'center' }}
+                        onClick={(e) => {
+                          const panel = document.getElementById('request-adv-panel')
+                          const toggle = document.getElementById('request-adv-toggle')
+                          if (panel) {
+                            const isOpen = panel.style.display !== 'none'
+                            panel.style.display = isOpen ? 'none' : ''
+                            toggle.textContent = isOpen ? 'Advanced ▸' : 'Advanced ▾'
+                          }
+                        }}
+                        id="request-adv-toggle"
+                      >
+                        Advanced ▸
+                      </button>
+                      <div id="request-adv-panel" style={{ display: 'none', marginTop: '8px' }}>
+                        {altOptions.map(opt => (
+                          <button
+                            key={opt.svc}
+                            type="button"
+                            className="chip-sm"
+                            style={{ border: '1px solid var(--border)', cursor: 'pointer', width: '100%', marginBottom: '6px', textAlign: 'left' }}
+                            onClick={() => handleSubmitRequest(opt.svc)}
+                          >
+                            Send to {opt.name} instead
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '16px' }}>
+                    <button className="chip-sm" onClick={() => setRequestItem(null)}>Cancel</button>
+                    <button className="chip-sm" style={{ background: 'var(--accent)', color: '#000', fontWeight: '600', border: 'none' }} onClick={() => handleSubmitRequest(defaultSvc)}>
+                      Request
+                    </button>
+                  </div>
+                </>
+              )
+            })()}
           </div>
         )}
       </Modal>

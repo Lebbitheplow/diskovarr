@@ -11,7 +11,7 @@ lerna-debug.log*
 node_modules
 
 # Build output
-dist
+dist/
 dist-ssr
 
 # Environment — copy .env.example and fill in your values
@@ -23,12 +23,17 @@ dist-ssr
 FINAL_PLAN_SUMMARY.md
 IMPLEMENTATION_PLAN.md
 
-# Dev helpers with hardcoded local paths/IPs
+# Dev helpers
 proxy-server.js
+proxy.js
+proxy.cjs
 start-vite.js
 
 # Original CSS backups from EJS→React migration
 public/original-*.css
+
+# Claude Code
+CLAUDE.md
 
 # Editor directories and files
 .vscode/*

@@ -5,6 +5,7 @@ import {
   plexApi,
   searchApi,
   issuesApi,
+  queueApi,
 } from '../services/api'
 import MediaCard from '../components/MediaCard'
 import Carousel from '../components/Carousel'
@@ -163,6 +164,32 @@ export default function Explore() {
     }
   }, [watchlistCache, toastSuccess, toastError])
 
+  const handleNotify = useCallback(async (item) => {
+    try {
+      await exploreApi.followRecommendation(item.tmdbId, item.mediaType)
+      setRecommendations(prev => {
+        if (!prev) return prev
+        const updateItem = (items) => items.map(i => {
+          if (i.tmdbId === item.tmdbId && i.mediaType === item.mediaType) {
+            return { ...i, isMyRequest: true, badgeRequested: true }
+          }
+          return i
+        })
+        return {
+          topPicks: updateItem(prev.topPicks || []),
+          movies: updateItem(prev.movies || []),
+          tvShows: updateItem(prev.tvShows || []),
+          anime: updateItem(prev.anime || []),
+          trendingMovies: updateItem(prev.trendingMovies || []),
+          trendingTV: updateItem(prev.trendingTV || []),
+        }
+      })
+      toastSuccess('You\'ll be notified when ' + item.title + ' is available')
+    } catch (e) {
+      toastError('Notify failed')
+    }
+  }, [toastSuccess, toastError])
+
   const handleDismiss = useCallback(async (item) => {
     try {
       await exploreApi.dismissRecommendation(item.tmdbId, item.mediaType)
@@ -209,13 +236,20 @@ export default function Explore() {
     }
   }, [])
 
-  const handleSubmitRequest = useCallback(async () => {
+  const handleSubmitRequest = useCallback(async (service) => {
     if (!requestItem) return
     const seasons = selectedSeasons[0] === 'all' || selectedSeasons.length === 0 ? null : selectedSeasons.map(Number)
 
     try {
-      await exploreApi.followRecommendation(requestItem.tmdbId, requestItem.mediaType)
-      toastSuccess('You\'ll be notified when ' + requestItem.title + ' is available')
+      await queueApi.createRequest({
+        tmdbId: requestItem.tmdbId,
+        mediaType: requestItem.mediaType,
+        title: requestItem.title,
+        year: requestItem.year || null,
+        service: service || services.defaultService || 'overseerr',
+        seasons: seasons,
+      })
+      toastSuccess('Request submitted for ' + requestItem.title)
       setRequestItem(null)
       setSelectedSeasons(['all'])
       setRecommendations(prev => {
@@ -238,7 +272,7 @@ export default function Explore() {
     } catch (e) {
       toastError(e.message || 'Request failed')
     }
-  }, [requestItem, selectedSeasons, toastSuccess, toastError])
+  }, [requestItem, selectedSeasons, toastSuccess, toastError, services])
 
   const handleSeasonsFetch = useCallback(async (tmdbId) => {
     try {
@@ -349,9 +383,9 @@ export default function Explore() {
                   <h2 className="section-title">Top Picks for You</h2>
                   <span className="section-badge">Outside Your Library</span>
                 </div>
-                <Carousel>
+                  <Carousel>
                   {filteredItems(filteredRecommendations()?.topPicks).map(item => (
-                    <div key={item.tmdbId + item.mediaType} className="card" data-tmdb-id={item.tmdbId} data-adult={item.adult ? 'true' : undefined} onClick={() => handleOpenModal(item)}>
+                    <div key={item.tmdbId + item.mediaType} className="card" data-tmdb-id={item.tmdbId} data-adult={item.adult ? 'true' : undefined} data-request-tmdb={item.tmdbId} onClick={() => handleOpenModal(item)}>
                       <button className="card-poster-link" onClick={() => handleOpenModal(item)} type="button">
                         {item.posterUrl && (
                           <img className="card-poster" src={posterUrl(item.posterUrl)} alt={item.title} loading="lazy" />
@@ -366,6 +400,15 @@ export default function Explore() {
                                 onClick={(e) => { e.stopPropagation(); handleToggleWatchlist(item) }}
                               >
                                 {watchlistCache[item.ratingKey] ? '✓ In Watchlist' : '+ Watchlist'}
+                              </button>
+                            )}
+                            {!item.ratingKey && (
+                              <button
+                                className={'btn-icon btn-request' + (item.isMyRequest ? ' btn-request-sent' : '')}
+                                onClick={(e) => { e.stopPropagation(); !item.isMyRequest && (item.isRequested ? handleNotify(item) : openRequestDialog(item)) }}
+                                disabled={item.isMyRequest}
+                              >
+                                {item.isMyRequest ? 'Requested ✓' : (item.isRequested ? 'Notify Me' : 'Request')}
                               </button>
                             )}
                             {!item.badgeRequested && (
@@ -397,9 +440,9 @@ export default function Explore() {
             {filteredItems(filteredRecommendations()?.movies).length > 0 && (
               <section className="section" id="section-movies">
                 <div className="section-header"><h2 className="section-title">Movies</h2></div>
-                <Carousel>
+                 <Carousel>
                   {filteredItems(filteredRecommendations()?.movies).map(item => (
-                    <div key={item.tmdbId + item.mediaType} className="card" data-tmdb-id={item.tmdbId} data-adult={item.adult ? 'true' : undefined} onClick={() => handleOpenModal(item)}>
+                    <div key={item.tmdbId + item.mediaType} className="card" data-tmdb-id={item.tmdbId} data-adult={item.adult ? 'true' : undefined} data-request-tmdb={item.tmdbId} onClick={() => handleOpenModal(item)}>
                       <button className="card-poster-link" onClick={() => handleOpenModal(item)} type="button">
                         {item.posterUrl && <img className="card-poster" src={posterUrl(item.posterUrl)} alt={item.title} loading="lazy" />}
                         <div className="card-poster-placeholder">{item.title?.charAt(0) || '?'}</div>
@@ -409,6 +452,15 @@ export default function Explore() {
                             {item.ratingKey && (
                               <button className={'btn-icon btn-watchlist' + (watchlistCache[item.ratingKey] ? ' in-watchlist' : '')} onClick={(e) => { e.stopPropagation(); handleToggleWatchlist(item) }}>
                                 {watchlistCache[item.ratingKey] ? '✓ In Watchlist' : '+ Watchlist'}
+                              </button>
+                            )}
+                            {!item.ratingKey && (
+                              <button
+                                className={'btn-icon btn-request' + (item.isMyRequest ? ' btn-request-sent' : '')}
+                                onClick={(e) => { e.stopPropagation(); !item.isMyRequest && (item.isRequested ? handleNotify(item) : openRequestDialog(item)) }}
+                                disabled={item.isMyRequest}
+                              >
+                                {item.isMyRequest ? 'Requested ✓' : (item.isRequested ? 'Notify Me' : 'Request')}
                               </button>
                             )}
                             {!item.badgeRequested && (
@@ -442,7 +494,7 @@ export default function Explore() {
                 <div className="section-header"><h2 className="section-title">TV Shows</h2></div>
                 <Carousel>
                   {filteredItems(filteredRecommendations()?.tvShows).map(item => (
-                    <div key={item.tmdbId + item.mediaType} className="card" data-tmdb-id={item.tmdbId} data-adult={item.adult ? 'true' : undefined} onClick={() => handleOpenModal(item)}>
+                    <div key={item.tmdbId + item.mediaType} className="card" data-tmdb-id={item.tmdbId} data-adult={item.adult ? 'true' : undefined} data-request-tmdb={item.tmdbId} onClick={() => handleOpenModal(item)}>
                       <button className="card-poster-link" onClick={() => handleOpenModal(item)} type="button">
                         {item.posterUrl && <img className="card-poster" src={posterUrl(item.posterUrl)} alt={item.title} loading="lazy" />}
                         <div className="card-poster-placeholder">{item.title?.charAt(0) || '?'}</div>
@@ -452,6 +504,15 @@ export default function Explore() {
                             {item.ratingKey && (
                               <button className={'btn-icon btn-watchlist' + (watchlistCache[item.ratingKey] ? ' in-watchlist' : '')} onClick={(e) => { e.stopPropagation(); handleToggleWatchlist(item) }}>
                                 {watchlistCache[item.ratingKey] ? '✓ In Watchlist' : '+ Watchlist'}
+                              </button>
+                            )}
+                            {!item.ratingKey && (
+                              <button
+                                className={'btn-icon btn-request' + (item.isMyRequest ? ' btn-request-sent' : '')}
+                                onClick={(e) => { e.stopPropagation(); !item.isMyRequest && (item.isRequested ? handleNotify(item) : openRequestDialog(item)) }}
+                                disabled={item.isMyRequest}
+                              >
+                                {item.isMyRequest ? 'Requested ✓' : (item.isRequested ? 'Notify Me' : 'Request')}
                               </button>
                             )}
                             {!item.badgeRequested && (
@@ -485,7 +546,7 @@ export default function Explore() {
                 <div className="section-header"><h2 className="section-title">Anime</h2></div>
                 <Carousel>
                   {filteredItems(filteredRecommendations()?.anime).map(item => (
-                    <div key={item.tmdbId + item.mediaType} className="card" data-tmdb-id={item.tmdbId} data-adult={item.adult ? 'true' : undefined} onClick={() => handleOpenModal(item)}>
+                    <div key={item.tmdbId + item.mediaType} className="card" data-tmdb-id={item.tmdbId} data-adult={item.adult ? 'true' : undefined} data-request-tmdb={item.tmdbId} onClick={() => handleOpenModal(item)}>
                       <button className="card-poster-link" onClick={() => handleOpenModal(item)} type="button">
                         {item.posterUrl && <img className="card-poster" src={posterUrl(item.posterUrl)} alt={item.title} loading="lazy" />}
                         <div className="card-poster-placeholder">{item.title?.charAt(0) || '?'}</div>
@@ -495,6 +556,15 @@ export default function Explore() {
                             {item.ratingKey && (
                               <button className={'btn-icon btn-watchlist' + (watchlistCache[item.ratingKey] ? ' in-watchlist' : '')} onClick={(e) => { e.stopPropagation(); handleToggleWatchlist(item) }}>
                                 {watchlistCache[item.ratingKey] ? '✓ In Watchlist' : '+ Watchlist'}
+                              </button>
+                            )}
+                            {!item.ratingKey && (
+                              <button
+                                className={'btn-icon btn-request' + (item.isMyRequest ? ' btn-request-sent' : '')}
+                                onClick={(e) => { e.stopPropagation(); !item.isMyRequest && (item.isRequested ? handleNotify(item) : openRequestDialog(item)) }}
+                                disabled={item.isMyRequest}
+                              >
+                                {item.isMyRequest ? 'Requested ✓' : (item.isRequested ? 'Notify Me' : 'Request')}
                               </button>
                             )}
                             {!item.badgeRequested && (
@@ -534,8 +604,14 @@ export default function Explore() {
             thumb: selectedItem.posterUrl,
             art: selectedItem.backdropUrl,
             mediaType: selectedItem.mediaType,
+            inLibrary: !!selectedItem.ratingKey,
           }}
           onClose={() => setSelectedItem(null)}
+          onRequest={openRequestDialog}
+          onNotify={() => {
+            setRequestItem(selectedItem)
+            setSelectedItem(null)
+          }}
         />
       )}
 
@@ -550,35 +626,92 @@ export default function Explore() {
             </p>
             {requestItem.mediaType === 'tv' && seasons.length > 0 && (
               <div style={{ marginBottom: '16px' }}>
-                <label className="edit-field-label">Seasons</label>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  <label style={{ fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <input
-                      type="checkbox"
-                      checked={selectedSeasons[0] === 'all' && selectedSeasons.length === 1}
-                      onChange={() => setSelectedSeasons(['all'])}
-                    />
-                    All Seasons
-                  </label>
+                <label style={{ display: 'block', fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: '5px' }}>Seasons</label>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                  <button
+                    type="button"
+                    className={'chip-sm' + (selectedSeasons[0] === 'all' ? ' active' : '')}
+                    style={{ border: '1px solid var(--border)', cursor: 'pointer' }}
+                    onClick={() => setSelectedSeasons(['all'])}
+                  >
+                    All
+                  </button>
                   {seasons.map(s => (
-                    <label key={s} style={{ fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <input
-                        type="checkbox"
-                        checked={!selectedSeasons.includes('all') && selectedSeasons.includes(String(s))}
-                        onChange={() => handleSeasonToggle(s)}
-                      />
-                      Season {s}
-                    </label>
+                    <button
+                      type="button"
+                      key={s}
+                      className={'chip-sm' + (!selectedSeasons.includes('all') && selectedSeasons.includes(String(s)) ? ' active' : '')}
+                      style={{ border: '1px solid var(--border)', cursor: 'pointer' }}
+                      onClick={() => handleSeasonToggle(s)}
+                    >
+                      {s}
+                    </button>
                   ))}
                 </div>
               </div>
             )}
-            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '16px' }}>
-              <button className="chip-sm" onClick={() => setRequestItem(null)}>Cancel</button>
-              <button className="chip-sm" style={{ background: 'var(--accent)', color: '#000', fontWeight: '600', border: 'none' }} onClick={handleSubmitRequest}>
-                Request
-              </button>
-            </div>
+            {(() => {
+              const hasOverseerr = services.overseerr
+              const hasRiven = services.riven
+              const hasDirect = requestItem.mediaType === 'movie' ? services.radarr : services.sonarr
+              const directName = requestItem.mediaType === 'movie' ? 'Radarr' : 'Sonarr'
+              const directSvc = requestItem.mediaType === 'movie' ? 'radarr' : 'sonarr'
+              const hasAggregator = hasOverseerr || hasRiven
+              const defaultAggregator = hasOverseerr ? 'overseerr' : (hasRiven ? 'riven' : null)
+              const hasBothSides = hasAggregator && hasDirect
+              const defaultSvc = !hasOverseerr && !hasRiven && !hasDirect ? 'none'
+                : hasBothSides
+                  ? (services.defaultService === 'direct' ? directSvc : defaultAggregator)
+                  : hasAggregator ? defaultAggregator : directSvc
+              const altOptions = []
+              if (defaultSvc !== 'overseerr' && hasOverseerr) altOptions.push({ svc: 'overseerr', name: 'Overseerr' })
+              if (defaultSvc !== 'riven' && hasRiven) altOptions.push({ svc: 'riven', name: 'Riven' })
+              if (defaultSvc !== directSvc && hasDirect) altOptions.push({ svc: directSvc, name: directName })
+              return (
+                <>
+                  {altOptions.length > 0 && (
+                    <div style={{ marginBottom: '12px' }}>
+                      <button
+                        type="button"
+                        className="chip-sm"
+                        style={{ border: '1px solid var(--border)', cursor: 'pointer', width: '100%', textAlign: 'center' }}
+                        onClick={(e) => {
+                          const panel = document.getElementById('request-adv-panel')
+                          const toggle = document.getElementById('request-adv-toggle')
+                          if (panel) {
+                            const isOpen = panel.style.display !== 'none'
+                            panel.style.display = isOpen ? 'none' : ''
+                            toggle.textContent = isOpen ? 'Advanced ▸' : 'Advanced ▾'
+                          }
+                        }}
+                        id="request-adv-toggle"
+                      >
+                        Advanced ▸
+                      </button>
+                      <div id="request-adv-panel" style={{ display: 'none', marginTop: '8px' }}>
+                        {altOptions.map(opt => (
+                          <button
+                            key={opt.svc}
+                            type="button"
+                            className="chip-sm"
+                            style={{ border: '1px solid var(--border)', cursor: 'pointer', width: '100%', marginBottom: '6px', textAlign: 'left' }}
+                            onClick={() => handleSubmitRequest(opt.svc)}
+                          >
+                            Send to {opt.name} instead
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '16px' }}>
+                    <button className="chip-sm" onClick={() => setRequestItem(null)}>Cancel</button>
+                    <button className="chip-sm" style={{ background: 'var(--accent)', color: '#000', fontWeight: '600', border: 'none' }} onClick={() => handleSubmitRequest(defaultSvc)}>
+                      Request
+                    </button>
+                  </div>
+                </>
+              )
+            })()}
           </div>
         )}
       </Modal>

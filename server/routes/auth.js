@@ -149,7 +149,11 @@ router.get('/check-pin', checkPinLimiter, async (req, res) => {
 // GET /auth/check-auth — checks if user is logged in (for React SPA)
 router.get('/check-auth', (req, res) => {
   if (req.session?.plexUser) {
-    return res.json({ authenticated: true, user: req.session.plexUser });
+    return res.json({
+      authenticated: true,
+      user: req.session.plexUser,
+      discoverAvailable: db.isDiscoverEnabled() && db.hasTmdbKey(),
+    });
   }
   res.json({ authenticated: false });
 });
