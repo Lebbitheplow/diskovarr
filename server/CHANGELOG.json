@@ -1,0 +1,272 @@
+[
+  {
+    "version": "1.17.12",
+    "date": "2026-04-07",
+    "changes": [
+      "Nav menu alignment fix — desktop FAB menu positioning corrected to properly align with the user button."
+    ]
+  },
+  {
+    "version": "1.17.11",
+    "date": "2026-04-01",
+    "changes": [
+      "Sign in to Plex button — the Connections → Plex page now has a Sign in to Plex button that opens a Plex OAuth flow and automatically retrieves and fills in your admin token.",
+      "User settings persistence fix — per-user settings were not being carried over correctly in certain scenarios and are now reliably saved and applied.",
+      "Plex real-time sync — WebSocket fully fixed and operational. Plex webhook integration removed; new-content detection now runs entirely over the persistent WebSocket."
+    ]
+  },
+  {
+    "version": "1.17.10",
+    "date": "2026-03-29",
+    "changes": [
+      "Recommendation engine — episode count weighting: TV shows watched more of now score higher. Multiplier up to ×2.0 based on log₁₀(episodes watched). Shows watched ≥90% to completion always receive the full ×2.0 signal regardless of total episode count."
+    ]
+  },
+  {
+    "version": "1.17.9",
+    "date": "2026-03-24",
+    "changes": [
+      "Unified Overseerr Compat API key — replaced separate DUMB and Agregarr keys with a single shared key in Admin → General. Enable toggle and service accounts moved from Connections to General Settings. Legacy keys remain valid until Regenerate is used.",
+      "Agregarr removed from Connections tab — configuration now entirely in Admin → General → Overseerr Compat API.",
+      "Regenerating the compat key now also disables old DUMB/Agregarr-type app entries, ensuring only one valid key after regeneration.",
+      "Generate/Regenerate button now reads 'Generate Key' when no key exists and 'Regenerate Key' (red) once set — applies to both the Diskovarr API Key and Overseerr Compat Key.",
+      "Overseerr shim — media.status now returns 5 (Available) for requests whose content is already in the Plex library. Homarr media-requests-list widget now shows correct availability.",
+      "Overseerr shim — /request/count now includes movie and tv breakdown counts.",
+      "Overseerr shim — added GET /request/:id, GET /user/:id/requests, GET /user/:id/quota, GET /user/:id/watchlist, GET /status, GET /status/appdata, GET /media, GET /media/:id, settings endpoints, and notification settings stubs.",
+      "Copy icon fix — copy buttons on API key fields now show a clipboard icon instead of the eye icon.",
+      "Documentation updated — diskovarr.com guide reflects unified compat key, updated Agregarr and DUMB setup flows, reverse proxy sections removed from install guides, all Riven/DUMB references updated to DUMB/Riven."
+    ]
+  },
+  {
+    "version": "1.17.8",
+    "date": "2026-03-23",
+    "changes": [
+      "Watched status on tiles and modals \u2014 items you have already watched show a green checkmark badge on the poster thumbnail and a Watched pill in the detail modal.",
+      "Queue \u2014 Available filter button shows all approved requests that are now in your Plex library.",
+      "Queue \u2014 sortable column headers \u2014 clicking Title, User, Type, Age, or Status sorts the full queue server-side across all pages with an arrow indicator.",
+      "Queue \u2014 larger posters \u2014 request row poster thumbnails increased from 40\u00d760 to 52\u00d778 px.",
+      "README \u2014 Docker Hub install instructions added to the Installation section.",
+      "Fix: Watched count showing ~715 for all users \u2014 Tautulli history was being fetched with Plex user IDs not present in Tautulli, returning full shared history. Sync now validates user IDs against Tautulli\u2019s user list and skips unknown users.",
+      "Fix: Content-available notifications now open the item modal for that title instead of navigating to the queue.",
+      "Fix: Read notifications in the bell dropdown are now clickable.",
+      "Fix: Notification modal poster not loading \u2014 full HTTPS image URLs were being wrapped in the Plex poster proxy, causing them to fail. HTTP/HTTPS URLs are now passed through directly."
+    ]
+  },
+  {
+    "version": "1.17.7",
+    "date": "2026-03-22",
+    "changes": [
+      "Fix: Torrent browser \u2014 Browse Torrents page returned a 500 error on load due to a missing bgGradientCss variable not being passed to the view from the riven route.",
+      "Fix: Admin panel DUMB/Riven wording \u2014 section headers, toggle labels, default service button, and mode descriptions updated to lead with DUMB throughout the admin panel."
+    ]
+  },
+  {
+    "version": "1.17.6",
+    "date": "2026-03-22",
+    "changes": [
+      "Documentation site \u2014 full setup guide and documentation now live at diskovarr.com. Covers installation, all admin panel settings, every page, integrations, and the full API reference.",
+      "Documentation link in admin panel \u2014 a Documentation pill in the admin panel version strip links directly to the docs site, visible on all tabs.",
+      "Fix: Cast to TV device isolation \u2014 GDM (UDP broadcast) and PMS /clients removed as device discovery sources; both ran on the server\u2019s local network, exposing the admin\u2019s Plex players to all users. Device lookup now uses plex.tv/api/v2/resources and devices.xml with each user\u2019s own token so every user sees only their own registered devices.",
+      "Fix: Cast to TV remote casting \u2014 playMedia was being sent with the server admin token, which cannot control another user\u2019s Plex client. The command is now sent with the requesting user\u2019s own token. Connection lookup also prefers relay connections (work from any network) over local LAN connections, fixing cast failures for users on a different network than the server."
+    ]
+  },
+  {
+    "version": "1.17.5",
+    "date": "2026-03-22",
+    "changes": [
+      "Per-user default landing page \u2014 users can choose Diskovarr or Diskovarr Requests as their landing page in My Settings. Admins can set this per-user too. Removed the server-wide landing page setting from the admin panel.",
+      "Request count in admin user table \u2014 the Users tab now shows a Requests column with each user's total request count.",
+      "Admin users pagination \u2014 the Users tab paginates at 10 per page (configurable to 25 or 50 via a dropdown). The per-page selector is always visible and pagination loads in place without a full page reload.",
+      "Fix: Season limit bypass \u2014 service users with a per-season limit could bypass it because the cost was based on the explicit seasons list. Automated tools always send seasons:[1], so every show counted as 1 season. The limit now charges the full TMDB season count and stores it in the DB so the rolling window stays accurate.",
+      "Fix: Season bubbles overflowing on queue page \u2014 shows with more than 9 seasons selected now truncate to a ... ellipsis bubble followed by the last 8 seasons.",
+      "Fix: Experimental cast \u2014 GDM discovery now broadcasts to the Plex multicast address in addition to broadcast. The cast endpoint now correctly creates a PlayQueue before sending playMedia. Direct player connection lookup added as primary cast path before falling back to PMS relay.",
+      "Nav logo size \u2014 the SVG logo in the top-left nav bar is larger and more proportional to the Diskovarr wordmark.",
+      "Fix: Show/hide eye icons on API key fields \u2014 the toggle icon was invisible on connection fields that use empty \u003cbutton\u003e elements; all fields now show a consistent eye icon matching the Riven/Agregarr fields.",
+      "Connections tab cleanup \u2014 the Riven/DUMB and Agregarr instruction boxes have been moved into \u24d8 info modals next to the section headers; the DUMB request mode selector is now positioned to the right of the API key field for a cleaner layout; DUMB and Agregarr API key fields are wider and easier to read.",
+      "Fix: Empty recommendation tag bubbles \u2014 items with low-confidence recently-released signals had a null reason label that rendered as a blank bubble on cards. Null and empty reasons are now filtered out.",
+      "API endpoint reference expanded \u2014 the reference table in Admin \u2192 General now documents all 28 public API endpoints across 6 categories: Recommendations & Discovery, Library & Search, Watchlist, Requests, Issues, and Notifications.",
+      "TMDB pipeline \u2014 region and language preferences (set in My Settings) are now applied to TMDB discover queries. Mature content toggle is stored server-side and controls TMDB include_adult at fetch time instead of only hiding cards client-side. Discover candidates are pre-fetched once per unique region+language+mature combination and shared across all matching users; per-user scoring runs every 28 minutes in the background so Explore loads instantly from a warm cache.",
+      "Shared TMDB detail cache \u2014 full item details (genres, keywords, cast, directors, ratings, trailers) are fetched and cached in the database once per item when the shared candidate pool is built. All users score against the same enriched data with no duplicate API calls. Per-user candidates from your watch history (TMDB recommendations, similar titles, person matches, keyword discovery, Plex related items) are still fetched per user and refreshed in the background.",
+      "Requested items in recommendations \u2014 items that have been requested but are not yet in the library now appear in recommendations with a Requested badge. If the item was requested by someone else, the request button becomes Notify Me \u2014 clicking it creates a follow entry and notifies you when the title becomes available.",
+      "Hide Requested toggle \u2014 a new toggle on the Explore page filters requested items out of all recommendation and trending sections server-side. Toggle state persists across sessions."
+    ]
+  },
+  {
+    "version": "1.17.4",
+    "date": "2026-03-21",
+    "changes": [
+      "Accent-colored background gradient \u2014 all pages now show a subtle radial glow using the current accent color; spotlight from top center with a softer glow at the bottom. Updates in real-time when accent color is changed in the admin panel.",
+      "Fix: Default request service setting was not being passed to the frontend on explore and search pages, causing requests to always route to Overseerr regardless of admin settings."
+    ]
+  },
+  {
+    "version": "1.17.3",
+    "date": "2026-03-21",
+    "changes": [
+      "Fix: Season rate limit bypass \u2014 the limit check now runs after deriving the real season count from TMDB so Agregarr requests for multi-season shows are counted correctly",
+      "Fix: Info modal credits username corrected to gage117",
+      "Fix: Approving, denying, editing, or deleting a queue request no longer scrolls to the top \u2014 all actions update the row in place",
+      "Fix: Resolving, closing, or deleting an issue no longer scrolls to the top \u2014 row is removed in place; delete uses the action modal instead of native confirm()",
+      "Fix: Queue items-per-page preference is now saved to localStorage and restored on page load",
+      "Fix: Queue and issues tables scroll horizontally on mobile instead of the whole page panning",
+      "Issues section added to the info modal"
+    ]
+  },
+  {
+    "version": "1.17.2",
+    "date": "2026-03-21",
+    "changes": [
+      "Bulk user settings \u2014 select multiple users in Admin \u2192 Users and apply the same settings override to all at once; each field has a three-state selector so only the fields you care about are changed",
+      "Season bubbles on TV requests \u2014 the request queue now shows individual season number chips (S1 S2 S3\u2026) for each TV request",
+      "Request age \u2014 the queue Date column now shows relative age (e.g. 3 hours ago, 2 days ago) instead of an absolute date",
+      "Info modal credits \u2014 a Created by line at the bottom of the info modal links to the GitHub profiles of the project contributors",
+      "Fix: DUMB queue polling \u2014 approved requests now return media.status=3 (PROCESSING) so DUMB picks them up; added missing /movie/:id and /tv/:id detail endpoints DUMB uses for IMDb ID lookup; added type and media.media_type fields that DUMB accesses internally",
+      "Fix: Agregarr service user attribution \u2014 requests via the shim were attributed to the generic app user; fixed by reading the X-Api-User header Agregarr sends",
+      "Fix: Agregarr requests always pending \u2014 shim now calls getEffectiveAutoApprove() so requests auto-approve when the global or per-user setting allows it",
+      "Fix: Agregarr requests with non-TMDB IDs \u2014 requests whose TMDB ID returns 404 are now silently skipped with a clean 201 so Agregarr's sync continues",
+      "Fix: Agregarr rate limit response \u2014 hitting a per-user season or movie limit now returns a silent 201 instead of 403 so Agregarr's sync continues uninterrupted",
+      "Fix: Approve request with service=none \u2014 the approve endpoint now picks the best available service dynamically when service is none",
+      "Fix: Delete confirmation modal \u2014 replaced native confirm() with a custom in-page modal that supports a don't ask again checkbox backed by localStorage"
+    ]
+  },
+  {
+    "version": "1.17.1",
+    "date": "2026-03-21",
+    "changes": [
+      "DUMB request polling \u2014 DUMB connects to Diskovarr as its Overseerr source; enable in Admin \u2192 Connections \u2192 Riven \u2192 DUMB Integration; choose Pull (DUMB polls /api/v1/request) or Push (Diskovarr pushes to Riven on approval); DUMB marks content available via PUT /api/v1/media/:id/available",
+      "Search page autocomplete \u2014 TMDB suggestions on the search results page search bar, matching the nav bar behaviour",
+      "Fix: DUMB API key generated as 68 characters to satisfy Riven's Overseerr key length validation",
+      "Fix: Admin session cookie sameSite hardened from lax to strict"
+    ]
+  },
+  {
+    "version": "1.17.0",
+    "date": "2026-03-21",
+    "changes": [
+      "Riven/DUMB as a request service \u2014 Riven can now be selected as a request routing target alongside Overseerr, Radarr, and Sonarr; configure in Admin \u2192 Connections \u2192 Riven",
+      "Riven/DUMB torrent browser \u2014 DMM-style browser in Admin \u2192 Connections \u2192 Riven \u2192 Browse Torrents; search by title, view Torrentio results with RD cache status, inject chosen torrent into Riven in one click; includes season selector for TV and manual magnet paste fallback",
+      "Agregarr integration \u2014 Overseerr-compatible API shim at /api/v1/ lets Agregarr connect to Diskovarr as if it were Overseerr; enable in Admin \u2192 Connections \u2192 Agregarr; Agregarr creates service users automatically; their requests appear in the queue with a bot badge",
+      "Plex WebSocket \u2014 real-time library change notifications without Plex Pass; invalidates cache and checks fulfilled requests instantly when new content is added; auto-reconnects with exponential back-off",
+      "Fix: Admin connection tab eye/copy icon buttons now use solid filled icons, readable at all sizes"
+    ]
+  },
+  {
+    "version": "1.16.1",
+    "date": "2026-03-20",
+    "changes": [
+      "Plex webhook listener \u2014 Diskovarr now receives library.new events from Plex at POST /api/webhooks/plex, automatically invalidating the library cache and triggering fulfilled request checks when new content is added (requires Plex Pass)"
+    ]
+  },
+  {
+    "version": "1.16.0",
+    "date": "2026-03-19",
+    "changes": [
+      "Issue comments \u2014 users and admins can exchange comments on any issue in the issue detail modal; admin comments notify the reporter, user comments notify all admins",
+      "Discord independent webhook/bot toggles \u2014 both can now be enabled simultaneously, each with its own notification type list, embed poster toggle, and Save/Test button",
+      "Discord per-panel embed poster \u2014 webhook and bot each have their own embed poster toggle",
+      "Discord bot username and avatar settings moved into the Bot Token panel",
+      "Pushover notification sound \u2014 select from the full Pushover sound library or choose device default or silent",
+      "Pushover embed poster \u2014 attach the title's poster image to Pushover notifications",
+      "Pushover setup hints \u2014 help links to Pushover documentation under the API Token and User Key fields",
+      "Issue Comments notification type consolidated \u2014 the two separate issue comment checkboxes are merged into a single toggle across Discord and Pushover notification type lists"
+    ]
+  },
+  {
+    "version": "1.15.0",
+    "date": "2026-03-18",
+    "changes": [
+      "Admin broadcast notifications \u2014 type a message in Admin \u2192 Notifications and send it to all users at once via in-app bell, Discord, and Pushover simultaneously",
+      "Broadcast bell notifications open a modal showing the full message instead of navigating away",
+      "Last Visit column in admin Users tab \u2014 updates whenever a logged-in user browses the app, replacing the old Last Sync timestamp"
+    ]
+  },
+  {
+    "version": "1.14.4",
+    "date": "2026-03-17",
+    "changes": [
+      "Global requests disable toggle \u2014 the Request button is hidden site-wide and submissions are blocked when disabled; toggle is in Admin \u2192 Request Limits; individual users can be granted an override via per-user admin settings",
+      "Requests can now be submitted without a configured request service \u2014 the request appears in the queue and triggers notifications as normal",
+      "Landing page toggle: the Diskovarr Requests option is now disabled when the Requests tab is turned off"
+    ]
+  },
+  {
+    "version": "1.14.2",
+    "date": "2026-03-17",
+    "changes": [
+      "Request fulfilled notifications \u2014 when a requested title appears in the Plex library the requester receives a bell, Discord, and/or Pushover notification; also triggers instantly via Plex webhook (register in Plex \u2192 Settings \u2192 Webhooks)",
+      "Discord and Pushover notifications now group into one bundled message per event (matching the bell), with the poster from the first title embedded full-width",
+      "Discord and Pushover sends are skipped if the user already read the bell notification before the delivery window",
+      "Discord: issue_new and issue_updated now default to enabled for existing configs; embed poster defaults to on; issue_updated added to shared-channel webhook",
+      "Pushover: request_available type added to admin notification settings"
+    ]
+  },
+  {
+    "version": "1.14.0",
+    "date": "2026-03-17",
+    "changes": [
+      "Global nav search bar \u2014 always-visible search input on desktop between the nav tabs and bell; on mobile collapses to a magnifying glass icon that expands to a full-width overlay bar",
+      "Nav search shows TMDB autocomplete suggestions and navigates to the full search results page",
+      "Search results page: library items now show the full detail modal including Cast to TV and Report Issue; non-library items show the request modal",
+      "Back button on search page now returns to the previous page, or falls back to the configured landing page",
+      "Search results no longer hang when Plex TV library is slow \u2014 stale DB items are served immediately while a background sync runs"
+    ]
+  },
+  {
+    "version": "1.13.1",
+    "date": "2026-03-17",
+    "changes": [
+      "Elevated users can now view, approve, deny, edit, and delete all queue requests \u2014 not just their own",
+      "Changelog modal now shows only the three most recent versions"
+    ]
+  },
+  {
+    "version": "1.13.0",
+    "date": "2026-03-17",
+    "changes": [
+      "Issue reporting \u2014 report problems with library items directly from the detail modal; TV shows have a scope selector (Entire Series / Specific Season / Specific Episode) with season and episode number inputs",
+      "Issues page at /issues \u2014 users see their own reports with scope, status, and a Details button; admins and elevated users see all issues with poster, reporter, scope, status, and full detail view",
+      "Issue details modal \u2014 shows full description, scope breakdown, reporter (admin view), status, and any admin note",
+      "Admins can resolve or close issues with an optional note, displayed inline below the title and in the details modal",
+      "Notifications: issue_new sent to admins/elevated users when an issue is reported; issue_updated sent to the reporter when status changes; clicking either notification navigates to /issues",
+      "Fix: bell notifications now mark as read immediately when clicked, before navigating away",
+      "Discord and Pushover: issue_new and issue_updated added to notification type lists in admin settings",
+      "User settings and admin per-user settings: notify_issue_update (all users) and notify_issue_new (elevated users) toggles added",
+      "Issues link added to nav menu between Queue and Admin"
+    ]
+  },
+  {
+    "version": "1.12.4",
+    "date": "2026-03-17",
+    "changes": [
+      "Discord bot avatar upload \u2014 admins can upload a custom PNG/JPG/GIF (128\u00d7128 recommended, max 2 MB) for the bot's identity, with live preview; or enter a direct URL as an alternative",
+      "Discord/Pushover notification enable toggles \u2014 now rendered as styled slide-toggles at the top of each credential block in per-user admin settings",
+      "Owner lock \u2014 when a user is designated as the server owner, their elevated privileges toggle is locked, checked, and labelled in per-user admin settings",
+      "Recommendation pre-warming \u2014 after each library sync, user recommendation caches are rebuilt in the background so page loads are instant",
+      "Fix: recommendation pre-warm logger reference error corrected"
+    ]
+  },
+  {
+    "version": "1.12.2",
+    "date": "2026-03-17",
+    "changes": [
+      "Request queue page \u2014 users can view and manage their own requests; admins can review, approve, deny (with optional note), edit, or delete all requests",
+      "Per-user settings page \u2014 users can set region, language, notification preferences, and auto-request watchlist options",
+      "Admin per-user settings panel \u2014 full per-user controls for request limits, auto-approve overrides, elevated privileges, and notification preferences",
+      "Notification system \u2014 in-app bell with dropdown, Discord webhook (per-user and global), and Pushover push notifications",
+      "Elevated privileges role \u2014 admin-level flag per user with toggle in admin user panel",
+      "Auto-request from watchlist \u2014 global setting with per-user overrides for movies and TV shows",
+      "Changelog modal \u2014 version badge in the About panel opens a changelog history popup",
+      "Desktop user button redesigned \u2014 compact button matching the mobile FAB style with dropdown menu",
+      "Discord mode selector redesigned as a slide toggle (Webhook \u2194 Bot Token) matching the site's toggle style",
+      "Bot mode shared-channel webhook option is now a toggle that reveals the URL field on demand",
+      "App Public URL setting moved to General Settings tab; enabling Discord bot mode without it set shows an error",
+      "Discord Server Invite Link \u2014 admins can set a non-expiring invite; users see a 'Join Server' prompt in their settings",
+      "Notification bell shows recent read notifications greyed out below unread; clicking 'Request available' navigates to the queue",
+      "Privileged user routing \u2014 elevated users receive admin-type notifications in addition to Plex admins",
+      "request_process_failed notification type added to Discord and Pushover agent type lists",
+      "Quality profile names persisted \u2014 saved profile name shown in the dropdown if Radarr/Sonarr is temporarily unreachable",
+      "Per-user admin settings page \u2014 action buttons for Re-sync Watched, Clear Watched, Clear Dismissals, Clear Requests",
+      "Themed checkboxes now consistent site-wide"
+    ]
+  }
+]

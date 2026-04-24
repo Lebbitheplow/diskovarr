@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Diskovarr — Issues</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#0f0f0f">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/style.css?v=51">
+  <link rel="stylesheet" href="/theme.css?c=<%= themeParam %>" id="theme-css">
+  <style>
+    .queue-page { max-width: 1100px; margin: 0 auto; padding: 0 16px 48px; }
+    .queue-hero { padding: 32px 0 24px; }
+    .queue-hero h1 { font-size: 1.6rem; font-weight: 700; margin: 0 0 6px; }
+    .queue-hero p { color: var(--text-secondary); margin: 0; font-size: 0.9rem; }
+    .queue-filter-row { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }
+    .queue-filter-btn { padding: 6px 16px; border-radius: 20px; border: 1px solid var(--border); background: var(--bg-secondary); color: var(--text-secondary); cursor: pointer; font-size: 0.85rem; transition: all 0.15s; }
+    .queue-filter-btn.active { background: var(--accent); border-color: var(--accent); color: #000; font-weight: 600; }
+    .queue-filter-btn:hover:not(.active) { border-color: var(--accent); color: var(--accent); }
+    .queue-table { width: 100%; border-collapse: collapse; }
+    .queue-table th { text-align: left; padding: 10px 12px; font-size: 0.75rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-secondary); border-bottom: 1px solid var(--border); }
+    .queue-table td { padding: 12px 12px; border-bottom: 1px solid var(--border); font-size: 0.88rem; vertical-align: middle; }
+    .queue-table tr:last-child td { border-bottom: none; }
+    .queue-poster { width: 40px; height: 60px; border-radius: 4px; object-fit: cover; background: var(--bg-elevated); flex-shrink: 0; }
+    .queue-poster-placeholder { width: 40px; height: 60px; border-radius: 4px; background: var(--bg-elevated); border: 1px solid var(--border); flex-shrink: 0; display: flex; align-items: center; justify-content: center; color: var(--text-secondary); font-size: 0.7rem; }
+    .queue-title-cell { display: flex; align-items: center; gap: 10px; }
+    .queue-title-info { display: flex; flex-direction: column; gap: 2px; }
+    .queue-title { font-weight: 500; }
+    .queue-user { font-size: 0.82rem; color: var(--text-secondary); }
+    .queue-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+    .btn-queue-approve { padding: 4px 12px; border-radius: 6px; border: none; background: rgba(0,200,100,0.15); color: #00c864; font-size: 0.82rem; font-weight: 600; cursor: pointer; transition: background 0.15s; }
+    .btn-queue-approve:hover { background: rgba(0,200,100,0.28); }
+    .btn-queue-deny { padding: 4px 12px; border-radius: 6px; border: none; background: rgba(229,160,13,0.12); color: #e5a00d; font-size: 0.82rem; font-weight: 600; cursor: pointer; transition: background 0.15s; }
+    .btn-queue-deny:hover { background: rgba(229,160,13,0.25); }
+    .btn-queue-delete { padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); background: transparent; color: var(--text-secondary); font-size: 0.82rem; cursor: pointer; transition: all 0.15s; }
+    .btn-queue-delete:hover { border-color: #ff5252; color: #ff5252; }
+    .queue-pagination { display: flex; align-items: center; gap: 10px; margin-top: 20px; font-size: 0.85rem; color: var(--text-secondary); }
+    .btn-page { padding: 5px 14px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-secondary); color: var(--text-secondary); cursor: pointer; font-size: 0.83rem; }
+    .btn-page:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+    .btn-page:disabled { opacity: 0.4; cursor: not-allowed; }
+    .queue-empty { text-align: center; padding: 48px 20px; color: var(--text-secondary); font-size: 0.9rem; }
+    .queue-loading { text-align: center; padding: 48px 20px; color: var(--text-secondary); }
+    .queue-toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: #1e1e1e; color: #fff; padding: 10px 20px; border-radius: 8px; font-size: 0.88rem; z-index: 9999; opacity: 0; transition: opacity 0.25s; pointer-events: none; border: 1px solid var(--border); }
+    .queue-toast.show { opacity: 1; }
+    .status-badge-open     { display:inline-block;padding:2px 8px;border-radius:10px;font-size:0.75rem;font-weight:600;background:rgba(229,160,13,0.15);color:#e5a00d;border:1px solid rgba(229,160,13,0.3); }
+    .status-badge-resolved { display:inline-block;padding:2px 8px;border-radius:10px;font-size:0.75rem;font-weight:600;background:rgba(0,200,100,0.12);color:#00c864;border:1px solid rgba(0,200,100,0.25); }
+    .status-badge-closed   { display:inline-block;padding:2px 8px;border-radius:10px;font-size:0.75rem;font-weight:600;background:rgba(150,150,150,0.12);color:#999;border:1px solid rgba(150,150,150,0.25); }
+    .scope-badge { display:inline-block;padding:1px 7px;border-radius:6px;font-size:0.72rem;font-weight:600;background:rgba(0,180,216,0.1);color:#00b4d8; }
+    .admin-note { font-size:0.78rem;color:var(--text-secondary);margin-top:2px;font-style:italic; }
+    .comment-count-badge { display:inline-block;margin-left:5px;padding:1px 6px;border-radius:8px;font-size:0.7rem;font-weight:600;background:rgba(0,180,216,0.12);color:#00b4d8; }
+    .comments-section { margin-top:16px;padding-top:14px;border-top:1px solid var(--border); }
+    .comments-list { display:flex;flex-direction:column;gap:10px;margin-bottom:12px; }
+    .comment-item { background:var(--bg-elevated);border-radius:7px;padding:10px 12px;font-size:0.85rem;border:1px solid var(--border); }
+    .comment-header { display:flex;align-items:center;gap:7px;margin-bottom:5px;font-size:0.78rem;color:var(--text-secondary); }
+    .comment-author { font-weight:600;color:var(--text-primary); }
+    .admin-badge { display:inline-block;padding:1px 5px;border-radius:4px;font-size:0.68rem;font-weight:700;background:rgba(229,160,13,0.15);color:#e5a00d;letter-spacing:0.04em; }
+    .comment-text { white-space:pre-wrap;line-height:1.5;color:var(--text); }
+    .comment-delete { margin-left:auto;background:none;border:none;color:var(--text-secondary);font-size:0.8rem;cursor:pointer;padding:1px 5px;border-radius:4px; }
+    .comment-delete:hover { color:#ff5252; }
+    .comment-input-row { display:flex;flex-direction:column;gap:7px; }
+    .comment-textarea { width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg-elevated);color:var(--text);font-size:0.85rem;resize:vertical;min-height:60px;font-family:inherit;box-sizing:border-box; }
+    .comment-submit-btn { align-self:flex-end;padding:5px 14px;border-radius:6px;border:none;background:rgba(0,180,216,0.18);color:#00b4d8;font-size:0.82rem;font-weight:600;cursor:pointer; }
+    .issue-description { font-size:0.78rem;color:var(--text-secondary);margin-top:2px;max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+    .edit-modal-backdrop { position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9000;display:none;align-items:center;justify-content:center; }
+    .edit-modal-backdrop.open { display:flex; }
+    .edit-modal-card { background:var(--bg-secondary);border:1px solid var(--border);border-radius:12px;padding:24px;width:min(460px,90vw);max-height:85vh;overflow-y:auto; }
+    .edit-modal-card h3 { margin:0 0 16px;font-size:1rem;font-weight:600; }
+    .edit-field-label { display:block;font-size:0.82rem;margin-bottom:5px;color:var(--text-secondary); }
+    .note-textarea { width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg-elevated);color:var(--text);font-size:0.88rem;resize:vertical;min-height:80px;font-family:inherit;box-sizing:border-box; }
+    .edit-modal-actions { display:flex;gap:8px;justify-content:flex-end;margin-top:16px; }
+    .details-row { display:flex;flex-direction:column;gap:3px;margin-bottom:14px; }
+    .details-label { font-size:0.75rem;font-weight:600;letter-spacing:0.05em;text-transform:uppercase;color:var(--text-secondary); }
+    .details-value { font-size:0.88rem; }
+    .details-description { font-size:0.88rem;white-space:pre-wrap;line-height:1.5; }
+    .table-scroll-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    @media (max-width: 600px) {
+      .queue-table th:nth-child(3), .queue-table td:nth-child(3) { display: none; }
+      .queue-table th:nth-child(4), .queue-table td:nth-child(4) { display: none; }
+      body { overflow-x: hidden; }
+    }
+  </style>
+</head>
+<body>
+  <%- include('partials/nav') %>
+
+  <div class="queue-page">
+    <div class="queue-hero">
+      <h1><%= isAdmin ? 'Issue Reports' : 'My Issues' %></h1>
+      <p><%= isAdmin ? 'Review and manage reported issues from all users.' : 'Issues you have reported about library items.' %></p>
+    </div>
+
+    <div id="queue-toast" class="queue-toast"></div>
+
+    <div class="queue-filter-row">
+      <button class="queue-filter-btn active" data-status="all">All</button>
+      <button class="queue-filter-btn" data-status="open">Open <span id="open-count-label"></span></button>
+      <button class="queue-filter-btn" data-status="resolved">Resolved</button>
+      <button class="queue-filter-btn" data-status="closed">Closed</button>
+    </div>
+
+    <div id="issues-container">
+      <div class="queue-loading">Loading issues...</div>
+    </div>
+
+    <div class="queue-pagination" id="issues-pagination" style="display:none">
+      <button class="btn-page" id="btn-prev-page" onclick="changePage(-1)">&#8249; Prev</button>
+      <span id="page-info"></span>
+      <button class="btn-page" id="btn-next-page" onclick="changePage(1)">Next &#8250;</button>
+      <select id="queue-per-page" onchange="onPerPageChange()" style="background:var(--bg-elevated);color:var(--text-secondary);border:1px solid var(--border);border-radius:20px;padding:5px 12px;font-size:0.85rem;cursor:pointer">
+        <option value="25">25 / page</option>
+        <option value="50">50 / page</option>
+        <option value="100">100 / page</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- Resolve / Close modal -->
+  <div class="edit-modal-backdrop" id="action-modal">
+    <div class="edit-modal-card">
+      <h3 id="action-modal-title">Resolve Issue</h3>
+      <div style="margin-bottom:14px">
+        <label class="edit-field-label">Optional note for the reporter</label>
+        <textarea id="action-modal-note" class="note-textarea" placeholder="Explain what was done or found..."></textarea>
+      </div>
+      <div class="edit-modal-actions">
+        <button class="btn-queue-delete" onclick="actionModalClose()">Cancel</button>
+        <button class="btn-queue-approve" id="action-modal-confirm" onclick="actionModalConfirm()">Confirm</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Details modal -->
+  <div class="edit-modal-backdrop" id="details-modal">
+    <div class="edit-modal-card">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+        <h3 id="details-modal-title" style="margin:0;font-size:1rem;font-weight:600;flex:1;padding-right:12px"></h3>
+        <button class="btn-queue-delete" onclick="detailsModalClose()" style="flex-shrink:0">✕</button>
+      </div>
+      <div id="details-modal-body"></div>
+    </div>
+  </div>
+
+  <script>
+    var IS_ADMIN = <%= isAdmin ? 'true' : 'false' %>;
+    var currentStatus = 'all';
+    var currentPage = 1;
+    var totalPages = 1;
+    var perPage = 25;
+    var _actionId = null;
+    var _actionType = null;
+
+    var STATUS_LABELS = { open: 'Open', resolved: 'Resolved', closed: 'Closed' };
+    var _issuesMap = {};
+
+    function showToast(msg, isError) {
+      var t = document.getElementById('queue-toast');
+      t.textContent = msg;
+      t.style.background = isError ? '#3a1a1a' : '#1e1e1e';
+      t.classList.add('show');
+      clearTimeout(t._timer);
+      t._timer = setTimeout(function () { t.classList.remove('show'); }, 3500);
+    }
+
+    function fmtDate(ts) {
+      if (!ts) return '';
+      var d = new Date(ts * 1000);
+      return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+    }
+
+    function escHtml(str) {
+      return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    function scopeLabel(issue) {
+      if (issue.media_type === 'movie') return 'Movie';
+      if (issue.scope === 'episode') return 'S' + (issue.scope_season || '?') + 'E' + (issue.scope_episode || '?');
+      if (issue.scope === 'season') return 'Season ' + (issue.scope_season || '?');
+      return 'Entire Series';
+    }
+
+    async function loadIssues(status, page) {
+      currentStatus = status || 'all';
+      currentPage = page || 1;
+      var container = document.getElementById('issues-container');
+      container.innerHTML = '<div class="queue-loading">Loading...</div>';
+      try {
+        var res = await fetch('/api/issues?status=' + encodeURIComponent(currentStatus) + '&page=' + currentPage + '&limit=' + perPage);
+        if (!res.ok) throw new Error('Failed to load issues');
+        var data = await res.json();
+        totalPages = data.totalPages || 1;
+        renderIssues(data);
+        updatePagination(data.page, data.totalPages, data.total);
+        updateOpenCount();
+      } catch (err) {
+        container.innerHTML = '<div class="queue-empty">Failed to load issues: ' + escHtml(err.message) + '</div>';
+      }
+    }
+
+    function renderIssues(data) {
+      var container = document.getElementById('issues-container');
+      if (!data.issues || data.issues.length === 0) {
+        container.innerHTML = '<div class="queue-empty">No issues found.</div>';
+        return;
+      }
+      _issuesMap = {};
+      data.issues.forEach(function(issue) { _issuesMap[issue.id] = issue; });
+
+      var html = '<table class="queue-table"><thead><tr>'
+        + '<th>Title</th>'
+        + (IS_ADMIN ? '<th>Reporter</th>' : '')
+        + '<th>Scope</th><th>Date</th><th>Status</th><th>Actions</th>'
+        + '</tr></thead><tbody>';
+
+      data.issues.forEach(function (issue) {
+        html += '<tr id="issue-row-' + issue.id + '">';
+        // Title cell
+        html += '<td><div class="queue-title-cell">';
+        if (issue.poster_path) {
+          html += '<img class="queue-poster" src="/api/poster?path=' + encodeURIComponent(issue.poster_path) + '" alt="" loading="lazy">';
+        } else {
+          html += '<div class="queue-poster-placeholder">?</div>';
+        }
+        html += '<div class="queue-title-info">';
+        html += '<div class="queue-title">' + escHtml(issue.title) + '</div>';
+        if (issue.description) {
+          html += '<div class="issue-description">' + escHtml(issue.description) + '</div>';
+        }
+        if (issue.admin_note) {
+          html += '<div class="admin-note">Note: ' + escHtml(issue.admin_note) + '</div>';
+        }
+        html += '</div></div></td>';
+        // Reporter (admin only)
+        if (IS_ADMIN) {
+          html += '<td class="queue-user">' + escHtml(issue.username || issue.user_id) + '</td>';
+        }
+        // Scope
+        html += '<td><span class="scope-badge">' + escHtml(scopeLabel(issue)) + '</span></td>';
+        // Date
+        html += '<td>' + fmtDate(issue.created_at) + '</td>';
+        // Status
+        html += '<td><span class="status-badge-' + escHtml(issue.status) + '">' + escHtml(STATUS_LABELS[issue.status] || issue.status) + '</span></td>';
+        // Actions
+        html += '<td><div class="queue-actions">';
+        html += '<button class="btn-page" onclick="viewDetails(' + issue.id + ')" style="font-size:0.82rem;padding:4px 10px">Details' + (issue._commentCount > 0 ? '<span class="comment-count-badge">' + issue._commentCount + '</span>' : '') + '</button>';
+        if (IS_ADMIN) {
+          if (issue.status === 'open') {
+            html += '<button class="btn-queue-approve" onclick="resolveIssue(' + issue.id + ')">Resolve</button>';
+            html += '<button class="btn-queue-deny" onclick="closeIssue(' + issue.id + ')">Close</button>';
+          }
+          html += '<button class="btn-queue-delete" onclick="deleteIssue(' + issue.id + ')">Delete</button>';
+        }
+        html += '</div></td>';
+        html += '</tr>';
+      });
+      html += '</tbody></table>';
+      container.innerHTML = '<div class="table-scroll-wrap">' + html + '</div>';
+    }
+
+    function updatePagination(page, pages, total) {
+      var pag = document.getElementById('issues-pagination');
+      if (!total) { pag.style.display = 'none'; return; }
+      pag.style.display = 'flex';
+      var prevBtn = document.getElementById('btn-prev-page');
+      var nextBtn = document.getElementById('btn-next-page');
+      prevBtn.style.display = pages > 1 ? '' : 'none';
+      nextBtn.style.display = pages > 1 ? '' : 'none';
+      document.getElementById('page-info').textContent = pages > 1 ? 'Page ' + page + ' of ' + pages + ' (' + total + ' total)' : total + ' total';
+      if (prevBtn) prevBtn.disabled = page <= 1;
+      if (nextBtn) nextBtn.disabled = page >= pages;
+    }
+
+    async function updateOpenCount() {
+      try {
+        var res = await fetch('/api/issues?status=open&page=1&limit=1');
+        if (res.ok) {
+          var data = await res.json();
+          var el = document.getElementById('open-count-label');
+          if (el) el.textContent = data.total > 0 ? '(' + data.total + ')' : '';
+        }
+      } catch {}
+    }
+
+    function onPerPageChange() {
+      perPage = parseInt(document.getElementById('queue-per-page').value) || 25;
+      loadIssues(currentStatus, 1);
+    }
+
+    function changePage(delta) {
+      var newPage = currentPage + delta;
+      if (newPage < 1 || newPage > totalPages) return;
+      loadIssues(currentStatus, newPage);
+    }
+
+    var _currentDetailIssueId = null;
+
+    async function viewDetails(id) {
+      var issue = _issuesMap[id];
+      if (!issue) return;
+      _currentDetailIssueId = id;
+      document.getElementById('details-modal-title').textContent = issue.title;
+      var body = '';
+      if (IS_ADMIN) {
+        body += '<div class="details-row"><div class="details-label">Reporter</div>'
+          + '<div class="details-value">' + escHtml(issue.username || issue.user_id) + '</div></div>';
+      }
+      body += '<div class="details-row"><div class="details-label">Scope</div>'
+        + '<div class="details-value"><span class="scope-badge">' + escHtml(scopeLabel(issue)) + '</span>';
+      if (issue.media_type !== 'movie') {
+        if (issue.scope === 'season' && issue.scope_season) {
+          body += ' <span style="font-size:0.82rem;color:var(--text-secondary)">Season ' + escHtml(String(issue.scope_season)) + '</span>';
+        } else if (issue.scope === 'episode') {
+          body += ' <span style="font-size:0.82rem;color:var(--text-secondary)">Season ' + escHtml(String(issue.scope_season || '?')) + ', Episode ' + escHtml(String(issue.scope_episode || '?')) + '</span>';
+        }
+      }
+      body += '</div></div>';
+      body += '<div class="details-row"><div class="details-label">Status</div>'
+        + '<div class="details-value"><span class="status-badge-' + escHtml(issue.status) + '">' + escHtml(STATUS_LABELS[issue.status] || issue.status) + '</span></div></div>';
+      body += '<div class="details-row"><div class="details-label">Reported</div>'
+        + '<div class="details-value">' + escHtml(fmtDate(issue.created_at)) + '</div></div>';
+      body += '<div class="details-row"><div class="details-label">Description</div>'
+        + '<div class="details-description">' + (issue.description ? escHtml(issue.description) : '<span style="color:var(--text-secondary);font-style:italic">No description provided.</span>') + '</div></div>';
+      if (issue.admin_note) {
+        body += '<div class="details-row" style="margin-top:4px;padding-top:12px;border-top:1px solid var(--border)">'
+          + '<div class="details-label">Admin Note</div>'
+          + '<div class="details-description">' + escHtml(issue.admin_note) + '</div></div>';
+      }
+      // Comments section
+      body += '<div class="comments-section">'
+        + '<div class="details-label" style="margin-bottom:10px">Comments</div>'
+        + '<div class="comments-list" id="comments-list-' + id + '"><div style="color:var(--text-secondary);font-size:0.82rem">Loading...</div></div>'
+        + '<div class="comment-input-row">'
+        + '<textarea class="comment-textarea" id="comment-input-' + id + '" placeholder="Add a comment..." rows="2"></textarea>'
+        + '<button class="comment-submit-btn" onclick="submitComment(' + id + ')">Add Comment</button>'
+        + '</div></div>';
+      document.getElementById('details-modal-body').innerHTML = body;
+      document.getElementById('details-modal').classList.add('open');
+      loadComments(id);
+    }
+
+    async function loadComments(issueId) {
+      var listEl = document.getElementById('comments-list-' + issueId);
+      if (!listEl) return;
+      try {
+        var res = await fetch('/api/issues/' + issueId + '/comments');
+        if (!res.ok) throw new Error('Failed');
+        var data = await res.json();
+        renderComments(issueId, data.comments || []);
+      } catch (err) {
+        if (listEl) listEl.innerHTML = '<div style="color:var(--text-secondary);font-size:0.82rem">Failed to load comments.</div>';
+      }
+    }
+
+    function renderComments(issueId, comments) {
+      var listEl = document.getElementById('comments-list-' + issueId);
+      if (!listEl) return;
+      if (!comments || comments.length === 0) {
+        listEl.innerHTML = '<div style="color:var(--text-secondary);font-size:0.82rem;font-style:italic">No comments yet.</div>';
+        return;
+      }
+      listEl.innerHTML = comments.map(function(c) {
+        return '<div class="comment-item" id="comment-' + c.id + '">'
+          + '<div class="comment-header">'
+          + '<span class="comment-author">' + escHtml(c.display_name || c.user_id) + '</span>'
+          + (c.is_admin ? '<span class="admin-badge">Admin</span>' : '')
+          + '<span>' + escHtml(fmtDate(c.created_at)) + '</span>'
+          + (IS_ADMIN ? '<button class="comment-delete" onclick="deleteComment(' + issueId + ',' + c.id + ')" title="Delete">&#215;</button>' : '')
+          + '</div>'
+          + '<div class="comment-text">' + escHtml(c.comment) + '</div>'
+          + '</div>';
+      }).join('');
+    }
+
+    async function submitComment(issueId) {
+      var inputEl = document.getElementById('comment-input-' + issueId);
+      if (!inputEl) return;
+      var text = inputEl.value.trim();
+      if (!text) return;
+      if (text.length > 1000) { showToast('Comment too long (max 1000 chars)', true); return; }
+      inputEl.disabled = true;
+      try {
+        var res = await fetch('/api/issues/' + issueId + '/comments', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ comment: text }),
+        });
+        var data = await res.json();
+        if (!res.ok || !data.success) throw new Error(data.error || 'Failed');
+        inputEl.value = '';
+        loadComments(issueId);
+      } catch (err) {
+        showToast('Error: ' + err.message, true);
+      }
+      inputEl.disabled = false;
+    }
+
+    async function deleteComment(issueId, commentId) {
+      if (!confirm('Delete this comment?')) return;
+      try {
+        var res = await fetch('/api/issues/' + issueId + '/comments/' + commentId, { method: 'DELETE' });
+        var data = await res.json();
+        if (!res.ok || !data.success) throw new Error(data.error || 'Failed');
+        var el = document.getElementById('comment-' + commentId);
+        if (el) el.remove();
+      } catch (err) {
+        showToast('Error: ' + err.message, true);
+      }
+    }
+
+    function detailsModalClose() {
+      document.getElementById('details-modal').classList.remove('open');
+    }
+
+    function resolveIssue(id) {
+      _actionId = id;
+      _actionType = 'resolve';
+      document.getElementById('action-modal-title').textContent = 'Resolve Issue';
+      document.getElementById('action-modal-note').value = '';
+      document.getElementById('action-modal').classList.add('open');
+    }
+
+    function closeIssue(id) {
+      _actionId = id;
+      _actionType = 'close';
+      document.getElementById('action-modal-title').textContent = 'Close Issue';
+      document.getElementById('action-modal-note').value = '';
+      document.getElementById('action-modal').classList.add('open');
+    }
+
+    function actionModalClose() {
+      document.getElementById('action-modal').classList.remove('open');
+      _actionId = null;
+      _actionType = null;
+    }
+
+    async function actionModalConfirm() {
+      if (!_actionId || !_actionType) return;
+      var confirmBtn = document.getElementById('action-modal-confirm');
+      confirmBtn.disabled = true;
+      var id = _actionId;
+      var type = _actionType;
+      actionModalClose();
+      if (type === 'delete') {
+        await _doDeleteIssue(id);
+      } else {
+        var note = document.getElementById('action-modal-note').value.trim() || null;
+        try {
+          var res = await fetch('/api/issues/' + id + '/' + type, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ note: note }),
+          });
+          var data = await res.json();
+          if (!res.ok || !data.success) throw new Error(data.error || 'Action failed');
+          showToast('Issue ' + type + 'd');
+          var row = document.getElementById('issue-row-' + id);
+          if (row) row.remove();
+        } catch (err) {
+          showToast('Error: ' + err.message, true);
+        }
+      }
+      confirmBtn.disabled = false;
+    }
+
+    function deleteIssue(id) {
+      _actionId = id;
+      _actionType = 'delete';
+      document.getElementById('action-modal-title').textContent = 'Delete Issue';
+      document.getElementById('action-modal-note').value = '';
+      document.getElementById('action-modal-note').placeholder = 'Optional note (not saved)';
+      document.getElementById('action-modal').classList.add('open');
+    }
+
+    async function _doDeleteIssue(id) {
+      try {
+        var res = await fetch('/api/issues/' + id, { method: 'DELETE' });
+        var data = await res.json();
+        if (!res.ok || !data.success) throw new Error(data.error || 'Delete failed');
+        showToast('Issue deleted');
+        var row = document.getElementById('issue-row-' + id);
+        if (row) row.remove();
+      } catch (err) {
+        showToast('Error: ' + err.message, true);
+      }
+    }
+
+    // Close modals on backdrop click
+    document.getElementById('action-modal').addEventListener('click', function (e) {
+      if (e.target === this) actionModalClose();
+    });
+    document.getElementById('details-modal').addEventListener('click', function (e) {
+      if (e.target === this) detailsModalClose();
+    });
+
+    // Filter buttons
+    document.querySelectorAll('.queue-filter-btn').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        document.querySelectorAll('.queue-filter-btn').forEach(function (b) { b.classList.remove('active'); });
+        btn.classList.add('active');
+        loadIssues(btn.dataset.status, 1);
+      });
+    });
+
+    // Initial load + refresh open count every 30s
+    loadIssues('all', 1);
+    setInterval(updateOpenCount, 30000);
+  </script>
+</body>
+</html>

@@ -1,0 +1,22 @@
+{
+  "name": "diskovarr",
+  "version": "1.17.12",
+  "description": "Personalized Plex content recommendations powered by your watch history",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "ejs": "^3.1.9",
+    "express": "^4.18.3",
+    "express-ejs-layouts": "^2.5.1",
+    "express-rate-limit": "^8.3.0",
+    "express-session": "^1.18.0"
+  },
+  "engines": {
+    "node": ">=23.4.0"
+  },
+  "license": "MIT"
+}

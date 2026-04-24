@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Diskovarr — Connecting...</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/style.css?v=51">
+</head>
+<body class="login-body">
+  <div class="login-container">
+    <div class="login-card">
+      <div class="login-logo">
+        <span class="logo-icon">◈</span>
+        <span class="logo-text">Diskovarr</span>
+      </div>
+
+      <div class="poll-spinner">
+        <div class="spinner"></div>
+      </div>
+
+      <p id="poll-status" class="poll-status">Connecting to Plex...</p>
+      <p id="poll-sub" class="poll-sub">Waiting for authorization in the Plex window</p>
+
+      <div id="poll-retry" class="poll-retry" style="display:none">
+        <a href="/auth/plex" class="btn-plex">Try Again</a>
+      </div>
+    </div>
+  </div>
+  <script src="/js/auth-poll.js"></script>
+  <script>
+    // After auth, redirect to the React app on port 3002
+    (function() {
+      var origRedirect = null;
+      var reactAppUrl = 'http://localhost:3002/';
+      var originalLocation = window.location;
+
+      // Wrap setTimeout to catch the landing redirect
+      var origSetTimeout = window.setTimeout;
+      window.setTimeout = function(fn, delay) {
+        if (typeof fn === 'string' && fn.includes('landingUrl')) {
+          // This is the polling timeout that does the redirect — intercept it
+          window.location.href = reactAppUrl;
+          return;
+        }
+        return origSetTimeout(fn, delay);
+      };
+    })();
+  </script>
+</body>
+</html>

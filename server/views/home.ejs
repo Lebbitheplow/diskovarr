@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Diskovarr</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <%- include('partials/pwa-head') %>
+  <meta name="description" content="Personalized Plex recommendations based on your watch history.">
+  <meta property="og:site_name" content="Diskovarr">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Diskovarr">
+  <meta property="og:description" content="Personalized Plex recommendations based on your watch history.">
+  <meta property="og:image" content="/og-image.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/style.css?v=51">
+  <link rel="stylesheet" href="/theme.css?c=<%= themeParam %>">
+</head>
+<body>
+  <%- include('partials/nav', { username, thumb, currentPath }) %>
+
+  <main class="main-content">
+    <div class="hero">
+      <h1 class="hero-title">Welcome back, <span class="accent"><%= username %></span></h1>
+      <p class="hero-sub">Personalized picks based on your watch history</p>
+      <div class="hero-controls hero-controls-split">
+        <label class="toggle-label">
+          <input type="checkbox" id="mature-toggle" class="toggle-checkbox">
+          <span class="toggle-switch"></span>
+          <span class="toggle-text">Show mature content <span style="opacity:0.55;font-size:0.82em;font-weight:400">(R &amp; TV-MA)</span></span>
+        </label>
+        <button type="button" id="btn-shuffle-all" class="btn-shuffle-all" title="Refresh picks">↺</button>
+      </div>
+    </div>
+
+    <!-- Top Picks -->
+    <section class="section" id="section-top-picks">
+      <div class="section-header">
+        <h2 class="section-title">Top Picks for You</h2>
+        <span class="section-badge">Personalized</span>
+      </div>
+      <div class="carousel-wrap">
+        <button class="carousel-arrow carousel-arrow-prev" aria-label="Previous" disabled>❮</button>
+        <div class="card-grid skeleton-grid" id="grid-top-picks">
+          <% for(let i = 0; i < 12; i++) { %>
+            <div class="card card-skeleton">
+              <div class="skeleton-poster shimmer"></div>
+              <div class="skeleton-info">
+                <div class="skeleton-line shimmer" style="width:80%"></div>
+                <div class="skeleton-line shimmer" style="width:50%"></div>
+              </div>
+            </div>
+          <% } %>
+        </div>
+        <button class="carousel-arrow carousel-arrow-next" aria-label="Next">❯</button>
+      </div>
+    </section>
+
+    <!-- Movies -->
+    <section class="section" id="section-movies">
+      <div class="section-header">
+        <h2 class="section-title">Movies</h2>
+      </div>
+      <div class="carousel-wrap">
+        <button class="carousel-arrow carousel-arrow-prev" aria-label="Previous" disabled>❮</button>
+        <div class="card-grid skeleton-grid" id="grid-movies">
+          <% for(let i = 0; i < 12; i++) { %>
+            <div class="card card-skeleton">
+              <div class="skeleton-poster shimmer"></div>
+              <div class="skeleton-info">
+                <div class="skeleton-line shimmer" style="width:70%"></div>
+                <div class="skeleton-line shimmer" style="width:40%"></div>
+              </div>
+            </div>
+          <% } %>
+        </div>
+        <button class="carousel-arrow carousel-arrow-next" aria-label="Next">❯</button>
+      </div>
+    </section>
+
+    <!-- TV Shows -->
+    <section class="section" id="section-tv">
+      <div class="section-header">
+        <h2 class="section-title">TV Shows</h2>
+      </div>
+      <div class="carousel-wrap">
+        <button class="carousel-arrow carousel-arrow-prev" aria-label="Previous" disabled>❮</button>
+        <div class="card-grid skeleton-grid" id="grid-tv">
+          <% for(let i = 0; i < 12; i++) { %>
+            <div class="card card-skeleton">
+              <div class="skeleton-poster shimmer"></div>
+              <div class="skeleton-info">
+                <div class="skeleton-line shimmer" style="width:75%"></div>
+                <div class="skeleton-line shimmer" style="width:45%"></div>
+              </div>
+            </div>
+          <% } %>
+        </div>
+        <button class="carousel-arrow carousel-arrow-next" aria-label="Next">❯</button>
+      </div>
+    </section>
+
+    <!-- Anime -->
+    <section class="section" id="section-anime">
+      <div class="section-header">
+        <h2 class="section-title">Anime</h2>
+      </div>
+      <div class="carousel-wrap">
+        <button class="carousel-arrow carousel-arrow-prev" aria-label="Previous" disabled>❮</button>
+        <div class="card-grid skeleton-grid" id="grid-anime">
+          <% for(let i = 0; i < 12; i++) { %>
+            <div class="card card-skeleton">
+              <div class="skeleton-poster shimmer"></div>
+              <div class="skeleton-info">
+                <div class="skeleton-line shimmer" style="width:65%"></div>
+                <div class="skeleton-line shimmer" style="width:35%"></div>
+              </div>
+            </div>
+          <% } %>
+        </div>
+        <button class="carousel-arrow carousel-arrow-next" aria-label="Next">❯</button>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    // Inject minimal config — NO tokens or API keys
+    window.DISKOVARR = {
+      userId: "<%= userId %>",
+      showMature: <%= showMature ? 'true' : 'false' %>
+    };
+
+    // Show sync toast on first login
+    if (new URLSearchParams(window.location.search).get('welcome') === '1') {
+      history.replaceState({}, '', '/');
+      window.addEventListener('DOMContentLoaded', function () {
+        // Reuse the watchlist toast infrastructure once watchlist.js loads
+        // but also fire immediately via a simple inline toast
+        var toast = document.createElement('div');
+        toast.id = 'wl-toast';
+        toast.className = 'wl-toast wl-toast-sync wl-toast-show';
+        toast.textContent = 'Syncing your watch history in the background...';
+        document.body.appendChild(toast);
+        setTimeout(function () { toast.classList.remove('wl-toast-show'); }, 5000);
+      });
+    }
+  </script>
+  <script src="/js/watchlist.js?v=8"></script>
+  <script src="/js/app.js?v=33"></script>
+</body>
+</html>

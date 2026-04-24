@@ -1,0 +1,10 @@
+.env
+data/
+data-react/
+node_modules/
+*.bak
+*.bak2
+agent.md
+DESIGN.md
+DESIGN-v1.1.md
+server-test.js

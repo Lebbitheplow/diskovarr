@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Diskovarr — Sign In</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <meta name="description" content="Personalized Plex recommendations based on your watch history.">
+  <meta property="og:site_name" content="Diskovarr">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Diskovarr">
+  <meta property="og:description" content="Personalized Plex recommendations based on your watch history.">
+  <meta property="og:image" content="/og-image.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/style.css?v=51">
+  <link rel="stylesheet" href="/theme.css">
+</head>
+<body class="login-body">
+  <div class="login-container">
+    <div class="login-card">
+      <div class="login-logo">
+        <span class="logo-icon">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="1em" height="1em" fill="none" aria-hidden="true">
+            <rect x="0.5" y="17.5" width="13" height="1.5" rx="0.5" fill="currentColor"/>
+            <rect x="1" y="8.5" width="2.5" height="9" rx="0.4" fill="currentColor"/>
+            <rect x="4.5" y="11" width="3" height="6.5" rx="0.4" fill="currentColor"/>
+            <rect x="8.5" y="10" width="2.5" height="7.5" rx="0.4" fill="currentColor"/>
+            <circle cx="15" cy="9" r="5" stroke="currentColor" stroke-width="2"/>
+            <line x1="18.5" y1="12.5" x2="22" y2="16" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+          </svg>
+        </span>
+        <span class="logo-text">Diskovarr</span>
+      </div>
+      <p class="login-tagline">Your Plex. Personalized.</p>
+      <p class="login-description">
+        Sign in with your Plex account to get personalized recommendations based on your watch history.
+      </p>
+
+      <% if (error === 'plex_unreachable') { %>
+        <div class="error-banner">Could not reach Plex. Please try again.</div>
+      <% } else if (error === 'no_access') { %>
+        <div class="error-banner">Your account doesn't have access to this Plex server.</div>
+      <% } %>
+
+      <button id="btn-plex" class="btn-plex" onclick="signInWithPlex()">
+        <svg class="plex-icon" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M11.97 0C5.356 0 0 5.357 0 11.97c0 6.615 5.357 11.97 11.97 11.97 6.614 0 11.97-5.356 11.97-11.97C23.94 5.356 18.583 0 11.97 0zm.581 17.725H9.847V6.275h2.704l4.597 7.096V6.275h2.704v11.45h-2.704l-4.597-7.097v7.097z"/>
+        </svg>
+        <span id="btn-plex-label">Sign in with Plex</span>
+      </button>
+
+      <script>
+        async function signInWithPlex() {
+          var btn = document.getElementById('btn-plex');
+          var label = document.getElementById('btn-plex-label');
+          btn.disabled = true;
+          label.textContent = 'Connecting...';
+
+          try {
+            var res = await fetch('https://plex.tv/api/v2/pins', {
+              method: 'POST',
+              headers: {
+                'Accept': 'application/json',
+                'X-Plex-Client-Identifier': 'diskovarr-app',
+                'X-Plex-Product': 'Diskovarr',
+                'X-Plex-Version': '1.0.0',
+                'X-Plex-Platform': 'Web',
+                'Content-Type': 'application/x-www-form-urlencoded',
+              },
+              body: 'strong=true',
+            });
+
+            if (!res.ok) throw new Error('PIN creation failed');
+            var pin = await res.json();
+
+            var forwardUrl = '<%= appUrl %>/auth/callback?pinId=' + pin.id + '&pinCode=' + encodeURIComponent(pin.code);
+            var authUrl = 'https://app.plex.tv/auth#?clientID=diskovarr-app&code=' + pin.code
+              + '&forwardUrl=' + encodeURIComponent(forwardUrl)
+              + '&context%5Bdevice%5D%5Bproduct%5D=Diskovarr';
+
+            window.location.href = authUrl;
+          } catch (err) {
+            btn.disabled = false;
+            label.textContent = 'Sign in with Plex';
+            alert('Could not reach Plex. Please try again.');
+          }
+        }
+      </script>
+
+      <p class="login-footer">
+        Recommendations are built from your personal watch history.<br>
+        No data is shared or stored externally.
+      </p>
+    </div>
+  </div>
+</body>
+</html>
