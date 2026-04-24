@@ -75,7 +75,7 @@ function PosterBackground({ posters }) {
             >
               {items.map((poster, pi) => (
                 <div key={`${ci}-${pi}`} className="poster-col-item">
-                  <img src={poster.url} alt="" draggable={false} loading="lazy" />
+                  <img src={poster.url} alt="" draggable={false} />
                 </div>
               ))}
             </div>
