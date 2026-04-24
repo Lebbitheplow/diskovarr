@@ -3,6 +3,7 @@ import {
   plexApi,
   watchlistApi,
   issuesApi,
+  exploreApi,
 } from '../services/api'
 import { useToast } from '../context/ToastContext'
 
@@ -191,7 +192,7 @@ function ReportIssueForm({ item }) {
   )
 }
 
-export default function DetailModal({ item, onClose, onRefresh }) {
+export default function DetailModal({ item, onClose, onRefresh, onRequest, onNotify }) {
   const [trailerKey, setTrailerKey] = useState(null)
   const [trailerLoading, setTrailerLoading] = useState(false)
   const [inWatchlist, setInWatchlist] = useState(item?.isInWatchlist || false)
@@ -200,6 +201,8 @@ export default function DetailModal({ item, onClose, onRefresh }) {
   const [clients, setClients] = useState([])
   const trailerRef = useRef(null)
   const { success, error: toastError } = useToast()
+
+  const inLibrary = item?.inLibrary ?? !!item?.ratingKey
 
   const handleWatchlist = useCallback(async () => {
     try {
@@ -220,13 +223,34 @@ export default function DetailModal({ item, onClose, onRefresh }) {
 
   const handleDismiss = useCallback(async () => {
     try {
-      await plexApi.dismissItem(item.ratingKey)
-      if (onRefresh) onRefresh(item.ratingKey)
+      if (inLibrary) {
+        await plexApi.dismissItem(item.ratingKey)
+        if (onRefresh) onRefresh(item.ratingKey)
+      } else {
+        await exploreApi.dismissRecommendation(item.tmdbId, item.mediaType)
+      }
       onClose()
     } catch (e) {
       toastError(e.message || 'Dismiss failed')
     }
-  }, [item?.ratingKey, onClose, onRefresh, toastError])
+  }, [item?.ratingKey, item?.tmdbId, item?.mediaType, inLibrary, onClose, onRefresh, toastError])
+
+  const handleNotify = useCallback(async () => {
+    try {
+      await exploreApi.followRecommendation(item.tmdbId, item.mediaType)
+      success('You\'ll be notified when ' + item.title + ' is available')
+      onClose()
+    } catch (e) {
+      toastError(e.message || 'Notify failed')
+    }
+  }, [item?.tmdbId, item?.mediaType, item?.title, success, toastError, onClose])
+
+  const handleRequest = useCallback(() => {
+    if (onRequest) {
+      onRequest(item)
+      onClose()
+    }
+  }, [onRequest, item, onClose])
 
   const handleCastClick = useCallback(async () => {
     if (castOpen) {
@@ -256,7 +280,10 @@ export default function DetailModal({ item, onClose, onRefresh }) {
   }, [item?.ratingKey, success, toastError])
 
   useEffect(() => {
-    if (!item?.tmdbId) return
+    if (!item?.tmdbId || !inLibrary) {
+      setTrailerKey(null)
+      return
+    }
     const mt = item.type === 'movie' || item.mediaType === 'movie' ? 'movie' : 'tv'
     setTrailerLoading(true)
     plexApi.getTrailer(item.tmdbId, mt)
@@ -272,7 +299,7 @@ export default function DetailModal({ item, onClose, onRefresh }) {
         trailerRef.current.classList.remove('active')
       }
     }
-  }, [item?.tmdbId])
+  }, [item?.tmdbId, inLibrary])
 
   const handleClose = useCallback(() => {
     if (trailerRef.current) {
@@ -349,28 +376,48 @@ export default function DetailModal({ item, onClose, onRefresh }) {
               )}
             </div>
             <div className="detail-modal-actions">
-              <button className={'modal-btn modal-btn-watchlist' + (inWatchlist ? ' in-watchlist' : '')} onClick={handleWatchlist}>
-                {inWatchlist ? '✓ In Watchlist' : '+ Watchlist'}
-              </button>
-              {item.ratingKey && (
-                <div className="modal-cast-wrap">
-                  <button className="modal-btn modal-btn-cast" onClick={handleCastClick} disabled={castLoading} style={{ display: castLoading ? 'flex' : 'inline-flex' }}>
-                    {castLoading ? '…' : CAST_ICON}
+              {inLibrary ? (
+                <>
+                  <button className={'modal-btn modal-btn-watchlist' + (inWatchlist ? ' in-watchlist' : '')} onClick={handleWatchlist}>
+                    {inWatchlist ? '✓ In Watchlist' : '+ Watchlist'}
                   </button>
-                  {castOpen && !castLoading && (
-                    <div className="modal-cast-picker">
-                      {clients.length === 0 && <span className="cast-no-clients">No Plex clients found.<br />Open your Plex app on your TV first.</span>}
-                      {clients.map(client => (
-                        <button key={client.machineIdentifier} className="cast-client-btn" onClick={() => handleCastMedia(client)}>
-                          {client.name}{client.product ? ' · ' + client.product : ''}
-                        </button>
-                      ))}
+                  {item.ratingKey && (
+                    <div className="modal-cast-wrap">
+                      <button className="modal-btn modal-btn-cast" onClick={handleCastClick} disabled={castLoading} style={{ display: castLoading ? 'flex' : 'inline-flex' }}>
+                        {castLoading ? '…' : CAST_ICON}
+                      </button>
+                      {castOpen && !castLoading && (
+                        <div className="modal-cast-picker">
+                          {clients.length === 0 && <span className="cast-no-clients">No Plex clients found.<br />Open your Plex app on your TV first.</span>}
+                          {clients.map(client => (
+                            <button key={client.machineIdentifier} className="cast-client-btn" onClick={() => handleCastMedia(client)}>
+                              {client.name}{client.product ? ' · ' + client.product : ''}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
-                </div>
+                  <button className="modal-btn modal-btn-dismiss" onClick={handleDismiss}>✕ Not Interested</button>
+                  <ReportIssueForm item={item} />
+                </>
+              ) : (
+                <>
+                  <button
+                    className={'modal-btn modal-btn-watchlist' + (item.isRequested ? ' in-watchlist' : '')}
+                    onClick={item.isRequested ? handleNotify : handleRequest}
+                    style={{ background: item.isRequested ? 'rgba(255,193,7,0.12)' : 'rgba(0,180,216,0.18)', color: item.isRequested ? '#ffc107' : '#00b4d8' }}
+                  >
+                    {item.isRequested ? 'Notify Me' : 'Request'}
+                  </button>
+                  <button className="modal-btn modal-btn-dismiss" onClick={handleDismiss}>✕ Not Interested</button>
+                  {item.tmdbId && (
+                    <a className="modal-btn modal-btn-dismiss" href={`https://www.themoviedb.org/${item.mediaType === 'tv' ? 'tv' : 'movie'}/${item.tmdbId}`} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none', cursor: 'pointer' }}>
+                      View on TMDB
+                    </a>
+                  )}
+                </>
               )}
-              <button className="modal-btn modal-btn-dismiss" onClick={handleDismiss}>✕ Not Interested</button>
-              {item.ratingKey && <ReportIssueForm item={item} />}
             </div>
           </div>
         </div>
