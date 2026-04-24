@@ -89,6 +89,9 @@ app.use(session({
   },
 }))
 
+// Public API routes
+app.use('/api/login', require('./routes/login'))
+
 // API routes
 app.use('/auth', require('./routes/auth'))
 app.use('/api/v1', require('./routes/overseerrShim'))

@@ -1267,10 +1267,13 @@ img {
   align-items: center;
   justify-content: center;
   min-height: 100vh;
-  background: radial-gradient(ellipse at 50% 0%, var(--accent-glow) 0%, var(--bg-primary) 60%);
+  background: var(--bg-primary);
+  position: relative;
 }
 
 .login-container {
+  position: relative;
+  z-index: 2;
   width: 100%;
   max-width: 420px;
   padding: 24px;
@@ -1360,6 +1363,79 @@ img {
   padding: 10px 16px;
   font-size: 0.85rem;
   margin-bottom: 20px;
+}
+
+/* ============================================================
+   Login Poster Background — Scrolling Columns
+   ============================================================ */
+.poster-background {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.poster-columns {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  gap: 10px;
+  padding: 0 5px;
+}
+
+.poster-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  animation: poster-scroll calc(var(--scroll-duration, 45s)) linear infinite;
+  will-change: transform;
+}
+
+.poster-col:nth-child(even) {
+  animation-direction: reverse;
+}
+
+.poster-col-item {
+  flex-shrink: 0;
+}
+
+.poster-col-item img {
+  width: 100%;
+  aspect-ratio: 2 / 3;
+  object-fit: cover;
+  border-radius: 6px;
+  opacity: 0.46;
+  filter: brightness(0.65) saturate(0.85);
+  display: block;
+}
+
+.poster-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background:
+    radial-gradient(ellipse 70% 60% at 50% 50%, rgba(15,15,15,0.82) 0%, rgba(15,15,15,0.35) 100%),
+    linear-gradient(180deg,
+      rgba(15,15,15,0.95) 0%,
+      rgba(15,15,15,0.2) 15%,
+      rgba(15,15,15,0.0) 40%,
+      rgba(15,15,15,0.0) 60%,
+      rgba(15,15,15,0.2) 85%,
+      rgba(15,15,15,0.95) 100%
+    ),
+    linear-gradient(90deg,
+      rgba(15,15,15,0.8) 0%,
+      rgba(15,15,15,0.0) 20%,
+      rgba(15,15,15,0.0) 80%,
+      rgba(15,15,15,0.8) 100%
+    );
+}
+
+@keyframes poster-scroll {
+  from { transform: translateY(0); }
+  to   { transform: translateY(-50%); }
 }
 
 /* ============================================================

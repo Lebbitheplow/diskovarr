@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react'
+import React, { useState, useCallback, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useToast } from '../context/ToastContext'
 
@@ -19,11 +19,89 @@ const PLEX_ICON = (
   </svg>
 )
 
+const NUM_COLS = 7
+
+// Speed and direction per column — alternating up/down at varied speeds
+const COL_CONFIGS = [
+  { duration: 52, reverse: false },
+  { duration: 38, reverse: true  },
+  { duration: 44, reverse: false },
+  { duration: 60, reverse: true  },
+  { duration: 34, reverse: false },
+  { duration: 48, reverse: true  },
+  { duration: 56, reverse: false },
+]
+
+function seededShuffle(arr, seed) {
+  let s = seed
+  const rng = () => { s = (s * 16807) % 2147483647; return (s - 1) / 2147483646 }
+  const a = [...arr]
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]]
+  }
+  return a
+}
+
+function PosterBackground({ posters }) {
+  const shuffled = useMemo(() => seededShuffle(posters, 42), [posters])
+
+  const columns = useMemo(() => {
+    if (!shuffled.length) return []
+    const perCol = Math.ceil(shuffled.length / NUM_COLS)
+    return Array.from({ length: NUM_COLS }, (_, i) =>
+      shuffled.slice(i * perCol, (i + 1) * perCol)
+    ).filter(col => col.length > 0)
+  }, [shuffled])
+
+  if (!columns.length) return null
+
+  return (
+    <div className="poster-background" aria-hidden="true">
+      <div className="poster-columns">
+        {columns.map((col, ci) => {
+          const { duration, reverse } = COL_CONFIGS[ci] || COL_CONFIGS[0]
+          // Duplicate for seamless infinite scroll
+          const items = [...col, ...col]
+          return (
+            <div
+              key={ci}
+              className="poster-col"
+              style={{
+                '--scroll-duration': `${duration}s`,
+                '--scroll-dir': reverse ? '1' : '-1',
+                animationDirection: reverse ? 'reverse' : 'normal',
+              }}
+            >
+              {items.map((poster, pi) => (
+                <div key={`${ci}-${pi}`} className="poster-col-item">
+                  <img src={poster.url} alt="" draggable={false} loading="lazy" />
+                </div>
+              ))}
+            </div>
+          )
+        })}
+      </div>
+      <div className="poster-overlay" />
+    </div>
+  )
+}
+
 export default function Login() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  const [posters, setPosters] = useState([])
   const navigate = useNavigate()
   const { error: toastError } = useToast()
+
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/login/posters', { signal: AbortSignal.timeout(15000) })
+      .then(res => res.json())
+      .then(data => { if (!cancelled) setPosters(data.posters || []) })
+      .catch(err => { if (err.name !== 'AbortError') console.warn('Failed to load login posters:', err.message) })
+    return () => { cancelled = true }
+  }, [])
 
   const handlePlexLogin = useCallback(async () => {
     setLoading(true)
@@ -33,7 +111,6 @@ export default function Login() {
         method: 'POST',
         signal: AbortSignal.timeout(15000),
       })
-
       if (!res.ok) throw new Error(`PIN creation failed: ${res.status}`)
       const pin = await res.json()
 
@@ -44,7 +121,6 @@ export default function Login() {
 
       window.location.href = authUrl
 
-      // Safety reset: if navigation doesn't leave the page within 10 seconds, re-enable the button
       setTimeout(() => {
         setLoading(false)
         setError('plex_unreachable')
@@ -58,6 +134,7 @@ export default function Login() {
 
   return (
     <div className="login-body">
+      <PosterBackground posters={posters} />
       <div className="login-container">
         <div className="login-card">
           <div className="login-logo">
