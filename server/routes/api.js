@@ -1569,6 +1569,12 @@ router.post('/notifications/read', (req, res) => {
   res.json({ ok: true });
 });
 
+router.post('/notifications/read-all', (req, res) => {
+  const userId = req.session.plexUser.id;
+  db.markNotificationsRead(userId, null);
+  res.json({ ok: true });
+});
+
 router.delete('/notifications/:id', (req, res) => {
   const userId = req.session.plexUser.id;
   db.deleteNotification(userId, req.params.id);

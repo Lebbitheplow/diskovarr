@@ -270,7 +270,8 @@ export default function Explore() {
         }
       })
     } catch (e) {
-      toastError(e.message || 'Request failed')
+      const msg = e.response?.data?.error || e.response?.data?.message || e.message || 'Request failed'
+      toastError(msg)
     }
   }, [requestItem, selectedSeasons, toastSuccess, toastError, services])
 

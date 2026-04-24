@@ -90,7 +90,7 @@ export default function NavigationBar() {
     try {
       await notificationsApi.markAsRead({ ids: [id] })
       setBellCount((c) => Math.max(0, c - 1))
-      setNotifications((ns) => ns.filter((n) => n.id !== id))
+      setNotifications((ns) => ns.map((n) => n.id === id ? { ...n, read: true } : n))
     } catch { /* ignore */ }
   }
 
@@ -98,8 +98,7 @@ export default function NavigationBar() {
     try {
       await notificationsApi.markAllAsRead()
       setBellCount(0)
-      setNotifications([])
-      showToast('All notifications marked as read', 'info')
+      setNotifications((ns) => ns.map((n) => ({ ...n, read: true })))
     } catch { /* ignore */ }
   }
 
