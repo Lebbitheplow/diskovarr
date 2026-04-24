@@ -240,6 +240,39 @@ function countRecentSeasonRequests(userId, windowDays) {
   return row?.cnt || 0;
 }
 
+// ── Known users (created here so migration block below can ALTER it) ─────────
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS known_users (
+    user_id TEXT PRIMARY KEY,
+    username TEXT NOT NULL,
+    thumb TEXT,
+    seen_at INTEGER DEFAULT 0,
+    is_admin INTEGER NOT NULL DEFAULT 0
+  );
+`);
+
+// ── Discover requests log (created here so migration block below can ALTER it) ──
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS discover_requests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    tmdb_id INTEGER NOT NULL,
+    media_type TEXT NOT NULL,
+    title TEXT,
+    service TEXT,
+    requested_at INTEGER DEFAULT 0,
+    seasons_count INTEGER DEFAULT 1,
+    status TEXT NOT NULL DEFAULT 'approved',
+    denial_note TEXT,
+    seasons_json TEXT,
+    poster_url TEXT DEFAULT NULL,
+    notified_available_at INTEGER DEFAULT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_discover_requests_user ON discover_requests(user_id);
+`);
+
 // ── Migrate: add columns if this is an existing DB ────────────────────────────
 [
   'ALTER TABLE library_items ADD COLUMN rating REAL DEFAULT 0',
@@ -489,15 +522,6 @@ function clearUserDismissals(userId) {
 
 // ── Known users (username cache) ─────────────────────────────────────────────
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS known_users (
-    user_id TEXT PRIMARY KEY,
-    username TEXT NOT NULL,
-    thumb TEXT,
-    seen_at INTEGER DEFAULT 0
-  );
-`);
-
 function upsertKnownUser(userId, username, thumb) {
   db.prepare(`
     INSERT OR REPLACE INTO known_users (user_id, username, thumb, seen_at)
@@ -726,19 +750,6 @@ function getLibraryTitleYearSet() {
 }
 
 // ── Discover requests log ─────────────────────────────────────────────────────
-
-db.exec(`
-  CREATE TABLE IF NOT EXISTS discover_requests (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id TEXT NOT NULL,
-    tmdb_id INTEGER NOT NULL,
-    media_type TEXT NOT NULL,
-    title TEXT,
-    service TEXT,
-    requested_at INTEGER DEFAULT 0
-  );
-  CREATE INDEX IF NOT EXISTS idx_discover_requests_user ON discover_requests(user_id);
-`);
 
 function addDiscoverRequest(userId, tmdbId, mediaType, title, service, seasonsCount) {
   db.prepare(`
