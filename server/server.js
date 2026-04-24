@@ -1,22 +1,12 @@
-// Single server: React app + API on same port (3002) with copied database
 require('dotenv').config()
 const express = require('express')
 const session = require('express-session')
 const path = require('path')
 const fs = require('fs')
 
-const PORT = 3002
-const dataDir = path.join(__dirname, 'data-react')
+const PORT = process.env.PORT || 3232
+const dataDir = path.join(__dirname, 'data')
 if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true })
-
-const copyDB = (src, dst) => {
-  if (fs.existsSync(src) && !fs.existsSync(dst)) {
-    fs.copyFileSync(src, dst)
-    console.log(`Copied ${src} -> ${dst}`)
-  }
-}
-copyDB(path.join(__dirname, 'data/diskovarr.db'), path.join(dataDir, 'diskovarr.db'))
-copyDB(path.join(__dirname, 'data/sessions-react.db'), path.join(dataDir, 'sessions.db'))
 
 const { DatabaseSync } = require('node:sqlite')
 
@@ -222,5 +212,5 @@ app.get('*', (req, res) => {
 })
 
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`React test server (frontend + API) on port ${PORT}`)
+  console.log(`Diskovarr server running on port ${PORT}`)
 })

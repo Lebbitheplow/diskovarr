@@ -22,8 +22,10 @@ dist-ssr
 FINAL_PLAN_SUMMARY.md
 IMPLEMENTATION_PLAN.md
 
-# Dev helpers with hardcoded local paths/IPs
+# Dev helpers
 proxy-server.js
+proxy.js
+proxy.cjs
 start-vite.js
 
 # Original CSS backups from EJS→React migration
