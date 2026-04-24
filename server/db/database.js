@@ -289,6 +289,7 @@ db.exec(`
   'ALTER TABLE discover_requests ADD COLUMN poster_url TEXT DEFAULT NULL',
   'ALTER TABLE discover_requests ADD COLUMN notified_available_at INTEGER DEFAULT NULL',
   'ALTER TABLE known_users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0',
+  'ALTER TABLE known_users ADD COLUMN plex_token TEXT',
   'ALTER TABLE user_request_limits ADD COLUMN auto_approve_movies INTEGER',
   'ALTER TABLE user_request_limits ADD COLUMN auto_approve_tv INTEGER',
 ].forEach(sql => { try { db.exec(sql); } catch (e) { if (!e.message.includes('duplicate column') && !e.message.includes('no such table')) throw e; } });
@@ -524,9 +525,17 @@ function clearUserDismissals(userId) {
 
 function upsertKnownUser(userId, username, thumb) {
   db.prepare(`
-    INSERT OR REPLACE INTO known_users (user_id, username, thumb, seen_at)
-    VALUES (?, ?, ?, ?)
-  `).run(String(userId), username, thumb || null, Math.floor(Date.now() / 1000));
+    INSERT OR REPLACE INTO known_users (user_id, username, thumb, seen_at, plex_token)
+    VALUES (?, ?, ?, ?, ?)
+  `).run(String(userId), username, thumb || null, Math.floor(Date.now() / 1000), token || null);
+}
+
+function getAllKnownUsersWithTokens() {
+  return db.prepare('SELECT user_id, plex_token FROM known_users WHERE plex_token IS NOT NULL').all();
+}
+
+function getLibraryItemByTmdbId(tmdbId) {
+  return db.prepare('SELECT * FROM library_items WHERE tmdb_id = ? LIMIT 1').get(String(tmdbId));
 }
 
 function touchKnownUser(userId) {
@@ -1466,7 +1475,7 @@ module.exports = {
   addDismissal, getDismissals, removeDismissal,
   addToWatchlistDb, removeFromWatchlistDb, getWatchlistFromDb,
   updateWatchlistPlexIds, getWatchlistPlexIds, updateWatchlistPlexGuid,
-  upsertKnownUser, touchKnownUser, getKnownUsers,
+  upsertKnownUser, touchKnownUser, getKnownUsers, getAllKnownUsersWithTokens, getLibraryItemByTmdbId,
   upsertManyItems, getLibraryItemsFromDb, getLibraryItemByKey,
   replaceWatchedBatch, getWatchedKeysFromDb,
   upsertUserRatings, getUserRatingsFromDb,

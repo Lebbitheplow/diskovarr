@@ -270,7 +270,8 @@ export default function Explore() {
         }
       })
     } catch (e) {
-      toastError(e.message || 'Request failed')
+      const msg = e.response?.data?.error || e.response?.data?.message || e.message || 'Request failed'
+      toastError(msg)
     }
   }, [requestItem, selectedSeasons, toastSuccess, toastError, services])
 
@@ -546,6 +547,116 @@ export default function Explore() {
                 <div className="section-header"><h2 className="section-title">Anime</h2></div>
                 <Carousel>
                   {filteredItems(filteredRecommendations()?.anime).map(item => (
+                    <div key={item.tmdbId + item.mediaType} className="card" data-tmdb-id={item.tmdbId} data-adult={item.adult ? 'true' : undefined} data-request-tmdb={item.tmdbId} onClick={() => handleOpenModal(item)}>
+                      <button className="card-poster-link" onClick={() => handleOpenModal(item)} type="button">
+                        {item.posterUrl && <img className="card-poster" src={posterUrl(item.posterUrl)} alt={item.title} loading="lazy" />}
+                        <div className="card-poster-placeholder">{item.title?.charAt(0) || '?'}</div>
+                        <span className={'badge-not-in-library' + (item.badgeRequested ? ' badge-requested' : '')}>{item.badgeRequested ? 'Requested' : 'Not in Library'}</span>
+                        <div className="card-overlay">
+                          <div className="card-overlay-actions">
+                            {item.ratingKey && (
+                              <button className={'btn-icon btn-watchlist' + (watchlistCache[item.ratingKey] ? ' in-watchlist' : '')} onClick={(e) => { e.stopPropagation(); handleToggleWatchlist(item) }}>
+                                {watchlistCache[item.ratingKey] ? '✓ In Watchlist' : '+ Watchlist'}
+                              </button>
+                            )}
+                            {!item.ratingKey && (
+                              <button
+                                className={'btn-icon btn-request' + (item.isMyRequest ? ' btn-request-sent' : '')}
+                                onClick={(e) => { e.stopPropagation(); !item.isMyRequest && (item.isRequested ? handleNotify(item) : openRequestDialog(item)) }}
+                                disabled={item.isMyRequest}
+                              >
+                                {item.isMyRequest ? 'Requested ✓' : (item.isRequested ? 'Notify Me' : 'Request')}
+                              </button>
+                            )}
+                            {!item.badgeRequested && (
+                              <button className="btn-icon btn-dismiss" onClick={(e) => { e.stopPropagation(); handleDismiss(item) }}>✕</button>
+                            )}
+                          </div>
+                        </div>
+                      </button>
+                      <div className="card-info">
+                        <div className="card-title">{item.title}</div>
+                        <div className="card-meta">
+                          {item.year && <span className="card-year">{item.year}</span>}
+                          {item.voteAverage && <span className="card-rating">★ {item.voteAverage.toFixed(1)}</span>}
+                        </div>
+                        {item.reasons && item.reasons.length > 0 && (
+                          <div className="card-reasons">
+                            {item.reasons.slice(0, 2).map((r, i) => (
+                              <span key={i} className="reason-tag"><span className="reason-tag-text">{r}</span></span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </Carousel>
+              </section>
+            )}
+
+            {filteredRecommendations()?.trendingMovies && filteredRecommendations().trendingMovies.length >= 8 && (
+              <section className="section" id="section-trending-movies">
+                <div className="section-header">
+                  <h2 className="section-title">Trending Movies</h2>
+                  <span className="section-badge">Outside Your Library</span>
+                </div>
+                <Carousel>
+                  {filteredItems(filteredRecommendations()?.trendingMovies).map(item => (
+                    <div key={item.tmdbId + item.mediaType} className="card" data-tmdb-id={item.tmdbId} data-adult={item.adult ? 'true' : undefined} data-request-tmdb={item.tmdbId} onClick={() => handleOpenModal(item)}>
+                      <button className="card-poster-link" onClick={() => handleOpenModal(item)} type="button">
+                        {item.posterUrl && <img className="card-poster" src={posterUrl(item.posterUrl)} alt={item.title} loading="lazy" />}
+                        <div className="card-poster-placeholder">{item.title?.charAt(0) || '?'}</div>
+                        <span className={'badge-not-in-library' + (item.badgeRequested ? ' badge-requested' : '')}>{item.badgeRequested ? 'Requested' : 'Not in Library'}</span>
+                        <div className="card-overlay">
+                          <div className="card-overlay-actions">
+                            {item.ratingKey && (
+                              <button className={'btn-icon btn-watchlist' + (watchlistCache[item.ratingKey] ? ' in-watchlist' : '')} onClick={(e) => { e.stopPropagation(); handleToggleWatchlist(item) }}>
+                                {watchlistCache[item.ratingKey] ? '✓ In Watchlist' : '+ Watchlist'}
+                              </button>
+                            )}
+                            {!item.ratingKey && (
+                              <button
+                                className={'btn-icon btn-request' + (item.isMyRequest ? ' btn-request-sent' : '')}
+                                onClick={(e) => { e.stopPropagation(); !item.isMyRequest && (item.isRequested ? handleNotify(item) : openRequestDialog(item)) }}
+                                disabled={item.isMyRequest}
+                              >
+                                {item.isMyRequest ? 'Requested ✓' : (item.isRequested ? 'Notify Me' : 'Request')}
+                              </button>
+                            )}
+                            {!item.badgeRequested && (
+                              <button className="btn-icon btn-dismiss" onClick={(e) => { e.stopPropagation(); handleDismiss(item) }}>✕</button>
+                            )}
+                          </div>
+                        </div>
+                      </button>
+                      <div className="card-info">
+                        <div className="card-title">{item.title}</div>
+                        <div className="card-meta">
+                          {item.year && <span className="card-year">{item.year}</span>}
+                          {item.voteAverage && <span className="card-rating">★ {item.voteAverage.toFixed(1)}</span>}
+                        </div>
+                        {item.reasons && item.reasons.length > 0 && (
+                          <div className="card-reasons">
+                            {item.reasons.slice(0, 2).map((r, i) => (
+                              <span key={i} className="reason-tag"><span className="reason-tag-text">{r}</span></span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </Carousel>
+              </section>
+            )}
+
+            {filteredRecommendations()?.trendingTV && filteredRecommendations().trendingTV.length >= 8 && (
+              <section className="section" id="section-trending-tv">
+                <div className="section-header">
+                  <h2 className="section-title">Trending TV Shows</h2>
+                  <span className="section-badge">Outside Your Library</span>
+                </div>
+                <Carousel>
+                  {filteredItems(filteredRecommendations()?.trendingTV).map(item => (
                     <div key={item.tmdbId + item.mediaType} className="card" data-tmdb-id={item.tmdbId} data-adult={item.adult ? 'true' : undefined} data-request-tmdb={item.tmdbId} onClick={() => handleOpenModal(item)}>
                       <button className="card-poster-link" onClick={() => handleOpenModal(item)} type="button">
                         {item.posterUrl && <img className="card-poster" src={posterUrl(item.posterUrl)} alt={item.title} loading="lazy" />}
