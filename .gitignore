@@ -1,0 +1,42 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Dependencies
+node_modules
+
+# Build output
+dist
+dist-ssr
+
+# Environment — copy .env.example and fill in your values
+.env
+.env.local
+*.local
+
+# Internal planning / migration docs
+FINAL_PLAN_SUMMARY.md
+IMPLEMENTATION_PLAN.md
+
+# Dev helpers with hardcoded local paths/IPs
+proxy-server.js
+start-vite.js
+
+# Original CSS backups from EJS→React migration
+public/original-*.css
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
