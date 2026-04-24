@@ -1,0 +1,2 @@
+import{j as s}from"./index-4hkm2bPC.js";function r({checked:c,onChange:e,label:t,disabled:l=!1,className:a=""}){return s.jsxs("label",{className:`toggle-label ${a}`,children:[s.jsx("input",{type:"checkbox",className:"toggle-checkbox",checked:c,onChange:x=>e==null?void 0:e(x.target.checked),disabled:l}),s.jsx("span",{className:"toggle-switch"}),t&&s.jsx("span",{className:"toggle-text",children:t})]})}export{r as T};
+//# sourceMappingURL=ToggleSwitch-C2X4YY1g.js.map
