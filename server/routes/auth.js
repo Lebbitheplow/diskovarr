@@ -116,8 +116,8 @@ router.get('/check-pin', checkPinLimiter, async (req, res) => {
                             .replace(/&quot;/g, '"').replace(/&apos;/g, "'");
     const thumb = userData.thumb || null;
 
-    // Persist username so admin panel can show names instead of IDs
-    db.upsertKnownUser(String(userData.id), username, thumb);
+    // Persist username and token so admin panel and background syncs can use them
+    db.upsertKnownUser(String(userData.id), username, thumb, userToken);
 
     // Store in session — token stays server-side only
     req.session.plexUser = {

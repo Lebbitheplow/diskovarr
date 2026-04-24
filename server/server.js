@@ -193,6 +193,29 @@ app.get('/icons/icon-maskable.svg', (req, res) => {
   res.send(svg)
 })
 
+// Discord bot avatar — themed PNG, changes with accent colour
+app.get('/discord-avatar.png', (req, res) => {
+  try {
+    const customDataUri = db.getSetting('discord_avatar_data_uri', null)
+    if (customDataUri) {
+      const match = customDataUri.match(/^data:(image\/(?:png|jpeg|gif));base64,(.+)$/)
+      if (match) {
+        res.setHeader('Content-Type', match[1])
+        res.setHeader('Cache-Control', 'public, max-age=300')
+        return res.send(Buffer.from(match[2], 'base64'))
+      }
+    }
+    const { generateAvatar } = require('./services/discordAvatar')
+    const accentHex = db.getThemeColor() || 'e5a00d'
+    const { png } = generateAvatar(accentHex)
+    res.setHeader('Content-Type', 'image/png')
+    res.setHeader('Cache-Control', 'public, max-age=3600')
+    res.send(png)
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
 // Serve React static files
 app.use(express.static(path.join(__dirname, '../dist')))
 
@@ -222,6 +245,23 @@ app.listen(PORT, '0.0.0.0', () => {
   const plexService = require('./services/plex')
   const logger = require('./services/logger')
 
+  // Seed user tokens from active sessions (covers first run after migration)
+  const { DatabaseSync } = require('node:sqlite')
+  try {
+    const sessDb = new DatabaseSync(path.join(dataDir, 'sessions.db'))
+    const now = Math.floor(Date.now() / 1000)
+    const sessions = sessDb.prepare('SELECT sess FROM sessions WHERE expired >= ?').all(now)
+    for (const { sess } of sessions) {
+      try {
+        const s = JSON.parse(sess)
+        if (s?.plexUser?.id && s?.plexUser?.token) {
+          const db = require('./db/database')
+          db.upsertKnownUser(s.plexUser.id, s.plexUser.username, s.plexUser.thumb, s.plexUser.token)
+        }
+      } catch {}
+    }
+  } catch {}
+
   // On startup: sync library from DB/Plex, then pre-warm caches
   setTimeout(async () => {
     try {
@@ -230,6 +270,12 @@ app.listen(PORT, '0.0.0.0', () => {
     } catch (err) {
       logger.warn('Startup library sync failed:', err.message)
     }
+
+    // Sync Plex.tv watchlists for all known users 10s after library sync
+    setTimeout(() => plexService.syncAllUserWatchlists()
+      .catch(err => logger.warn('Startup watchlist sync failed:', err.message)),
+      10_000
+    )
 
     // Pre-warm recommendation caches 30s after library sync
     setTimeout(() => recommender.warmAllUserCaches().catch(err =>
@@ -259,4 +305,10 @@ app.listen(PORT, '0.0.0.0', () => {
   setInterval(() => recommender.warmAllUserCaches().catch(err =>
     logger.warn('Periodic rec pre-warm failed:', err.message)
   ), 25 * 60 * 1000)
+
+  // Sync Plex.tv watchlists every 30 min
+  setInterval(() => plexService.syncAllUserWatchlists()
+    .catch(err => logger.warn('Periodic watchlist sync failed:', err.message)),
+    30 * 60 * 1000
+  )
 })

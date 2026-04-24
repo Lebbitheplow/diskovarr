@@ -527,6 +527,79 @@ async function removeFromPlexTvWatchlist(userToken, plexGuid) {
   return true;
 }
 
+async function syncPlexTvWatchlist(userId, userToken) {
+  // 1. Collect all watchlist ratingKeys from discover.provider.plex.tv
+  const plexKeys = [];
+  let offset = 0;
+  const size = 100;
+
+  while (true) {
+    const res = await fetch(
+      `https://discover.provider.plex.tv/library/sections/watchlist/all?X-Plex-Token=${userToken}&X-Plex-Container-Start=${offset}&X-Plex-Container-Size=${size}`,
+      { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(15000) }
+    );
+    if (!res.ok) break;
+    const data = await res.json();
+    const items = data?.MediaContainer?.Metadata || [];
+    if (!items.length) break;
+    for (const item of items) {
+      if (item.ratingKey) plexKeys.push(item.ratingKey);
+    }
+    offset += items.length;
+    if (items.length < size) break;
+  }
+
+  if (!plexKeys.length) {
+    console.log(`[watchlist] No Plex.tv watchlist items found for user ${userId}`);
+    return 0;
+  }
+
+  // 2. Batch-fetch full metadata from metadata.provider.plex.tv to get TMDB IDs
+  const BATCH = 50;
+  let synced = 0;
+
+  for (let i = 0; i < plexKeys.length; i += BATCH) {
+    const batch = plexKeys.slice(i, i + BATCH);
+    try {
+      const metaRes = await fetch(
+        `https://metadata.provider.plex.tv/library/metadata/${batch.join(',')}?X-Plex-Token=${userToken}`,
+        { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(15000) }
+      );
+      if (!metaRes.ok) continue;
+      const metaData = await metaRes.json();
+      const metaItems = metaData?.MediaContainer?.Metadata || [];
+
+      for (const item of metaItems) {
+        const guids = item.Guid || [];
+        const tmdbGuid = guids.find(g => g.id?.startsWith('tmdb://'));
+        if (!tmdbGuid) continue;
+        const tmdbId = tmdbGuid.id.replace('tmdb://', '');
+        const libItem = db.getLibraryItemByTmdbId(tmdbId);
+        if (libItem) {
+          db.addToWatchlistDb(userId, libItem.rating_key);
+          synced++;
+        }
+      }
+    } catch (err) {
+      console.warn(`[watchlist] Metadata batch fetch failed:`, err.message);
+    }
+  }
+
+  console.log(`[watchlist] Synced ${synced}/${plexKeys.length} Plex.tv watchlist items to DB for user ${userId}`);
+  return synced;
+}
+
+async function syncAllUserWatchlists() {
+  const users = db.getAllKnownUsersWithTokens();
+  for (const { user_id, plex_token } of users) {
+    try {
+      await syncPlexTvWatchlist(user_id, plex_token);
+    } catch (err) {
+      console.warn(`[watchlist] Sync failed for user ${user_id}:`, err.message);
+    }
+  }
+}
+
 module.exports = {
   get MOVIES_SECTION() { return getMoviesSection(); },
   get TV_SECTION()     { return getTvSection(); },
@@ -547,6 +620,8 @@ module.exports = {
   resolvePlaylistKey,
   getRelated,
   getDeepLink,
+  syncPlexTvWatchlist,
+  syncAllUserWatchlists,
   getAppLink,
   getPlexUrl,
   getPlexToken,
