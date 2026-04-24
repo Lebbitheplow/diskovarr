@@ -1,6 +1,4 @@
-import React, { useState, useCallback, useEffect, useMemo } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { useToast } from '../context/ToastContext'
+import React, { useState, useCallback, useEffect, useRef, useMemo, memo } from 'react'
 
 const LOGO_SVG = (
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="1em" height="1em" fill="none" aria-hidden="true">
@@ -21,16 +19,8 @@ const PLEX_ICON = (
 
 const NUM_COLS = 7
 
-// Speed and direction per column — alternating up/down at varied speeds
-const COL_CONFIGS = [
-  { duration: 52, reverse: false },
-  { duration: 38, reverse: true  },
-  { duration: 44, reverse: false },
-  { duration: 60, reverse: true  },
-  { duration: 34, reverse: false },
-  { duration: 48, reverse: true  },
-  { duration: 56, reverse: false },
-]
+// px/s for each column — alternating direction via negative speed
+const COL_SPEEDS = [38, -28, 32, -42, 26, -36, 30]
 
 function seededShuffle(arr, seed) {
   let s = seed
@@ -43,56 +33,84 @@ function seededShuffle(arr, seed) {
   return a
 }
 
-function PosterBackground({ posters }) {
-  const shuffled = useMemo(() => seededShuffle(posters, 42), [posters])
+// Single scrolling column — JS rAF driven so loop point is exact
+const PosterCol = memo(function PosterCol({ posters, speed }) {
+  const colRef = useRef(null)
+  const yRef = useRef(0)
+  const rafRef = useRef(null)
+  const lastTsRef = useRef(null)
 
+  // Duplicate posters for seamless wrap
+  const items = useMemo(() => [...posters, ...posters], [posters])
+
+  useEffect(() => {
+    const col = colRef.current
+    if (!col || !items.length) return
+
+    function tick(ts) {
+      if (lastTsRef.current === null) lastTsRef.current = ts
+      const delta = Math.min(ts - lastTsRef.current, 50) // cap at 50ms to handle tab backgrounding
+      lastTsRef.current = ts
+
+      const halfH = col.scrollHeight / 2
+      if (halfH <= 0) { rafRef.current = requestAnimationFrame(tick); return }
+
+      yRef.current += (speed / 1000) * delta
+
+      // Seamless wrap using measured half-height
+      if (yRef.current > halfH)  yRef.current -= halfH
+      if (yRef.current < 0)      yRef.current += halfH
+
+      col.style.transform = `translateY(${-yRef.current}px)`
+      rafRef.current = requestAnimationFrame(tick)
+    }
+
+    rafRef.current = requestAnimationFrame(tick)
+    return () => {
+      cancelAnimationFrame(rafRef.current)
+      lastTsRef.current = null
+    }
+  }, [speed, items])
+
+  return (
+    <div ref={colRef} className="poster-col">
+      {items.map((poster, i) => (
+        <div key={i} className="poster-col-item">
+          <img src={poster.url} alt="" draggable={false} />
+        </div>
+      ))}
+    </div>
+  )
+})
+
+const PosterBackground = memo(function PosterBackground({ posters }) {
   const columns = useMemo(() => {
-    if (!shuffled.length) return []
+    if (!posters.length) return []
+    const shuffled = seededShuffle(posters, 42)
     const perCol = Math.ceil(shuffled.length / NUM_COLS)
     return Array.from({ length: NUM_COLS }, (_, i) =>
       shuffled.slice(i * perCol, (i + 1) * perCol)
     ).filter(col => col.length > 0)
-  }, [shuffled])
+  }, [posters])
 
   if (!columns.length) return null
 
   return (
     <div className="poster-background" aria-hidden="true">
       <div className="poster-columns">
-        {columns.map((col, ci) => {
-          const { duration, reverse } = COL_CONFIGS[ci] || COL_CONFIGS[0]
-          // Duplicate for seamless infinite scroll
-          const items = [...col, ...col]
-          return (
-            <div
-              key={ci}
-              className="poster-col"
-              style={{
-                '--scroll-duration': `${duration}s`,
-                '--scroll-dir': reverse ? '1' : '-1',
-                animationDirection: reverse ? 'reverse' : 'normal',
-              }}
-            >
-              {items.map((poster, pi) => (
-                <div key={`${ci}-${pi}`} className="poster-col-item">
-                  <img src={poster.url} alt="" draggable={false} />
-                </div>
-              ))}
-            </div>
-          )
-        })}
+        {columns.map((col, ci) => (
+          <PosterCol key={ci} posters={col} speed={COL_SPEEDS[ci] ?? 30} />
+        ))}
       </div>
       <div className="poster-overlay" />
     </div>
   )
-}
+})
 
 export default function Login() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [posters, setPosters] = useState([])
-  const navigate = useNavigate()
-  const { error: toastError } = useToast()
 
   useEffect(() => {
     let cancelled = false
@@ -107,10 +125,7 @@ export default function Login() {
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch('/auth/create-pin', {
-        method: 'POST',
-        signal: AbortSignal.timeout(15000),
-      })
+      const res = await fetch('/auth/create-pin', { method: 'POST', signal: AbortSignal.timeout(15000) })
       if (!res.ok) throw new Error(`PIN creation failed: ${res.status}`)
       const pin = await res.json()
 
@@ -120,13 +135,8 @@ export default function Login() {
         + '&context%5Bdevice%5D%5Bproduct%5D=Diskovarr'
 
       window.location.href = authUrl
-
-      setTimeout(() => {
-        setLoading(false)
-        setError('plex_unreachable')
-      }, 10000)
+      setTimeout(() => { setLoading(false); setError('plex_unreachable') }, 10000)
     } catch (e) {
-      console.error('Plex login error:', e)
       setLoading(false)
       setError('plex_unreachable')
     }
@@ -151,11 +161,7 @@ export default function Login() {
           {error === 'no_access' && (
             <div className="error-banner">Your account doesn't have access to this Plex server.</div>
           )}
-          <button
-            className="btn-plex"
-            onClick={handlePlexLogin}
-            disabled={loading}
-          >
+          <button className="btn-plex" onClick={handlePlexLogin} disabled={loading}>
             {PLEX_ICON}
             <span>{loading ? 'Connecting...' : 'Sign in with Plex'}</span>
           </button>
