@@ -25,7 +25,7 @@ export default function Issues() {
   const { user } = useAuth()
   const { error: toastError, success: toastSuccess } = useToast()
 
-  const isAdmin = user?.role === 'admin' || user?.role === 'owner'
+  const isAdmin = !!(user?.isAdmin || user?.isElevated)
   const [currentFilter, setCurrentFilter] = useState('all')
   const [issues, setIssues] = useState([])
   const [loading, setLoading] = useState(true)

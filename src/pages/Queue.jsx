@@ -53,7 +53,7 @@ export default function Queue() {
   const [sortCol, setSortCol] = useState('requested_at')
   const [sortDir, setSortDir] = useState('DESC')
 
-  const isAdmin = user?.role === 'admin' || user?.role === 'owner'
+  const isAdmin = !!(user?.isAdmin || user?.isElevated)
 
   const [editRequest, setEditRequest] = useState(null)
   const [editService, setEditService] = useState('')

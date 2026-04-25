@@ -3,7 +3,7 @@ import {
   userApi,
 } from '../services/api'
 import { useToast } from '../context/ToastContext'
-import ToggleSwitch from '../components/ToggleSwitch'
+
 
 const REGIONS = [
   { value: '', label: 'All Regions' },
@@ -68,6 +68,7 @@ export default function Settings() {
   const { error: toastError, success: toastSuccess } = useToast()
 
   const [settings, setSettings] = useState(null)
+  const [featureFlags, setFeatureFlags] = useState(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
 
@@ -76,6 +77,9 @@ export default function Settings() {
     try {
       const { data } = await userApi.getSettings()
       setSettings(data)
+      if (data.discover_enabled !== undefined) {
+        setFeatureFlags({ discoverEnabled: data.discover_enabled })
+      }
     } catch (e) {
       toastError('Failed to load settings')
     } finally {
@@ -93,10 +97,12 @@ export default function Settings() {
     const formData = new FormData(e.target)
     const payload = {}
     formData.forEach((value, key) => {
-      if (key.startsWith('notify_') || key === 'pushover_enabled' || key === 'discord_enabled') {
-        payload[key] = value === 'on'
-      } else {
-        payload[key] = value || null
+      payload[key] = value || null
+    })
+    // Unchecked checkboxes are omitted from FormData; explicitly set each to true/false
+    Array.from(e.target.querySelectorAll('input[type="checkbox"][name]')).forEach(cb => {
+      if (cb.name.startsWith('notify_') || cb.name === 'pushover_enabled' || cb.name === 'discord_enabled') {
+        payload[cb.name] = cb.checked
       }
     })
     try {
@@ -106,6 +112,16 @@ export default function Settings() {
       toastError(e.message || 'Save failed')
     } finally {
       setSaving(false)
+    }
+  }, [toastSuccess, toastError])
+
+  const handleLandingPageChange = useCallback(async (checked) => {
+    try {
+      await userApi.updateSettings({ landing_page: checked ? 'explore' : 'home' })
+      localStorage.setItem('landing_page', checked ? 'explore' : 'home')
+      toastSuccess('Landing page preference updated')
+    } catch (e) {
+      toastError('Failed to update preference')
     }
   }, [toastSuccess, toastError])
 
@@ -158,6 +174,10 @@ export default function Settings() {
   }
 
   const s = settings || {}
+  const ff = featureFlags || {}
+
+  const showElevatedNotifications = s.is_admin || s.is_elevated
+  const showAdminOnlyNotifications = s.is_admin
 
   return (
     <main className="main-content">
@@ -186,14 +206,31 @@ export default function Settings() {
               </select>
             </div>
 
-            <div className="settings-field" style={{ marginTop: '20px', paddingTop: '16px', borderTop: '1px solid var(--border)' }}>
-              <label className="settings-label">Mature Content</label>
-              <ToggleSwitch
-                checked={s.show_mature || false}
-                onChange={handleMatureChange}
-                label="Show mature content (R & TV-MA)"
-              />
+            <div className="settings-field" style={{ marginTop: '20px', paddingTop: '16px', borderTop: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <label className="slide-toggle">
+                <input
+                  type="checkbox"
+                  checked={s.show_mature || false}
+                  onChange={(e) => handleMatureChange(e.target.checked)}
+                />
+                <span className="slide-track" />
+              </label>
+              <span className="toggle-label">Show mature content (R & TV-MA)</span>
             </div>
+
+            {ff.discoverEnabled && (
+              <div className="settings-field" style={{ marginTop: '20px', padding: '0' }}>
+                <label className="settings-label">Default Landing Page</label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 0' }}>
+                  <span className="landing-label" style={{ fontWeight: s.landing_page !== 'explore' ? '600' : '400', opacity: s.landing_page !== 'explore' ? '1' : '0.6' }}>Diskovarr</span>
+                  <label className="slide-toggle slide-toggle-always-on">
+                    <input type="checkbox" defaultChecked={s.landing_page === 'explore'} onChange={(e) => handleLandingPageChange(e.target.checked)} />
+                    <span className="slide-track" />
+                  </label>
+                  <span className="landing-label" style={{ fontWeight: s.landing_page === 'explore' ? '600' : '400', opacity: s.landing_page === 'explore' ? '1' : '0.6' }}>Diskovarr Requests</span>
+                </div>
+              </div>
+            )}
 
             <button className="btn-settings-save" type="submit" disabled={saving}>{saving ? 'Saving...' : 'Save Preferences'}</button>
           </form>
@@ -226,20 +263,56 @@ export default function Settings() {
                     <span style={{ color: 'var(--text-secondary)' }}> — Get notified when your requested media is available in the library</span>
                   </span>
                 </label>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
-                  <input type="checkbox" name="notify_issue_update" defaultChecked={s.notify_issue_update !== false} />
-                  <span style={{ fontSize: '0.88rem' }}>
-                    <strong style={{ color: '#fff' }}>Issue Status Updated</strong>
-                    <span style={{ color: 'var(--text-secondary)' }}> — Get notified when an issue you reported changes status</span>
-                  </span>
-                </label>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
-                  <input type="checkbox" name="notify_issue_comment" defaultChecked={s.notify_issue_comment !== false} />
-                  <span style={{ fontSize: '0.88rem' }}>
-                    <strong style={{ color: '#fff' }}>Issue Comment</strong>
-                    <span style={{ color: 'var(--text-secondary)' }}> — Get notified when a comment is added to an issue</span>
-                  </span>
-                </label>
+                 <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
+                   <input type="checkbox" name="notify_issue_update" defaultChecked={s.notify_issue_update !== false} />
+                   <span style={{ fontSize: '0.88rem' }}>
+                     <strong style={{ color: '#fff' }}>Issue Status Updated</strong>
+                     <span style={{ color: 'var(--text-secondary)' }}> — Get notified when an issue you reported changes status</span>
+                   </span>
+                 </label>
+                 {showElevatedNotifications && (
+                   <>
+                     <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
+                       <input type="checkbox" name="notify_pending" defaultChecked={s.notify_pending !== false} />
+                       <span style={{ fontSize: '0.88rem' }}>
+                         <strong style={{ color: '#fff' }}>New Request Pending</strong>
+                         <span style={{ color: 'var(--text-secondary)' }}> — Get notified when a user submits a request awaiting approval</span>
+                       </span>
+                     </label>
+                     <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
+                       <input type="checkbox" name="notify_auto_approved" defaultChecked={s.notify_auto_approved !== false} />
+                       <span style={{ fontSize: '0.88rem' }}>
+                         <strong style={{ color: '#fff' }}>Request Auto-Approved</strong>
+                         <span style={{ color: 'var(--text-secondary)' }}> — Get notified when a request is automatically submitted</span>
+                       </span>
+                     </label>
+                   </>
+                 )}
+                 {showAdminOnlyNotifications && (
+                   <>
+                     <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
+                       <input type="checkbox" name="notify_process_failed" defaultChecked={s.notify_process_failed !== false} />
+                       <span style={{ fontSize: '0.88rem' }}>
+                         <strong style={{ color: '#fff' }}>Processing Failed</strong>
+                         <span style={{ color: 'var(--text-secondary)' }}> — Get notified when a request fails to submit to Radarr/Sonarr/Overseerr</span>
+                       </span>
+                     </label>
+                     <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
+                       <input type="checkbox" name="notify_issue_new" defaultChecked={s.notify_issue_new !== false} />
+                       <span style={{ fontSize: '0.88rem' }}>
+                         <strong style={{ color: '#fff' }}>New Issue Reported</strong>
+                         <span style={{ color: 'var(--text-secondary)' }}> — Get notified when a user reports a new issue</span>
+                       </span>
+                     </label>
+                   </>
+                 )}
+                 <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
+                   <input type="checkbox" name="notify_issue_comment" defaultChecked={s.notify_issue_comment !== false} />
+                   <span style={{ fontSize: '0.88rem' }}>
+                     <strong style={{ color: '#fff' }}>Issue Comment</strong>
+                     <span style={{ color: 'var(--text-secondary)' }}> — Get notified when a comment is added to an issue</span>
+                   </span>
+                 </label>
               </div>
             </div>
 
@@ -247,7 +320,7 @@ export default function Settings() {
               <label className="settings-label">Pushover</label>
               <p className="settings-desc">Receive personal push notifications via Pushover.</p>
               <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '4px' }}>
-                <input type="text" id="notif-pushover-key" className="settings-select" style={{ flex: 1, fontFamily: 'monospace', fontSize: '0.82rem' }} placeholder="User key..." defaultValue={s.pushover_user_key || ''} />
+                <input type="text" id="notif-pushover-key" name="pushover_user_key" className="settings-select" style={{ flex: 1, fontFamily: 'monospace', fontSize: '0.82rem' }} placeholder="User key..." defaultValue={s.pushover_user_key || ''} />
                 <button type="button" className="btn-settings-save" style={{ whiteSpace: 'nowrap', padding: '8px 14px', fontSize: '0.82rem' }} onClick={handleTestPushover}>Send Test</button>
               </div>
               <div className="toggle-row" style={{ marginTop: '10px' }}>
@@ -269,9 +342,15 @@ export default function Settings() {
                 <strong style={{ color: 'var(--text-primary)' }}>Mobile:</strong> Tap on your profile in a message, then tap the ⋯ in the top-right corner → Copy User ID.
               </p>
               <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '4px' }}>
-                <input type="text" id="notif-discord-userid" className="settings-select" style={{ flex: 1, fontFamily: 'monospace', fontSize: '0.82rem' }} placeholder="e.g. 185234567891234560" defaultValue={s.discord_user_id || ''} />
+                <input type="text" id="notif-discord-userid" name="discord_user_id" className="settings-select" style={{ flex: 1, fontFamily: 'monospace', fontSize: '0.82rem' }} placeholder="e.g. 185234567891234560" defaultValue={s.discord_user_id || ''} />
                 <button type="button" className="btn-settings-save" style={{ whiteSpace: 'nowrap', padding: '8px 14px', fontSize: '0.82rem' }} onClick={handleTestDiscord}>Send Test</button>
               </div>
+              {s.discord_invite_link && (
+                <div style={{ background: 'rgba(255,165,0,0.08)', border: '1px solid rgba(255,165,0,0.25)', borderRadius: '8px', padding: '10px 14px', marginTop: '10px', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+                  ⚠️ You must be a member of the admin's Discord server for the bot to send you DMs.
+                  <a href={s.discord_invite_link} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-block', marginTop: '8px', padding: '6px 14px', background: 'var(--accent)', color: '#000', borderRadius: '6px', fontWeight: '600', textDecoration: 'none', fontSize: '0.82rem' }}>Join Server</a>
+                </div>
+              )}
               <div className="toggle-row" style={{ marginTop: '10px' }}>
                 <label className="slide-toggle">
                   <input type="checkbox" name="discord_enabled" defaultChecked={s.discord_enabled || false} />
@@ -286,6 +365,8 @@ export default function Settings() {
             </button>
           </form>
         </div>
+
+
       </div>
     </main>
   )

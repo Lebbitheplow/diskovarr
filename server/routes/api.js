@@ -1600,6 +1600,30 @@ router.delete('/issues/:id/comments/:commentId', async (req, res) => {
   res.json({ success: true });
 });
 
+// GET /api/user/settings — load user's current preferences + notification prefs
+router.get('/user/settings', (req, res) => {
+  const userId = req.session.plexUser.id;
+  const prefs = db.getUserPreferences(userId);
+  const notif = db.getUserNotificationPrefs(userId);
+  const isAdmin = !!(req.session.isAdmin || req.session.isPlexAdminUser);
+  const isElevated = !isAdmin && db.getPrivilegedUserIds().includes(String(userId));
+  const discordConfig = (() => { try { return JSON.parse(db.getSetting('discord_agent', 'null')); } catch { return null; } })();
+  const pushoverConfig = pushoverAgent.getConfig();
+  res.json({
+    region: prefs.region,
+    language: prefs.language,
+    landing_page: prefs.landing_page,
+    show_mature: prefs.show_mature,
+    is_admin: isAdmin,
+    is_elevated: isElevated,
+    discover_enabled: db.getSetting('discover_enabled', '1') === '1',
+    pushover_agent_enabled: !!(pushoverConfig && pushoverConfig.enabled),
+    discord_agent_enabled: !!(discordConfig && discordConfig.enabled),
+    discord_invite_link: discordConfig?.inviteLink || null,
+    ...notif,
+  });
+});
+
 // POST /api/user/settings — save user's own content preferences + notification prefs
 router.post('/user/settings', (req, res) => {
   const userId = req.session.plexUser.id;

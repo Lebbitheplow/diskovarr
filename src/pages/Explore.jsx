@@ -83,6 +83,10 @@ export default function Explore() {
   const [watchlistCache, setWatchlistCache] = useState({})
   const [building, setBuilding] = useState(false)
   const [polling, setPolling] = useState(false)
+  const [buildProgress, setBuildProgress] = useState(0)
+  const intervalRef = useRef(null)
+  const pollingRef = useRef(false)
+  const buildStartRef = useRef(null)
 
   const loadWatchlist = useCallback(async () => {
     try {
@@ -111,16 +115,20 @@ export default function Explore() {
     try {
       const { data } = await exploreApi.getRecommendations(params)
       if (data.status === 'building') {
+        if (!buildStartRef.current) buildStartRef.current = Date.now()
         setBuilding(true)
-        if (!polling) {
+        if (!pollingRef.current) {
+          pollingRef.current = true
           setPolling(true)
-          const interval = setInterval(async () => {
+          intervalRef.current = setInterval(async () => {
             try {
               const { data: pollData } = await exploreApi.getRecommendations(params)
               if (pollData.status !== 'building') {
+                clearInterval(intervalRef.current)
+                pollingRef.current = false
+                buildStartRef.current = null
                 setBuilding(false)
                 setPolling(false)
-                clearInterval(interval)
                 setRecommendations(pollData)
               }
             } catch { /* ignore */ }
@@ -128,6 +136,7 @@ export default function Explore() {
         }
         return
       }
+      buildStartRef.current = null
       setBuilding(false)
       setPolling(false)
       setRecommendations(data)
@@ -138,7 +147,7 @@ export default function Explore() {
     } finally {
       setLoading(false)
     }
-  }, [matureEnabled, hideRequested, polling, toastError])
+  }, [matureEnabled, hideRequested, toastError])
 
   useEffect(() => {
     loadServices()
@@ -148,6 +157,21 @@ export default function Explore() {
   useEffect(() => {
     fetchRecommendations(false)
   }, [fetchRecommendations])
+
+  // Clear polling interval on unmount to prevent state updates on dead component
+  useEffect(() => {
+    return () => { if (intervalRef.current) clearInterval(intervalRef.current) }
+  }, [])
+
+  // Animate progress bar while building — asymptotic curve toward 95%
+  useEffect(() => {
+    if (!building) { setBuildProgress(0); return }
+    const tick = setInterval(() => {
+      const elapsed = buildStartRef.current ? (Date.now() - buildStartRef.current) / 1000 : 0
+      setBuildProgress(95 * (1 - Math.exp(-elapsed / 150)))
+    }, 1000)
+    return () => clearInterval(tick)
+  }, [building])
 
   const handleShuffle = useCallback(async () => {
     await fetchRecommendations(true)
@@ -337,9 +361,13 @@ export default function Explore() {
     <>
       <main className="main-content">
         {building && (
-          <div style={{ textAlign: 'center', padding: '24px', color: 'var(--text-secondary)' }}>
-            <div className="spinner" style={{ display: 'inline-block', margin: '0 auto 12px' }} />
-            <p>Building your recommendations…</p>
+          <div style={{ padding: '28px 24px 20px', maxWidth: '480px', margin: '0 auto' }}>
+            <p style={{ color: 'var(--text-primary)', fontWeight: 600, marginBottom: '6px' }}>Building your recommendations…</p>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.82rem', marginBottom: '14px' }}>Analyzing your watch history and preferences. This takes a few minutes on first run.</p>
+            <div style={{ background: 'var(--bg-secondary)', borderRadius: '999px', height: '8px', overflow: 'hidden', border: '1px solid var(--border)' }}>
+              <div style={{ height: '100%', width: `${buildProgress}%`, background: 'var(--accent)', borderRadius: '999px', transition: 'width 1s linear' }} />
+            </div>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.78rem', marginTop: '6px', textAlign: 'right' }}>{Math.round(buildProgress)}%</p>
           </div>
         )}
         <div className="hero">

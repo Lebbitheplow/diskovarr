@@ -594,15 +594,26 @@ function scheduleRebuild(userId, userToken) {
   const userIdStr = String(userId);
   if (rebuildInProgress.has(userIdStr)) return;
   rebuildInProgress.add(userIdStr);
+  // Safety valve: if the build hangs for 30+ minutes, unlock so the next request can retry
+  let timedOut = false;
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    console.warn(`[discover] Build timed out for user ${userIdStr}, clearing in-progress flag`);
+    rebuildInProgress.delete(userIdStr);
+  }, 10 * 60 * 1000);
   buildDiscoverPools(userId, userToken)
     .then(pools => {
+      if (!timedOut) clearTimeout(timeout);
       const builtAt = Date.now();
       discoverCache.set(userIdStr, { pools, builtAt });
       db.setDiscoverPool(userIdStr, pools, builtAt);
       console.log(`[discover] Pool rebuilt for user ${userIdStr}`);
     })
-    .catch(err => console.error(`[discover] Background rebuild failed for ${userIdStr}:`, err.message))
-    .finally(() => rebuildInProgress.delete(userIdStr));
+    .catch(err => {
+      if (!timedOut) clearTimeout(timeout);
+      console.error(`[discover] Background rebuild failed for ${userIdStr}:`, err.message);
+    })
+    .finally(() => { if (!timedOut) rebuildInProgress.delete(userIdStr); });
 }
 
 /**
