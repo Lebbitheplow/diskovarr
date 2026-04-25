@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react'
+import { Link } from 'react-router-dom'
 import {
   exploreApi,
   watchlistApi,
@@ -13,7 +14,6 @@ import DetailModal from '../components/DetailModal'
 import SkeletonLoader from '../components/SkeletonLoader'
 import ToggleSwitch from '../components/ToggleSwitch'
 import Modal from '../components/Modal'
-import { Link } from 'react-router-dom'
 import { useToast } from '../context/ToastContext'
 
 const GENRE_META = {

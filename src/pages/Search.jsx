@@ -26,8 +26,13 @@ export default function Search() {
   const { error: toastError, success: toastSuccess } = useToast()
 
   const initialQuery = searchParams.get('q') || ''
+  const initialGenre = searchParams.get('genre') || ''
+  const initialType = searchParams.get('type') || ''
   const [query, setQuery] = useState(initialQuery)
   const [inputValue, setInputValue] = useState(initialQuery)
+  const [genre, setGenre] = useState(initialGenre)
+  const [type, setType] = useState(initialType)
+  const [activeTab, setActiveTab] = useState('all')
   const [results, setResults] = useState([])
   const [loading, setLoading] = useState(false)
   const [page, setPage] = useState(1)
@@ -57,7 +62,8 @@ export default function Search() {
   }, [])
 
   const fetchSearchResults = useCallback(async (reset = true) => {
-    if (!inputValue.trim()) {
+    const searchQuery = genre ? '' : (inputValue.trim())
+    if (!searchQuery && !genre) {
       if (reset) setResults([])
       return
     }
@@ -67,7 +73,7 @@ export default function Search() {
     }
 
     try {
-      const { data } = await searchApi.search(inputValue.trim(), reset ? 1 : page)
+      const { data } = await searchApi.search(searchQuery, reset ? 1 : page, genre || undefined, type || undefined)
       if (reset) {
         setResults(data.results || [])
       } else {
@@ -80,7 +86,7 @@ export default function Search() {
     } finally {
       setLoading(false)
     }
-  }, [inputValue, page, toastError])
+  }, [inputValue, page, toastError, genre, type])
 
   const debouncedSuggestions = useCallback((q) => {
     clearTimeout(suggestTimerRef.current)
@@ -98,18 +104,24 @@ export default function Search() {
   }, [])
 
   useEffect(() => {
-    if (initialQuery) {
+    if (initialQuery || initialGenre) {
       fetchSearchResults(true)
     }
     loadWatchlist()
     exploreApi.getServices().then(({ data }) => setServices(data || {})).catch(() => {})
-  }, [initialQuery, fetchSearchResults, loadWatchlist])
+  }, [initialQuery, initialGenre, fetchSearchResults, loadWatchlist])
+
+  useEffect(() => {
+    setActiveTab('all')
+  }, [initialGenre])
 
   const handleSubmit = useCallback((e) => {
     e.preventDefault()
     const q = inputValue.trim()
     if (!q) return
     navigate('/search?q=' + encodeURIComponent(q))
+    setGenre('')
+    setType('')
     setResults([])
     setSuggestions([])
     setShowSuggestions(false)
@@ -124,6 +136,8 @@ export default function Search() {
   const handleSuggestionClick = useCallback((title) => {
     setInputValue(title)
     setQuery(title)
+    setGenre('')
+    setType('')
     setSuggestions([])
     setShowSuggestions(false)
     navigate('/search?q=' + encodeURIComponent(title))
@@ -186,6 +200,17 @@ export default function Search() {
     setPage(nextPage)
     fetchSearchResults(false)
   }, [page, fetchSearchResults])
+
+  const handleClearGenre = useCallback(() => {
+    setGenre('')
+    setType('')
+    setActiveTab('all')
+    navigate('/search')
+    setResults([])
+  }, [navigate])
+
+  const movieResults = results.filter(item => item.mediaType === 'movie')
+  const tvResults = results.filter(item => item.mediaType === 'tv')
 
   const handleSeasonToggle = useCallback((season) => {
     setSelectedSeasons(prev => {
@@ -308,75 +333,162 @@ export default function Search() {
       {results.length > 0 && (
         <div className="search-results-meta" id="search-results-header">
           <span id="search-results-count">
-            {totalResults.toLocaleString()} result{totalResults !== 1 ? 's' : ''} for "{query}"
+            {totalResults.toLocaleString()} result{totalResults !== 1 ? 's' : ''}{genre ? ' in ' + genre : ' for "' + query + '"'}
           </span>
+          {genre && (
+            <div className="genre-filter-badge">
+              <span>Genre: {genre}</span>
+              <button onClick={handleClearGenre} aria-label="Clear genre filter">×</button>
+            </div>
+          )}
         </div>
       )}
 
-      <div className="card-grid" id="search-grid">
-        {loading ? (
-          <SkeletonLoader count={12} />
-        ) : results.length === 0 ? (
-          <div className="search-empty" style={{ gridColumn: '1/-1' }}>
-            <p>No results found for "{query}".</p>
-          </div>
-        ) : (
-          results.map(item => (
-            <div key={item.tmdbId} className="card search-card">
-              <button className="card-poster-link" onClick={() => handleOpenModal(item)} type="button">
-                {item.posterUrl && (
-                  <img className="card-poster" src={posterUrl(item.posterUrl)} alt={item.title} loading="lazy" />
-                )}
-                <div className="card-poster-placeholder">{item.title?.charAt(0) || '?'}</div>
-                {item.inLibrary ? (
-                  <span className="badge-in-library">In Library</span>
-                ) : (
-                  <span className={'badge-not-in-library' + (item.isRequested ? ' badge-requested' : '')}>
-                    {item.isRequested ? 'Requested' : 'Not in Library'}
-                  </span>
-                )}
-                {item.isWatched && (
-                  <div className="card-watched-badge" title="Watched">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" width="12" height="12">
-                      <polyline points="20 6 9 17 4 12" />
-                    </svg>
-                  </div>
-                )}
-                <div className="card-overlay">
-                  <div className="card-overlay-actions">
-                    {item.inLibrary && item.ratingKey ? (
-                      <button
-                        className={'btn-icon btn-watchlist' + (watchlistCache[item.ratingKey] ? ' in-watchlist' : '')}
-                        onClick={(e) => { e.stopPropagation(); handleToggleWatchlist(item) }}
-                      >
-                        {watchlistCache[item.ratingKey] ? '✓ In Watchlist' : '+ Watchlist'}
-                      </button>
-                    ) : null}
-                    {!item.inLibrary && (
-                      <button
-                        className={'btn-icon btn-request' + (item.isRequested ? ' btn-request-sent' : '')}
-                        onClick={(e) => { e.stopPropagation(); setRequestItem(item) }}
-                        disabled={item.isRequested}
-                      >
-                        {item.isRequested ? 'Requested ✓' : 'Request'}
-                      </button>
+      {results.length > 0 ? (
+        genre ? (
+          <>
+            <div className="genre-tab-bar">
+              <button
+                className={'genre-tab' + (activeTab === 'all' ? ' active' : '')}
+                onClick={() => setActiveTab('all')}
+              >
+                All ({totalResults})
+              </button>
+              {movieResults.length > 0 && (
+                <button
+                  className={'genre-tab' + (activeTab === 'movies' ? ' active' : '')}
+                  onClick={() => setActiveTab('movies')}
+                >
+                  Movies ({movieResults.length})
+                </button>
+              )}
+              {tvResults.length > 0 && (
+                <button
+                  className={'genre-tab' + (activeTab === 'tv' ? ' active' : '')}
+                  onClick={() => setActiveTab('tv')}
+                >
+                  TV Shows ({tvResults.length})
+                </button>
+              )}
+            </div>
+            <div className="card-grid" id="search-grid">
+              {(activeTab === 'all' ? results : activeTab === 'movies' ? movieResults : tvResults).map(item => (
+                <div key={item.tmdbId} className="card search-card">
+                  <button className="card-poster-link" onClick={() => handleOpenModal(item)} type="button">
+                    {item.posterUrl && (
+                      <img className="card-poster" src={posterUrl(item.posterUrl)} alt={item.title} loading="lazy" />
                     )}
+                    <div className="card-poster-placeholder">{item.title?.charAt(0) || '?'}</div>
+                    {item.inLibrary ? (
+                      <span className="badge-in-library">In Library</span>
+                    ) : (
+                      <span className={'badge-not-in-library' + (item.isRequested ? ' badge-requested' : '')}>
+                        {item.isRequested ? 'Requested' : 'Not in Library'}
+                      </span>
+                    )}
+                    {item.isWatched && (
+                      <div className="card-watched-badge" title="Watched">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" width="12" height="12">
+                          <polyline points="20 6 9 17 4 12" />
+                        </svg>
+                      </div>
+                    )}
+                    <div className="card-overlay">
+                      <div className="card-overlay-actions">
+                        {item.inLibrary && item.ratingKey ? (
+                          <button
+                            className={'btn-icon btn-watchlist' + (watchlistCache[item.ratingKey] ? ' in-watchlist' : '')}
+                            onClick={(e) => { e.stopPropagation(); handleToggleWatchlist(item) }}
+                          >
+                            {watchlistCache[item.ratingKey] ? '✓ In Watchlist' : '+ Watchlist'}
+                          </button>
+                        ) : null}
+                        {!item.inLibrary && (
+                          <button
+                            className={'btn-icon btn-request' + (item.isRequested ? ' btn-request-sent' : '')}
+                            onClick={(e) => { e.stopPropagation(); setRequestItem(item) }}
+                            disabled={item.isRequested}
+                          >
+                            {item.isRequested ? 'Requested ✓' : 'Request'}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </button>
+                  <div className="card-info">
+                    <div className="card-title">{item.title}</div>
+                    <div className="card-meta">
+                      {item.year && <span className="card-year">{item.year}</span>}
+                      {item.voteAverage && <span className="card-rating">★ {item.voteAverage.toFixed(1)}</span>}
+                    </div>
                   </div>
                 </div>
-              </button>
-              <div className="card-info">
-                <div className="card-title">{item.title}</div>
-                <div className="card-meta">
-                  {item.year && <span className="card-year">{item.year}</span>}
-                  {item.voteAverage && <span className="card-rating">★ {item.voteAverage.toFixed(1)}</span>}
+              ))}
+            </div>
+          </>
+        ) : (
+          <div className="card-grid" id="search-grid">
+            {results.map(item => (
+              <div key={item.tmdbId} className="card search-card">
+                <button className="card-poster-link" onClick={() => handleOpenModal(item)} type="button">
+                  {item.posterUrl && (
+                    <img className="card-poster" src={posterUrl(item.posterUrl)} alt={item.title} loading="lazy" />
+                  )}
+                  <div className="card-poster-placeholder">{item.title?.charAt(0) || '?'}</div>
+                  {item.inLibrary ? (
+                    <span className="badge-in-library">In Library</span>
+                  ) : (
+                    <span className={'badge-not-in-library' + (item.isRequested ? ' badge-requested' : '')}>
+                      {item.isRequested ? 'Requested' : 'Not in Library'}
+                    </span>
+                  )}
+                  {item.isWatched && (
+                    <div className="card-watched-badge" title="Watched">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" width="12" height="12">
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                    </div>
+                  )}
+                  <div className="card-overlay">
+                    <div className="card-overlay-actions">
+                      {item.inLibrary && item.ratingKey ? (
+                        <button
+                          className={'btn-icon btn-watchlist' + (watchlistCache[item.ratingKey] ? ' in-watchlist' : '')}
+                          onClick={(e) => { e.stopPropagation(); handleToggleWatchlist(item) }}
+                        >
+                          {watchlistCache[item.ratingKey] ? '✓ In Watchlist' : '+ Watchlist'}
+                        </button>
+                      ) : null}
+                      {!item.inLibrary && (
+                        <button
+                          className={'btn-icon btn-request' + (item.isRequested ? ' btn-request-sent' : '')}
+                          onClick={(e) => { e.stopPropagation(); setRequestItem(item) }}
+                          disabled={item.isRequested}
+                        >
+                          {item.isRequested ? 'Requested ✓' : 'Request'}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </button>
+                <div className="card-info">
+                  <div className="card-title">{item.title}</div>
+                  <div className="card-meta">
+                    {item.year && <span className="card-year">{item.year}</span>}
+                    {item.voteAverage && <span className="card-rating">★ {item.voteAverage.toFixed(1)}</span>}
+                  </div>
                 </div>
               </div>
-            </div>
-          ))
-        )}
-      </div>
+            ))}
+          </div>
+        )
+      ) : (
+        <div className="search-empty" style={{ gridColumn: '1/-1' }}>
+          <p>No results found for "{genre ? genre : query}".</p>
+        </div>
+      )}
 
-      {page < totalPages && (
+      {page < totalPages && results.length > 0 && (
         <div id="search-load-more-wrap" style={{ display: 'text-align: center', padding: '32px 0' }}>
           <button className="btn-load-more" id="btn-search-load-more" onClick={handleLoadMore} disabled={loading}>
             Load more

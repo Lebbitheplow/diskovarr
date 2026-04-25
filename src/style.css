@@ -3276,3 +3276,84 @@ img {
   letter-spacing: 0.01em;
   text-shadow: 0 1px 4px rgba(0,0,0,0.6);
 }
+
+/* ============================================================
+   Genre Filter (Search page)
+   ============================================================ */
+.genre-filter-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--accent-dim);
+  border: 1px solid var(--accent-border);
+  border-radius: 20px;
+  padding: 4px 12px 4px 14px;
+  margin-top: 8px;
+  font-size: 0.82rem;
+}
+
+.genre-filter-badge button {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 1.1rem;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+}
+
+.genre-filter-badge button:hover {
+  color: var(--accent-hover);
+}
+
+.search-results-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+
+#section-genre-browse {
+  margin-bottom: 56px;
+}
+
+/* ============================================================
+   Genre Tab Bar (Search page genre view)
+   ============================================================ */
+.genre-tab-bar {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 20px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.genre-tab {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 6px 16px;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s;
+  font-family: inherit;
+  white-space: nowrap;
+}
+
+.genre-tab:hover {
+  color: var(--text-primary);
+  border-color: var(--border-hover);
+  background: var(--accent-glow);
+}
+
+.genre-tab.active {
+  background: var(--accent-dim);
+  border-color: var(--accent-border);
+  color: var(--accent);
+  font-weight: 600;
+}

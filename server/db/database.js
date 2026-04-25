@@ -706,6 +706,24 @@ function setTmdbCache(tmdbId, mediaType, data) {
     .run(Number(tmdbId), mediaType, JSON.stringify(data), Math.floor(Date.now() / 1000));
 }
 
+function getItemsByGenre(mediaType, genreName) {
+  const rows = db.prepare(`SELECT data FROM tmdb_cache WHERE media_type = ?`)
+    .all(mediaType);
+  if (!rows || !rows.length) return [];
+  const items = rows.map(r => {
+    try {
+      const item = JSON.parse(r.data);
+      if (item.genres && Array.isArray(item.genres) && item.genres.some(g => g === genreName)) {
+        return item;
+      }
+      return null;
+    } catch { return null; }
+  }).filter(Boolean);
+  // Sort by TMDB popularity score (popularity field, descending) so most popular shows first
+  items.sort((a, b) => (b.popularity || 0) - (a.popularity || 0));
+  return items;
+}
+
 function deleteTmdbCache(tmdbId, mediaType) {
   db.prepare('DELETE FROM tmdb_cache WHERE tmdb_id = ? AND media_type = ?')
     .run(Number(tmdbId), mediaType);
@@ -1476,7 +1494,7 @@ module.exports = {
   getAdminWatchlistMode, setAdminWatchlistMode,
   getOwnerUserId, setOwnerUserId,
   getSetting, setSetting, getConnectionSettings, isDiscoverEnabled, hasTmdbKey,
-  getTmdbCache, setTmdbCache, deleteTmdbCache,
+  getTmdbCache, setTmdbCache, deleteTmdbCache, getItemsByGenre,
   getLibraryTmdbIds, getLibraryTitleYearSet,
   addDiscoverRequest, getRequestedTmdbIds, getAllRequestedTmdbIds, getRecentRequests,
   addExploreDismissal, getExploreDismissedIds,

@@ -59,6 +59,8 @@ function normalizeMovie(details, credits) {
     trailerKey: (details.videos?.results || [])
       .filter(v => v.site === 'YouTube' && v.type === 'Trailer')
       .sort((a, b) => (b.official ? 1 : 0) - (a.official ? 1 : 0))[0]?.key || null,
+    originalLanguage: details.original_language || null,
+    popularity: details.popularity || 0,
   };
 }
 
@@ -97,6 +99,8 @@ function normalizeTV(details, credits) {
       .sort((a, b) => (b.official ? 1 : 0) - (a.official ? 1 : 0))[0]?.key || null,
     numberOfSeasons: details.number_of_seasons || null,
     imdbId: details.external_ids?.imdb_id || null,
+    originalLanguage: details.original_language || null,
+    popularity: details.popularity || 0,
   };
 }
 
@@ -316,10 +320,24 @@ const TV_GENRE_MAP = {
   'Fantasy': [10765], 'Thriller': [10759], 'War': [10768], 'Western': [37],
 };
 
+// Map genre name to genre ID for a given media type
+function getGenreIdsForName(genreName, mediaType) {
+  const map = mediaType === 'tv' ? TV_GENRE_MAP : MOVIE_GENRE_MAP;
+  const ids = map[genreName];
+  return ids || null;
+}
+
+// Discover content by genre NAME (not ID)
+async function discoverByGenreName(genreName, mediaType, page = 1, opts = {}) {
+  const genreIds = getGenreIdsForName(genreName, mediaType);
+  if (!genreIds || genreIds.length === 0) return [];
+  return discoverByGenreIds(mediaType, genreIds, page, 'popularity.desc', opts);
+}
+
 module.exports = {
   getItemDetails, getRecommendations, getSimilar, getPersonCandidates,
   discoverByGenreIds, discoverByKeywordId, discoverAnime, getTrending,
-  batchGetDetails, testApiKey, posterUrl,
+  discoverByGenreName, batchGetDetails, testApiKey, posterUrl,
   tmdbFetchPublic: tmdbFetch,
   MOVIE_GENRE_MAP, TV_GENRE_MAP,
 };

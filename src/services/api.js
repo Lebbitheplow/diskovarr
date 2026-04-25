@@ -63,7 +63,7 @@ export const discoverApi = {
 
 /** Search */
 export const searchApi = {
-  search: (query, page = 1) => api.get('/search', { params: { q: query, page } }),
+  search: (query, page = 1, genre, type) => api.get('/search', { params: { q: query, page, genre, type } }),
   getSuggestions: (query) => api.get('/search/suggest', { params: { q: query } }),
   getDetails: (tmdbId, type) => api.get('/search/details', { params: { tmdbId, type } }),
   getSeasons: (tmdbId) => api.get('/search/seasons', { params: { tmdbId } }),
@@ -151,6 +151,7 @@ export const adminApi = {
   getBroadcast: () => adminApiInstance.get('/broadcast'),
   setBroadcast: (message) => adminApiInstance.post('/broadcast', { message }),
   deleteBroadcast: () => adminApiInstance.delete('/broadcast'),
+  rebuildPool: () => apiInstance.post('/admin/rebuild-pool'),
 }
 
 /** Error helpers */
