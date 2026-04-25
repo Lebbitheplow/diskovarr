@@ -6,6 +6,7 @@ const dataDir = path.join(__dirname, '..', 'data');
 if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
 
 const db = new DatabaseSync(path.join(dataDir, 'diskovarr.db'));
+db.exec('PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;');
 
 function withTransaction(fn) {
   db.exec('BEGIN');

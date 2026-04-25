@@ -13,7 +13,30 @@ import DetailModal from '../components/DetailModal'
 import SkeletonLoader from '../components/SkeletonLoader'
 import ToggleSwitch from '../components/ToggleSwitch'
 import Modal from '../components/Modal'
+import { Link } from 'react-router-dom'
 import { useToast } from '../context/ToastContext'
+
+const GENRE_META = {
+  'Action':          { gradient: 'linear-gradient(145deg, #7f1d1d 0%, #c2410c 60%, #ea580c 100%)', emoji: '💥' },
+  'Adventure':       { gradient: 'linear-gradient(145deg, #164e63 0%, #0369a1 60%, #0891b2 100%)', emoji: '🗺️' },
+  'Animation':       { gradient: 'linear-gradient(145deg, #4c1d95 0%, #7c3aed 60%, #a855f7 100%)', emoji: '✨' },
+  'Comedy':          { gradient: 'linear-gradient(145deg, #78350f 0%, #d97706 60%, #fbbf24 100%)', emoji: '😂' },
+  'Crime':           { gradient: 'linear-gradient(145deg, #0f172a 0%, #1e293b 60%, #334155 100%)', emoji: '🔫' },
+  'Documentary':     { gradient: 'linear-gradient(145deg, #14532d 0%, #15803d 60%, #4ade80 100%)', emoji: '🎥' },
+  'Drama':           { gradient: 'linear-gradient(145deg, #3b0764 0%, #6d28d9 60%, #8b5cf6 100%)', emoji: '🎭' },
+  'Fantasy':         { gradient: 'linear-gradient(145deg, #312e81 0%, #4338ca 60%, #818cf8 100%)', emoji: '🧙' },
+  'Horror':          { gradient: 'linear-gradient(145deg, #1a0000 0%, #7f1d1d 60%, #b91c1c 100%)', emoji: '💀' },
+  'Mystery':         { gradient: 'linear-gradient(145deg, #0c1a3b 0%, #1e3a5f 60%, #1d4ed8 100%)', emoji: '🔍' },
+  'Romance':         { gradient: 'linear-gradient(145deg, #500724 0%, #be185d 60%, #f472b6 100%)', emoji: '❤️' },
+  'Science Fiction': { gradient: 'linear-gradient(145deg, #0c4a6e 0%, #0e7490 60%, #22d3ee 100%)', emoji: '🚀' },
+  'Thriller':        { gradient: 'linear-gradient(145deg, #0c0a09 0%, #292524 60%, #57534e 100%)', emoji: '🔪' },
+  'War':             { gradient: 'linear-gradient(145deg, #1c1009 0%, #44301e 60%, #78716c 100%)', emoji: '🪖' },
+  'Western':         { gradient: 'linear-gradient(145deg, #451a03 0%, #92400e 60%, #d97706 100%)', emoji: '🤠' },
+  'Family':          { gradient: 'linear-gradient(145deg, #064e3b 0%, #059669 60%, #34d399 100%)', emoji: '🏡' },
+  'Music':           { gradient: 'linear-gradient(145deg, #4a044e 0%, #86198f 60%, #e879f9 100%)', emoji: '🎵' },
+  'Reality':         { gradient: 'linear-gradient(145deg, #7c2d12 0%, #c2410c 60%, #fb923c 100%)', emoji: '📺' },
+}
+const GENRES = Object.keys(GENRE_META)
 
 const MATURE_RATINGS = new Set(['r', 'tv-ma', 'nc-17', 'x', 'nr'])
 
@@ -705,6 +728,29 @@ export default function Explore() {
             )}
           </>
         )}
+        <section className="section" id="section-genre-browse">
+          <div className="section-header">
+            <h2 className="section-title">Browse by Genre</h2>
+          </div>
+          <Carousel variant="genre">
+            {GENRES.map((genre, idx) => {
+              const meta = GENRE_META[genre] || { gradient: 'linear-gradient(145deg, #1e293b, #334155)', emoji: '🎬' }
+              return (
+                <Link
+                  key={`${genre}-${idx}`}
+                  to={`/search?genre=${encodeURIComponent(genre)}`}
+                  className="genre-tile"
+                  style={{ background: meta.gradient }}
+                >
+                  <span className="genre-tile-emoji">{meta.emoji}</span>
+                  <div className="genre-tile-footer">
+                    <span className="genre-tile-name">{genre}</span>
+                  </div>
+                </Link>
+              )
+            })}
+          </Carousel>
+        </section>
       </main>
 
       {selectedItem && (
