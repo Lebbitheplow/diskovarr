@@ -48,6 +48,7 @@ export default function Discover() {
   const [selectedItem, setSelectedItem] = useState(null)
   const [loadingGenres, setLoadingGenres] = useState(true)
   const debounceRef = useRef(null)
+  const loadingRef = useRef(false)
 
   const loadWatchlist = useCallback(async () => {
     try {
@@ -73,7 +74,8 @@ export default function Discover() {
   }, [toastError])
 
   const fetchResults = useCallback(async (reset = true) => {
-    if (loading) return
+    if (loadingRef.current) return
+    loadingRef.current = true
     if (reset) {
       setLoading(true)
       setPage(1)
@@ -102,9 +104,10 @@ export default function Discover() {
     } catch (e) {
       toastError('Failed to load results')
     } finally {
+      loadingRef.current = false
       setLoading(false)
     }
-  }, [type, decade, minRating, sort, genres, search, page, loading, toastError])
+  }, [type, decade, minRating, sort, genres, search, page, toastError])
 
   const debouncedFetch = useCallback((reset) => {
     clearTimeout(debounceRef.current)
