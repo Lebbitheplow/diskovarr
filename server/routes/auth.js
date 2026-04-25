@@ -42,16 +42,6 @@ router.post('/create-pin', async (req, res) => {
   }
 });
 
-// GET /auth/callback — Plex redirects here after auth; pinId/pinCode passed as query params
-router.get('/callback', (req, res) => {
-  const { pinId, pinCode } = req.query;
-  if (pinId && pinCode) {
-    req.session.plexPinId = pinId;
-    req.session.plexPinCode = pinCode;
-  }
-  res.render('poll', { layout: 'layout' });
-});
-
 // POST /auth/callback — stores PIN in session (for React SPA)
 router.post('/callback', (req, res) => {
   const { pinId, pinCode } = req.body;

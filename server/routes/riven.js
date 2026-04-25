@@ -233,15 +233,6 @@ function parseStreams(rawStreams) {
 
 // ── Routes ────────────────────────────────────────────────────────────────────
 
-// GET /admin/riven/browse — render the browser page
-router.get('/browse', (req, res) => {
-  const themeParam = db.getSetting('theme_color', 'e5a00d');
-  const color = db.getThemeColor ? db.getThemeColor() : '#' + themeParam;
-  const r = parseInt(color.slice(1,3),16), g = parseInt(color.slice(3,5),16), b = parseInt(color.slice(5,7),16);
-  const bgGradientCss = `body{background-image:radial-gradient(ellipse 50% 50% at 50% 0%,rgba(${r},${g},${b},0.28) 0%,transparent 100%),radial-gradient(ellipse 60% 40% at 50% 100%,rgba(${r},${g},${b},0.12) 0%,transparent 100%);background-attachment:fixed;}`;
-  res.render('admin/riven', { themeParam, bgGradientCss });
-});
-
 // GET /admin/riven/config — return current config (keys masked)
 router.get('/config', (req, res) => {
   // Auto-create DUMB app row (and ensure it's enabled) whenever Riven is enabled

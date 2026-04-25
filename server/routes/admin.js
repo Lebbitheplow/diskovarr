@@ -8,14 +8,6 @@ const discoverRecommender = require('../services/discoverRecommender');
 const logger = require('../services/logger');
 const { version: APP_VERSION } = require('../package.json');
 
-function bgGradientCss() {
-  const color = db.getThemeColor();
-  const r = parseInt(color.slice(1, 3), 16);
-  const g = parseInt(color.slice(3, 5), 16);
-  const b = parseInt(color.slice(5, 7), 16);
-  return `body{background-image:radial-gradient(ellipse 50% 50% at 50% 0%,rgba(${r},${g},${b},0.28) 0%,transparent 100%),radial-gradient(ellipse 60% 40% at 50% 100%,rgba(${r},${g},${b},0.12) 0%,transparent 100%);background-attachment:fixed;}`;
-}
-
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10,
@@ -79,7 +71,7 @@ module.exports.shouldAutoSync = shouldAutoSync;
 
 router.get('/login', (req, res) => {
   if (req.session && req.session.isAdmin) return res.redirect('/admin');
-  res.render('admin/login', { error: null });
+  res.sendFile(require('path').resolve(__dirname, '../../dist/index.html'));
 });
 
 router.post('/login', loginLimiter, (req, res) => {
@@ -87,10 +79,9 @@ router.post('/login', loginLimiter, (req, res) => {
   const adminPassword = process.env.ADMIN_PASSWORD;
 
   if (!adminPassword) {
-    return res.render('admin/login', { error: 'ADMIN_PASSWORD not set in .env' });
+    return res.status(500).json({ error: 'ADMIN_PASSWORD not set in .env' });
   }
 
-  // Timing-safe string comparison to prevent timing attacks
   const a = Buffer.from(password || '');
   const b = Buffer.from(adminPassword);
   const match = a.length === b.length &&
@@ -98,17 +89,17 @@ router.post('/login', loginLimiter, (req, res) => {
 
   if (!match) {
     logger.warn(`Admin login failed: incorrect password from ip=${req.ip}`);
-    return res.render('admin/login', { error: 'Incorrect password' });
+    return res.status(401).json({ error: 'Incorrect password' });
   }
 
   logger.info(`Admin login success: ip=${req.ip}`);
   req.session.isAdmin = true;
-  res.redirect('/admin');
+  res.json({ ok: true });
 });
 
-router.post('/logout', requireAdmin, (req, res) => {
-  req.session.isAdmin = false;
-  res.redirect('/admin/login');
+router.post('/logout', (req, res) => {
+  if (req.session) req.session.isAdmin = false;
+  res.json({ ok: true });
 });
 
 // ── Users JSON endpoint (for in-place pagination) ────────────────────────────
@@ -122,57 +113,17 @@ router.get('/users', requireAdmin, (req, res) => {
   res.json({ users, page, perPage, total, totalPages: Math.ceil(total / perPage) });
 });
 
-// ── Main admin page ───────────────────────────────────────────────────────────
+// ── Main admin page — serve the React SPA ────────────────────────────────────
 
-router.get('/', requireAdmin, async (req, res) => {
-  const userPage = Math.max(1, parseInt(req.query.userPage) || 1);
-  const userPerPage = [10, 25, 50].includes(parseInt(req.query.userPerPage)) ? parseInt(req.query.userPerPage) : 10;
-  const stats = db.getAdminStats();
-  const totalUsers = stats.users.length;
-  const pagedUsers = stats.users.slice((userPage - 1) * userPerPage, userPage * userPerPage);
-  const latestVersion = await getLatestVersion();
-  res.render('admin/index', {
-    stats: { ...stats, users: pagedUsers },
-    userPage,
-    userPerPage,
-    totalUsers,
-    userTotalPages: Math.ceil(totalUsers / userPerPage),
-    autoSyncEnabled,
-    syncInProgress,
-    lastSyncError,
-    watchlistMode: db.getAdminWatchlistMode(),
-    ownerUserId: db.getOwnerUserId(),
-    knownUsers: db.getKnownUsers(),
-    connections: db.getConnectionSettings(),
-    themeParam: encodeURIComponent(db.getThemeColor()),
-    bgGradientCss: bgGradientCss(),
-    appVersion: APP_VERSION,
-    latestVersion,
-    updateAvailable: isNewerVersion(latestVersion, APP_VERSION),
-    individualSeasonsEnabled: db.isIndividualSeasonsEnabled(),
-    directRequestAccess: db.getDirectRequestAccess(),
-    globalLimits: db.getGlobalRequestLimits(),
-    userLimitOverrides: db.getAllUserRequestLimitOverrides(),
-    verboseLoggingEnabled: db.getSetting('verbose_logging_enabled', '0') === '1',
-    hasApiKey: !!db.getSetting('diskovarr_api_key', ''),
-    appPublicUrl: db.getSetting('app_public_url', ''),
-    agregarrApp: (() => {
-      const apps = db.listApiApps().filter(a => a.type === 'agregarr');
-      return apps[0] || null;
-    })(),
-    dumbHasApiKey: !!(db.listApiApps().find(a => a.type === 'dumb')?.api_key),
-    compatApp: (() => {
-      let app = db.listApiApps().find(a => a.type === 'compat');
-      if (!app) app = db.createApiApp('Overseerr Compat', 'compat');
-      return app;
-    })(),
-  });
+router.get('/', requireAdmin, (req, res) => {
+  res.sendFile(require('path').resolve(__dirname, '../../dist/index.html'));
 });
 
 // ── API: Status (polled by admin UI) ─────────────────────────────────────────
 
 router.get('/status', requireAdmin, (req, res) => {
   const stats = db.getAdminStats();
+  const compatApp = db.listApiApps().find(a => a.type === 'compat');
   res.json({
     stats, autoSyncEnabled, syncInProgress, lastSyncError,
     watchlistMode: db.getAdminWatchlistMode(),
@@ -182,6 +133,13 @@ router.get('/status', requireAdmin, (req, res) => {
     autoRequestTv: db.getSetting('auto_request_watchlist_tv', 'false') === 'true',
     discordAgent: (() => { try { return JSON.parse(db.getSetting('discord_agent', 'null')); } catch { return null; } })(),
     pushoverAgent: (() => { try { return JSON.parse(db.getSetting('pushover_agent', 'null')); } catch { return null; } })(),
+    verboseLogging: db.getSetting('verbose_logging_enabled', '0') === '1',
+    ownerUserId: db.getOwnerUserId() || '',
+    appPublicUrl: db.getSetting('app_public_url', ''),
+    hasApiKey: !!db.getSetting('diskovarr_api_key', ''),
+    compatEnabled: !!(compatApp && compatApp.enabled),
+    compatApiKey: compatApp?.api_key || null,
+    themeColor: db.getThemeColor(),
   });
 });
 
@@ -298,6 +256,10 @@ router.post('/settings/logging', requireAdmin, (req, res) => {
 });
 
 // ── Request limits ────────────────────────────────────────────────────────────
+
+router.get('/request-limits/global', requireAdmin, (req, res) => {
+  res.json(db.getGlobalRequestLimits());
+});
 
 router.post('/request-limits/global', requireAdmin, (req, res) => {
   const { enabled, movieLimit, movieWindowDays, seasonLimit, seasonWindowDays } = req.body;
@@ -688,7 +650,8 @@ router.delete('/users/:userId/requests', requireAdmin, (req, res) => {
 
 router.get('/users/:userId/settings', requireAdmin, (req, res) => {
   const settings = db.getUserSettings(req.params.userId);
-  res.json(settings);
+  const notificationPrefs = db.getUserNotificationPrefs(req.params.userId);
+  res.json({ ...settings, notificationPrefs });
 });
 
 router.post('/users/:userId/settings', requireAdmin, (req, res) => {
@@ -701,6 +664,12 @@ router.post('/users/:userId/settings', requireAdmin, (req, res) => {
     auto_approve_movies,
     auto_approve_tv,
     is_admin,
+    region,
+    language,
+    auto_request_movies,
+    auto_request_tv,
+    landing_page,
+    notificationPrefs,
   } = req.body;
   try {
     db.saveUserSettings(req.params.userId, {
@@ -714,7 +683,30 @@ router.post('/users/:userId/settings', requireAdmin, (req, res) => {
       auto_approve_tv: auto_approve_tv === null || auto_approve_tv === 'null' ? null
         : (auto_approve_tv === true || auto_approve_tv === '1'),
       is_admin: is_admin === true || is_admin === '1',
+      region: region || null,
+      language: language || null,
+      auto_request_movies: auto_request_movies === true || auto_request_movies === '1',
+      auto_request_tv: auto_request_tv === true || auto_request_tv === '1',
+      landing_page: landing_page || null,
     });
+    if (notificationPrefs && typeof notificationPrefs === 'object') {
+      db.setUserNotificationPrefs(req.params.userId, {
+        notify_approved:      notificationPrefs.notify_approved      !== false,
+        notify_denied:        notificationPrefs.notify_denied        !== false,
+        notify_available:     notificationPrefs.notify_available     !== false,
+        notify_pending:       notificationPrefs.notify_pending       !== false,
+        notify_auto_approved: notificationPrefs.notify_auto_approved !== false,
+        notify_process_failed: notificationPrefs.notify_process_failed !== false,
+        notify_issue_new:     notificationPrefs.notify_issue_new     !== false,
+        notify_issue_update:  notificationPrefs.notify_issue_update  !== false,
+        notify_issue_comment: notificationPrefs.notify_issue_comment !== false,
+        discord_user_id:      notificationPrefs.discord_user_id     || null,
+        discord_enabled:      !!notificationPrefs.discord_enabled,
+        discord_webhook:      notificationPrefs.discord_webhook      || null,
+        pushover_user_key:    notificationPrefs.pushover_user_key   || null,
+        pushover_enabled:     !!notificationPrefs.pushover_enabled,
+      });
+    }
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -774,81 +766,6 @@ router.get('/settings/auto-approve', requireAdmin, (req, res) => {
     movies: db.getSetting('auto_approve_movies', '1') === '1',
     tv: db.getSetting('auto_approve_tv', '1') === '1',
   });
-});
-
-// ── Per-user settings PAGE ────────────────────────────────────────────────────
-
-router.get('/user-settings/:userId', requireAdmin, (req, res) => {
-  const { userId } = req.params;
-  const settings = db.getUserSettings(userId);
-  const user = db.getKnownUsers().find(u => u.user_id === userId);
-  const saved = req.query.saved === '1';
-  const discordConfig = (() => { try { return JSON.parse(db.getSetting('discord_agent', 'null')); } catch { return null; } })();
-  res.render('admin/user-settings', {
-    userId,
-    username: user?.username || userId,
-    thumb: user?.thumb || null,
-    settings,
-    saved,
-    themeParam: encodeURIComponent(db.getThemeColor()),
-    bgGradientCss: bgGradientCss(),
-    appVersion: APP_VERSION,
-    connections: db.getConnectionSettings(),
-    individualSeasonsEnabled: db.isIndividualSeasonsEnabled(),
-    discoverEnabled: db.isDiscoverEnabled(),
-    notificationPrefs: db.getUserNotificationPrefs(userId),
-    discordAgentEnabled: discordConfig?.enabled === true,
-    discordMode: discordConfig?.mode || 'webhook',
-    pushoverAgentEnabled: (() => { try { return JSON.parse(db.getSetting('pushover_agent', 'null'))?.enabled === true; } catch { return false; } })(),
-    isPrivileged: db.getPrivilegedUserIds().includes(userId),
-    ownerUserId: db.getOwnerUserId(),
-  });
-});
-
-router.post('/user-settings/:userId', requireAdmin, (req, res) => {
-  const { userId } = req.params;
-  const {
-    movieLimit, seasonLimit, movieWindowDays, tvWindowDays,
-    overrideGlobal, auto_approve_movies, auto_approve_tv, is_admin,
-    region, language, auto_request_movies, auto_request_tv, landing_page,
-    notify_approved, notify_denied, notify_available,
-    discord_webhook, discord_enabled, pushover_user_key, pushover_enabled,
-    notify_pending, notify_auto_approved, notify_process_failed,
-    notify_issue_new, notify_issue_update, notify_issue_comment,
-  } = req.body;
-  db.saveUserSettings(userId, {
-    movieLimit: parseInt(movieLimit) || 0,
-    seasonLimit: parseInt(seasonLimit) || 0,
-    movieWindowDays: parseInt(movieWindowDays) || 7,
-    tvWindowDays: parseInt(tvWindowDays) || 7,
-    overrideGlobal: overrideGlobal === '1' || overrideGlobal === true,
-    auto_approve_movies: auto_approve_movies === '' ? null : (auto_approve_movies === '1' || auto_approve_movies === true),
-    auto_approve_tv: auto_approve_tv === '' ? null : (auto_approve_tv === '1' || auto_approve_tv === true),
-    is_admin: is_admin === '1' || is_admin === true,
-    region: region || null,
-    language: language || null,
-    auto_request_movies: auto_request_movies === '1' || auto_request_movies === true,
-    auto_request_tv: auto_request_tv === '1' || auto_request_tv === true,
-    landing_page: landing_page || null,
-  });
-  const { discord_user_id } = req.body;
-  db.setUserNotificationPrefs(userId, {
-    notify_approved:      notify_approved      !== undefined ? (notify_approved      === '1' || notify_approved      === true) : true,
-    notify_denied:        notify_denied        !== undefined ? (notify_denied        === '1' || notify_denied        === true) : true,
-    notify_available:     notify_available     !== undefined ? (notify_available     === '1' || notify_available     === true) : true,
-    discord_webhook:      discord_webhook       || null,
-    discord_enabled:      discord_enabled       === '1' || discord_enabled       === true,
-    discord_user_id:      discord_user_id       || null,
-    pushover_user_key:    pushover_user_key     || null,
-    pushover_enabled:     pushover_enabled      === '1' || pushover_enabled      === true,
-    notify_pending:       notify_pending        !== undefined ? (notify_pending        === '1' || notify_pending        === true) : true,
-    notify_auto_approved: notify_auto_approved  !== undefined ? (notify_auto_approved  === '1' || notify_auto_approved  === true) : true,
-    notify_process_failed: notify_process_failed !== undefined ? (notify_process_failed === '1' || notify_process_failed === true) : true,
-    notify_issue_new:      notify_issue_new      !== undefined ? (notify_issue_new      === '1' || notify_issue_new      === true) : true,
-    notify_issue_update:   notify_issue_update   !== undefined ? (notify_issue_update   === '1' || notify_issue_update   === true) : true,
-    notify_issue_comment:  notify_issue_comment  !== undefined ? (notify_issue_comment  === '1' || notify_issue_comment  === true) : true,
-  });
-  res.redirect(`/admin/user-settings/${userId}?saved=1`);
 });
 
 // ── Auto-request watchlist ────────────────────────────────────────────────────
