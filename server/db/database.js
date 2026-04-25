@@ -6,6 +6,7 @@ const dataDir = path.join(__dirname, '..', 'data');
 if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
 
 const db = new DatabaseSync(path.join(dataDir, 'diskovarr.db'));
+db.exec('PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;');
 
 function withTransaction(fn) {
   db.exec('BEGIN');
@@ -727,6 +728,24 @@ function getTmdbCache(tmdbId, mediaType) {
 function setTmdbCache(tmdbId, mediaType, data) {
   db.prepare('INSERT OR REPLACE INTO tmdb_cache (tmdb_id, media_type, data, fetched_at) VALUES (?, ?, ?, ?)')
     .run(Number(tmdbId), mediaType, JSON.stringify(data), Math.floor(Date.now() / 1000));
+}
+
+function getItemsByGenre(mediaType, genreName) {
+  const rows = db.prepare(`SELECT data FROM tmdb_cache WHERE media_type = ?`)
+    .all(mediaType);
+  if (!rows || !rows.length) return [];
+  const items = rows.map(r => {
+    try {
+      const item = JSON.parse(r.data);
+      if (item.genres && Array.isArray(item.genres) && item.genres.some(g => g === genreName)) {
+        return item;
+      }
+      return null;
+    } catch { return null; }
+  }).filter(Boolean);
+  // Sort by TMDB popularity score (popularity field, descending) so most popular shows first
+  items.sort((a, b) => (b.popularity || 0) - (a.popularity || 0));
+  return items;
 }
 
 function deleteTmdbCache(tmdbId, mediaType) {
@@ -1486,7 +1505,7 @@ module.exports = {
   getAdminWatchlistMode, setAdminWatchlistMode,
   getOwnerUserId, setOwnerUserId,
   getSetting, setSetting, getConnectionSettings, isDiscoverEnabled, hasTmdbKey,
-  getTmdbCache, setTmdbCache, deleteTmdbCache,
+  getTmdbCache, setTmdbCache, deleteTmdbCache, getItemsByGenre,
   getLibraryTmdbIds, getLibraryTitleYearSet,
   addDiscoverRequest, getRequestedTmdbIds, getAllRequestedTmdbIds, getRecentRequests,
   addExploreDismissal, getExploreDismissedIds,

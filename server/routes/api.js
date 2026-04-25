@@ -11,6 +11,16 @@ const overseerrService = require('../services/overseerr');
 const db = require('../db/database');
 const logger = require('../services/logger');
 
+// Reverse maps: TMDB genre ID → genre name (built once at startup)
+const MOVIE_ID_TO_GENRE = {};
+const TV_ID_TO_GENRE = {};
+for (const [name, ids] of Object.entries(tmdbService.MOVIE_GENRE_MAP || {})) {
+  for (const id of ids) MOVIE_ID_TO_GENRE[id] = name;
+}
+for (const [name, ids] of Object.entries(tmdbService.TV_GENRE_MAP || {})) {
+  for (const id of ids) { if (!TV_ID_TO_GENRE[id]) TV_ID_TO_GENRE[id] = name; }
+}
+
 router.use(requireAuth);
 
 // Resolve a publicly-accessible TMDB poster URL from a Plex rating key.
@@ -607,11 +617,17 @@ router.get('/search/seasons', async (req, res) => {
   }
 });
 
-// GET /api/search?q=term&page=N — full search results with library cross-ref
+// GET /api/search?q=term&genre=name&type=movie|tv&page=N
+// Supports text search (q) and genre-based browsing (genre + type)
 router.get('/search', async (req, res) => {
   const q = (req.query.q || '').trim();
+  const genre = (req.query.genre || '').trim();
+  const type = (req.query.type || 'movie').toLowerCase();
   const page = Math.max(1, parseInt(req.query.page) || 1);
-  if (!q) return res.json({ results: [], total: 0, pages: 0, page: 1, query: '' });
+
+  if (!q && !genre) {
+    return res.json({ results: [], total: 0, pages: 0, page: 1, query: '' });
+  }
 
   // Library-only search when discover/TMDB is not configured
   if (!db.hasTmdbKey() || !db.isDiscoverEnabled()) {
@@ -651,53 +667,137 @@ router.get('/search', async (req, res) => {
 
   try {
     const { id: userId } = req.session.plexUser;
+    const isGenreSearch = !!genre;
+    const userPrefs = db.getUserPreferences(userId);
+    const userLanguage = userPrefs?.language || null;
+    const userRegion = userPrefs?.region || null;
 
-    const [json, movies, tv] = await Promise.all([
-      tmdbService.tmdbFetchPublic(
-        `/search/multi?query=${encodeURIComponent(q)}&page=${page}&include_adult=false`
-      ),
+    // Fetch library items for cross-referencing
+    const [movies, tv] = await Promise.all([
       plexService.getLibraryItems(plexService.MOVIES_SECTION),
       plexService.getLibraryItems(plexService.TV_SECTION),
     ]);
 
-    const libraryByTmdb = new Map();
-    for (const item of [...movies, ...tv]) {
-      if (item.tmdbId) libraryByTmdb.set(String(item.tmdbId), item);
-    }
-
+    const libraryTmdbIds = new Set([...movies, ...tv].filter(i => i.tmdbId).map(i => String(i.tmdbId)));
     const watchlistKeys = new Set(db.getWatchlistFromDb(userId));
     const watchedKeys = db.getWatchedKeysFromDb(String(userId));
     const requestedIds = db.getAllRequestedTmdbIds();
 
-    const results = (json?.results || [])
-      .filter(r => r.media_type === 'movie' || r.media_type === 'tv')
-      .map(r => {
-        const tmdbId = String(r.id);
-        const libItem = libraryByTmdb.get(tmdbId);
-        return {
-          tmdbId: r.id,
-          mediaType: r.media_type,
-          title: r.title || r.name,
-          year: parseInt((r.release_date || r.first_air_date || '').slice(0, 4)) || null,
-          overview: r.overview || '',
-          posterUrl: r.poster_path ? `https://image.tmdb.org/t/p/w342${r.poster_path}` : null,
-          voteAverage: r.vote_average || 0,
-          inLibrary: !!libItem,
-          ratingKey: libItem?.ratingKey || null,
-          deepLink: libItem ? plexService.getDeepLink(libItem.ratingKey) : null,
-          plexAppLink: libItem ? plexService.getAppLink(libItem.ratingKey) : null,
-          isInWatchlist: libItem ? watchlistKeys.has(libItem.ratingKey) : false,
-          isWatched: libItem ? watchedKeys.has(libItem.ratingKey) : false,
-          isRequested: !libItem && requestedIds.has(`${r.id}:${r.media_type}`),
-        };
+    let externalResults = [];
+    let totalAvailable = 0;
+
+    if (isGenreSearch) {
+      // Genre-based search: return ALL cached tmdb_cache results for the genre so frontend can split into sections
+      let cachedMovies = db.getItemsByGenre('movie', genre);
+      let cachedTV = db.getItemsByGenre('tv', genre);
+
+      // Filter by user's language preference if set
+      if (userLanguage) {
+        cachedMovies = cachedMovies.filter(item => item.originalLanguage === userLanguage);
+        cachedTV = cachedTV.filter(item => item.originalLanguage === userLanguage);
+        console.log(`[search] Genre "${genre}" filtered by language "${userLanguage}": ${cachedMovies.length} movies + ${cachedTV.length} tv`);
+      }
+
+      if (cachedMovies.length > 0 || cachedTV.length > 0) {
+        const cached = [...cachedMovies, ...cachedTV];
+        console.log(`[search] Genre "${genre}": ${cachedMovies.length} movies + ${cachedTV.length} tv from cache`);
+        externalResults = cached;
+      } else {
+        // Fallback: fetch from TMDB discover and let batchGetDetails cache them
+        const MAX_CANDIDATE_PAGES = 5;
+        const allCandidates = [];
+        const fetchType = ['movie', 'tv'].includes(type) ? type : 'movie';
+        const discoverOpts = {};
+        if (userRegion) discoverOpts.region = userRegion;
+        if (userLanguage) discoverOpts.language = userLanguage;
+        for (let p = 1; p <= MAX_CANDIDATE_PAGES; p++) {
+          const pageResults = await tmdbService.discoverByGenreName(genre, fetchType, p, { includeAdult: true, ...discoverOpts });
+          if (!pageResults.length) break;
+          allCandidates.push(...pageResults);
+        }
+        const enriched = await tmdbService.batchGetDetails(
+          allCandidates.map(r => ({ tmdbId: r.tmdbId, mediaType: r.mediaType }))
+        );
+        externalResults = enriched.filter(item => item !== null);
+
+        // Apply language filter to fallback results too
+        if (userLanguage) {
+          externalResults = externalResults.filter(item => item.originalLanguage === userLanguage);
+        }
+      }
+    } else {
+      // Text search: fetch TMDB and library in parallel, cross-reference inLibrary
+      const libraryByTmdb = new Map();
+      for (const item of [...movies, ...tv]) {
+        if (item.tmdbId) libraryByTmdb.set(String(item.tmdbId), item);
+      }
+
+      const json = await tmdbService.tmdbFetchPublic(
+        `/search/multi?query=${encodeURIComponent(q)}&page=${page}&include_adult=false`
+      );
+
+      const results = (json?.results || [])
+        .filter(r => r.media_type === 'movie' || r.media_type === 'tv')
+        .map(r => {
+          const tmdbId = String(r.id);
+          const libItem = libraryByTmdb.get(tmdbId);
+          const idMap = r.media_type === 'movie' ? MOVIE_ID_TO_GENRE : TV_ID_TO_GENRE;
+          return {
+            tmdbId: r.id,
+            mediaType: r.media_type,
+            title: r.title || r.name,
+            year: parseInt((r.release_date || r.first_air_date || '').slice(0, 4)) || null,
+            overview: r.overview || '',
+            posterUrl: r.poster_path ? `https://image.tmdb.org/t/p/w342${r.poster_path}` : null,
+            voteAverage: r.vote_average || 0,
+            genres: (r.genre_ids || []).map(id => idMap[id]).filter(Boolean),
+            contentRating: null,
+            inLibrary: !!libItem,
+            ratingKey: libItem?.ratingKey || null,
+            deepLink: libItem ? plexService.getDeepLink(libItem.ratingKey) : null,
+            plexAppLink: libItem ? plexService.getAppLink(libItem.ratingKey) : null,
+            isInWatchlist: libItem ? watchlistKeys.has(libItem.ratingKey) : false,
+            isWatched: libItem ? watchedKeys.has(libItem.ratingKey) : false,
+            isRequested: !libItem && requestedIds.has(`${r.id}:${r.media_type}`),
+          };
+        });
+
+      return res.json({
+        results,
+        total: json?.total_results || results.length,
+        pages: Math.min(json?.total_pages || 1, 10),
+        page,
+        query: q,
       });
+    }
+
+    // Genre search: enrich with user-specific data
+    const filtered = externalResults.filter(item => !libraryTmdbIds.has(String(item.tmdbId)));
+    const results = filtered.map(item => ({
+      tmdbId: item.tmdbId,
+      mediaType: item.mediaType,
+      title: item.title,
+      year: item.year,
+      overview: item.overview || '',
+      posterUrl: item.posterUrl,
+      voteAverage: item.voteAverage || 0,
+      genres: item.genres || [],
+      contentRating: item.contentRating || null,
+      inLibrary: false,
+      ratingKey: null,
+      deepLink: null,
+      plexAppLink: null,
+      isInWatchlist: false,
+      isWatched: false,
+      isRequested: requestedIds.has(`${item.tmdbId}:${item.mediaType}`),
+    }));
 
     res.json({
       results,
-      total: json?.total_results || results.length,
-      pages: Math.min(json?.total_pages || 1, 10),
-      page,
-      query: q,
+      total: results.length,
+      pages: 1,
+      page: 1,
+      query: genre,
     });
   } catch (err) {
     console.error('search error:', err);
@@ -1606,6 +1706,23 @@ router.post('/user/discord/test', async (req, res) => {
     res.json({ ok: true });
   } catch (err) {
     res.json({ ok: false, error: err.message });
+  }
+});
+
+// POST /api/admin/rebuild-pool — force rebuild discover candidate pools + tmdb_cache
+router.post('/admin/rebuild-pool', requireAuth, async (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  const isAdmin = !!(req.session.isAdmin || req.session.isPlexAdminUser);
+  if (!isAdmin) return res.status(403).json({ error: 'Admin access required' });
+  try {
+    console.log('[admin] Force pool rebuild started by user', req.session.plexUser.id);
+    await discoverRecommender.refreshSharedCandidatePools();
+    await discoverRecommender.warmAllUserDiscoverCaches();
+    console.log('[admin] Force pool rebuild complete');
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[admin] Pool rebuild failed:', err);
+    res.status(500).json({ error: 'Rebuild failed: ' + err.message });
   }
 });
 

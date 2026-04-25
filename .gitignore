@@ -19,6 +19,13 @@ dist-ssr
 .env.local
 *.local
 
+# Databases — contain API keys, tokens, and personal data
+*.db
+*.db-shm
+*.db-wal
+*.bak
+server/data/
+
 # Internal planning / migration docs
 FINAL_PLAN_SUMMARY.md
 IMPLEMENTATION_PLAN.md

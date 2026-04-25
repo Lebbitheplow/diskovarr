@@ -3204,3 +3204,350 @@ img {
 .btn-settings-save { padding: 8px 22px; border-radius: 7px; border: none; background: var(--accent); color: #000; font-size: 0.88rem; font-weight: 600; cursor: pointer; transition: background 0.15s; }
 .btn-settings-save:hover:not(:disabled) { opacity: 0.88; }
 .btn-settings-save:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ── Genre Carousel ─────────────────────────────────────────────────── */
+#section-genre-browse .carousel-wrap .card-grid {
+  grid-template-rows: auto;
+  grid-auto-flow: column;
+  grid-auto-columns: 140px;
+}
+
+.genre-tile {
+  position: relative;
+  width: 140px;
+  height: 190px;
+  border-radius: var(--radius);
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,0.08);
+  transition: transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  text-decoration: none;
+  color: #fff;
+  scroll-snap-align: start;
+}
+
+.genre-tile:hover {
+  transform: translateY(-5px) scale(1.04);
+  box-shadow: 0 12px 32px rgba(0,0,0,0.55);
+  border-color: rgba(255,255,255,0.22);
+}
+
+.genre-tile-emoji {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -62%);
+  font-size: 4.5rem;
+  line-height: 1;
+  opacity: 0.18;
+  pointer-events: none;
+  user-select: none;
+  transition: opacity 0.22s ease, transform 0.22s ease;
+  filter: blur(1px);
+}
+
+.genre-tile:hover .genre-tile-emoji {
+  opacity: 0.28;
+  transform: translate(-50%, -65%) scale(1.1);
+  filter: blur(0px);
+}
+
+.genre-tile-footer {
+  position: relative;
+  width: 100%;
+  padding: 10px 10px 12px;
+  background: linear-gradient(0deg, rgba(0,0,0,0.72) 0%, rgba(0,0,0,0.0) 100%);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  min-height: 64px;
+}
+
+.genre-tile-name {
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-align: center;
+  color: #fff;
+  line-height: 1.25;
+  letter-spacing: 0.01em;
+  text-shadow: 0 1px 4px rgba(0,0,0,0.6);
+}
+
+/* ============================================================
+   Genre Filter (Search page)
+   ============================================================ */
+.hide-library-toggle {
+  margin-left: auto;
+}
+
+/* ── Filter Bar ─────────────────────────────────────────────────────── */
+.filter-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 4px 0 16px;
+}
+
+.filter-chips-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 14px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: none;
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+  white-space: nowrap;
+  font-family: inherit;
+  line-height: 1;
+}
+
+.filter-chip:hover {
+  color: var(--text-primary);
+  border-color: var(--border-hover);
+  background: var(--accent-glow);
+}
+
+.filter-chip.active {
+  background: var(--accent-dim);
+  border-color: var(--accent-border);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.filter-chip.open {
+  border-color: var(--border-hover);
+  color: var(--text-primary);
+}
+
+.filter-chip-caret {
+  display: inline-block;
+  width: 0;
+  height: 0;
+  border-left: 3.5px solid transparent;
+  border-right: 3.5px solid transparent;
+  border-top: 4px solid currentColor;
+  opacity: 0.55;
+  transition: transform 0.15s;
+}
+
+.filter-chip.open .filter-chip-caret {
+  transform: rotate(180deg);
+}
+
+.filter-chip-divider {
+  width: 1px;
+  height: 18px;
+  background: var(--border);
+  margin: 0 4px;
+  flex-shrink: 0;
+}
+
+/* Inline panel — part of the flow, not floating */
+.filter-panel {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px 2px 2px;
+  border-top: none;
+}
+
+.filter-panel-year {
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.filter-panel-empty {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  padding: 4px 0;
+}
+
+.filter-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 12px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: none;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 0.12s, color 0.12s, background 0.12s;
+  font-family: inherit;
+  white-space: nowrap;
+  line-height: 1;
+}
+
+.filter-pill:hover {
+  color: var(--text-primary);
+  border-color: var(--border-hover);
+  background: var(--accent-glow);
+}
+
+.filter-pill.active {
+  background: var(--accent-dim);
+  border-color: var(--accent-border);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.filter-pill-check {
+  font-size: 0.65rem;
+  font-weight: 700;
+}
+
+.filter-pill-rating {
+  border-radius: 5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  font-size: 0.74rem;
+}
+
+.filter-year-label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.filter-year-dash {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  padding-top: 18px;
+  flex-shrink: 0;
+}
+
+.filter-year-input {
+  width: 90px;
+  padding: 6px 9px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 0.86rem;
+  font-family: inherit;
+}
+
+.filter-year-input:focus {
+  outline: none;
+  border-color: var(--accent-border);
+}
+
+.filter-panel-clear {
+  margin-left: 6px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  cursor: pointer;
+  font-family: inherit;
+  transition: color 0.12s;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.filter-panel-clear:hover {
+  color: var(--accent);
+}
+
+.genre-filter-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--accent-dim);
+  border: 1px solid var(--accent-border);
+  border-radius: 20px;
+  padding: 4px 12px 4px 14px;
+  margin-top: 8px;
+  font-size: 0.82rem;
+}
+
+.genre-filter-badge button {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 1.1rem;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+}
+
+.genre-filter-badge button:hover {
+  color: var(--accent-hover);
+}
+
+.search-results-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+
+#section-genre-browse {
+  margin-bottom: 56px;
+}
+
+/* ============================================================
+   Genre Tab Bar (Search page genre view)
+   ============================================================ */
+.genre-tab-bar {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 20px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.genre-tab {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 6px 16px;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s;
+  font-family: inherit;
+  white-space: nowrap;
+}
+
+.genre-tab:hover {
+  color: var(--text-primary);
+  border-color: var(--border-hover);
+  background: var(--accent-glow);
+}
+
+.genre-tab.active {
+  background: var(--accent-dim);
+  border-color: var(--accent-border);
+  color: var(--accent);
+  font-weight: 600;
+}

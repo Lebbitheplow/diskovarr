@@ -1,5 +1,6 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react'
+import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
+import FilterBar from '../components/FilterBar'
 import {
   searchApi,
   watchlistApi,
@@ -25,9 +26,18 @@ export default function Search() {
   const navigate = useNavigate()
   const { error: toastError, success: toastSuccess } = useToast()
 
-  const initialQuery = searchParams.get('q') || ''
-  const [query, setQuery] = useState(initialQuery)
-  const [inputValue, setInputValue] = useState(initialQuery)
+  // URL is the source of truth for committed search state
+  const urlQuery = searchParams.get('q') || ''
+  const urlGenre = searchParams.get('genre') || ''
+
+  const [inputValue, setInputValue] = useState(urlQuery)
+  const [activeTab, setActiveTab] = useState('all')
+  const [hideLibrary, setHideLibrary] = useState(!!urlGenre)
+  const [filterGenres, setFilterGenres] = useState([])
+  const [filterYearFrom, setFilterYearFrom] = useState('')
+  const [filterYearTo, setFilterYearTo] = useState('')
+  const [filterContentRatings, setFilterContentRatings] = useState([])
+  const [filterMinScore, setFilterMinScore] = useState(null)
   const [results, setResults] = useState([])
   const [loading, setLoading] = useState(false)
   const [page, setPage] = useState(1)
@@ -45,75 +55,81 @@ export default function Search() {
   const suggestTimerRef = useRef(null)
   const searchInputRef = useRef(null)
 
+  // Sync input box when URL changes externally (e.g. navbar search)
+  useEffect(() => {
+    setInputValue(urlQuery)
+  }, [urlQuery])
+
+  // Reset filters and tab when search changes
+  useEffect(() => {
+    setActiveTab('all')
+    setHideLibrary(!!urlGenre)
+    setFilterGenres([])
+    setFilterYearFrom('')
+    setFilterYearTo('')
+    setFilterContentRatings([])
+    setFilterMinScore(null)
+  }, [urlQuery, urlGenre])
+
   const loadWatchlist = useCallback(async () => {
     try {
       const { data } = await watchlistApi.getWatchlist()
       const cache = {}
-      ;(data.items || []).forEach(item => {
-        cache[item.ratingKey] = true
-      })
+      ;(data.items || []).forEach(item => { cache[item.ratingKey] = true })
       setWatchlistCache(cache)
     } catch { /* ignore */ }
   }, [])
 
-  const fetchSearchResults = useCallback(async (reset = true) => {
-    if (!inputValue.trim()) {
-      if (reset) setResults([])
-      return
-    }
-    if (reset) {
-      setLoading(true)
-      setPage(1)
-    }
-
+  // fetchSearchResults takes q/g/pg as args so it doesn't close over stale state
+  const fetchSearchResults = useCallback(async (q, g, pg = 1, append = false) => {
+    if (!q && !g) { setResults([]); return }
+    if (!append) setLoading(true)
     try {
-      const { data } = await searchApi.search(inputValue.trim(), reset ? 1 : page)
-      if (reset) {
-        setResults(data.results || [])
-      } else {
+      const { data } = await searchApi.search(q, pg, g || undefined)
+      if (append) {
         setResults(prev => [...prev, ...(data.results || [])])
+      } else {
+        setResults(data.results || [])
       }
       setTotalPages(data.pages || 1)
       setTotalResults(data.total || 0)
-    } catch (e) {
+    } catch {
       toastError('Search failed. Please try again.')
     } finally {
       setLoading(false)
     }
-  }, [inputValue, page, toastError])
+  }, [toastError])
+
+  // Fire search whenever the URL's q or genre param changes
+  useEffect(() => {
+    setPage(1)
+    fetchSearchResults(urlQuery, urlGenre, 1, false)
+  }, [urlQuery, urlGenre]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    loadWatchlist()
+    exploreApi.getServices().then(({ data }) => setServices(data || {})).catch(() => {})
+  }, [loadWatchlist])
 
   const debouncedSuggestions = useCallback((q) => {
     clearTimeout(suggestTimerRef.current)
-    if (q.length < 2) {
-      setSuggestions([])
-      setShowSuggestions(false)
-      return
-    }
+    if (q.length < 2) { setSuggestions([]); setShowSuggestions(false); return }
     suggestTimerRef.current = setTimeout(async () => {
       try {
         const { data } = await searchApi.getSuggestions(q)
         setSuggestions(data.results || [])
+        setShowSuggestions(true)
       } catch { /* ignore */ }
     }, 280)
   }, [])
 
-  useEffect(() => {
-    if (initialQuery) {
-      fetchSearchResults(true)
-    }
-    loadWatchlist()
-    exploreApi.getServices().then(({ data }) => setServices(data || {})).catch(() => {})
-  }, [initialQuery, fetchSearchResults, loadWatchlist])
-
   const handleSubmit = useCallback((e) => {
-    e.preventDefault()
+    if (e && e.preventDefault) e.preventDefault()
     const q = inputValue.trim()
     if (!q) return
-    navigate('/search?q=' + encodeURIComponent(q))
-    setResults([])
     setSuggestions([])
     setShowSuggestions(false)
-    setQuery(q)
+    navigate('/search?q=' + encodeURIComponent(q))
   }, [inputValue, navigate])
 
   const handleInputChange = useCallback((e) => {
@@ -123,7 +139,6 @@ export default function Search() {
 
   const handleSuggestionClick = useCallback((title) => {
     setInputValue(title)
-    setQuery(title)
     setSuggestions([])
     setShowSuggestions(false)
     navigate('/search?q=' + encodeURIComponent(title))
@@ -184,8 +199,43 @@ export default function Search() {
   const handleLoadMore = useCallback(() => {
     const nextPage = page + 1
     setPage(nextPage)
-    fetchSearchResults(false)
-  }, [page, fetchSearchResults])
+    fetchSearchResults(urlQuery, urlGenre, nextPage, true)
+  }, [page, urlQuery, urlGenre, fetchSearchResults])
+
+  const handleClearGenre = useCallback(() => {
+    setActiveTab('all')
+    navigate('/search')
+  }, [navigate])
+
+  const availableGenres = useMemo(() => {
+    const set = new Set()
+    results.forEach(r => (r.genres || []).forEach(g => set.add(g)))
+    return [...set].sort()
+  }, [results])
+
+  const availableContentRatings = useMemo(() => {
+    const order = ['G','PG','PG-13','R','NC-17','TV-G','TV-PG','TV-14','TV-MA']
+    const set = new Set(results.map(r => r.contentRating).filter(Boolean))
+    return order.filter(r => set.has(r))
+  }, [results])
+
+  const displayResults = useMemo(() => {
+    let r = hideLibrary ? results.filter(i => !i.inLibrary) : results
+    if (filterGenres.length > 0)
+      r = r.filter(i => filterGenres.every(g => (i.genres || []).includes(g)))
+    if (filterYearFrom)
+      r = r.filter(i => i.year >= parseInt(filterYearFrom))
+    if (filterYearTo)
+      r = r.filter(i => i.year <= parseInt(filterYearTo))
+    if (filterContentRatings.length > 0)
+      r = r.filter(i => filterContentRatings.includes(i.contentRating))
+    if (filterMinScore)
+      r = r.filter(i => (i.voteAverage || 0) >= filterMinScore)
+    return r
+  }, [results, hideLibrary, filterGenres, filterYearFrom, filterYearTo, filterContentRatings, filterMinScore])
+
+  const movieResults = displayResults.filter(item => item.mediaType === 'movie')
+  const tvResults = displayResults.filter(item => item.mediaType === 'tv')
 
   const handleSeasonToggle = useCallback((season) => {
     setSelectedSeasons(prev => {
@@ -305,78 +355,184 @@ export default function Search() {
         </div>
       </div>
 
+      {(urlQuery || urlGenre) && (
+        <FilterBar
+          availableGenres={availableGenres}
+          availableContentRatings={availableContentRatings}
+          filterGenres={filterGenres}
+          filterYearFrom={filterYearFrom}
+          filterYearTo={filterYearTo}
+          filterContentRatings={filterContentRatings}
+          filterMinScore={filterMinScore}
+          hideLibrary={hideLibrary}
+          onGenres={setFilterGenres}
+          onYearFrom={setFilterYearFrom}
+          onYearTo={setFilterYearTo}
+          onContentRatings={setFilterContentRatings}
+          onMinScore={setFilterMinScore}
+          onHideLibrary={setHideLibrary}
+        />
+      )}
+
       {results.length > 0 && (
         <div className="search-results-meta" id="search-results-header">
           <span id="search-results-count">
-            {totalResults.toLocaleString()} result{totalResults !== 1 ? 's' : ''} for "{query}"
+            {displayResults.length.toLocaleString()} result{displayResults.length !== 1 ? 's' : ''}{urlGenre ? ' in ' + urlGenre : ' for "' + urlQuery + '"'}
           </span>
+          {urlGenre && (
+            <div className="genre-filter-badge">
+              <span>Genre: {urlGenre}</span>
+              <button onClick={handleClearGenre} aria-label="Clear genre filter">×</button>
+            </div>
+          )}
         </div>
       )}
 
-      <div className="card-grid" id="search-grid">
-        {loading ? (
-          <SkeletonLoader count={12} />
-        ) : results.length === 0 ? (
-          <div className="search-empty" style={{ gridColumn: '1/-1' }}>
-            <p>No results found for "{query}".</p>
-          </div>
-        ) : (
-          results.map(item => (
-            <div key={item.tmdbId} className="card search-card">
-              <button className="card-poster-link" onClick={() => handleOpenModal(item)} type="button">
-                {item.posterUrl && (
-                  <img className="card-poster" src={posterUrl(item.posterUrl)} alt={item.title} loading="lazy" />
-                )}
-                <div className="card-poster-placeholder">{item.title?.charAt(0) || '?'}</div>
-                {item.inLibrary ? (
-                  <span className="badge-in-library">In Library</span>
-                ) : (
-                  <span className={'badge-not-in-library' + (item.isRequested ? ' badge-requested' : '')}>
-                    {item.isRequested ? 'Requested' : 'Not in Library'}
-                  </span>
-                )}
-                {item.isWatched && (
-                  <div className="card-watched-badge" title="Watched">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" width="12" height="12">
-                      <polyline points="20 6 9 17 4 12" />
-                    </svg>
-                  </div>
-                )}
-                <div className="card-overlay">
-                  <div className="card-overlay-actions">
-                    {item.inLibrary && item.ratingKey ? (
-                      <button
-                        className={'btn-icon btn-watchlist' + (watchlistCache[item.ratingKey] ? ' in-watchlist' : '')}
-                        onClick={(e) => { e.stopPropagation(); handleToggleWatchlist(item) }}
-                      >
-                        {watchlistCache[item.ratingKey] ? '✓ In Watchlist' : '+ Watchlist'}
-                      </button>
-                    ) : null}
-                    {!item.inLibrary && (
-                      <button
-                        className={'btn-icon btn-request' + (item.isRequested ? ' btn-request-sent' : '')}
-                        onClick={(e) => { e.stopPropagation(); setRequestItem(item) }}
-                        disabled={item.isRequested}
-                      >
-                        {item.isRequested ? 'Requested ✓' : 'Request'}
-                      </button>
+      {displayResults.length > 0 ? (
+        urlGenre ? (
+          <>
+            <div className="genre-tab-bar">
+              <button
+                className={'genre-tab' + (activeTab === 'all' ? ' active' : '')}
+                onClick={() => setActiveTab('all')}
+              >
+                All ({displayResults.length})
+              </button>
+              {movieResults.length > 0 && (
+                <button
+                  className={'genre-tab' + (activeTab === 'movies' ? ' active' : '')}
+                  onClick={() => setActiveTab('movies')}
+                >
+                  Movies ({movieResults.length})
+                </button>
+              )}
+              {tvResults.length > 0 && (
+                <button
+                  className={'genre-tab' + (activeTab === 'tv' ? ' active' : '')}
+                  onClick={() => setActiveTab('tv')}
+                >
+                  TV Shows ({tvResults.length})
+                </button>
+              )}
+            </div>
+            <div className="card-grid" id="search-grid">
+              {(activeTab === 'all' ? displayResults : activeTab === 'movies' ? movieResults : tvResults).map(item => (
+                <div key={item.tmdbId} className="card search-card">
+                  <button className="card-poster-link" onClick={() => handleOpenModal(item)} type="button">
+                    {item.posterUrl && (
+                      <img className="card-poster" src={posterUrl(item.posterUrl)} alt={item.title} loading="lazy" />
                     )}
+                    <div className="card-poster-placeholder">{item.title?.charAt(0) || '?'}</div>
+                    {item.inLibrary ? (
+                      <span className="badge-in-library">In Library</span>
+                    ) : (
+                      <span className={'badge-not-in-library' + (item.isRequested ? ' badge-requested' : '')}>
+                        {item.isRequested ? 'Requested' : 'Not in Library'}
+                      </span>
+                    )}
+                    {item.isWatched && (
+                      <div className="card-watched-badge" title="Watched">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" width="12" height="12">
+                          <polyline points="20 6 9 17 4 12" />
+                        </svg>
+                      </div>
+                    )}
+                    <div className="card-overlay">
+                      <div className="card-overlay-actions">
+                        {item.inLibrary && item.ratingKey ? (
+                          <button
+                            className={'btn-icon btn-watchlist' + (watchlistCache[item.ratingKey] ? ' in-watchlist' : '')}
+                            onClick={(e) => { e.stopPropagation(); handleToggleWatchlist(item) }}
+                          >
+                            {watchlistCache[item.ratingKey] ? '✓ In Watchlist' : '+ Watchlist'}
+                          </button>
+                        ) : null}
+                        {!item.inLibrary && (
+                          <button
+                            className={'btn-icon btn-request' + (item.isRequested ? ' btn-request-sent' : '')}
+                            onClick={(e) => { e.stopPropagation(); setRequestItem(item) }}
+                            disabled={item.isRequested}
+                          >
+                            {item.isRequested ? 'Requested ✓' : 'Request'}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </button>
+                  <div className="card-info">
+                    <div className="card-title">{item.title}</div>
+                    <div className="card-meta">
+                      {item.year && <span className="card-year">{item.year}</span>}
+                      {item.voteAverage && <span className="card-rating">★ {item.voteAverage.toFixed(1)}</span>}
+                    </div>
                   </div>
                 </div>
-              </button>
-              <div className="card-info">
-                <div className="card-title">{item.title}</div>
-                <div className="card-meta">
-                  {item.year && <span className="card-year">{item.year}</span>}
-                  {item.voteAverage && <span className="card-rating">★ {item.voteAverage.toFixed(1)}</span>}
+              ))}
+            </div>
+          </>
+        ) : (
+          <div className="card-grid" id="search-grid">
+            {displayResults.map(item => (
+              <div key={item.tmdbId} className="card search-card">
+                <button className="card-poster-link" onClick={() => handleOpenModal(item)} type="button">
+                  {item.posterUrl && (
+                    <img className="card-poster" src={posterUrl(item.posterUrl)} alt={item.title} loading="lazy" />
+                  )}
+                  <div className="card-poster-placeholder">{item.title?.charAt(0) || '?'}</div>
+                  {item.inLibrary ? (
+                    <span className="badge-in-library">In Library</span>
+                  ) : (
+                    <span className={'badge-not-in-library' + (item.isRequested ? ' badge-requested' : '')}>
+                      {item.isRequested ? 'Requested' : 'Not in Library'}
+                    </span>
+                  )}
+                  {item.isWatched && (
+                    <div className="card-watched-badge" title="Watched">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" width="12" height="12">
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                    </div>
+                  )}
+                  <div className="card-overlay">
+                    <div className="card-overlay-actions">
+                      {item.inLibrary && item.ratingKey ? (
+                        <button
+                          className={'btn-icon btn-watchlist' + (watchlistCache[item.ratingKey] ? ' in-watchlist' : '')}
+                          onClick={(e) => { e.stopPropagation(); handleToggleWatchlist(item) }}
+                        >
+                          {watchlistCache[item.ratingKey] ? '✓ In Watchlist' : '+ Watchlist'}
+                        </button>
+                      ) : null}
+                      {!item.inLibrary && (
+                        <button
+                          className={'btn-icon btn-request' + (item.isRequested ? ' btn-request-sent' : '')}
+                          onClick={(e) => { e.stopPropagation(); setRequestItem(item) }}
+                          disabled={item.isRequested}
+                        >
+                          {item.isRequested ? 'Requested ✓' : 'Request'}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </button>
+                <div className="card-info">
+                  <div className="card-title">{item.title}</div>
+                  <div className="card-meta">
+                    {item.year && <span className="card-year">{item.year}</span>}
+                    {item.voteAverage && <span className="card-rating">★ {item.voteAverage.toFixed(1)}</span>}
+                  </div>
                 </div>
               </div>
-            </div>
-          ))
-        )}
-      </div>
+            ))}
+          </div>
+        )
+      ) : (
+        <div className="search-empty" style={{ gridColumn: '1/-1' }}>
+          <p>No results found for "{urlGenre ? urlGenre : urlQuery}".</p>
+        </div>
+      )}
 
-      {page < totalPages && (
+      {page < totalPages && displayResults.length > 0 && (
         <div id="search-load-more-wrap" style={{ display: 'text-align: center', padding: '32px 0' }}>
           <button className="btn-load-more" id="btn-search-load-more" onClick={handleLoadMore} disabled={loading}>
             Load more
