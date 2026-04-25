@@ -47,7 +47,7 @@ export default function Discover() {
   const [initialLoad, setInitialLoad] = useState(true)
   const [selectedItem, setSelectedItem] = useState(null)
   const [loadingGenres, setLoadingGenres] = useState(true)
-  const debounceRef = useRef(null)
+  const loadingRef = useRef(false)
 
   const loadWatchlist = useCallback(async () => {
     try {
@@ -72,8 +72,9 @@ export default function Discover() {
     }
   }, [toastError])
 
-  const fetchResults = useCallback(async (reset = true) => {
-    if (loading) return
+  const fetchResults = useCallback(async (reset = true, overridePage) => {
+    if (loadingRef.current) return
+    loadingRef.current = true
     if (reset) {
       setLoading(true)
       setPage(1)
@@ -86,7 +87,7 @@ export default function Discover() {
       minRating,
       sort,
       genres: [...genres].join(','),
-      page: reset ? 1 : page,
+      page: reset ? 1 : (overridePage || page),
       q: search,
     })
 
@@ -102,43 +103,37 @@ export default function Discover() {
     } catch (e) {
       toastError('Failed to load results')
     } finally {
+      loadingRef.current = false
       setLoading(false)
     }
-  }, [type, decade, minRating, sort, genres, search, page, loading, toastError])
-
-  const debouncedFetch = useCallback((reset) => {
-    clearTimeout(debounceRef.current)
-    debounceRef.current = setTimeout(() => fetchResults(reset), 120)
-  }, [fetchResults])
+  }, [type, decade, minRating, sort, genres, search, page, toastError]) // loading removed from deps
 
   useEffect(() => {
     loadGenres()
     loadWatchlist()
   }, [loadGenres, loadWatchlist])
 
+  // Re-fetch when filters change — debounced to handle rapid changes (slider, typing)
   useEffect(() => {
-    fetchResults(true)
-  }, [fetchResults])
+    const timer = setTimeout(() => fetchResults(true), 180)
+    return () => clearTimeout(timer)
+  }, [type, decade, minRating, sort, genres, search]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSearchChange = useCallback((e) => {
     setSearch(e.target.value)
-    debouncedFetch(true)
-  }, [debouncedFetch])
+  }, [])
 
   const handleSearchClear = useCallback(() => {
     setSearch('')
-    debouncedFetch(true)
-  }, [debouncedFetch])
+  }, [])
 
   const handleTypeChange = useCallback((newType) => {
     setType(newType)
-    fetchResults(true)
-  }, [fetchResults])
+  }, [])
 
   const handleDecadeChange = useCallback((newDecade) => {
     setDecade(newDecade)
-    fetchResults(true)
-  }, [fetchResults])
+  }, [])
 
   const handleRatingChange = useCallback((e) => {
     const idx = parseInt(e.target.value)
@@ -151,8 +146,7 @@ export default function Discover() {
 
   const handleSortChange = useCallback((e) => {
     setSort(e.target.value)
-    fetchResults(true)
-  }, [fetchResults])
+  }, [])
 
   const handleGenreToggle = useCallback((genre) => {
     setGenres(prev => {
@@ -164,8 +158,7 @@ export default function Discover() {
       }
       return next
     })
-    fetchResults(true)
-  }, [fetchResults])
+  }, [])
 
   const handleClearAll = useCallback(() => {
     setType('all')
@@ -174,13 +167,12 @@ export default function Discover() {
     setSort('rating')
     setGenres(new Set())
     setSearch('')
-    fetchResults(true)
-  }, [fetchResults])
+  }, [])
 
   const handleLoadMore = useCallback(() => {
     const nextPage = page + 1
     setPage(nextPage)
-    fetchResults(false)
+    fetchResults(false, nextPage)
   }, [page, fetchResults])
 
   const handleToggleWatchlist = useCallback(async (item) => {
