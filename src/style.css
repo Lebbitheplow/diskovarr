@@ -3280,6 +3280,200 @@ img {
 /* ============================================================
    Genre Filter (Search page)
    ============================================================ */
+.hide-library-toggle {
+  margin-left: auto;
+}
+
+/* ── Filter Bar ─────────────────────────────────────────────────────── */
+.filter-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 4px 0 16px;
+}
+
+.filter-chips-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 14px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: none;
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+  white-space: nowrap;
+  font-family: inherit;
+  line-height: 1;
+}
+
+.filter-chip:hover {
+  color: var(--text-primary);
+  border-color: var(--border-hover);
+  background: var(--accent-glow);
+}
+
+.filter-chip.active {
+  background: var(--accent-dim);
+  border-color: var(--accent-border);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.filter-chip.open {
+  border-color: var(--border-hover);
+  color: var(--text-primary);
+}
+
+.filter-chip-caret {
+  display: inline-block;
+  width: 0;
+  height: 0;
+  border-left: 3.5px solid transparent;
+  border-right: 3.5px solid transparent;
+  border-top: 4px solid currentColor;
+  opacity: 0.55;
+  transition: transform 0.15s;
+}
+
+.filter-chip.open .filter-chip-caret {
+  transform: rotate(180deg);
+}
+
+.filter-chip-divider {
+  width: 1px;
+  height: 18px;
+  background: var(--border);
+  margin: 0 4px;
+  flex-shrink: 0;
+}
+
+/* Inline panel — part of the flow, not floating */
+.filter-panel {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px 2px 2px;
+  border-top: none;
+}
+
+.filter-panel-year {
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.filter-panel-empty {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  padding: 4px 0;
+}
+
+.filter-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 12px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: none;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 0.12s, color 0.12s, background 0.12s;
+  font-family: inherit;
+  white-space: nowrap;
+  line-height: 1;
+}
+
+.filter-pill:hover {
+  color: var(--text-primary);
+  border-color: var(--border-hover);
+  background: var(--accent-glow);
+}
+
+.filter-pill.active {
+  background: var(--accent-dim);
+  border-color: var(--accent-border);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.filter-pill-check {
+  font-size: 0.65rem;
+  font-weight: 700;
+}
+
+.filter-pill-rating {
+  border-radius: 5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  font-size: 0.74rem;
+}
+
+.filter-year-label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.filter-year-dash {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  padding-top: 18px;
+  flex-shrink: 0;
+}
+
+.filter-year-input {
+  width: 90px;
+  padding: 6px 9px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 0.86rem;
+  font-family: inherit;
+}
+
+.filter-year-input:focus {
+  outline: none;
+  border-color: var(--accent-border);
+}
+
+.filter-panel-clear {
+  margin-left: 6px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  cursor: pointer;
+  font-family: inherit;
+  transition: color 0.12s;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.filter-panel-clear:hover {
+  color: var(--accent);
+}
+
 .genre-filter-badge {
   display: inline-flex;
   align-items: center;

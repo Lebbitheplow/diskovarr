@@ -11,6 +11,16 @@ const overseerrService = require('../services/overseerr');
 const db = require('../db/database');
 const logger = require('../services/logger');
 
+// Reverse maps: TMDB genre ID → genre name (built once at startup)
+const MOVIE_ID_TO_GENRE = {};
+const TV_ID_TO_GENRE = {};
+for (const [name, ids] of Object.entries(tmdbService.MOVIE_GENRE_MAP || {})) {
+  for (const id of ids) MOVIE_ID_TO_GENRE[id] = name;
+}
+for (const [name, ids] of Object.entries(tmdbService.TV_GENRE_MAP || {})) {
+  for (const id of ids) { if (!TV_ID_TO_GENRE[id]) TV_ID_TO_GENRE[id] = name; }
+}
+
 router.use(requireAuth);
 
 // Resolve a publicly-accessible TMDB poster URL from a Plex rating key.
@@ -716,24 +726,53 @@ router.get('/search', async (req, res) => {
         }
       }
     } else {
-      // Text search: fetch from TMDB search
+      // Text search: fetch TMDB and library in parallel, cross-reference inLibrary
+      const libraryByTmdb = new Map();
+      for (const item of [...movies, ...tv]) {
+        if (item.tmdbId) libraryByTmdb.set(String(item.tmdbId), item);
+      }
+
       const json = await tmdbService.tmdbFetchPublic(
         `/search/multi?query=${encodeURIComponent(q)}&page=${page}&include_adult=false`
       );
 
-      totalAvailable = json?.total_results || 0;
+      const results = (json?.results || [])
+        .filter(r => r.media_type === 'movie' || r.media_type === 'tv')
+        .map(r => {
+          const tmdbId = String(r.id);
+          const libItem = libraryByTmdb.get(tmdbId);
+          const idMap = r.media_type === 'movie' ? MOVIE_ID_TO_GENRE : TV_ID_TO_GENRE;
+          return {
+            tmdbId: r.id,
+            mediaType: r.media_type,
+            title: r.title || r.name,
+            year: parseInt((r.release_date || r.first_air_date || '').slice(0, 4)) || null,
+            overview: r.overview || '',
+            posterUrl: r.poster_path ? `https://image.tmdb.org/t/p/w342${r.poster_path}` : null,
+            voteAverage: r.vote_average || 0,
+            genres: (r.genre_ids || []).map(id => idMap[id]).filter(Boolean),
+            contentRating: null,
+            inLibrary: !!libItem,
+            ratingKey: libItem?.ratingKey || null,
+            deepLink: libItem ? plexService.getDeepLink(libItem.ratingKey) : null,
+            plexAppLink: libItem ? plexService.getAppLink(libItem.ratingKey) : null,
+            isInWatchlist: libItem ? watchlistKeys.has(libItem.ratingKey) : false,
+            isWatched: libItem ? watchedKeys.has(libItem.ratingKey) : false,
+            isRequested: !libItem && requestedIds.has(`${r.id}:${r.media_type}`),
+          };
+        });
 
-      const rawResults = (json?.results || []).filter(r => r.media_type === 'movie' || r.media_type === 'tv');
-      externalResults = await tmdbService.batchGetDetails(
-        rawResults.map(r => ({ tmdbId: r.id, mediaType: r.media_type }))
-      );
-      externalResults = externalResults.filter(item => item !== null);
+      return res.json({
+        results,
+        total: json?.total_results || results.length,
+        pages: Math.min(json?.total_pages || 1, 10),
+        page,
+        query: q,
+      });
     }
 
-    // Filter OUT items already in the library
+    // Genre search: enrich with user-specific data
     const filtered = externalResults.filter(item => !libraryTmdbIds.has(String(item.tmdbId)));
-
-    // Enrich with user-specific data
     const results = filtered.map(item => ({
       tmdbId: item.tmdbId,
       mediaType: item.mediaType,
@@ -742,6 +781,8 @@ router.get('/search', async (req, res) => {
       overview: item.overview || '',
       posterUrl: item.posterUrl,
       voteAverage: item.voteAverage || 0,
+      genres: item.genres || [],
+      contentRating: item.contentRating || null,
       inLibrary: false,
       ratingKey: null,
       deepLink: null,
@@ -753,10 +794,10 @@ router.get('/search', async (req, res) => {
 
     res.json({
       results,
-      total: filtered.length,
+      total: results.length,
       pages: 1,
       page: 1,
-      query: genre || q,
+      query: genre,
     });
   } catch (err) {
     console.error('search error:', err);

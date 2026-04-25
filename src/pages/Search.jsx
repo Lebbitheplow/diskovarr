@@ -1,5 +1,6 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react'
+import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
+import FilterBar from '../components/FilterBar'
 import {
   searchApi,
   watchlistApi,
@@ -25,14 +26,18 @@ export default function Search() {
   const navigate = useNavigate()
   const { error: toastError, success: toastSuccess } = useToast()
 
-  const initialQuery = searchParams.get('q') || ''
-  const initialGenre = searchParams.get('genre') || ''
-  const initialType = searchParams.get('type') || ''
-  const [query, setQuery] = useState(initialQuery)
-  const [inputValue, setInputValue] = useState(initialQuery)
-  const [genre, setGenre] = useState(initialGenre)
-  const [type, setType] = useState(initialType)
+  // URL is the source of truth for committed search state
+  const urlQuery = searchParams.get('q') || ''
+  const urlGenre = searchParams.get('genre') || ''
+
+  const [inputValue, setInputValue] = useState(urlQuery)
   const [activeTab, setActiveTab] = useState('all')
+  const [hideLibrary, setHideLibrary] = useState(!!urlGenre)
+  const [filterGenres, setFilterGenres] = useState([])
+  const [filterYearFrom, setFilterYearFrom] = useState('')
+  const [filterYearTo, setFilterYearTo] = useState('')
+  const [filterContentRatings, setFilterContentRatings] = useState([])
+  const [filterMinScore, setFilterMinScore] = useState(null)
   const [results, setResults] = useState([])
   const [loading, setLoading] = useState(false)
   const [page, setPage] = useState(1)
@@ -50,82 +55,81 @@ export default function Search() {
   const suggestTimerRef = useRef(null)
   const searchInputRef = useRef(null)
 
+  // Sync input box when URL changes externally (e.g. navbar search)
+  useEffect(() => {
+    setInputValue(urlQuery)
+  }, [urlQuery])
+
+  // Reset filters and tab when search changes
+  useEffect(() => {
+    setActiveTab('all')
+    setHideLibrary(!!urlGenre)
+    setFilterGenres([])
+    setFilterYearFrom('')
+    setFilterYearTo('')
+    setFilterContentRatings([])
+    setFilterMinScore(null)
+  }, [urlQuery, urlGenre])
+
   const loadWatchlist = useCallback(async () => {
     try {
       const { data } = await watchlistApi.getWatchlist()
       const cache = {}
-      ;(data.items || []).forEach(item => {
-        cache[item.ratingKey] = true
-      })
+      ;(data.items || []).forEach(item => { cache[item.ratingKey] = true })
       setWatchlistCache(cache)
     } catch { /* ignore */ }
   }, [])
 
-  const fetchSearchResults = useCallback(async (reset = true) => {
-    const searchQuery = genre ? '' : (inputValue.trim())
-    if (!searchQuery && !genre) {
-      if (reset) setResults([])
-      return
-    }
-    if (reset) {
-      setLoading(true)
-      setPage(1)
-    }
-
+  // fetchSearchResults takes q/g/pg as args so it doesn't close over stale state
+  const fetchSearchResults = useCallback(async (q, g, pg = 1, append = false) => {
+    if (!q && !g) { setResults([]); return }
+    if (!append) setLoading(true)
     try {
-      const { data } = await searchApi.search(searchQuery, reset ? 1 : page, genre || undefined, type || undefined)
-      if (reset) {
-        setResults(data.results || [])
-      } else {
+      const { data } = await searchApi.search(q, pg, g || undefined)
+      if (append) {
         setResults(prev => [...prev, ...(data.results || [])])
+      } else {
+        setResults(data.results || [])
       }
       setTotalPages(data.pages || 1)
       setTotalResults(data.total || 0)
-    } catch (e) {
+    } catch {
       toastError('Search failed. Please try again.')
     } finally {
       setLoading(false)
     }
-  }, [inputValue, page, toastError, genre, type])
+  }, [toastError])
+
+  // Fire search whenever the URL's q or genre param changes
+  useEffect(() => {
+    setPage(1)
+    fetchSearchResults(urlQuery, urlGenre, 1, false)
+  }, [urlQuery, urlGenre]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    loadWatchlist()
+    exploreApi.getServices().then(({ data }) => setServices(data || {})).catch(() => {})
+  }, [loadWatchlist])
 
   const debouncedSuggestions = useCallback((q) => {
     clearTimeout(suggestTimerRef.current)
-    if (q.length < 2) {
-      setSuggestions([])
-      setShowSuggestions(false)
-      return
-    }
+    if (q.length < 2) { setSuggestions([]); setShowSuggestions(false); return }
     suggestTimerRef.current = setTimeout(async () => {
       try {
         const { data } = await searchApi.getSuggestions(q)
         setSuggestions(data.results || [])
+        setShowSuggestions(true)
       } catch { /* ignore */ }
     }, 280)
   }, [])
 
-  useEffect(() => {
-    if (initialQuery || initialGenre) {
-      fetchSearchResults(true)
-    }
-    loadWatchlist()
-    exploreApi.getServices().then(({ data }) => setServices(data || {})).catch(() => {})
-  }, [initialQuery, initialGenre, fetchSearchResults, loadWatchlist])
-
-  useEffect(() => {
-    setActiveTab('all')
-  }, [initialGenre])
-
   const handleSubmit = useCallback((e) => {
-    e.preventDefault()
+    if (e && e.preventDefault) e.preventDefault()
     const q = inputValue.trim()
     if (!q) return
-    navigate('/search?q=' + encodeURIComponent(q))
-    setGenre('')
-    setType('')
-    setResults([])
     setSuggestions([])
     setShowSuggestions(false)
-    setQuery(q)
+    navigate('/search?q=' + encodeURIComponent(q))
   }, [inputValue, navigate])
 
   const handleInputChange = useCallback((e) => {
@@ -135,9 +139,6 @@ export default function Search() {
 
   const handleSuggestionClick = useCallback((title) => {
     setInputValue(title)
-    setQuery(title)
-    setGenre('')
-    setType('')
     setSuggestions([])
     setShowSuggestions(false)
     navigate('/search?q=' + encodeURIComponent(title))
@@ -198,19 +199,43 @@ export default function Search() {
   const handleLoadMore = useCallback(() => {
     const nextPage = page + 1
     setPage(nextPage)
-    fetchSearchResults(false)
-  }, [page, fetchSearchResults])
+    fetchSearchResults(urlQuery, urlGenre, nextPage, true)
+  }, [page, urlQuery, urlGenre, fetchSearchResults])
 
   const handleClearGenre = useCallback(() => {
-    setGenre('')
-    setType('')
     setActiveTab('all')
     navigate('/search')
-    setResults([])
   }, [navigate])
 
-  const movieResults = results.filter(item => item.mediaType === 'movie')
-  const tvResults = results.filter(item => item.mediaType === 'tv')
+  const availableGenres = useMemo(() => {
+    const set = new Set()
+    results.forEach(r => (r.genres || []).forEach(g => set.add(g)))
+    return [...set].sort()
+  }, [results])
+
+  const availableContentRatings = useMemo(() => {
+    const order = ['G','PG','PG-13','R','NC-17','TV-G','TV-PG','TV-14','TV-MA']
+    const set = new Set(results.map(r => r.contentRating).filter(Boolean))
+    return order.filter(r => set.has(r))
+  }, [results])
+
+  const displayResults = useMemo(() => {
+    let r = hideLibrary ? results.filter(i => !i.inLibrary) : results
+    if (filterGenres.length > 0)
+      r = r.filter(i => filterGenres.every(g => (i.genres || []).includes(g)))
+    if (filterYearFrom)
+      r = r.filter(i => i.year >= parseInt(filterYearFrom))
+    if (filterYearTo)
+      r = r.filter(i => i.year <= parseInt(filterYearTo))
+    if (filterContentRatings.length > 0)
+      r = r.filter(i => filterContentRatings.includes(i.contentRating))
+    if (filterMinScore)
+      r = r.filter(i => (i.voteAverage || 0) >= filterMinScore)
+    return r
+  }, [results, hideLibrary, filterGenres, filterYearFrom, filterYearTo, filterContentRatings, filterMinScore])
+
+  const movieResults = displayResults.filter(item => item.mediaType === 'movie')
+  const tvResults = displayResults.filter(item => item.mediaType === 'tv')
 
   const handleSeasonToggle = useCallback((season) => {
     setSelectedSeasons(prev => {
@@ -330,29 +355,48 @@ export default function Search() {
         </div>
       </div>
 
+      {(urlQuery || urlGenre) && (
+        <FilterBar
+          availableGenres={availableGenres}
+          availableContentRatings={availableContentRatings}
+          filterGenres={filterGenres}
+          filterYearFrom={filterYearFrom}
+          filterYearTo={filterYearTo}
+          filterContentRatings={filterContentRatings}
+          filterMinScore={filterMinScore}
+          hideLibrary={hideLibrary}
+          onGenres={setFilterGenres}
+          onYearFrom={setFilterYearFrom}
+          onYearTo={setFilterYearTo}
+          onContentRatings={setFilterContentRatings}
+          onMinScore={setFilterMinScore}
+          onHideLibrary={setHideLibrary}
+        />
+      )}
+
       {results.length > 0 && (
         <div className="search-results-meta" id="search-results-header">
           <span id="search-results-count">
-            {totalResults.toLocaleString()} result{totalResults !== 1 ? 's' : ''}{genre ? ' in ' + genre : ' for "' + query + '"'}
+            {displayResults.length.toLocaleString()} result{displayResults.length !== 1 ? 's' : ''}{urlGenre ? ' in ' + urlGenre : ' for "' + urlQuery + '"'}
           </span>
-          {genre && (
+          {urlGenre && (
             <div className="genre-filter-badge">
-              <span>Genre: {genre}</span>
+              <span>Genre: {urlGenre}</span>
               <button onClick={handleClearGenre} aria-label="Clear genre filter">×</button>
             </div>
           )}
         </div>
       )}
 
-      {results.length > 0 ? (
-        genre ? (
+      {displayResults.length > 0 ? (
+        urlGenre ? (
           <>
             <div className="genre-tab-bar">
               <button
                 className={'genre-tab' + (activeTab === 'all' ? ' active' : '')}
                 onClick={() => setActiveTab('all')}
               >
-                All ({totalResults})
+                All ({displayResults.length})
               </button>
               {movieResults.length > 0 && (
                 <button
@@ -372,7 +416,7 @@ export default function Search() {
               )}
             </div>
             <div className="card-grid" id="search-grid">
-              {(activeTab === 'all' ? results : activeTab === 'movies' ? movieResults : tvResults).map(item => (
+              {(activeTab === 'all' ? displayResults : activeTab === 'movies' ? movieResults : tvResults).map(item => (
                 <div key={item.tmdbId} className="card search-card">
                   <button className="card-poster-link" onClick={() => handleOpenModal(item)} type="button">
                     {item.posterUrl && (
@@ -428,7 +472,7 @@ export default function Search() {
           </>
         ) : (
           <div className="card-grid" id="search-grid">
-            {results.map(item => (
+            {displayResults.map(item => (
               <div key={item.tmdbId} className="card search-card">
                 <button className="card-poster-link" onClick={() => handleOpenModal(item)} type="button">
                   {item.posterUrl && (
@@ -484,11 +528,11 @@ export default function Search() {
         )
       ) : (
         <div className="search-empty" style={{ gridColumn: '1/-1' }}>
-          <p>No results found for "{genre ? genre : query}".</p>
+          <p>No results found for "{urlGenre ? urlGenre : urlQuery}".</p>
         </div>
       )}
 
-      {page < totalPages && results.length > 0 && (
+      {page < totalPages && displayResults.length > 0 && (
         <div id="search-load-more-wrap" style={{ display: 'text-align: center', padding: '32px 0' }}>
           <button className="btn-load-more" id="btn-search-load-more" onClick={handleLoadMore} disabled={loading}>
             Load more
