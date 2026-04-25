@@ -47,6 +47,7 @@ export default function Discover() {
   const [initialLoad, setInitialLoad] = useState(true)
   const [selectedItem, setSelectedItem] = useState(null)
   const [loadingGenres, setLoadingGenres] = useState(true)
+  const debounceRef = useRef(null)
   const loadingRef = useRef(false)
 
   const loadWatchlist = useCallback(async () => {
@@ -106,26 +107,33 @@ export default function Discover() {
       loadingRef.current = false
       setLoading(false)
     }
-  }, [type, decade, minRating, sort, genres, search, page, toastError]) // loading removed from deps
+  }, [type, decade, minRating, sort, genres, search, page, toastError])
 
   useEffect(() => {
     loadGenres()
     loadWatchlist()
   }, [loadGenres, loadWatchlist])
 
-  // Re-fetch when filters change — debounced to handle rapid changes (slider, typing)
+  // Debounced fetch for search input — fires 120ms after user stops typing
+  const debouncedFetch = useCallback((reset) => {
+    clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(() => fetchResults(reset), 120)
+  }, [fetchResults])
+
+  // Re-fetch when non-search filters change (immediate) or search changes (debounced via handler)
   useEffect(() => {
-    const timer = setTimeout(() => fetchResults(true), 180)
-    return () => clearTimeout(timer)
-  }, [type, decade, minRating, sort, genres, search]) // eslint-disable-line react-hooks/exhaustive-deps
+    fetchResults(true)
+  }, [type, decade, minRating, sort, genres]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSearchChange = useCallback((e) => {
     setSearch(e.target.value)
-  }, [])
+    debouncedFetch(true)
+  }, [debouncedFetch])
 
   const handleSearchClear = useCallback(() => {
     setSearch('')
-  }, [])
+    debouncedFetch(true)
+  }, [debouncedFetch])
 
   const handleTypeChange = useCallback((newType) => {
     setType(newType)
