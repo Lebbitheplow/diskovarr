@@ -524,7 +524,7 @@ function clearUserDismissals(userId) {
 
 // ── Known users (username cache) ─────────────────────────────────────────────
 
-function upsertKnownUser(userId, username, thumb) {
+function upsertKnownUser(userId, username, thumb, token) {
   db.prepare(`
     INSERT OR REPLACE INTO known_users (user_id, username, thumb, seen_at, plex_token)
     VALUES (?, ?, ?, ?, ?)
