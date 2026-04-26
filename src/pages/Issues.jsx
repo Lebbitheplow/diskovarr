@@ -10,8 +10,17 @@ const STATUS_LABELS = { open: 'Open', resolved: 'Resolved', closed: 'Closed' }
 
 function fmtDate(ts) {
   if (!ts) return ''
-  const d = new Date(ts * 1000)
-  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+  const diff = Math.floor(Date.now() / 1000) - ts
+  if (diff < 3600) {
+    const m = Math.max(1, Math.floor(diff / 60))
+    return m + ' min' + (m === 1 ? '' : 's') + ' ago'
+  }
+  if (diff < 86400) {
+    const h = Math.floor(diff / 3600)
+    return h + ' hour' + (h === 1 ? '' : 's') + ' ago'
+  }
+  const d = Math.floor(diff / 86400)
+  return d + ' day' + (d === 1 ? '' : 's') + ' ago'
 }
 
 function scopeLabel(issue) {
@@ -25,14 +34,14 @@ export default function Issues() {
   const { user } = useAuth()
   const { error: toastError, success: toastSuccess } = useToast()
 
-  const isAdmin = !!(user?.isAdmin || user?.isElevated)
+  const isAdmin = !!(user?.isAdmin || user?.isPlexAdminUser || user?.isElevated || user?.isPrivileged)
   const [currentFilter, setCurrentFilter] = useState('all')
   const [issues, setIssues] = useState([])
   const [loading, setLoading] = useState(true)
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
   const [total, setTotal] = useState(0)
-  const [perPage, setPerPage] = useState(25)
+  const [perPage, setPerPage] = useState(() => parseInt(localStorage.getItem('diskovarr_issues_per_page') || '25'))
   const [issuesMap, setIssuesMap] = useState({})
 
   const [selectedIssue, setSelectedIssue] = useState(null)
@@ -42,8 +51,11 @@ export default function Issues() {
   const [comments, setComments] = useState([])
   const [commentsLoading, setCommentsLoading] = useState(false)
 
-  const [newIssueData, setNewIssueData] = useState({ title: '', description: '', ratingKey: '', mediaType: 'movie', scope: 'series' })
+  const [newIssueData, setNewIssueData] = useState({ title: '', description: '', ratingKey: '', mediaType: 'movie', scope: 'series', scopeSeason: '', scopeEpisode: '' })
   const [showNewIssue, setShowNewIssue] = useState(false)
+  const [openCount, setOpenCount] = useState(0)
+  const [actionModalLoading, setActionModalLoading] = useState(false)
+  const [commentSubmitting, setCommentSubmitting] = useState(false)
 
   const loadIssues = useCallback(async (filter, pageNum) => {
     setLoading(true)
@@ -67,6 +79,22 @@ export default function Issues() {
     loadIssues(currentFilter, 1)
   }, [currentFilter, loadIssues])
 
+  const loadOpenCount = useCallback(async () => {
+    try {
+      const { data } = await issuesApi.getIssues({ status: 'open', page: 1, limit: 1 })
+      setOpenCount(data.total || 0)
+    } catch {}
+  }, [])
+
+  useEffect(() => {
+    loadOpenCount()
+  }, [loadOpenCount])
+
+  useEffect(() => {
+    const interval = setInterval(loadOpenCount, 30000)
+    return () => clearInterval(interval)
+  }, [loadOpenCount])
+
   const handleFilterChange = useCallback((filter) => {
     setCurrentFilter(filter)
   }, [])
@@ -84,30 +112,38 @@ export default function Issues() {
   const handleActionConfirm = useCallback(async () => {
     const { type, issueId } = actionModal
     if (!issueId || !type) return
+    setActionModalLoading(true)
     try {
-      if (type === 'resolve') {
+      if (type === 'delete') {
+        await issuesApi.deleteIssue(issueId)
+        toastSuccess('Issue deleted')
+        setIssues(prev => prev.filter(i => i.id !== issueId))
+        setIssuesMap(prev => { const next = { ...prev }; delete next[issueId]; return next })
+        if (selectedIssue === issueId) setSelectedIssue(null)
+      } else if (type === 'resolve') {
         await issuesApi.resolveIssueWithNote(issueId, { note: actionNote.trim() || null })
+        toastSuccess('Issue resolved')
+        const newStatus = 'resolved'
+        setIssues(prev => prev.map(i => i.id === issueId ? { ...i, status: newStatus } : i))
+        setIssuesMap(prev => prev[issueId] ? { ...prev, [issueId]: { ...prev[issueId], status: newStatus } } : prev)
       } else {
         await issuesApi.closeIssueWithNote(issueId, { note: actionNote.trim() || null })
+        toastSuccess('Issue closed')
+        const newStatus = 'closed'
+        setIssues(prev => prev.map(i => i.id === issueId ? { ...i, status: newStatus } : i))
+        setIssuesMap(prev => prev[issueId] ? { ...prev, [issueId]: { ...prev[issueId], status: newStatus } } : prev)
       }
-      toastSuccess('Issue ' + type + 'd')
-      setActionModal({ open: false, type: null, issueId: null })
-      setIssues(prev => prev.filter(i => i.id !== issueId))
     } catch (e) {
       toastError(e.message || 'Action failed')
     }
-  }, [actionModal, actionNote, toastSuccess, toastError])
+    setActionModalLoading(false)
+    setActionModal({ open: false, type: null, issueId: null })
+  }, [actionModal, actionNote, selectedIssue, toastSuccess, toastError])
 
-  const handleDeleteIssue = useCallback(async (id) => {
-    if (!confirm('Delete this issue?')) return
-    try {
-      await issuesApi.deleteIssue(id)
-      toastSuccess('Issue deleted')
-      setIssues(prev => prev.filter(i => i.id !== id))
-    } catch (e) {
-      toastError(e.message || 'Delete failed')
-    }
-  }, [toastSuccess, toastError])
+  const handleDeleteIssue = useCallback((id) => {
+    setActionModal({ open: true, type: 'delete', issueId: id })
+    setActionNote('')
+  }, [])
 
   const handleViewDetails = useCallback(async (id) => {
     setSelectedIssue(id)
@@ -124,6 +160,11 @@ export default function Issues() {
 
   const handleCommentSubmit = useCallback(async () => {
     if (!selectedIssue || !commentInput.trim()) return
+    if (commentInput.length > 1000) {
+      toastError('Comment too long (max 1000 chars)')
+      return
+    }
+    setCommentSubmitting(true)
     try {
       await issuesApi.addComment(selectedIssue, commentInput.trim())
       setCommentInput('')
@@ -132,6 +173,7 @@ export default function Issues() {
     } catch (e) {
       toastError(e.message || 'Comment failed')
     }
+    setCommentSubmitting(false)
   }, [selectedIssue, commentInput, toastError])
 
   const handleDeleteComment = useCallback(async (commentId) => {
@@ -152,7 +194,7 @@ export default function Issues() {
       await issuesApi.createIssue(newIssueData)
       toastSuccess('Issue created')
       setShowNewIssue(false)
-      setNewIssueData({ title: '', description: '', ratingKey: '', mediaType: 'movie', scope: 'series' })
+      setNewIssueData({ title: '', description: '', ratingKey: '', mediaType: 'movie', scope: 'series', scopeSeason: '', scopeEpisode: '' })
       loadIssues(currentFilter, page)
     } catch (e) {
       toastError(e.message || 'Create issue failed')
@@ -166,7 +208,9 @@ export default function Issues() {
   }, [page, totalPages, currentFilter, loadIssues])
 
   const handlePerPageChange = useCallback((e) => {
-    setPerPage(parseInt(e.target.value))
+    const val = parseInt(e.target.value)
+    setPerPage(val)
+    localStorage.setItem('diskovarr_issues_per_page', val)
     loadIssues(currentFilter, 1)
   }, [currentFilter, loadIssues])
 
@@ -186,7 +230,7 @@ export default function Issues() {
             onClick={() => handleFilterChange(status)}
           >
             {status === 'all' ? 'All' : STATUS_LABELS[status]}
-            {status === 'open' && <span id="open-count-label"></span>}
+            {status === 'open' && openCount > 0 && <span id="open-count-label">({openCount})</span>}
           </button>
         ))}
       </div>
@@ -200,8 +244,41 @@ export default function Issues() {
           <h3 style={{ margin: '0 0 16px', fontSize: '1rem', fontWeight: '600' }}>New Issue Report</h3>
           <div style={{ marginBottom: '14px' }}>
             <label className="edit-field-label">Title</label>
-            <input className="filter-select" value={newIssueData.title} onChange={e => setNewIssueData(prev => ({ ...prev, title: e.target.value }))} style={{ width: '100%', padding: '7px 10px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg-elevated)', color: 'var(--text)', fontSize: '0.88rem' }} placeholder="Issue title" />
+            <input className="filter-select" value={newIssueData.title} onChange={e => setNewIssueData(prev => ({ ...prev, title: e.target.value }))} style={{ width: '100%', padding: '7px 10px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg-elevated)', color: 'var(--text)', fontSize: '0.88rem', boxSizing: 'border-box' }} placeholder="Issue title" />
           </div>
+          <div style={{ marginBottom: '14px' }}>
+            <label className="edit-field-label">Plex Rating Key <span style={{ fontWeight: 400, color: 'var(--text-secondary)' }}>(optional)</span></label>
+            <input className="filter-select" value={newIssueData.ratingKey} onChange={e => setNewIssueData(prev => ({ ...prev, ratingKey: e.target.value }))} style={{ width: '100%', padding: '7px 10px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg-elevated)', color: 'var(--text)', fontSize: '0.88rem', boxSizing: 'border-box' }} placeholder="Plex ratingKey (leave blank if unknown)" />
+          </div>
+          <div style={{ marginBottom: '14px' }}>
+            <label className="edit-field-label">Media Type</label>
+            <select className="edit-select" value={newIssueData.mediaType} onChange={e => setNewIssueData(prev => ({ ...prev, mediaType: e.target.value, scope: e.target.value === 'movie' ? 'movie' : 'series' }))}>
+              <option value="movie">Movie</option>
+              <option value="tv">TV / Series</option>
+            </select>
+          </div>
+          {newIssueData.mediaType !== 'movie' && (
+            <div style={{ marginBottom: '14px' }}>
+              <label className="edit-field-label">Scope</label>
+              <select className="edit-select" value={newIssueData.scope} onChange={e => setNewIssueData(prev => ({ ...prev, scope: e.target.value }))}>
+                <option value="series">Entire Series</option>
+                <option value="season">Specific Season</option>
+                <option value="episode">Specific Episode</option>
+              </select>
+            </div>
+          )}
+          {newIssueData.mediaType !== 'movie' && (newIssueData.scope === 'season' || newIssueData.scope === 'episode') && (
+            <div style={{ marginBottom: '14px' }}>
+              <label className="edit-field-label">Season Number</label>
+              <input type="number" min="1" className="filter-select" value={newIssueData.scopeSeason} onChange={e => setNewIssueData(prev => ({ ...prev, scopeSeason: e.target.value }))} style={{ width: '100px', padding: '7px 10px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg-elevated)', color: 'var(--text)', fontSize: '0.88rem' }} placeholder="e.g. 2" />
+            </div>
+          )}
+          {newIssueData.mediaType !== 'movie' && newIssueData.scope === 'episode' && (
+            <div style={{ marginBottom: '14px' }}>
+              <label className="edit-field-label">Episode Number</label>
+              <input type="number" min="1" className="filter-select" value={newIssueData.scopeEpisode} onChange={e => setNewIssueData(prev => ({ ...prev, scopeEpisode: e.target.value }))} style={{ width: '100px', padding: '7px 10px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg-elevated)', color: 'var(--text)', fontSize: '0.88rem' }} placeholder="e.g. 5" />
+            </div>
+          )}
           <div style={{ marginBottom: '14px' }}>
             <label className="edit-field-label">Description</label>
             <textarea className="filter-select" value={newIssueData.description} onChange={e => setNewIssueData(prev => ({ ...prev, description: e.target.value }))} style={{ width: '100%', padding: '7px 10px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg-elevated)', color: 'var(--text)', fontSize: '0.88rem', minHeight: '80px', resize: 'vertical', fontFamily: 'inherit', boxSizing: 'border-box' }} placeholder="Describe the issue..." />
@@ -242,7 +319,7 @@ export default function Issues() {
                       )}
                       <div className="queue-title-info">
                         <div className="queue-title">{issue.title}</div>
-                        {issue.description && <div className="issue-description">{issue.description}</div>}
+                        {issue.description && <div className="issue-description" style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: '2px', maxWidth: '320px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{issue.description}</div>}
                         {issue.admin_note && <div className="admin-note">Note: {issue.admin_note}</div>}
                       </div>
                     </div>
@@ -285,23 +362,27 @@ export default function Issues() {
 
       <Modal isOpen={actionModal.open} onClose={() => setActionModal({ open: false, type: null, issueId: null })}>
         <div>
-          <h3 id="action-modal-title">
+          <h3>
             {actionModal.type === 'resolve' ? 'Resolve Issue' : actionModal.type === 'close' ? 'Close Issue' : 'Delete Issue'}
           </h3>
           <div style={{ marginBottom: '14px' }}>
-            <label className="edit-field-label">Optional note for the reporter</label>
+            <label className="edit-field-label">{actionModal.type === 'delete' ? 'Optional note (not saved)' : 'Optional note for the reporter'}</label>
             <textarea
               id="action-modal-note"
               className="note-textarea"
-              placeholder="Explain what was done or found..."
+              placeholder={actionModal.type === 'delete' ? 'Optional note (not saved)' : 'Explain what was done or found...'}
               value={actionNote}
               onChange={e => setActionNote(e.target.value)}
               style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg-elevated)', color: 'var(--text)', fontSize: '0.88rem', resize: 'vertical', minHeight: '80px', fontFamily: 'inherit', boxSizing: 'border-box' }}
             />
           </div>
           <div className="edit-modal-actions">
-            <button className="btn-queue-delete" onClick={() => setActionModal({ open: false, type: null, issueId: null })}>Cancel</button>
-            <button className="btn-queue-approve" onClick={handleActionConfirm}>Confirm</button>
+            <button className="edit-modal-cancel" onClick={() => setActionModal({ open: false, type: null, issueId: null })}>Cancel</button>
+            <button
+              className={actionModal.type === 'resolve' ? 'btn-queue-approve' : actionModal.type === 'close' ? 'btn-queue-deny' : 'btn-queue-delete'}
+              onClick={handleActionConfirm}
+              disabled={actionModalLoading}
+            >Confirm</button>
           </div>
         </div>
       </Modal>
@@ -320,13 +401,19 @@ export default function Issues() {
               if (!issue) return null
               return (
                 <>
+                  {isAdmin && (
+                    <div className="details-row">
+                      <div className="details-label">Reporter</div>
+                      <div className="details-value">{issue.username || issue.user_id}</div>
+                    </div>
+                  )}
                   <div className="details-row">
                     <div className="details-label">Scope</div>
                     <div className="details-value">
                       <span className="scope-badge">{scopeLabel(issue)}</span>
                       {issue.media_type !== 'movie' && issue.scope_season && (
                         <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
-                          {issue.scope === 'season' ? `Season ${issue.scope_season}` : `Season ${issue.scope_season || '?'}, Episode ${issue.scope_episode || '?'}`}
+                          {issue.scope === 'season' ? ` Season ${issue.scope_season}` : ` Season ${issue.scope_season || '?'}, Episode ${issue.scope_episode || '?'}`}
                         </span>
                       )}
                     </div>
@@ -377,9 +464,10 @@ export default function Issues() {
                         rows="2"
                         value={commentInput}
                         onChange={e => setCommentInput(e.target.value)}
+                        disabled={commentSubmitting}
                         style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg-elevated)', color: 'var(--text)', fontSize: '0.85rem', resize: 'vertical', minHeight: '60px', fontFamily: 'inherit', boxSizing: 'border-box' }}
                       />
-                      <button className="comment-submit-btn" style={{ alignSelf: 'flex-end', padding: '5px 14px', borderRadius: '6px', border: 'none', background: 'rgba(0,180,216,0.18)', color: '#00b4d8', fontSize: '0.82rem', fontWeight: '600', cursor: 'pointer' }} onClick={handleCommentSubmit}>
+                      <button className="comment-submit-btn" style={{ alignSelf: 'flex-end', padding: '5px 14px', borderRadius: '6px', border: 'none', background: 'rgba(0,180,216,0.18)', color: '#00b4d8', fontSize: '0.82rem', fontWeight: '600', cursor: 'pointer', opacity: commentSubmitting ? 0.6 : 1 }} onClick={handleCommentSubmit} disabled={commentSubmitting}>
                         Add Comment
                       </button>
                     </div>

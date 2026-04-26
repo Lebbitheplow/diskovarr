@@ -3,7 +3,6 @@ import { useSearchParams } from 'react-router-dom'
 import {
   queueApi,
   searchApi,
-  adminApi,
 } from '../services/api'
 import Modal from '../components/Modal'
 import { useToast } from '../context/ToastContext'
@@ -19,8 +18,12 @@ const STATUS_LABELS = {
   pending: 'Pending Approval',
   requested: 'Requested',
   available: 'Available',
+  approved: 'Approved',
   denied: 'Denied',
 }
+
+// Maps display column names to DB column names used by the API sort parameter
+const COL_TO_SORT = { title: 'title', user: 'username', type: 'media_type', age: 'requested_at', status: 'status' }
 
 function fmtDate(ts) {
   if (!ts) return ''
@@ -53,13 +56,14 @@ export default function Queue() {
   const [sortCol, setSortCol] = useState('requested_at')
   const [sortDir, setSortDir] = useState('DESC')
 
-  const isAdmin = !!(user?.isAdmin || user?.isElevated)
+  const isAdmin = !!(user?.isAdmin || user?.isPlexAdminUser || user?.isElevated || user?.isPrivileged)
 
   const [editRequest, setEditRequest] = useState(null)
   const [editService, setEditService] = useState('')
   const [editSeasons, setEditSeasons] = useState([])
   const [editAllSeasons, setEditAllSeasons] = useState(false)
   const [deleteRequestId, setDeleteRequestId] = useState(null)
+  const [noConfirmDelete, setNoConfirmDelete] = useState(() => localStorage.getItem('diskovarr_no_confirm_delete') === 'true')
 
   const loadQueue = useCallback(async (filter, pageNum) => {
     setLoading(true)
@@ -86,6 +90,20 @@ export default function Queue() {
     loadQueue(currentFilter, 1)
   }, [currentFilter, loadQueue])
 
+  const loadPendingCount = useCallback(async () => {
+    try {
+      const { data } = await queueApi.getQueue({ status: 'pending', page: 1 })
+      const el = document.getElementById('pending-count-label')
+      if (el) el.textContent = data.total > 0 ? `(${data.total})` : ''
+    } catch {}
+  }, [])
+
+  useEffect(() => {
+    loadPendingCount()
+    const interval = setInterval(loadPendingCount, 30000)
+    return () => clearInterval(interval)
+  }, [loadPendingCount])
+
   const handleFilterChange = useCallback((filter) => {
     setCurrentFilter(filter)
   }, [])
@@ -94,7 +112,7 @@ export default function Queue() {
     try {
       await queueApi.approveRequest(id)
       toastSuccess('Request approved and submitted')
-      setRequests(prev => prev.map(r => r.id === id ? { ...r, status: 'requested', displayStatus: 'requested' } : r))
+      setRequests(prev => prev.map(r => r.id === id ? { ...r, status: 'approved', displayStatus: 'approved' } : r))
     } catch (e) {
       toastError(e.message || 'Approve failed')
     }
@@ -117,6 +135,7 @@ export default function Queue() {
       await queueApi.deleteRequest(id)
       toastSuccess('Request deleted')
       setRequests(prev => prev.filter(r => r.id !== id))
+      setDeleteRequestId(null)
     } catch (e) {
       toastError(e.message || 'Delete failed')
     }
@@ -127,13 +146,14 @@ export default function Queue() {
     setEditService(request.service || '')
     try {
       const { data } = await searchApi.getSeasons(request.tmdb_id)
-      setEditSeasons(data.seasons || [])
-      const storedSeasons = request.seasons_json ? JSON.parse(request.seasons_json) : null
-      if (storedSeasons && Array.isArray(storedSeasons) && storedSeasons.length > 0) {
-        setEditAllSeasons(false)
-      } else {
-        setEditAllSeasons(true)
-      }
+      const rawNumbers = data.seasons || []
+      let storedSeasons = null
+      try { storedSeasons = request.seasons_json ? JSON.parse(request.seasons_json) : null } catch {}
+      const hasSelection = Array.isArray(storedSeasons) && storedSeasons.length > 0
+      const selectedSet = hasSelection ? new Set(storedSeasons.map(Number)) : null
+      const shaped = rawNumbers.map(n => ({ number: n, selected: selectedSet ? selectedSet.has(n) : false }))
+      setEditSeasons(shaped)
+      setEditAllSeasons(!hasSelection)
     } catch {
       setEditSeasons([])
       setEditAllSeasons(true)
@@ -154,10 +174,11 @@ export default function Queue() {
   }, [editRequest, editService, editAllSeasons, editSeasons, currentFilter, page, loadQueue, toastSuccess, toastError])
 
   const handleSort = useCallback((col) => {
-    if (sortCol === col) {
+    const dbCol = COL_TO_SORT[col] || col
+    if (sortCol === dbCol) {
       setSortDir(prev => prev === 'ASC' ? 'DESC' : 'ASC')
     } else {
-      setSortCol(col)
+      setSortCol(dbCol)
       setSortDir('ASC')
     }
   }, [sortCol])
@@ -174,8 +195,6 @@ export default function Queue() {
     localStorage.setItem('diskovarr_queue_per_page', val)
     loadQueue(currentFilter, 1)
   }, [currentFilter, loadQueue])
-
-  const COL_TO_SORT = { title: 'title', user: 'username', type: 'media_type', age: 'requested_at', status: 'status' }
 
   return (
     <main className="main-content queue-page">
@@ -208,9 +227,9 @@ export default function Queue() {
             <thead>
               <tr>
                 <th className={'sortable' + (sortCol === 'title' ? ' ' + (sortDir === 'ASC' ? 'sort-asc' : 'sort-desc') : '')} data-col="title" onClick={() => handleSort('title')}>Title</th>
-                {isAdmin && <th className={'sortable' + (sortCol === 'user' ? ' ' + (sortDir === 'ASC' ? 'sort-asc' : 'sort-desc') : '')} data-col="user" onClick={() => handleSort('user')}>User</th>}
-                <th className={'sortable' + (sortCol === 'type' ? ' ' + (sortDir === 'ASC' ? 'sort-asc' : 'sort-desc') : '')} data-col="type" onClick={() => handleSort('type')}>Type</th>
-                <th className={'sortable' + (sortCol === 'age' ? ' ' + (sortDir === 'ASC' ? 'sort-asc' : 'sort-desc') : '')} data-col="age" onClick={() => handleSort('age')}>Age</th>
+                {isAdmin && <th className={'sortable' + (sortCol === 'username' ? ' ' + (sortDir === 'ASC' ? 'sort-asc' : 'sort-desc') : '')} data-col="user" onClick={() => handleSort('user')}>User</th>}
+                <th className={'sortable' + (sortCol === 'media_type' ? ' ' + (sortDir === 'ASC' ? 'sort-asc' : 'sort-desc') : '')} data-col="type" onClick={() => handleSort('type')}>Type</th>
+                <th className={'sortable' + (sortCol === 'requested_at' ? ' ' + (sortDir === 'ASC' ? 'sort-asc' : 'sort-desc') : '')} data-col="age" onClick={() => handleSort('age')}>Age</th>
                 <th className={'sortable' + (sortCol === 'status' ? ' ' + (sortDir === 'ASC' ? 'sort-asc' : 'sort-desc') : '')} data-col="status" onClick={() => handleSort('status')}>Status</th>
                 <th>Actions</th>
               </tr>
@@ -221,7 +240,7 @@ export default function Queue() {
                 const ds = r.displayStatus || r.status
                 const mediaType = r.media_type === 'movie' ? 'movie' : 'tv'
                 return (
-                  <tr key={r.id} className={(isPending ? 'pending-row' : '')} id={`req-row-${r.id}`} data-sort_title={(r.title || '').toLowerCase()} data-sort_user={(r.username || '').toLowerCase()} data-sort_type={mediaType} data-sort_age={r.requested_at || 0} data-sort_status={(r.displayStatus || r.status || '').toLowerCase()}>
+                  <tr key={r.id} className={(isPending ? 'pending-row' : '')} id={`req-row-${r.id}`}>
                     <td>
                       <div className="queue-title-cell">
                         {r.posterUrl ? (
@@ -258,7 +277,7 @@ export default function Queue() {
                         </div>
                       </div>
                     </td>
-                    {isAdmin && <td className="queue-user">{r.username || r.user_id}</td>}
+                    {isAdmin && <td className="queue-user">{r.user_id && r.user_id.startsWith('__svc_') ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}><span style={{ fontSize: '0.7rem', background: 'var(--accent)', color: '#000', padding: '1px 5px', borderRadius: '4px', fontWeight: '700', letterSpacing: '0.02em' }}>bot</span>{r.username || r.user_id}</span> : r.username || r.user_id}</td>}
                     <td><span className={'type-badge type-' + mediaType}>{mediaType === 'movie' ? 'Movie' : 'TV'}</span></td>
                     <td>{fmtDate(r.requested_at)}</td>
                     <td><span className={'status-badge-' + ds}>{STATUS_LABELS[ds] || ds}</span></td>
@@ -271,11 +290,17 @@ export default function Queue() {
                         </>
                       )}
                       {!isAdmin && isPending && (
-                        <>
-                          <button className="btn-queue-edit" onClick={() => handleEdit(r)}>Edit</button>
-                        </>
+                        <button className="btn-queue-edit" onClick={() => handleEdit(r)}>Edit</button>
                       )}
-                      <button className="btn-queue-delete" onClick={() => setDeleteRequestId(r.id)}>Delete</button>
+                      {(isAdmin || (isPending && String(user?.id) === String(r.user_id))) && (
+                        <button className="btn-queue-delete" onClick={() => {
+                          if (localStorage.getItem('diskovarr_no_confirm_delete') === 'true') {
+                            handleDelete(r.id)
+                          } else {
+                            setDeleteRequestId(r.id)
+                          }
+                        }}>Delete</button>
+                      )}
                     </div></td>
                   </tr>
                 )
@@ -319,25 +344,29 @@ export default function Queue() {
                     <input
                       type="checkbox"
                       checked={editAllSeasons}
-                      onChange={e => { setEditAllSeasons(e.target.checked); setEditSeasons(editSeasons.map(s => ({ ...s, selected: e.target.checked }))) }}
+                      onChange={e => {
+                        setEditAllSeasons(e.target.checked)
+                        setEditSeasons(editSeasons.map(s => ({ ...s, selected: e.target.checked })))
+                      }}
                     />{' '}
                     <strong>Select all</strong>
                   </label>
                 </div>
                 <div className="edit-season-list">
                   {editSeasons.map(s => (
-                    <label key={s} style={{ fontSize: '0.82rem' }}>
+                    <label key={s.number} style={{ fontSize: '0.82rem' }}>
                       <input
                         type="checkbox"
                         checked={editAllSeasons || (s.selected && !editAllSeasons)}
                         onChange={e => {
                           if (e.target.checked) {
-                            setEditSeasons(prev => prev.map(se => se.number === s ? { ...se, selected: true } : se))
+                            setEditSeasons(prev => prev.map(se => se.number === s.number ? { ...se, selected: true } : se))
                           } else {
-                            setEditSeasons(prev => prev.map(se => se.number === s ? { ...se, selected: false } : se))
+                            setEditAllSeasons(false)
+                            setEditSeasons(prev => prev.map(se => se.number === s.number ? { ...se, selected: false } : se))
                           }
                         }}
-                      />{' '}Season {s}
+                      />{' '}Season {s.number}
                     </label>
                   ))}
                 </div>
@@ -355,6 +384,17 @@ export default function Queue() {
         <div style={{ maxWidth: '380px' }}>
           <h3>Delete Request</h3>
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', margin: '8px 0 16px' }}>Are you sure you want to permanently delete this request?</p>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.82rem', color: 'var(--text-secondary)', marginBottom: '16px' }}>
+            <input
+              type="checkbox"
+              checked={noConfirmDelete}
+              onChange={e => {
+                setNoConfirmDelete(e.target.checked)
+                localStorage.setItem('diskovarr_no_confirm_delete', e.target.checked)
+              }}
+            />
+            Don't ask again
+          </label>
           <div className="edit-modal-actions">
             <button className="edit-modal-cancel" onClick={() => setDeleteRequestId(null)}>Cancel</button>
             <button className="edit-modal-save" style={{ background: 'var(--accent-red, #e53e3e)' }} onClick={() => { if (deleteRequestId) handleDelete(deleteRequestId) }}>Delete</button>

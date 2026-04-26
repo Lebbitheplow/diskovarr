@@ -3144,6 +3144,7 @@ img {
 .status-badge-requested { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 0.75rem; font-weight: 600; background: rgba(0,180,216,0.12); color: #00b4d8; border: 1px solid rgba(0,180,216,0.3); }
 .status-badge-available { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 0.75rem; font-weight: 600; background: rgba(0,200,100,0.12); color: #00c864; border: 1px solid rgba(0,200,100,0.25); }
 .status-badge-denied { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 0.75rem; font-weight: 600; background: rgba(255,60,60,0.12); color: #ff5252; border: 1px solid rgba(255,60,60,0.25); }
+.status-badge-approved { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 0.75rem; font-weight: 600; background: rgba(0,200,100,0.12); color: #00c864; border: 1px solid rgba(0,200,100,0.25); }
 .type-badge { display: inline-block; padding: 1px 7px; border-radius: 6px; font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
 .type-movie { background: rgba(229,160,13,0.15); color: var(--accent); }
 .type-tv { background: rgba(0,180,216,0.12); color: #00b4d8; }

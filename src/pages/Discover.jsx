@@ -25,7 +25,14 @@ const SORT_OPTIONS = [
   { value: 'added', label: 'Recently Added' },
   { value: 'year_desc', label: 'Newest First' },
   { value: 'year_asc', label: 'Oldest First' },
-  { value: 'title', label: 'A-Z' },
+  { value: 'title', label: 'A–Z' },
+]
+
+const TYPE_OPTIONS = [
+  { value: 'all', label: 'All' },
+  { value: 'movie', label: 'Movies' },
+  { value: 'show', label: 'TV Shows' },
+  { value: 'anime', label: 'Anime' },
 ]
 
 export default function Discover() {
@@ -47,6 +54,7 @@ export default function Discover() {
   const [initialLoad, setInitialLoad] = useState(true)
   const [selectedItem, setSelectedItem] = useState(null)
   const [loadingGenres, setLoadingGenres] = useState(true)
+  const [panel, setPanel] = useState(null)
   const debounceRef = useRef(null)
   const loadingRef = useRef(false)
 
@@ -54,7 +62,7 @@ export default function Discover() {
     try {
       const { data } = await watchlistApi.getWatchlist()
       const cache = {}
-      (data.items || []).forEach(item => {
+      ;(data.items || []).forEach(item => {
         cache[item.ratingKey] = true
       })
       setWatchlistCache(cache)
@@ -120,10 +128,14 @@ export default function Discover() {
     debounceRef.current = setTimeout(() => fetchResults(reset), 120)
   }, [fetchResults])
 
-  // Re-fetch when non-search filters change (immediate) or search changes (debounced via handler)
+  // Re-fetch when non-search filters change (immediate)
   useEffect(() => {
     fetchResults(true)
   }, [type, decade, minRating, sort, genres]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const togglePanel = useCallback((key) => {
+    setPanel(p => p === key ? null : key)
+  }, [])
 
   const handleSearchChange = useCallback((e) => {
     setSearch(e.target.value)
@@ -152,8 +164,8 @@ export default function Discover() {
     fetchResults(true)
   }, [fetchResults])
 
-  const handleSortChange = useCallback((e) => {
-    setSort(e.target.value)
+  const handleSortChange = useCallback((value) => {
+    setSort(value)
   }, [])
 
   const handleGenreToggle = useCallback((genre) => {
@@ -175,6 +187,7 @@ export default function Discover() {
     setSort('rating')
     setGenres(new Set())
     setSearch('')
+    setPanel(null)
   }, [])
 
   const handleLoadMore = useCallback(() => {
@@ -217,7 +230,7 @@ export default function Discover() {
     setSelectedItem(item)
   }, [])
 
-  const ratingLabel = minRating === 0 ? 'Any' : RATING_VALUES[minRating]
+  const ratingLabel = minRating === 0 ? 'Any' : minRating
 
   return (
     <>
@@ -235,114 +248,168 @@ export default function Discover() {
       </div>
 
       <div className="filter-bar" id="filter-bar">
-        <div className="filter-group">
-          <div className="search-input-wrap">
-            <svg className="search-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-              <circle cx="8.5" cy="8.5" r="5.5" stroke="currentColor" strokeWidth="1.8" />
-              <line x1="12.5" y1="12.5" x2="17" y2="17" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-            </svg>
-            <input
-              type="search"
-              id="filter-search"
-              className="filter-search"
-              placeholder="Search titles in library…"
-              autocomplete="off"
-              spellcheck="false"
-              value={search}
-              onChange={handleSearchChange}
-            />
-            <button className={'search-clear' + (search ? ' visible' : '')} id="search-clear" aria-label="Clear search" onClick={handleSearchClear}>✕</button>
-          </div>
+        {/* Search input — always visible at the top */}
+        <div className="search-input-wrap">
+          <svg className="search-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+            <circle cx="8.5" cy="8.5" r="5.5" stroke="currentColor" strokeWidth="1.8" />
+            <line x1="12.5" y1="12.5" x2="17" y2="17" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+          </svg>
+          <input
+            type="search"
+            id="filter-search"
+            className="filter-search"
+            placeholder="Search titles in library…"
+            autoComplete="off"
+            spellCheck="false"
+            value={search}
+            onChange={handleSearchChange}
+          />
+          <button className={'search-clear' + (search ? ' visible' : '')} id="search-clear" aria-label="Clear search" onClick={handleSearchClear}>✕</button>
         </div>
 
-        <div className="filter-group">
-          <label className="filter-label">Type</label>
-          <div className="filter-chips" id="filter-type">
-            {['all', 'movie', 'show', 'anime'].map(t => (
+        {/* Horizontal filter chip row */}
+        <div className="filter-chips-row">
+          {/* Type */}
+          <button
+            className={`filter-chip${type !== 'all' ? ' active' : ''}${panel === 'type' ? ' open' : ''}`}
+            onClick={() => togglePanel('type')}
+          >
+            {type !== 'all' ? TYPE_OPTIONS.find(t => t.value === type)?.label : 'Type'}
+            <span className="filter-chip-caret" />
+          </button>
+
+          {/* Decade */}
+          <button
+            className={`filter-chip${decade ? ' active' : ''}${panel === 'decade' ? ' open' : ''}`}
+            onClick={() => togglePanel('decade')}
+          >
+            {decade ? DECADES.find(d => d.value === decade)?.label : 'Decade'}
+            <span className="filter-chip-caret" />
+          </button>
+
+          {/* Rating */}
+          <button
+            className={`filter-chip${minRating > 0 ? ' active' : ''}${panel === 'rating' ? ' open' : ''}`}
+            onClick={() => togglePanel('rating')}
+          >
+            {minRating > 0 ? `★ ${ratingLabel}+` : 'Rating'}
+            <span className="filter-chip-caret" />
+          </button>
+
+          {/* Genre */}
+          <button
+            className={`filter-chip${genres.size > 0 ? ' active' : ''}${panel === 'genre' ? ' open' : ''}`}
+            onClick={() => togglePanel('genre')}
+          >
+            {genres.size > 0 ? `Genre · ${genres.size}` : 'Genre'}
+            <span className="filter-chip-caret" />
+          </button>
+
+          {/* Sort */}
+          <button
+            className={`filter-chip${sort !== 'rating' ? ' active' : ''}${panel === 'sort' ? ' open' : ''}`}
+            onClick={() => togglePanel('sort')}
+          >
+            {SORT_OPTIONS.find(s => s.value === sort)?.label || 'Sort'}
+            <span className="filter-chip-caret" />
+          </button>
+        </div>
+
+        {/* Type panel */}
+        {panel === 'type' && (
+          <div className="filter-panel">
+            {TYPE_OPTIONS.map(t => (
               <button
-                key={t}
-                className={'chip' + (type === t ? ' active' : '')}
-                data-value={t}
-                onClick={() => handleTypeChange(t)}
+                key={t.value}
+                className={`filter-pill${type === t.value ? ' active' : ''}`}
+                onClick={() => handleTypeChange(t.value)}
               >
-                {t === 'all' ? 'All' : t === 'movie' ? 'Movies' : t === 'show' ? 'TV Shows' : 'Anime'}
+                {type === t.value && <span className="filter-pill-check">✓</span>}
+                {t.label}
               </button>
             ))}
           </div>
-        </div>
+        )}
 
-        <div className="filter-group">
-          <label className="filter-label">Decade</label>
-          <div className="filter-chips" id="filter-decade">
+        {/* Decade panel */}
+        {panel === 'decade' && (
+          <div className="filter-panel">
             {DECADES.map(d => (
               <button
                 key={d.value}
-                className={'chip' + (decade === d.value ? ' active' : '')}
-                data-value={d.value}
+                className={`filter-pill${decade === d.value ? ' active' : ''}`}
                 onClick={() => handleDecadeChange(d.value)}
               >
+                {decade === d.value && <span className="filter-pill-check">✓</span>}
                 {d.label}
               </button>
             ))}
           </div>
-        </div>
+        )}
 
-        <div className="filter-group">
-          <label className="filter-label">Min Rating: <span id="rating-value">{ratingLabel}</span></label>
-          <input
-            type="range"
-            id="filter-rating"
-            min="0"
-            max="9"
-            step="1"
-            value={RATING_VALUES.indexOf(minRating)}
-            className="rating-slider"
-            onChange={handleRatingChange}
-            onBlur={handleRatingCommit}
-          />
-          <div className="rating-ticks">
-            {RATING_VALUES.map((v, i) => (
-              <span key={i}>{v === 0 ? 'Any' : v}</span>
-            ))}
-          </div>
-        </div>
-
-        <div className="filter-group">
-          <label className="filter-label">Sort by</label>
-          <select
-            id="filter-sort"
-            className="filter-select"
-            value={sort}
-            onChange={handleSortChange}
-          >
-            {SORT_OPTIONS.map(s => (
-              <option key={s.value} value={s.value}>{s.label}</option>
-            ))}
-          </select>
-        </div>
-
-        <div className="filter-group filter-group-full">
-          <label className="filter-label">
-            Genres
-            <span className="filter-clear-genres" style={{ display: genres.size > 0 ? 'inline' : 'none' }} onClick={() => { setGenres(new Set()); fetchResults(true) }}>— Clear</span>
-          </label>
-          {loadingGenres ? (
-            <span className="genre-loading">Loading genres...</span>
-          ) : (
-            <div className="genre-chips" id="filter-genres">
-              {genresList.map(genre => (
-                <button
-                  key={genre}
-                  className={'genre-chip' + (genres.has(genre.toLowerCase()) ? ' active' : '')}
-                  data-genre={genre.toLowerCase()}
-                  onClick={() => handleGenreToggle(genre)}
-                >
-                  {genre}
-                </button>
+        {/* Rating panel */}
+        {panel === 'rating' && (
+          <div className="filter-panel" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '6px' }}>
+            <input
+              type="range"
+              id="filter-rating"
+              min="0"
+              max="9"
+              step="1"
+              value={RATING_VALUES.indexOf(minRating)}
+              className="rating-slider"
+              onChange={handleRatingChange}
+              onBlur={handleRatingCommit}
+            />
+            <div className="rating-ticks">
+              {RATING_VALUES.map((v, i) => (
+                <span key={i}>{v === 0 ? 'Any' : v}</span>
               ))}
             </div>
-          )}
-        </div>
+            {minRating > 0 && (
+              <button className="filter-panel-clear" onClick={() => { setMinRating(0); fetchResults(true) }}>Clear</button>
+            )}
+          </div>
+        )}
+
+        {/* Genre panel */}
+        {panel === 'genre' && (
+          <div className="filter-panel">
+            {loadingGenres ? (
+              <span className="filter-panel-empty">Loading genres…</span>
+            ) : (
+              genresList.map(genre => (
+                <button
+                  key={genre}
+                  className={`filter-pill${genres.has(genre.toLowerCase()) ? ' active' : ''}`}
+                  onClick={() => handleGenreToggle(genre)}
+                >
+                  {genres.has(genre.toLowerCase()) && <span className="filter-pill-check">✓</span>}
+                  {genre}
+                </button>
+              ))
+            )}
+            {genres.size > 0 && (
+              <button className="filter-panel-clear" onClick={() => setGenres(new Set())}>Clear</button>
+            )}
+          </div>
+        )}
+
+        {/* Sort panel */}
+        {panel === 'sort' && (
+          <div className="filter-panel">
+            {SORT_OPTIONS.map(s => (
+              <button
+                key={s.value}
+                className={`filter-pill${sort === s.value ? ' active' : ''}`}
+                onClick={() => handleSortChange(s.value)}
+              >
+                {sort === s.value && <span className="filter-pill-check">✓</span>}
+                {s.label}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {totalResults > 0 && (
@@ -381,7 +448,7 @@ export default function Discover() {
       </div>
 
       {page < totalPages && (
-        <div id="load-more-wrap" style={{ display: 'text-align: center', padding: '32px 0' }}>
+        <div id="load-more-wrap" style={{ textAlign: 'center', padding: '32px 0' }}>
           <button className="btn-load-more" id="btn-load-more" onClick={handleLoadMore} disabled={loading}>
             Load more
           </button>
