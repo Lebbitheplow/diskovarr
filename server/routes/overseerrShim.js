@@ -29,6 +29,22 @@ function getLibraryIdSet() {
 // Invalidate when the library syncs
 process.on('diskovarr:checkFulfilled', () => { _libCache.expiresAt = 0; });
 
+// ── Public (unauthenticated) endpoints ────────────────────────────────────────
+// Must be registered BEFORE the auth middleware so they work without an API key.
+
+// GET /api/v1/settings/public — checked by some apps before authenticating
+router.get('/settings/public', (req, res) => {
+  res.json({
+    applicationTitle: 'Diskovarr',
+    applicationUrl: '',
+    hideAvailable: false,
+    localLogin: true,
+    newPlexLogin: false,
+    defaultPermissions: 32,
+    version: '2.0.0',
+  });
+});
+
 // ── Shim auth middleware ───────────────────────────────────────────────────────
 // Sets req.shimApp (always) and req.shimUser (if request is from a service user key)
 
@@ -187,6 +203,11 @@ router.post('/auth/local', (req, res) => {
   res.json(shimAdminObj(req.shimApp));
 });
 
+// ── POST /api/v1/auth/logout ──────────────────────────────────────────────────
+router.post('/auth/logout', (req, res) => {
+  res.json({});
+});
+
 // ── GET /api/v1/settings/main ─────────────────────────────────────────────────
 // Agregarr checks this to confirm it's talking to Overseerr
 router.get('/settings/main', (req, res) => {
@@ -306,6 +327,30 @@ router.put('/user/:id', (req, res) => {
       .run(Number(permissions), svcUser.id);
   }
   res.json(shimUserObj(db.prepare('SELECT * FROM app_service_users WHERE id = ?').get(svcUser.id)));
+});
+
+// DELETE /api/v1/user/:id — delete a service user
+router.delete('/user/:id', (req, res) => {
+  const id = parseInt(req.params.id);
+  if (req.shimUser) return res.status(403).json({ message: 'Forbidden' });
+  const svcUser = db.getServiceUserById(req.shimApp.id, id);
+  if (!svcUser) return res.status(404).json({ message: 'User not found' });
+  db.deleteServiceUser(svcUser.id);
+  res.json({});
+});
+
+// GET /api/v1/user/:id/settings/main — user general settings (Overseerr sub-path)
+router.get('/user/:id/settings/main', (req, res) => {
+  const svcUser = db.getServiceUserById(req.shimApp.id, parseInt(req.params.id));
+  if (!svcUser) return res.status(404).json({ message: 'User not found' });
+  res.json({ discordId: '', locale: '', region: null, originalLanguage: null, pgpKey: null });
+});
+
+// POST /api/v1/user/:id/settings/main — update user general settings (no-op)
+router.post('/user/:id/settings/main', (req, res) => {
+  const svcUser = db.getServiceUserById(req.shimApp.id, parseInt(req.params.id));
+  if (!svcUser) return res.status(404).json({ message: 'User not found' });
+  res.json(shimUserObj(svcUser));
 });
 
 // POST /api/v1/user/:id/settings — no-op, just return success
@@ -558,6 +603,21 @@ router.delete('/request/:id', (req, res) => {
   res.json({ message: 'Request deleted' });
 });
 
+// PUT /api/v1/request/:id — update request (seasons/service)
+router.put('/request/:id', (req, res) => {
+  const request = db.getRequestById(req.params.id);
+  if (!request) return res.status(404).json({ message: 'Request not found' });
+  const { seasons } = req.body || {};
+  if (Array.isArray(seasons)) {
+    db.updateRequest(request.id, {
+      service: request.service,
+      seasonsJson: JSON.stringify(seasons.map(Number)),
+      seasonsCount: seasons.length,
+    });
+  }
+  res.json(toOverseerrRequest(db.getRequestById(request.id)));
+});
+
 // GET /api/v1/movie/:id — DUMB uses this for IMDb ID; Homarr uses for title/poster/backdrop
 router.get('/movie/:id', async (req, res) => {
   const tmdbId = parseInt(req.params.id);
@@ -601,11 +661,28 @@ router.get('/tv/:id', async (req, res) => {
   });
 });
 
+// GET /api/v1/tv/:id/season/:seasonNumber — season details stub
+router.get('/tv/:id/season/:seasonNumber', async (req, res) => {
+  const tmdbId = parseInt(req.params.id);
+  const seasonNumber = parseInt(req.params.seasonNumber);
+  res.json({
+    id: tmdbId,
+    seasonNumber,
+    episodeCount: 0,
+    episodes: [],
+    airDate: null,
+    name: `Season ${seasonNumber}`,
+    overview: null,
+    posterPath: null,
+  });
+});
+
 // GET /api/v1/request/count — DUMB polls this for queue depth; Homarr uses for stats
 router.get('/request/count', (req, res) => {
-  const pending  = db.getAllRequests(500, 0, 'pending').total;
-  const approved = db.getAllRequests(500, 0, 'approved').total;
-  const declined = db.getAllRequests(500, 0, 'denied').total;
+  const count = (status) => db.prepare('SELECT COUNT(*) AS c FROM discover_requests WHERE status = ?').get(status)?.c || 0;
+  const pending  = count('pending');
+  const approved = count('approved');
+  const declined = count('denied');
   const counts = db.prepare(`
     SELECT media_type, status, COUNT(*) AS cnt
     FROM discover_requests
@@ -626,6 +703,39 @@ router.get('/request/:id', (req, res) => {
   const request = db.getRequestById(req.params.id);
   if (!request) return res.status(404).json({ message: 'Request not found' });
   res.json(toOverseerrRequest(request));
+});
+
+// POST /api/v1/request/:id/retry — retry a failed request (Diskovarr has no failed state, no-op)
+router.post('/request/:id/retry', (req, res) => {
+  const request = db.getRequestById(req.params.id);
+  if (!request) return res.status(404).json({ message: 'Request not found' });
+  res.json(toOverseerrRequest(request));
+});
+
+// POST /api/v1/request/:id/:status — generic status update (pending/approve/decline)
+// Jellyseerr and newer apps use this form instead of specific /approve and /decline routes.
+router.post('/request/:id/:status', async (req, res) => {
+  const request = db.getRequestById(req.params.id);
+  if (!request) return res.status(404).json({ message: 'Request not found' });
+  const { status } = req.params;
+  if (status === 'approve') {
+    try {
+      const service = request.service || pickService(request.media_type);
+      if (service !== 'none') {
+        const { submitRequestToService } = require('./api');
+        const seasons = request.seasons_json ? JSON.parse(request.seasons_json) : null;
+        await submitRequestToService({ tmdbId: request.tmdb_id, mediaType: request.media_type, title: request.title, service, seasons });
+      }
+      db.updateRequestStatus(request.id, 'approved');
+    } catch (err) {
+      return res.status(500).json({ message: err.message });
+    }
+  } else if (status === 'decline') {
+    db.updateRequestStatus(request.id, 'denied', req.body?.reason || null);
+  } else if (status === 'pending') {
+    db.updateRequestStatus(request.id, 'pending');
+  }
+  res.json(toOverseerrRequest(db.getRequestById(request.id)));
 });
 
 // PUT /api/v1/media/:id/available — DUMB calls this after downloading content
@@ -711,6 +821,11 @@ router.get('/user/:id/watchlist', (req, res) => {
   res.json({ pageInfo: { pages: 0, pageSize: 0, results: 0, page: 1 }, results: [] });
 });
 
+// GET /api/v1/user/:id/watch_data — stub (Tautulli watch data not used by shim)
+router.get('/user/:id/watch_data', (req, res) => {
+  res.json({ playCount: 0, playDuration: 0, userPercent: 0 });
+});
+
 // ── Status endpoints ──────────────────────────────────────────────────────────
 
 // GET /api/v1/status
@@ -779,6 +894,33 @@ router.get('/media/:id', async (req, res) => {
     updatedAt: new Date((request.requested_at || 0) * 1000).toISOString(),
     requests: [toOverseerrRequest(request)],
   });
+});
+
+// DELETE /api/v1/media/:id — delete all requests for a given TMDB ID
+router.delete('/media/:id', (req, res) => {
+  const tmdbId = parseInt(req.params.id);
+  if (!tmdbId) return res.status(400).json({ message: 'Invalid id' });
+  db.prepare('DELETE FROM discover_requests WHERE tmdb_id = ?').run(tmdbId);
+  res.json({});
+});
+
+// POST /api/v1/media/:id/:status — generic media status update
+router.post('/media/:id/:status', (req, res) => {
+  const tmdbId = parseInt(req.params.id);
+  if (!tmdbId) return res.status(400).json({ message: 'Invalid id' });
+  const { status } = req.params;
+  if (status === 'available') {
+    // Same as PUT /media/:id/available
+    const request = db.prepare(
+      `SELECT * FROM discover_requests WHERE tmdb_id = ? AND status = 'approved' ORDER BY requested_at DESC LIMIT 1`
+    ).get(tmdbId);
+    if (request) {
+      db.markRequestsNotifiedAvailable([request.id]);
+      process.emit('diskovarr:checkFulfilled');
+    }
+    _libCache.expiresAt = 0;
+  }
+  res.json({ id: tmdbId, mediaType: req.body?.mediaType || 'movie', tmdbId, status: 5 });
 });
 
 // ── Settings endpoints ────────────────────────────────────────────────────────
@@ -864,6 +1006,301 @@ router.post('/settings/jobs/:jobId/run', (req, res) => {
     logger.info(`[shim] Job triggered via API: ${jobId}`);
   }
   res.json({ message: 'Job triggered' });
+});
+
+// ── Search ────────────────────────────────────────────────────────────────────
+
+// GET /api/v1/search?query=term&page=1 — multi-search proxied to TMDB
+router.get('/search', async (req, res) => {
+  const { query = '', page = '1' } = req.query;
+  if (!query.trim()) return res.json({ page: 1, totalPages: 0, totalResults: 0, results: [] });
+  if (!db.hasTmdbKey()) return res.json({ page: 1, totalPages: 0, totalResults: 0, results: [] });
+  try {
+    const json = await tmdb.tmdbFetchPublic(
+      `/search/multi?query=${encodeURIComponent(query.trim())}&page=${parseInt(page) || 1}&include_adult=false`
+    );
+    const libIds = getLibraryIdSet();
+    const requests = db.prepare('SELECT tmdb_id, media_type, status FROM discover_requests WHERE status != ?').all('denied');
+    const reqMap = new Map(requests.map(r => [`${r.tmdb_id}:${r.media_type}`, r.status]));
+    const results = (json.results || []).map(item => {
+      if (!['movie', 'tv'].includes(item.media_type)) return null;
+      const key = `${item.id}:${item.media_type}`;
+      const inLib = libIds.has(key);
+      const reqStatus = reqMap.get(key);
+      return {
+        id: item.id,
+        mediaType: item.media_type,
+        title: item.title || item.name || null,
+        originalTitle: item.original_title || item.original_name || null,
+        releaseDate: item.release_date || item.first_air_date || null,
+        posterPath: item.poster_path || null,
+        backdropPath: item.backdrop_path || null,
+        overview: item.overview || null,
+        voteAverage: item.vote_average || 0,
+        popularity: item.popularity || 0,
+        mediaInfo: inLib ? { status: 5 }
+          : reqStatus === 'approved' ? { status: 3 }
+          : reqStatus === 'pending' ? { status: 2 }
+          : null,
+      };
+    }).filter(Boolean);
+    res.json({ page: json.page || 1, totalPages: json.total_pages || 1, totalResults: json.total_results || 0, results });
+  } catch (err) {
+    logger.warn('[shim] search error:', err.message);
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// ── Service endpoints ─────────────────────────────────────────────────────────
+
+// GET /api/v1/service/radarr — list configured Radarr servers
+router.get('/service/radarr', (req, res) => {
+  const c = db.getConnectionSettings();
+  if (!c.radarrEnabled || !c.radarrUrl) return res.json([]);
+  res.json([{ id: 1, name: 'Radarr', hostname: c.radarrUrl, port: 7878, useSsl: false, isDefault: true, enabled: true, activeProfileId: 0, activeDirectory: '' }]);
+});
+
+// GET /api/v1/service/radarr/:id — single Radarr server
+router.get('/service/radarr/:id', (req, res) => {
+  const c = db.getConnectionSettings();
+  if (!c.radarrEnabled || !c.radarrUrl) return res.status(404).json({ message: 'Not found' });
+  res.json({ id: 1, name: 'Radarr', hostname: c.radarrUrl, port: 7878, useSsl: false, isDefault: true, enabled: true, activeProfileId: 0, activeDirectory: '' });
+});
+
+// GET /api/v1/service/sonarr — list configured Sonarr servers
+router.get('/service/sonarr', (req, res) => {
+  const c = db.getConnectionSettings();
+  if (!c.sonarrEnabled || !c.sonarrUrl) return res.json([]);
+  res.json([{ id: 1, name: 'Sonarr', hostname: c.sonarrUrl, port: 8989, useSsl: false, isDefault: true, enabled: true, activeProfileId: 0, activeDirectory: '' }]);
+});
+
+// GET /api/v1/service/sonarr/:id — single Sonarr server
+router.get('/service/sonarr/:id', (req, res) => {
+  const c = db.getConnectionSettings();
+  if (!c.sonarrEnabled || !c.sonarrUrl) return res.status(404).json({ message: 'Not found' });
+  res.json({ id: 1, name: 'Sonarr', hostname: c.sonarrUrl, port: 8989, useSsl: false, isDefault: true, enabled: true, activeProfileId: 0, activeDirectory: '' });
+});
+
+// ── Additional settings stubs ─────────────────────────────────────────────────
+
+// GET /api/v1/settings/plex/devices/servers — available Plex servers stub
+router.get('/settings/plex/devices/servers', (req, res) => {
+  res.json({ results: [] });
+});
+
+// POST /api/v1/settings/plex/sync — trigger library sync (invalidate cache)
+router.post('/settings/plex/sync', (req, res) => {
+  _libCache.expiresAt = 0;
+  process.emit('diskovarr:checkFulfilled');
+  res.json({ running: true });
+});
+
+// GET /api/v1/settings/plex/sync — sync status stub
+router.get('/settings/plex/sync', (req, res) => {
+  res.json({ running: false });
+});
+
+// GET /api/v1/settings/tautulli — Tautulli config stub
+router.get('/settings/tautulli', (req, res) => {
+  res.json({ hostname: '', port: 8181, useSsl: false, urlBase: '', apiKey: '', externalIp: false, username: '', password: '', enabled: false });
+});
+
+// POST /api/v1/settings/tautulli — no-op
+router.post('/settings/tautulli', (req, res) => {
+  res.json({ hostname: '', port: 8181, useSsl: false, urlBase: '', apiKey: '', externalIp: false, username: '', password: '', enabled: false });
+});
+
+// POST /api/v1/settings/jobs/:jobId/cancel — stub
+router.post('/settings/jobs/:jobId/cancel', (req, res) => {
+  res.json({ message: 'Job cancelled' });
+});
+
+// GET /api/v1/genres/movie — movie genres from TMDB genre map
+router.get('/genres/movie', (req, res) => {
+  const { MOVIE_GENRE_MAP } = tmdb;
+  if (!MOVIE_GENRE_MAP) return res.json([]);
+  res.json(Object.entries(MOVIE_GENRE_MAP).map(([name, ids]) => ({ id: ids[0], name })));
+});
+
+// GET /api/v1/genres/tv — TV genres from TMDB genre map
+router.get('/genres/tv', (req, res) => {
+  const { TV_GENRE_MAP } = tmdb;
+  if (!TV_GENRE_MAP) return res.json([]);
+  res.json(Object.entries(TV_GENRE_MAP).map(([name, ids]) => ({ id: ids[0], name })));
+});
+
+// GET /api/v1/regions — stub (region list not stored locally)
+router.get('/regions', (req, res) => {
+  res.json([]);
+});
+
+// GET /api/v1/languages — stub
+router.get('/languages', (req, res) => {
+  res.json([]);
+});
+
+// GET /api/v1/backdrops — stub (trending backdrops)
+router.get('/backdrops', (req, res) => {
+  res.json([]);
+});
+
+// ── Issue endpoints ───────────────────────────────────────────────────────────
+
+// Map Diskovarr issue scope to Overseerr problemType (1=video 2=audio 3=subtitle 4=other)
+function scopeToProblemType(scope) {
+  if (scope === 'video') return 1;
+  if (scope === 'audio') return 2;
+  if (scope === 'subtitle') return 3;
+  return 4;
+}
+
+// Map Diskovarr issue status to Overseerr status (1=open 2=resolved)
+function issueStatusToOverseerr(status) {
+  return status === 'open' ? 1 : 2;
+}
+
+function toOverseerrIssue(row, comments = null) {
+  return {
+    id: row.id,
+    issueType: scopeToProblemType(row.scope),
+    problemType: scopeToProblemType(row.scope),
+    status: issueStatusToOverseerr(row.status),
+    message: row.description || '',
+    media: {
+      id: row.rating_key ? Number(row.rating_key) || 0 : 0,
+      mediaType: row.media_type || 'movie',
+      title: row.title || null,
+      posterPath: row.poster_path || null,
+    },
+    requestedBy: {
+      id: 1,
+      username: row.username || row.user_id,
+      displayName: row.username || row.user_id,
+      email: `${(row.username || row.user_id).toLowerCase().replace(/\s+/g, '.')}@diskovarr.local`,
+      avatar: '',
+    },
+    modifiedBy: null,
+    comments: comments ? comments.map(c => ({
+      id: c.id,
+      message: c.comment,
+      user: { id: 1, username: c.display_name, displayName: c.display_name, email: '', avatar: '' },
+      createdAt: new Date((c.created_at || 0) * 1000).toISOString(),
+      updatedAt: new Date((c.created_at || 0) * 1000).toISOString(),
+    })) : [],
+    createdAt: new Date((row.created_at || 0) * 1000).toISOString(),
+    updatedAt: new Date((row.updated_at || row.created_at || 0) * 1000).toISOString(),
+  };
+}
+
+// GET /api/v1/issue/count — issue counts by status
+router.get('/issue/count', (req, res) => {
+  const open     = db.prepare("SELECT COUNT(*) AS c FROM issues WHERE status = 'open'").get()?.c || 0;
+  const resolved = db.prepare("SELECT COUNT(*) AS c FROM issues WHERE status = 'resolved'").get()?.c || 0;
+  const closed   = db.prepare("SELECT COUNT(*) AS c FROM issues WHERE status = 'closed'").get()?.c || 0;
+  res.json({ open, resolved, closed, total: open + resolved + closed });
+});
+
+// GET /api/v1/issue — paginated issue list
+router.get('/issue', (req, res) => {
+  const { take = '20', skip = '0', filter, sort = 'added' } = req.query;
+  const limit = Math.min(200, Math.max(1, parseInt(take) || 20));
+  const offset = Math.max(0, parseInt(skip) || 0);
+  const statusFilter = filter === 'open' ? 'open' : filter === 'resolved' ? 'resolved' : filter === 'closed' ? 'closed' : null;
+  const { rows, total } = db.getAllIssues(limit, offset, statusFilter);
+  res.json({
+    pageInfo: { pages: Math.ceil(total / limit) || 1, pageSize: limit, results: total, page: Math.floor(offset / limit) + 1 },
+    results: rows.map(r => toOverseerrIssue(r)),
+  });
+});
+
+// POST /api/v1/issue — create issue
+router.post('/issue', (req, res) => {
+  const { mediaId, mediaType = 'movie', issueType = 4, message = '' } = req.body || {};
+  if (!mediaId) return res.status(400).json({ message: 'mediaId required' });
+  const userId = req.shimUser?.user_id || `__app_${req.shimApp.id}__`;
+  let title = null;
+  try {
+    const cached = db.getTmdbCache(mediaId, mediaType);
+    title = cached?.title || String(mediaId);
+  } catch {}
+  const scopeMap = { 1: 'video', 2: 'audio', 3: 'subtitle', 4: 'series' };
+  const issueId = db.createIssue({
+    userId, ratingKey: String(mediaId), title: title || String(mediaId),
+    mediaType, posterPath: null, scope: scopeMap[issueType] || 'series',
+    scopeSeason: null, scopeEpisode: null, description: message,
+  });
+  const row = db.getIssueById(issueId);
+  res.status(201).json(toOverseerrIssue(row));
+});
+
+// GET /api/v1/issue/:id — single issue with comments (BEFORE /:status route)
+router.get('/issue/:id', (req, res) => {
+  const issue = db.getIssueById(parseInt(req.params.id));
+  if (!issue) return res.status(404).json({ message: 'Issue not found' });
+  const comments = db.getIssueComments(issue.id);
+  res.json(toOverseerrIssue(issue, comments));
+});
+
+// POST /api/v1/issue/:id/comment — add comment (BEFORE /:status route)
+router.post('/issue/:id/comment', (req, res) => {
+  const issue = db.getIssueById(parseInt(req.params.id));
+  if (!issue) return res.status(404).json({ message: 'Issue not found' });
+  const { message = '' } = req.body || {};
+  const userId = req.shimUser?.user_id || `__app_${req.shimApp.id}__`;
+  const commentId = db.addIssueComment(issue.id, userId, message, false);
+  const comment = db.prepare('SELECT ic.*, COALESCE(ku.username, ic.user_id) AS display_name FROM issue_comments ic LEFT JOIN known_users ku ON ku.user_id = ic.user_id WHERE ic.id = ?').get(commentId);
+  res.status(201).json({
+    id: comment.id,
+    message: comment.comment,
+    user: { id: 1, username: comment.display_name, displayName: comment.display_name, email: '', avatar: '' },
+    createdAt: new Date((comment.created_at || 0) * 1000).toISOString(),
+    updatedAt: new Date((comment.created_at || 0) * 1000).toISOString(),
+  });
+});
+
+// POST /api/v1/issue/:id/:status — update issue status (open/resolved)
+router.post('/issue/:id/:status', (req, res) => {
+  const issue = db.getIssueById(parseInt(req.params.id));
+  if (!issue) return res.status(404).json({ message: 'Issue not found' });
+  const { status } = req.params;
+  const diskoStatus = status === 'resolved' ? 'resolved' : status === 'open' ? 'open' : status;
+  db.updateIssueStatus(issue.id, diskoStatus);
+  res.json(toOverseerrIssue(db.getIssueById(issue.id)));
+});
+
+// DELETE /api/v1/issue/:id
+router.delete('/issue/:id', (req, res) => {
+  const issue = db.getIssueById(parseInt(req.params.id));
+  if (!issue) return res.status(404).json({ message: 'Issue not found' });
+  db.deleteIssue(issue.id);
+  res.json({});
+});
+
+// GET /api/v1/issueComment/:id — get a single comment
+router.get('/issueComment/:id', (req, res) => {
+  const comment = db.prepare('SELECT ic.*, COALESCE(ku.username, ic.user_id) AS display_name FROM issue_comments ic LEFT JOIN known_users ku ON ku.user_id = ic.user_id WHERE ic.id = ?').get(parseInt(req.params.id));
+  if (!comment) return res.status(404).json({ message: 'Comment not found' });
+  res.json({ id: comment.id, message: comment.comment, user: { id: 1, username: comment.display_name, displayName: comment.display_name, email: '', avatar: '' }, createdAt: new Date((comment.created_at || 0) * 1000).toISOString(), updatedAt: new Date((comment.created_at || 0) * 1000).toISOString() });
+});
+
+// PUT /api/v1/issueComment/:id — update comment text
+router.put('/issueComment/:id', (req, res) => {
+  const id = parseInt(req.params.id);
+  const comment = db.prepare('SELECT * FROM issue_comments WHERE id = ?').get(id);
+  if (!comment) return res.status(404).json({ message: 'Comment not found' });
+  const { message = '' } = req.body || {};
+  db.prepare('UPDATE issue_comments SET comment = ? WHERE id = ?').run(message, id);
+  const updated = db.prepare('SELECT ic.*, COALESCE(ku.username, ic.user_id) AS display_name FROM issue_comments ic LEFT JOIN known_users ku ON ku.user_id = ic.user_id WHERE ic.id = ?').get(id);
+  res.json({ id: updated.id, message: updated.comment, user: { id: 1, username: updated.display_name, displayName: updated.display_name, email: '', avatar: '' }, createdAt: new Date((updated.created_at || 0) * 1000).toISOString(), updatedAt: new Date((updated.created_at || 0) * 1000).toISOString() });
+});
+
+// DELETE /api/v1/issueComment/:id — delete comment
+router.delete('/issueComment/:id', (req, res) => {
+  const id = parseInt(req.params.id);
+  const comment = db.prepare('SELECT * FROM issue_comments WHERE id = ?').get(id);
+  if (!comment) return res.status(404).json({ message: 'Comment not found' });
+  db.deleteIssueComment(id, req.shimUser?.user_id || `__app_${req.shimApp.id}__`, true);
+  res.json({});
 });
 
 // ── Notification settings stubs ───────────────────────────────────────────────
