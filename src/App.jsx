@@ -1,5 +1,5 @@
 import React, { Suspense, lazy } from 'react'
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from './context/AuthContext'
 import NavigationBar from './components/NavigationBar'
 
@@ -42,6 +42,8 @@ function PublicRoute({ children }) {
 
 export default function App() {
   const { user, loading } = useAuth()
+  const location = useLocation()
+  const isAdminRoute = location.pathname.startsWith('/admin')
 
   if (loading) {
     return <LoadingScreen />
@@ -49,7 +51,7 @@ export default function App() {
 
   return (
     <>
-      {user && <NavigationBar />}
+      {user && !isAdminRoute && <NavigationBar />}
       <Suspense fallback={<LoadingScreen />}>
         <Routes>
           <Route path="/login" element={

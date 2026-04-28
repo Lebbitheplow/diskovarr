@@ -1137,9 +1137,32 @@ for (const col of [
   'notify_issue_new INTEGER DEFAULT 1',
   'notify_issue_update INTEGER DEFAULT 1',
   'notify_issue_comment INTEGER DEFAULT 1',
+  // New notification agent columns
+  'telegram_chat_id TEXT DEFAULT NULL',
+  'telegram_message_thread_id TEXT DEFAULT NULL',
+  'telegram_send_silently INTEGER DEFAULT 0',
+  'telegram_enabled INTEGER DEFAULT 0',
+  'pushbullet_access_token TEXT DEFAULT NULL',
+  'pushbullet_enabled INTEGER DEFAULT 0',
+  'pushover_application_token TEXT DEFAULT NULL',
+  'pushover_sound TEXT DEFAULT NULL',
+  'email_enabled INTEGER DEFAULT 0',
+  'pgp_key TEXT DEFAULT NULL',
 ]) {
   try { db.prepare(`ALTER TABLE user_notification_prefs ADD COLUMN ${col}`).run(); } catch {}
 }
+
+// Create WebPush subscriptions table
+db.exec(`
+  CREATE TABLE IF NOT EXISTS user_push_subscriptions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    endpoint TEXT NOT NULL,
+    auth TEXT NOT NULL,
+    p256dh TEXT NOT NULL,
+    UNIQUE(user_id, endpoint)
+  );
+`);
 
 function createOrBundleNotification({ userId, type, title, body, data }) {
   const hour = Math.floor(Date.now() / 1000 / 3600);
@@ -1193,6 +1216,16 @@ function getUserNotificationPrefs(userId) {
     discord_user_id: row?.discord_user_id || null,
     pushover_user_key: row?.pushover_user_key || null,
     pushover_enabled: row ? !!row.pushover_enabled : false,
+    pushover_application_token: row?.pushover_application_token || null,
+    pushover_sound: row?.pushover_sound || null,
+    telegram_chat_id: row?.telegram_chat_id || null,
+    telegram_message_thread_id: row?.telegram_message_thread_id || null,
+    telegram_send_silently: row ? !!row.telegram_send_silently : false,
+    telegram_enabled: row ? !!row.telegram_enabled : false,
+    pushbullet_access_token: row?.pushbullet_access_token || null,
+    pushbullet_enabled: row ? !!row.pushbullet_enabled : false,
+    email_enabled: row ? !!row.email_enabled : false,
+    pgp_key: row?.pgp_key || null,
     notify_pending: row ? (row.notify_pending !== null ? !!row.notify_pending : true) : true,
     notify_auto_approved: row ? (row.notify_auto_approved !== null ? !!row.notify_auto_approved : true) : true,
     notify_process_failed: row ? (row.notify_process_failed !== null ? !!row.notify_process_failed : true) : true,
@@ -1203,28 +1236,52 @@ function getUserNotificationPrefs(userId) {
 }
 
 function setUserNotificationPrefs(userId, prefs) {
+  // Use individual UPDATE statements for flexibility (not all columns may be present in all versions)
+  const baseSet = [
+    `notify_approved = ${prefs.notify_approved !== false ? 1 : 0}`,
+    `notify_denied = ${prefs.notify_denied !== false ? 1 : 0}`,
+    `notify_available = ${prefs.notify_available !== false ? 1 : 0}`,
+    `notify_pending = ${prefs.notify_pending !== false ? 1 : 0}`,
+    `notify_auto_approved = ${prefs.notify_auto_approved !== false ? 1 : 0}`,
+    `notify_process_failed = ${prefs.notify_process_failed !== false ? 1 : 0}`,
+    `notify_issue_new = ${prefs.notify_issue_new !== false ? 1 : 0}`,
+    `notify_issue_update = ${prefs.notify_issue_update !== false ? 1 : 0}`,
+    `notify_issue_comment = ${prefs.notify_issue_comment !== false ? 1 : 0}`,
+    `discord_webhook = ${sqlValue(prefs.discord_webhook)}`,
+    `discord_enabled = ${prefs.discord_enabled ? 1 : 0}`,
+    `discord_user_id = ${sqlValue(prefs.discord_user_id)}`,
+    `pushover_user_key = ${sqlValue(prefs.pushover_user_key)}`,
+    `pushover_enabled = ${prefs.pushover_enabled ? 1 : 0}`,
+    `pushover_application_token = ${sqlValue(prefs.pushover_application_token)}`,
+    `pushover_sound = ${sqlValue(prefs.pushover_sound)}`,
+    `telegram_chat_id = ${sqlValue(prefs.telegram_chat_id)}`,
+    `telegram_message_thread_id = ${sqlValue(prefs.telegram_message_thread_id)}`,
+    `telegram_send_silently = ${prefs.telegram_send_silently ? 1 : 0}`,
+    `telegram_enabled = ${prefs.telegram_enabled ? 1 : 0}`,
+    `pushbullet_access_token = ${sqlValue(prefs.pushbullet_access_token)}`,
+    `pushbullet_enabled = ${prefs.pushbullet_enabled ? 1 : 0}`,
+    `email_enabled = ${prefs.email_enabled ? 1 : 0}`,
+    `pgp_key = ${sqlValue(prefs.pgp_key)}`,
+  ];
+
   db.prepare(`
-    INSERT OR REPLACE INTO user_notification_prefs
-      (user_id, notify_approved, notify_denied, notify_available, discord_webhook, discord_enabled, discord_user_id, pushover_user_key, pushover_enabled,
-       notify_pending, notify_auto_approved, notify_process_failed, notify_issue_new, notify_issue_update, notify_issue_comment)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    String(userId),
-    prefs.notify_approved !== false ? 1 : 0,
-    prefs.notify_denied !== false ? 1 : 0,
-    prefs.notify_available !== false ? 1 : 0,
-    prefs.discord_webhook || null,
-    prefs.discord_enabled ? 1 : 0,
-    prefs.discord_user_id || null,
-    prefs.pushover_user_key || null,
-    prefs.pushover_enabled ? 1 : 0,
-    prefs.notify_pending !== false ? 1 : 0,
-    prefs.notify_auto_approved !== false ? 1 : 0,
-    prefs.notify_process_failed !== false ? 1 : 0,
-    prefs.notify_issue_new !== false ? 1 : 0,
-    prefs.notify_issue_update !== false ? 1 : 0,
-    prefs.notify_issue_comment !== false ? 1 : 0,
-  );
+    INSERT OR REPLACE INTO user_notification_prefs (user_id) VALUES (?)
+  `).run(String(userId));
+
+  // Update each field individually to handle missing columns gracefully
+  for (const set of baseSet) {
+    try {
+      db.prepare(`UPDATE user_notification_prefs SET ${set} WHERE user_id = ?`).run(String(userId));
+    } catch {
+      // Column may not exist yet — skip
+    }
+  }
+}
+
+// Helper: convert a value to SQL literal
+function sqlValue(val) {
+  if (val === null || val === undefined) return 'NULL';
+  return `'${String(val).replace(/'/g, "''")}'`;
 }
 
 function getAdminUserIds() {

@@ -279,8 +279,145 @@ function AgentInfoModal({ agent, onClose }) {
               <p style={{ fontWeight: 600, color: 'var(--text-primary)', margin: '0 0 4px' }}>Notification types</p>
               <p style={{ margin: 0 }}><strong>New request pending</strong> — admin alert for incoming requests. <strong>Request approved/denied</strong> — notifies the requester when an admin acts.</p>
             </div>
-            <div>
-              <p style={{ margin: 0 }}>Per-user Pushover keys (for individual delivery) can be set from each user's settings page.</p>
+     <div>
+        <p style={{ margin: 0 }}>Per-user Pushover keys (for individual delivery) can be set from each user's settings page.</p>
+      </div>
+          </div>
+        </div>
+      </div>
+    ),
+    webhook: (
+      <div style={{ position: 'fixed', inset: 0, zIndex: 1100, background: 'rgba(0,0,0,0.75)', alignItems: 'center', justifyContent: 'center' }} onClick={onClose}>
+        <div style={{ background: 'var(--bg-secondary)', borderRadius: 14, padding: 28, width: 'min(500px, 92vw)', border: '1px solid var(--border)', position: 'relative', maxHeight: '88vh', overflowY: 'auto' }} onClick={(e) => e.stopPropagation()}>
+          <button onClick={onClose} style={{ position: 'absolute', top: 14, right: 16, background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 20, cursor: 'pointer' }}>&times;</button>
+          <h3 style={{ margin: '0 0 16px', fontSize: '1.05rem' }}>Webhook Notifications</h3>
+          <div style={{ fontSize: '0.88rem', lineHeight: 1.7, color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ background: 'var(--bg-elevated)', borderRadius: 8, padding: 12 }}>
+              <p style={{ margin: 0 }}>Send a custom JSON payload to any HTTP endpoint when events occur. Supports template variables in both the URL and payload body.</p>
+            </div>
+            <div style={{ background: 'var(--bg-elevated)', borderRadius: 8, padding: 12 }}>
+              <p style={{ fontWeight: 600, color: 'var(--text-primary)', margin: '0 0 4px' }}>Template Variables</p>
+              <p style={{ margin: 0 }}>Use double-brace syntax in your JSON payload: <code style={{ fontSize: '0.78rem', background: 'var(--bg-secondary)', padding: '1px 4px', borderRadius: 3 }}>{'{{notification_type}}'}</code>, <code style={{ fontSize: '0.78rem', background: 'var(--bg-secondary)', padding: '1px 4px', borderRadius: 3 }}>{'{{subject}}'}</code>, <code style={{ fontSize: '0.78rem', background: 'var(--bg-secondary)', padding: '1px 4px', borderRadius: 3 }}>{'{{message}}'}</code>, <code style={{ fontSize: '0.78rem', background: 'var(--bg-secondary)', padding: '1px 4px', borderRadius: 3 }}>{'{{image}}'}</code>, <code style={{ fontSize: '0.78rem', background: 'var(--bg-secondary)', padding: '1px 4px', borderRadius: 3 }}>{'{{timestamp}}'}</code>, <code style={{ fontSize: '0.78rem', background: 'var(--bg-secondary)', padding: '1px 4px', borderRadius: 3 }}>{'{{event}}'}</code>.</p>
+            </div>
+            <div style={{ background: 'var(--bg-elevated)', borderRadius: 8, padding: 12 }}>
+              <p style={{ fontWeight: 600, color: 'var(--text-primary)', margin: '0 0 4px' }}>Examples</p>
+              <p style={{ margin: 0 }}>Compatible with services like n8n, Make.com, Zapier webhooks, Home Assistant, and custom scripts. Enable "Variables in URL" to use template variables in the webhook URL path itself.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    ),
+    slack: (
+      <div style={{ position: 'fixed', inset: 0, zIndex: 1100, background: 'rgba(0,0,0,0.75)', alignItems: 'center', justifyContent: 'center' }} onClick={onClose}>
+        <div style={{ background: 'var(--bg-secondary)', borderRadius: 14, padding: 28, width: 'min(500px, 92vw)', border: '1px solid var(--border)', position: 'relative', maxHeight: '88vh', overflowY: 'auto' }} onClick={(e) => e.stopPropagation()}>
+          <button onClick={onClose} style={{ position: 'absolute', top: 14, right: 16, background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 20, cursor: 'pointer' }}>&times;</button>
+          <h3 style={{ margin: '0 0 16px', fontSize: '1.05rem' }}>Slack Notifications</h3>
+          <div style={{ fontSize: '0.88rem', lineHeight: 1.7, color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <ol style={{ margin: 0, paddingLeft: 18 }}>
+              <li>Go to your Slack workspace → <strong>Settings & administration → Manage apps</strong></li>
+              <li>Search for <strong>Incoming Webhooks</strong> and add it</li>
+              <li>Choose a channel to post to and copy the webhook URL</li>
+              <li>Paste it into the Webhook URL field above</li>
+            </ol>
+            <p style={{ margin: 0 }}>Notifications use Slack Block Kit formatting for rich embeds with poster images.</p>
+          </div>
+        </div>
+      </div>
+    ),
+    gotify: (
+      <div style={{ position: 'fixed', inset: 0, zIndex: 1100, background: 'rgba(0,0,0,0.75)', alignItems: 'center', justifyContent: 'center' }} onClick={onClose}>
+        <div style={{ background: 'var(--bg-secondary)', borderRadius: 14, padding: 28, width: 'min(500px, 92vw)', border: '1px solid var(--border)', position: 'relative', maxHeight: '88vh', overflowY: 'auto' }} onClick={(e) => e.stopPropagation()}>
+          <button onClick={onClose} style={{ position: 'absolute', top: 14, right: 16, background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 20, cursor: 'pointer' }}>&times;</button>
+          <h3 style={{ margin: '0 0 16px', fontSize: '1.05rem' }}>Gotify Notifications</h3>
+          <div style={{ fontSize: '0.88rem', lineHeight: 1.7, color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <ol style={{ margin: 0, paddingLeft: 18 }}>
+              <li>Self-host Gotify (see <a href="https://gotify.net/docs" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)' }}>gotify.net/docs</a>)</li>
+              <li>Create an Application in Gotify and copy its token</li>
+              <li>Enter your Gotify server URL and token above</li>
+            </ol>
+            <p style={{ margin: 0 }}>Priority controls urgency levels from Minimum to Maximum. The Gotify mobile app or web UI receives the notifications.</p>
+          </div>
+        </div>
+      </div>
+    ),
+    ntfy: (
+      <div style={{ position: 'fixed', inset: 0, zIndex: 1100, background: 'rgba(0,0,0,0.75)', alignItems: 'center', justifyContent: 'center' }} onClick={onClose}>
+        <div style={{ background: 'var(--bg-secondary)', borderRadius: 14, padding: 28, width: 'min(500px, 92vw)', border: '1px solid var(--border)', position: 'relative', maxHeight: '88vh', overflowY: 'auto' }} onClick={(e) => e.stopPropagation()}>
+          <button onClick={onClose} style={{ position: 'absolute', top: 14, right: 16, background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 20, cursor: 'pointer' }}>&times;</button>
+          <h3 style={{ margin: '0 0 16px', fontSize: '1.05rem' }}>ntfy Notifications</h3>
+          <div style={{ fontSize: '0.88rem', lineHeight: 1.7, color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ background: 'var(--bg-elevated)', borderRadius: 8, padding: 12 }}>
+              <p style={{ margin: 0 }}>Use <strong>ntfy.sh</strong> for free cloud push, or self-host your own ntfy server. The topic acts as a channel name.</p>
+            </div>
+            <ol style={{ margin: 0, paddingLeft: 18 }}>
+              <li>Enter the server URL (e.g. <code style={{ fontSize: '0.78rem', background: 'var(--bg-secondary)', padding: '1px 4px', borderRadius: 3 }}>https://ntfy.sh</code>)</li>
+              <li>Choose a topic name (e.g. <code style={{ fontSize: '0.78rem', background: 'var(--bg-secondary)', padding: '1px 4px', borderRadius: 3 }}>diskovarr</code>)</li>
+              <li>Optionally configure auth (Bearer token or Basic auth)</li>
+              <li>Subscribe to the topic on the ntfy app or web client</li>
+            </ol>
+          </div>
+        </div>
+      </div>
+    ),
+    telegram: (
+      <div style={{ position: 'fixed', inset: 0, zIndex: 1100, background: 'rgba(0,0,0,0.75)', alignItems: 'center', justifyContent: 'center' }} onClick={onClose}>
+        <div style={{ background: 'var(--bg-secondary)', borderRadius: 14, padding: 28, width: 'min(500px, 92vw)', border: '1px solid var(--border)', position: 'relative', maxHeight: '88vh', overflowY: 'auto' }} onClick={(e) => e.stopPropagation()}>
+          <button onClick={onClose} style={{ position: 'absolute', top: 14, right: 16, background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 20, cursor: 'pointer' }}>&times;</button>
+          <h3 style={{ margin: '0 0 16px', fontSize: '1.05rem' }}>Telegram Notifications</h3>
+          <div style={{ fontSize: '0.88rem', lineHeight: 1.7, color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <ol style={{ margin: 0, paddingLeft: 18 }}>
+              <li>Message <strong><a href="https://t.me/BotFather" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)' }}>@BotFather</a></strong> on Telegram and create a new bot</li>
+              <li>Copy the bot API token and paste it above</li>
+              <li>Find your chat ID by messaging <strong><a href="https://t.me/userinfobot" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)' }}>@userinfobot</a></strong></li>
+              <li>For groups: add the bot to the group, make it admin, then get the group chat ID</li>
+            </ol>
+            <p style={{ margin: 0 }}>Users can set their own personal chat IDs in their profile settings for individual delivery.</p>
+          </div>
+        </div>
+      </div>
+    ),
+    pushbullet: (
+      <div style={{ position: 'fixed', inset: 0, zIndex: 1100, background: 'rgba(0,0,0,0.75)', alignItems: 'center', justifyContent: 'center' }} onClick={onClose}>
+        <div style={{ background: 'var(--bg-secondary)', borderRadius: 14, padding: 28, width: 'min(500px, 92vw)', border: '1px solid var(--border)', position: 'relative', maxHeight: '88vh', overflowY: 'auto' }} onClick={(e) => e.stopPropagation()}>
+          <button onClick={onClose} style={{ position: 'absolute', top: 14, right: 16, background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 20, cursor: 'pointer' }}>&times;</button>
+          <h3 style={{ margin: '0 0 16px', fontSize: '1.05rem' }}>Pushbullet Notifications</h3>
+          <div style={{ fontSize: '0.88rem', lineHeight: 1.7, color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <ol style={{ margin: 0, paddingLeft: 18 }}>
+              <li>Log in to <strong>pushbullet.com</strong></li>
+              <li>Go to <strong>Settings</strong> and find your <strong>Access Token</strong></li>
+              <li>Paste it above</li>
+              <li>Optionally create a channel for group delivery</li>
+            </ol>
+            <p style={{ margin: 0 }}>Users can set their own access tokens in profile settings for individual device delivery.</p>
+          </div>
+        </div>
+      </div>
+    ),
+    email: (
+      <div style={{ position: 'fixed', inset: 0, zIndex: 1100, background: 'rgba(0,0,0,0.75)', alignItems: 'center', justifyContent: 'center' }} onClick={onClose}>
+        <div style={{ background: 'var(--bg-secondary)', borderRadius: 14, padding: 28, width: 'min(500px, 92vw)', border: '1px solid var(--border)', position: 'relative', maxHeight: '88vh', overflowY: 'auto' }} onClick={(e) => e.stopPropagation()}>
+          <button onClick={onClose} style={{ position: 'absolute', top: 14, right: 16, background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 20, cursor: 'pointer' }}>&times;</button>
+          <h3 style={{ margin: '0 0 16px', fontSize: '1.05rem' }}>Email (SMTP) Notifications</h3>
+          <div style={{ fontSize: '0.88rem', lineHeight: 1.7, color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <p style={{ margin: 0 }}>Send email notifications via any SMTP server (Gmail, Outlook, self-hosted, etc.). Users who have an email address on file can opt in to receive emails.</p>
+            <div style={{ background: 'var(--bg-elevated)', borderRadius: 8, padding: 12 }}>
+              <p style={{ fontWeight: 600, color: 'var(--text-primary)', margin: '0 0 4px' }}>Gmail Setup</p>
+              <p style={{ margin: 0 }}>Use an <strong>App Password</strong> (not your regular password). Go to Google Account → Security → 2-Step Verification → App Passwords. Use port 587 with STARTTLS.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    ),
+    webpush: (
+      <div style={{ position: 'fixed', inset: 0, zIndex: 1100, background: 'rgba(0,0,0,0.75)', alignItems: 'center', justifyContent: 'center' }} onClick={onClose}>
+        <div style={{ background: 'var(--bg-secondary)', borderRadius: 14, padding: 28, width: 'min(500px, 92vw)', border: '1px solid var(--border)', position: 'relative', maxHeight: '88vh', overflowY: 'auto' }} onClick={(e) => e.stopPropagation()}>
+          <button onClick={onClose} style={{ position: 'absolute', top: 14, right: 16, background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 20, cursor: 'pointer' }}>&times;</button>
+          <h3 style={{ margin: '0 0 16px', fontSize: '1.05rem' }}>WebPush Notifications</h3>
+          <div style={{ fontSize: '0.88rem', lineHeight: 1.7, color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <p style={{ margin: 0 }}>Send native browser push notifications. VAPID keys are auto-generated on first save. Users opt in from their profile settings page by allowing browser notifications.</p>
+            <div style={{ background: 'var(--bg-elevated)', borderRadius: 8, padding: 12 }}>
+              <p style={{ fontWeight: 600, color: 'var(--text-primary)', margin: '0 0 4px' }}>Requirements</p>
+              <p style={{ margin: 0 }}>Diskovarr must be served over HTTPS (or localhost). Users need a modern browser that supports the Web Push API. The in-app bell icon will prompt users to subscribe.</p>
             </div>
           </div>
         </div>

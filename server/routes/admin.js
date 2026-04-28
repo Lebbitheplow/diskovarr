@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const rateLimit = require('express-rate-limit');
 const db = require('../db/database');
+const requireAuth = require('../middleware/requireAuth');
 const plexService = require('../services/plex');
 const recommender = require('../services/recommender');
 const discoverRecommender = require('../services/discoverRecommender');
@@ -700,11 +701,20 @@ router.post('/users/:userId/settings', requireAdmin, (req, res) => {
         notify_issue_new:     notificationPrefs.notify_issue_new     !== false,
         notify_issue_update:  notificationPrefs.notify_issue_update  !== false,
         notify_issue_comment: notificationPrefs.notify_issue_comment !== false,
-        discord_user_id:      notificationPrefs.discord_user_id     || null,
+        discord_user_id:      notificationPrefs.discord_user_id      || null,
         discord_enabled:      !!notificationPrefs.discord_enabled,
         discord_webhook:      notificationPrefs.discord_webhook      || null,
-        pushover_user_key:    notificationPrefs.pushover_user_key   || null,
+        pushover_user_key:    notificationPrefs.pushover_user_key    || null,
         pushover_enabled:     !!notificationPrefs.pushover_enabled,
+        pushover_application_token: notificationPrefs.pushover_application_token || null,
+        pushover_sound:       notificationPrefs.pushover_sound       || null,
+        telegram_chat_id:     notificationPrefs.telegram_chat_id     || null,
+        telegram_message_thread_id: notificationPrefs.telegram_message_thread_id || null,
+        telegram_send_silently: !!notificationPrefs.telegram_send_silently,
+        telegram_enabled:     !!notificationPrefs.telegram_enabled,
+        pushbullet_access_token: notificationPrefs.pushbullet_access_token || null,
+        pushbullet_enabled:   !!notificationPrefs.pushbullet_enabled,
+        email_enabled:        !!notificationPrefs.email_enabled,
       });
     }
     res.json({ success: true });
@@ -860,25 +870,6 @@ router.post('/settings/pushover', requireAdmin, (req, res) => {
   res.json({ success: true });
 });
 
-router.post('/notifications/broadcast', requireAdmin, async (req, res) => {
-  const { message } = req.body;
-  if (!message || typeof message !== 'string' || !message.trim()) {
-    return res.status(400).json({ error: 'Message is required' });
-  }
-  const msg = message.trim();
-  const users = db.getKnownUsers();
-  for (const user of users) {
-    db.createOrBundleNotification({ userId: user.user_id, type: 'broadcast', title: 'Message from Server Admin', body: msg });
-  }
-  const discordAgent = require('../services/discordAgent');
-  const pushoverAgent = require('../services/pushoverAgent');
-  await Promise.allSettled([
-    discordAgent.sendBroadcast(msg),
-    pushoverAgent.sendBroadcast(msg),
-  ]);
-  logger.info(`Admin broadcast sent to ${users.length} users`);
-  res.json({ success: true, userCount: users.length });
-});
 
 router.post('/settings/pushover/test', requireAdmin, async (req, res) => {
   try {
@@ -890,6 +881,290 @@ router.post('/settings/pushover/test', requireAdmin, async (req, res) => {
   } catch (err) {
     res.json({ ok: false, message: err.message });
   }
+});
+
+// ── New notification agent routes ─────────────────────────────────────────────
+
+// Helper: get agent config or return empty defaults
+function getAgentConfig(agentKey) {
+  try {
+    return JSON.parse(db.getSetting(agentKey, 'null'));
+  } catch {
+    return {};
+  }
+}
+
+// ── Webhook ──
+router.get('/settings/webhook', requireAdmin, (req, res) => {
+  res.json(getAgentConfig('webhook_agent'));
+});
+
+router.post('/settings/webhook', requireAdmin, (req, res) => {
+  const { enabled, webhookUrl, jsonPayload, authHeader, customHeaders, supportVariables, embedPoster, notificationTypes } = req.body;
+  const config = {
+    enabled: !!enabled,
+    webhookUrl: webhookUrl || '',
+    jsonPayload: jsonPayload || '',
+    authHeader: authHeader || '',
+    customHeaders: customHeaders || [],
+    supportVariables: !!supportVariables,
+    embedPoster: !!embedPoster,
+    notificationTypes: notificationTypes || [],
+  };
+  db.setSetting('webhook_agent', JSON.stringify(config));
+  res.json({ success: true });
+});
+
+router.post('/settings/webhook/test', requireAdmin, async (req, res) => {
+  try {
+    const webhookAgent = require('../services/webhookAgent');
+    await webhookAgent.sendTest(req.body);
+    res.json({ ok: true, message: 'Test notification sent via webhook' });
+  } catch (err) {
+    res.json({ ok: false, message: err.message });
+  }
+});
+
+// ── Slack ──
+router.get('/settings/slack', requireAdmin, (req, res) => {
+  res.json(getAgentConfig('slack_agent'));
+});
+
+router.post('/settings/slack', requireAdmin, (req, res) => {
+  const { enabled, webhookUrl, embedPoster, notificationTypes } = req.body;
+  db.setSetting('slack_agent', JSON.stringify({
+    enabled: !!enabled,
+    webhookUrl: webhookUrl || '',
+    embedPoster: !!embedPoster,
+    notificationTypes: notificationTypes || [],
+  }));
+  res.json({ success: true });
+});
+
+router.post('/settings/slack/test', requireAdmin, async (req, res) => {
+  try {
+    const slackAgent = require('../services/slackAgent');
+    await slackAgent.sendTest(req.body);
+    res.json({ ok: true, message: 'Test notification sent via Slack' });
+  } catch (err) {
+    res.json({ ok: false, message: err.message });
+  }
+});
+
+// ── Gotify ──
+router.get('/settings/gotify', requireAdmin, (req, res) => {
+  res.json(getAgentConfig('gotify_agent'));
+});
+
+router.post('/settings/gotify', requireAdmin, (req, res) => {
+  const { enabled, url, token, priority, notificationTypes } = req.body;
+  db.setSetting('gotify_agent', JSON.stringify({
+    enabled: !!enabled,
+    url: url || '',
+    token: token || '',
+    priority: priority ?? 0,
+    notificationTypes: notificationTypes || [],
+  }));
+  res.json({ success: true });
+});
+
+router.post('/settings/gotify/test', requireAdmin, async (req, res) => {
+  try {
+    const gotifyAgent = require('../services/gotifyAgent');
+    await gotifyAgent.sendTest(req.body);
+    res.json({ ok: true, message: 'Test notification sent via Gotify' });
+  } catch (err) {
+    res.json({ ok: false, message: err.message });
+  }
+});
+
+// ── ntfy ──
+router.get('/settings/ntfy', requireAdmin, (req, res) => {
+  res.json(getAgentConfig('ntfy_agent'));
+});
+
+router.post('/settings/ntfy', requireAdmin, (req, res) => {
+  const { enabled, url, topic, authMethod, token, username, password, priority, embedPoster, notificationTypes } = req.body;
+  db.setSetting('ntfy_agent', JSON.stringify({
+    enabled: !!enabled,
+    url: url || '',
+    topic: topic || '',
+    authMethod: authMethod || 'none',
+    token: token || '',
+    username: username || '',
+    password: password || '',
+    priority: priority ?? 3,
+    embedPoster: !!embedPoster,
+    notificationTypes: notificationTypes || [],
+  }));
+  res.json({ success: true });
+});
+
+router.post('/settings/ntfy/test', requireAdmin, async (req, res) => {
+  try {
+    const ntfyAgent = require('../services/ntfyAgent');
+    await ntfyAgent.sendTest(req.body);
+    res.json({ ok: true, message: 'Test notification sent via ntfy' });
+  } catch (err) {
+    res.json({ ok: false, message: err.message });
+  }
+});
+
+// ── Telegram ──
+router.get('/settings/telegram', requireAdmin, (req, res) => {
+  res.json(getAgentConfig('telegram_agent'));
+});
+
+router.post('/settings/telegram', requireAdmin, (req, res) => {
+  const { enabled, botAPI, chatId, messageThreadId, sendSilently, embedPoster, notificationTypes } = req.body;
+  db.setSetting('telegram_agent', JSON.stringify({
+    enabled: !!enabled,
+    botAPI: botAPI || '',
+    chatId: chatId || '',
+    messageThreadId: messageThreadId || '',
+    sendSilently: !!sendSilently,
+    embedPoster: !!embedPoster,
+    notificationTypes: notificationTypes || [],
+  }));
+  res.json({ success: true });
+});
+
+router.post('/settings/telegram/test', requireAdmin, async (req, res) => {
+  try {
+    const telegramAgent = require('../services/telegramAgent');
+    await telegramAgent.sendTest(req.body);
+    res.json({ ok: true, message: 'Test notification sent via Telegram' });
+  } catch (err) {
+    res.json({ ok: false, message: err.message });
+  }
+});
+
+// ── Pushbullet ──
+router.get('/settings/pushbullet', requireAdmin, (req, res) => {
+  res.json(getAgentConfig('pushbullet_agent'));
+});
+
+router.post('/settings/pushbullet', requireAdmin, (req, res) => {
+  const { enabled, accessToken, channelTag, notificationTypes } = req.body;
+  db.setSetting('pushbullet_agent', JSON.stringify({
+    enabled: !!enabled,
+    accessToken: accessToken || '',
+    channelTag: channelTag || '',
+    notificationTypes: notificationTypes || [],
+  }));
+  res.json({ success: true });
+});
+
+router.post('/settings/pushbullet/test', requireAdmin, async (req, res) => {
+  try {
+    const pushbulletAgent = require('../services/pushbulletAgent');
+    await pushbulletAgent.sendTest(req.body);
+    res.json({ ok: true, message: 'Test notification sent via Pushbullet' });
+  } catch (err) {
+    res.json({ ok: false, message: err.message });
+  }
+});
+
+// ── Email ──
+router.get('/settings/email', requireAdmin, (req, res) => {
+  res.json(getAgentConfig('email_agent'));
+});
+
+router.post('/settings/email', requireAdmin, (req, res) => {
+  const { enabled, emailFrom, smtpHost, smtpPort, secure, ignoreTls, requireTls,
+          authUser, authPass, allowSelfSigned, senderName, embedPoster, notificationTypes } = req.body;
+  db.setSetting('email_agent', JSON.stringify({
+    enabled: !!enabled,
+    emailFrom: emailFrom || '',
+    smtpHost: smtpHost || '',
+    smtpPort: smtpPort || 587,
+    secure: !!secure,
+    ignoreTls: !!ignoreTls,
+    requireTls: !!requireTls,
+    authUser: authUser || '',
+    authPass: authPass || '',
+    allowSelfSigned: !!allowSelfSigned,
+    senderName: senderName || 'Diskovarr',
+    embedPoster: !!embedPoster,
+    notificationTypes: notificationTypes || [],
+  }));
+  res.json({ success: true });
+});
+
+router.post('/settings/email/test', requireAdmin, async (req, res) => {
+  try {
+    const emailAgent = require('../services/emailAgent');
+    await emailAgent.sendTest(req.body);
+    res.json({ ok: true, message: 'Test email sent' });
+  } catch (err) {
+    res.json({ ok: false, message: err.message });
+  }
+});
+
+// ── WebPush ──
+router.get('/settings/webpush', requireAdmin, (req, res) => {
+  const config = getAgentConfig('webpush_agent') || {};
+  config.vapidPublic = db.getSetting('webpush_vapid_public', '') || '';
+  res.json(config);
+});
+
+router.post('/settings/webpush', requireAdmin, (req, res) => {
+  const { enabled, embedPoster } = req.body;
+  db.setSetting('webpush_agent', JSON.stringify({
+    enabled: !!enabled,
+    embedPoster: !!embedPoster,
+  }));
+  res.json({ success: true });
+});
+
+router.post('/settings/webpush/test', requireAdmin, async (req, res) => {
+  try {
+    const webpushAgent = require('../services/webpushAgent');
+    await webpushAgent.sendTest(req.body);
+    res.json({ ok: true, message: 'Test notification sent via WebPush' });
+  } catch (err) {
+    res.json({ ok: false, message: err.message });
+  }
+});
+
+// Register browser push subscription
+router.post('/webpush/subscribe', requireAuth, (req, res) => {
+  try {
+    const { subscription } = req.body;
+    if (!subscription || !subscription.endpoint) {
+      return res.status(400).json({ error: 'Invalid subscription' });
+    }
+    const webpushAgent = require('../services/webpushAgent');
+    const ok = webpushAgent.saveSubscription(req.user?.user_id || 'anonymous', subscription);
+    res.json({ success: ok });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get VAPID public key for browser registration
+router.get('/webpush/vapid-key', (_req, res) => {
+  const webpushAgent = require('../services/webpushAgent');
+  const vapid = webpushAgent.initVapid();
+  res.json({ publicKey: vapid.public });
+});
+
+// Update broadcast to use the manager for all agents
+router.post('/notifications/broadcast', requireAdmin, async (req, res) => {
+  const { message } = req.body;
+  if (!message || typeof message !== 'string' || !message.trim()) {
+    return res.status(400).json({ error: 'Message is required' });
+  }
+  const msg = message.trim();
+  const users = db.getKnownUsers();
+  for (const user of users) {
+    db.createOrBundleNotification({ userId: user.user_id, type: 'broadcast', title: 'Message from Server Admin', body: msg });
+  }
+  // Use the manager to broadcast to all agents
+  const { manager } = require('../services/notificationAgents');
+  await manager.sendBroadcast(msg);
+  logger.info(`Admin broadcast sent to ${users.length} users`);
+  res.json({ success: true, userCount: users.length });
 });
 
 // ── Agregarr / API Apps management ───────────────────────────────────────────

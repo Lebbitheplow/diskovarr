@@ -1,5 +1,6 @@
 const db = require('../db/database');
 const logger = require('./logger');
+const { hasNotificationType } = require('./notificationAgents/types');
 
 function getConfig() {
   const raw = db.getSetting('pushover_agent', null);
@@ -81,4 +82,33 @@ async function sendBroadcast(message) {
   }
 }
 
-module.exports = { sendNotification, sendTest, getConfig, sendBroadcast };
+// ── Manager compatibility layer ───────────────────────────────────────────────
+
+function shouldSend() {
+  const config = getConfig();
+  return !!(config && config.enabled && config.appToken);
+}
+
+function shouldSendType(diskovarrType) {
+  const config = getConfig();
+  if (!config || !config.enabled) return false;
+  const types = config.notificationTypes || [];
+  return types.includes(diskovarrType);
+}
+
+// Manager interface: send(type, payload)
+async function sendForManager(type, payload) {
+  return sendNotification({ type, title: payload.title, body: payload.body, posterUrl: payload.posterUrl, userId: payload.userId });
+}
+
+module.exports = {
+  sendNotification,
+  sendTest,
+  getConfig,
+  sendBroadcast,
+  // Manager interface
+  settingsKey: 'pushover_agent',
+  shouldSend,
+  shouldSendType,
+  send: sendForManager,
+};

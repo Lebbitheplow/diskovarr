@@ -2,10 +2,11 @@ import React, { useState, useCallback, useEffect } from 'react'
 import GeneralSettings from '../components/admin/GeneralSettings'
 import UserManagement from '../components/admin/UserManagement'
 import ConnectionSettings from '../components/admin/ConnectionSettings'
-import NotificationSettings from '../components/admin/NotificationSettings'
+import AdminNotifications from '../components/admin/notifications/AdminNotifications'
 import UserSettingsModal from '../components/admin/UserSettingsModal'
 import BulkSettingsModal from '../components/admin/BulkSettingsModal'
 import AgentInfoModal from '../components/admin/AgentInfoModal'
+import { adminStatus, adminNotifications } from '../services/adminApi'
 
 const APP_VERSION = '1.17.12'
 
@@ -152,6 +153,7 @@ export default function Admin() {
   const [agentInfoModal, setAgentInfoModal] = useState(null)
   const [selectedUserId, setSelectedUserId] = useState(null)
   const [selectedUsername, setSelectedUsername] = useState('')
+  const [enabledProviders, setEnabledProviders] = useState({})
   const [selectedUserIds, setSelectedUserIds] = useState([])
   const [updateAvailable, setUpdateAvailable] = useState(false)
   const [latestVersion, setLatestVersion] = useState(null)
@@ -211,7 +213,7 @@ export default function Admin() {
   }, [])
 
   const handleDataLoaded = useCallback((data) => {
-    if (data.connections) {
+    if (data && data.connections) {
       setConnections(prev => ({ ...prev, ...data.connections }))
     }
   }, [])
@@ -226,6 +228,40 @@ export default function Admin() {
     }
     window.addEventListener('hashchange', handleHashChange)
     return () => window.removeEventListener('hashchange', handleHashChange)
+  }, [])
+
+  // Load provider enabled states for user modal filtering
+  useEffect(() => {
+    const loadProviderStates = async () => {
+      try {
+        const res = await adminStatus.get()
+        const providers = {
+          discord: !!(res.data?.discordAgent?.enabled),
+          pushover: !!(res.data?.pushoverAgent?.enabled),
+        }
+        // Load other providers
+        const [wh, sl, gf, nf, tg, pb, em, wp] = await Promise.allSettled([
+          adminNotifications.getWebhook(),
+          adminNotifications.getSlack(),
+          adminNotifications.getGotify(),
+          adminNotifications.getNtfy(),
+          adminNotifications.getTelegram(),
+          adminNotifications.getPushbullet(),
+          adminNotifications.getEmail(),
+          adminNotifications.getWebpush(),
+        ])
+        if (wh.status === 'fulfilled') providers.webhook = !!wh.value.data?.enabled
+        if (sl.status === 'fulfilled') providers.slack = !!sl.value.data?.enabled
+        if (gf.status === 'fulfilled') providers.gotify = !!gf.value.data?.enabled
+        if (nf.status === 'fulfilled') providers.ntfy = !!nf.value.data?.enabled
+        if (tg.status === 'fulfilled') providers.telegram = !!tg.value.data?.enabled
+        if (pb.status === 'fulfilled') providers.pushbullet = !!pb.value.data?.enabled
+        if (em.status === 'fulfilled') providers.email = !!em.value.data?.enabled
+        if (wp.status === 'fulfilled') providers.webpush = !!wp.value.data?.enabled
+        setEnabledProviders(providers)
+      } catch { /* ignore */ }
+    }
+    loadProviderStates()
   }, [])
 
   // Check for updates
@@ -301,7 +337,7 @@ export default function Admin() {
 
         {activeTab === 'notifications' && (
           <div className="admin-tab-panel" id="panel-notifications" hidden={activeTab !== 'notifications'}>
-            <NotificationSettings
+            <AdminNotifications
               onDataLoaded={handleDataLoaded}
               onToast={showToast}
               onOpenAgentInfo={handleOpenAgentInfo}
@@ -325,6 +361,7 @@ export default function Admin() {
           username={selectedUsername}
           onClose={handleCloseUserSettings}
           onToast={showToast}
+          enabledProviders={enabledProviders}
         />
       )}
 
@@ -361,6 +398,30 @@ export default function Admin() {
           agent="pushover"
           onClose={handleCloseAgentInfo}
         />
+      )}
+      {agentInfoModal === 'webhook' && (
+        <AgentInfoModal agent="webhook" onClose={handleCloseAgentInfo} />
+      )}
+      {agentInfoModal === 'slack' && (
+        <AgentInfoModal agent="slack" onClose={handleCloseAgentInfo} />
+      )}
+      {agentInfoModal === 'gotify' && (
+        <AgentInfoModal agent="gotify" onClose={handleCloseAgentInfo} />
+      )}
+      {agentInfoModal === 'ntfy' && (
+        <AgentInfoModal agent="ntfy" onClose={handleCloseAgentInfo} />
+      )}
+      {agentInfoModal === 'telegram' && (
+        <AgentInfoModal agent="telegram" onClose={handleCloseAgentInfo} />
+      )}
+      {agentInfoModal === 'pushbullet' && (
+        <AgentInfoModal agent="pushbullet" onClose={handleCloseAgentInfo} />
+      )}
+      {agentInfoModal === 'email' && (
+        <AgentInfoModal agent="email" onClose={handleCloseAgentInfo} />
+      )}
+      {agentInfoModal === 'webpush' && (
+        <AgentInfoModal agent="webpush" onClose={handleCloseAgentInfo} />
       )}
     </>
   )

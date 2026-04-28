@@ -2,6 +2,7 @@ const db = require('../db/database');
 const discordAgent = require('./discordAgent');
 const pushoverAgent = require('./pushoverAgent');
 const logger = require('./logger');
+const { manager } = require('./notificationAgents');
 
 let _interval = null;
 
@@ -47,11 +48,7 @@ async function processPendingNotifications() {
         payload.body = notif.bundle_count > 1 ? null : (notif.body || payload.body);
       }
       logger.debug(`notificationService: sending ${first.agent} for notif ${first.notification_id} (bundle_count=${notif?.bundle_count ?? 1})`);
-      if (first.agent === 'discord') {
-        await discordAgent.sendNotification(payload);
-      } else if (first.agent === 'pushover') {
-        await pushoverAgent.sendNotification(payload);
-      }
+      await dispatchToAgent(first.agent, payload);
     } catch (err) {
       logger.warn(`notificationService: failed to send bundle (notif ${first.notification_id}):`, err.message);
     }
@@ -63,11 +60,7 @@ async function processPendingNotifications() {
     try {
       const payload = JSON.parse(item.payload);
       logger.debug(`notificationService: sending ${item.agent} for ungrouped item ${item.id}`);
-      if (item.agent === 'discord') {
-        await discordAgent.sendNotification(payload);
-      } else if (item.agent === 'pushover') {
-        await pushoverAgent.sendNotification(payload);
-      }
+      await dispatchToAgent(item.agent, payload);
       db.markQueueItemSent(item.id);
     } catch (err) {
       logger.warn(`notificationService: failed to send item ${item.id}:`, err.message);
@@ -88,4 +81,21 @@ function stop() {
   if (_interval) { clearInterval(_interval); _interval = null; }
 }
 
-module.exports = { start, stop, processPendingNotifications };
+// Dispatch to agent — extensible via NotificationManager
+async function dispatchToAgent(agentKey, payload) {
+  // Direct dispatch for backward compatibility
+  if (agentKey === 'discord') {
+    return discordAgent.sendNotification(payload);
+  }
+  if (agentKey === 'pushover') {
+    return pushoverAgent.sendNotification(payload);
+  }
+  // New agents via manager
+  const agent = manager.getAgent(agentKey);
+  if (agent && typeof agent.send === 'function') {
+    return agent.send(payload.type, payload);
+  }
+  logger.warn(`notificationService: unknown agent "${agentKey}", skipping`);
+}
+
+module.exports = { start, stop, processPendingNotifications, dispatchToAgent };

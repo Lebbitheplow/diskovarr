@@ -1500,3 +1500,113 @@
   border-color: #4ade80;
   color: #4ade80;
 }
+
+/* ── Notifications: sidebar layout ─────────────────────────── */
+
+.notif-layout {
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+}
+
+.notif-sidebar {
+  width: 220px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  position: sticky;
+  top: 16px;
+}
+
+.notif-sidebar-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: var(--radius);
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  font-size: 0.88rem;
+  font-family: inherit;
+  color: var(--text-secondary);
+  background: none;
+  text-align: left;
+  width: 100%;
+}
+
+.notif-sidebar-item:hover {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+
+.notif-sidebar-item.active {
+  background: var(--accent-dim);
+  color: var(--accent);
+  border-color: var(--accent-border);
+  font-weight: 600;
+}
+
+.notif-sidebar-sub {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.notif-sidebar-item.active .notif-sidebar-sub {
+  color: var(--accent);
+  opacity: 0.7;
+}
+
+.notif-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #6dc96d;
+  flex-shrink: 0;
+  box-shadow: 0 0 4px rgba(109, 201, 109, 0.4);
+}
+
+.notif-status-dot.disabled {
+  background: var(--text-muted);
+  box-shadow: none;
+}
+
+.notif-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.notif-broadcast {
+  margin-bottom: 0;
+}
+
+/* ── Responsive: collapse sidebar to horizontal pills ─────── */
+
+@media (max-width: 960px) {
+  .notif-layout {
+    flex-direction: column;
+  }
+  .notif-sidebar {
+    width: 100%;
+    position: static;
+    flex-direction: row;
+    overflow-x: auto;
+    gap: 4px;
+    padding-bottom: 8px;
+    -webkit-overflow-scrolling: touch;
+  }
+  .notif-sidebar-item {
+    white-space: nowrap;
+    flex-shrink: 0;
+    border-bottom: 2px solid transparent;
+    border-left-color: transparent;
+    border-right-color: transparent;
+    border-top-color: transparent;
+    padding: 8px 14px;
+  }
+  .notif-sidebar-item.active {
+    border-bottom-color: var(--accent);
+    border-left-color: transparent;
+  }
+}

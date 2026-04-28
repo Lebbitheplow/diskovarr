@@ -63,7 +63,7 @@ function Toggle({ checked, onChange, label, disabled }) {
   )
 }
 
-export default function UserSettingsModal({ userId, username, onClose, onToast }) {
+export default function UserSettingsModal({ userId, username, onClose, onToast, enabledProviders }) {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
 
@@ -96,10 +96,26 @@ export default function UserSettingsModal({ userId, username, onClose, onToast }
   // Notification delivery — Discord
   const [discordUserId, setDiscordUserId] = useState('')
   const [discordEnabled, setDiscordEnabled] = useState(false)
+  const [discordWebhook, setDiscordWebhook] = useState('')
 
   // Notification delivery — Pushover
   const [pushoverUserKey, setPushoverUserKey] = useState('')
   const [pushoverEnabled, setPushoverEnabled] = useState(false)
+  const [pushoverAppToken, setPushoverAppToken] = useState('')
+  const [pushoverSound, setPushoverSound] = useState('')
+
+  // Notification delivery — Telegram
+  const [telegramEnabled, setTelegramEnabled] = useState(false)
+  const [telegramChatId, setTelegramChatId] = useState('')
+  const [telegramThreadId, setTelegramThreadId] = useState('')
+  const [telegramSilent, setTelegramSilent] = useState(false)
+
+  // Notification delivery — Pushbullet
+  const [pushbulletEnabled, setPushbulletEnabled] = useState(false)
+  const [pushbulletToken, setPushbulletToken] = useState('')
+
+  // Notification delivery — Email
+  const [emailEnabled, setEmailEnabled] = useState(false)
 
   // Notification type checkboxes
   const [notifTypes, setNotifTypes] = useState({
@@ -137,8 +153,18 @@ export default function UserSettingsModal({ userId, username, onClose, onToast }
       const np = data.notificationPrefs || {}
       setDiscordUserId(np.discord_user_id || '')
       setDiscordEnabled(!!np.discord_enabled)
+      setDiscordWebhook(np.discord_webhook || '')
       setPushoverUserKey(np.pushover_user_key || '')
       setPushoverEnabled(!!np.pushover_enabled)
+      setPushoverAppToken(np.pushover_application_token || '')
+      setPushoverSound(np.pushover_sound || '')
+      setTelegramEnabled(!!np.telegram_enabled)
+      setTelegramChatId(np.telegram_chat_id || '')
+      setTelegramThreadId(np.telegram_message_thread_id || '')
+      setTelegramSilent(!!np.telegram_send_silently)
+      setPushbulletEnabled(!!np.pushbullet_enabled)
+      setPushbulletToken(np.pushbullet_access_token || '')
+      setEmailEnabled(!!np.email_enabled)
       setNotifTypes({
         notify_approved:       np.notify_approved       !== false,
         notify_denied:         np.notify_denied         !== false,
@@ -185,8 +211,18 @@ export default function UserSettingsModal({ userId, username, onClose, onToast }
           ...notifTypes,
           discord_user_id: discordUserId || null,
           discord_enabled: discordEnabled,
+          discord_webhook: discordWebhook || null,
           pushover_user_key: pushoverUserKey || null,
           pushover_enabled: pushoverEnabled,
+          pushover_application_token: pushoverAppToken || null,
+          pushover_sound: pushoverSound || null,
+          telegram_chat_id: telegramChatId || null,
+          telegram_message_thread_id: telegramThreadId || null,
+          telegram_send_silently: telegramSilent,
+          telegram_enabled: telegramEnabled,
+          pushbullet_access_token: pushbulletToken || null,
+          pushbullet_enabled: pushbulletEnabled,
+          email_enabled: emailEnabled,
         },
       })
       if (onToast) onToast('User settings saved', 'success')
@@ -391,39 +427,110 @@ export default function UserSettingsModal({ userId, username, onClose, onToast }
         </div>
 
         {/* ── Notification Delivery ── */}
-        <div style={{ marginBottom: 16, paddingBottom: 16, borderBottom: '1px solid var(--border)' }}>
-          <div style={sectionLabel}>Notification Delivery</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <div>
-              <label className="conn-field-label">Discord User ID</label>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <input
-                  type="text"
-                  className="conn-input"
-                  style={{ maxWidth: 220 }}
-                  placeholder="Discord user ID"
-                  value={discordUserId}
-                  onChange={(e) => setDiscordUserId(e.target.value)}
-                />
-                <Toggle checked={discordEnabled} onChange={(e) => setDiscordEnabled(e.target.checked)} label="Enable" />
+        {(() => {
+          // Only show notification delivery if at least one provider is enabled
+          const isProviderEnabled = (id) => !enabledProviders || enabledProviders[id] !== false
+          const hasAnyProvider = !enabledProviders || Object.values(enabledProviders).some(v => v === true)
+
+          if (!hasAnyProvider) return null
+
+          return (
+            <div style={{ marginBottom: 16, paddingBottom: 16, borderBottom: '1px solid var(--border)' }}>
+              <div style={sectionLabel}>Notification Delivery</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {isProviderEnabled('discord') && (
+                  <>
+                    <div>
+                      <label className="conn-field-label">Discord User ID</label>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                        <input type="text" className="conn-input" style={{ maxWidth: 220 }} placeholder="Discord user ID" value={discordUserId} onChange={(e) => setDiscordUserId(e.target.value)} />
+                        <Toggle checked={discordEnabled} onChange={(e) => setDiscordEnabled(e.target.checked)} label="Enable" />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="conn-field-label">Discord Personal Webhook <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(optional)</span></label>
+                      <input type="url" className="conn-input" style={{ maxWidth: 350 }} placeholder="https://discord.com/api/webhooks/..." value={discordWebhook} onChange={(e) => setDiscordWebhook(e.target.value)} />
+                    </div>
+                  </>
+                )}
+                {isProviderEnabled('pushover') && (
+                  <>
+                    <div>
+                      <label className="conn-field-label">Pushover User Key</label>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                        <input type="text" className="conn-input" style={{ maxWidth: 220 }} placeholder="Pushover user key" value={pushoverUserKey} onChange={(e) => setPushoverUserKey(e.target.value)} />
+                        <Toggle checked={pushoverEnabled} onChange={(e) => setPushoverEnabled(e.target.checked)} label="Enable" />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="conn-field-label">Pushover App Token <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(optional, use your own app)</span></label>
+                      <input type="text" className="conn-input" style={{ maxWidth: 280 }} placeholder="App token" value={pushoverAppToken} onChange={(e) => setPushoverAppToken(e.target.value)} />
+                    </div>
+                    <div>
+                      <label className="conn-field-label">Pushover Sound <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(optional)</span></label>
+                      <select className="conn-input" style={{ maxWidth: 220 }} value={pushoverSound} onChange={(e) => setPushoverSound(e.target.value)}>
+                        <option value="">Device Default</option>
+                        <option value="pushover">Pushover</option>
+                        <option value="bike">Bike</option>
+                        <option value="bugle">Bugle</option>
+                        <option value="cashregister">Cash Register</option>
+                        <option value="cosmic">Cosmic</option>
+                        <option value="falling">Falling</option>
+                        <option value="gamelan">Gamelan</option>
+                        <option value="incoming">Incoming</option>
+                        <option value="magic">Magic</option>
+                        <option value="pianobar">Piano Bar</option>
+                        <option value="siren">Siren</option>
+                        <option value="spacealarm">Space Alarm</option>
+                        <option value="none">Silent</option>
+                      </select>
+                    </div>
+                  </>
+                )}
+                {isProviderEnabled('telegram') && (
+                  <>
+                    <div>
+                      <label className="conn-field-label">Telegram Chat ID</label>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                        <input type="text" className="conn-input" style={{ maxWidth: 220 }} placeholder="Chat ID" value={telegramChatId} onChange={(e) => setTelegramChatId(e.target.value)} />
+                        <Toggle checked={telegramEnabled} onChange={(e) => setTelegramEnabled(e.target.checked)} label="Enable" />
+                      </div>
+                    </div>
+                    {telegramEnabled && (
+                      <>
+                        <div>
+                          <label className="conn-field-label">Thread ID <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(optional, forum topics)</span></label>
+                          <input type="text" className="conn-input" style={{ maxWidth: 220 }} placeholder="Thread ID" value={telegramThreadId} onChange={(e) => setTelegramThreadId(e.target.value)} />
+                        </div>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem', cursor: 'pointer' }}>
+                          <input type="checkbox" className="themed-checkbox" checked={telegramSilent} onChange={(e) => setTelegramSilent(e.target.checked)} />
+                          Send silently (no sound)
+                        </label>
+                      </>
+                    )}
+                  </>
+                )}
+                {isProviderEnabled('pushbullet') && (
+                  <div>
+                    <label className="conn-field-label">Pushbullet Access Token</label>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <input type="password" className="conn-input" style={{ maxWidth: 220 }} placeholder="o.YourToken" value={pushbulletToken} onChange={(e) => setPushbulletToken(e.target.value)} autoComplete="off" />
+                      <Toggle checked={pushbulletEnabled} onChange={(e) => setPushbulletEnabled(e.target.checked)} label="Enable" />
+                    </div>
+                  </div>
+                )}
+                {isProviderEnabled('email') && (
+                  <div>
+                    <label className="conn-field-label">Email Notifications</label>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <Toggle checked={emailEnabled} onChange={(e) => setEmailEnabled(e.target.checked)} label="Enable" />
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
-            <div>
-              <label className="conn-field-label">Pushover User Key</label>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <input
-                  type="text"
-                  className="conn-input"
-                  style={{ maxWidth: 220 }}
-                  placeholder="Pushover user key"
-                  value={pushoverUserKey}
-                  onChange={(e) => setPushoverUserKey(e.target.value)}
-                />
-                <Toggle checked={pushoverEnabled} onChange={(e) => setPushoverEnabled(e.target.checked)} label="Enable" />
-              </div>
-            </div>
-          </div>
-        </div>
+          )
+        })()}
 
         {/* ── Notification Types ── */}
         <div style={{ marginBottom: 20, paddingBottom: 16, borderBottom: '1px solid var(--border)' }}>

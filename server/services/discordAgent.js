@@ -1,5 +1,6 @@
 const db = require('../db/database');
 const logger = require('./logger');
+const { hasNotificationType } = require('./notificationAgents/types');
 
 function getConfig() {
   const raw = db.getSetting('discord_agent', null);
@@ -236,4 +237,36 @@ async function sendBroadcast(message) {
   }
 }
 
-module.exports = { sendNotification, sendTest, getConfig, updateBotAvatar, sendBroadcast };
+// ── Manager compatibility layer ───────────────────────────────────────────────
+
+function shouldSend() {
+  const config = getConfig();
+  return !!(config && config.enabled);
+}
+
+function shouldSendType(diskovarrType) {
+  const config = getConfig();
+  if (!config || !config.enabled) return false;
+  const webhookTypes = config.webhookNotificationTypes || config.notificationTypes || [];
+  const botTypes = config.botNotificationTypes || config.notificationTypes || [];
+  // Check both webhook and bot types
+  return webhookTypes.includes(diskovarrType) || botTypes.includes(diskovarrType);
+}
+
+// Manager interface: send(type, payload)
+async function sendForManager(type, payload) {
+  return sendNotification({ type, title: payload.title, body: payload.body, posterUrl: payload.posterUrl, userId: payload.userId });
+}
+
+module.exports = {
+  sendNotification,
+  sendTest,
+  getConfig,
+  updateBotAvatar,
+  sendBroadcast,
+  // Manager interface
+  settingsKey: 'discord_agent',
+  shouldSend,
+  shouldSendType,
+  send: sendForManager,
+};
