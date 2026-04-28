@@ -91,6 +91,7 @@ export const queueApi = {
 /** Issues */
 export const issuesApi = {
   getIssues: (params = {}) => api.get('/issues', { params }),
+  getIssue: (id) => api.get(`/issues/${id}`),
   createIssue: (data) => api.post('/issues', data),
   getIssueComments: (id) => api.get(`/issues/${id}/comments`),
   addComment: (id, content) => api.post(`/issues/${id}/comments`, { content }),

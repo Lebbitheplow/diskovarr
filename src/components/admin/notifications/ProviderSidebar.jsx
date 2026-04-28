@@ -10,10 +10,14 @@ export default function ProviderSidebar({ active, onChange, providerEnabled }) {
             key={p.id}
             className={`notif-sidebar-item ${active === p.id ? 'active' : ''}`}
             onClick={() => onChange(p.id)}
-            style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}
           >
-            <span style={{ fontSize: '0.88rem', fontWeight: active === p.id ? 600 : 500 }}>Broadcast</span>
-            <span className="notif-sidebar-sub">All users</span>
+            <svg className="notif-provider-icon" aria-hidden="true">
+              <use href={`/icons.svg#${p.icon}`} />
+            </svg>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <span style={{ fontSize: '0.88rem', fontWeight: active === p.id ? 600 : 500 }}>{p.label}</span>
+              <span className="notif-sidebar-sub">All users</span>
+            </div>
           </button>
         )
         const enabled = providerEnabled ? providerEnabled[p.id] : undefined
@@ -23,11 +27,14 @@ export default function ProviderSidebar({ active, onChange, providerEnabled }) {
             className={`notif-sidebar-item ${active === p.id ? 'active' : ''}`}
             onClick={() => onChange(p.id)}
           >
+            <svg className="notif-provider-icon" aria-hidden="true">
+              <use href={`/icons.svg#${p.icon}`} />
+            </svg>
+            <span style={{ fontSize: '0.88rem', fontWeight: active === p.id ? 600 : 500 }}>{p.label}</span>
             <span
               className={`notif-status-dot ${enabled === false ? 'disabled' : ''}`}
-              style={{ display: enabled === undefined ? 'none' : undefined }}
+              style={{ marginLeft: 'auto', display: enabled === undefined ? 'none' : undefined }}
             />
-            <span style={{ fontSize: '0.88rem', fontWeight: active === p.id ? 600 : 500 }}>{p.label}</span>
           </button>
         )
       })}

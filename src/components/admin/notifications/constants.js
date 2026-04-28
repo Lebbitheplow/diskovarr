@@ -1,15 +1,15 @@
 export const PROVIDERS = [
-  { id: 'broadcast', label: 'Broadcast', description: 'Send message to all users' },
-  { id: 'discord', label: 'Discord', description: 'Webhook or Bot DMs', hasUserInfoModal: true, hasUserSettings: true },
-  { id: 'pushover', label: 'Pushover', description: 'Push notifications', hasUserInfoModal: true, hasUserSettings: true },
-  { id: 'webhook', label: 'Webhook', description: 'Custom JSON webhook', hasUserInfoModal: true },
-  { id: 'slack', label: 'Slack', description: 'Slack webhook', hasUserInfoModal: true },
-  { id: 'gotify', label: 'Gotify', description: 'Self-hosted Gotify', hasUserInfoModal: true },
-  { id: 'ntfy', label: 'ntfy', description: 'ntfy cloud or self-hosted', hasUserInfoModal: true },
-  { id: 'telegram', label: 'Telegram', description: 'Telegram bot', hasUserInfoModal: true, hasUserSettings: true },
-  { id: 'pushbullet', label: 'Pushbullet', description: 'Pushbullet push', hasUserInfoModal: true, hasUserSettings: true },
-  { id: 'email', label: 'Email', description: 'SMTP email', hasUserInfoModal: true, hasUserSettings: true },
-  { id: 'webpush', label: 'WebPush', description: 'Browser push', hasUserInfoModal: true },
+  { id: 'broadcast', label: 'Broadcast', description: 'Send message to all users', icon: 'notif-broadcast-icon' },
+  { id: 'discord', label: 'Discord', description: 'Webhook or Bot DMs', hasUserInfoModal: true, hasUserSettings: true, icon: 'notif-discord-icon' },
+  { id: 'pushover', label: 'Pushover', description: 'Push notifications', hasUserInfoModal: true, hasUserSettings: true, icon: 'notif-pushover-icon' },
+  { id: 'webhook', label: 'Webhook', description: 'Custom JSON webhook', hasUserInfoModal: true, icon: 'notif-webhook-icon' },
+  { id: 'slack', label: 'Slack', description: 'Slack webhook', hasUserInfoModal: true, icon: 'notif-slack-icon' },
+  { id: 'gotify', label: 'Gotify', description: 'Self-hosted Gotify', hasUserInfoModal: true, icon: 'notif-gotify-icon' },
+  { id: 'ntfy', label: 'ntfy', description: 'ntfy cloud or self-hosted', hasUserInfoModal: true, icon: 'notif-ntfy-icon' },
+  { id: 'telegram', label: 'Telegram', description: 'Telegram bot', hasUserInfoModal: true, hasUserSettings: true, icon: 'notif-telegram-icon' },
+  { id: 'pushbullet', label: 'Pushbullet', description: 'Pushbullet push', hasUserInfoModal: true, hasUserSettings: true, icon: 'notif-pushbullet-icon' },
+  { id: 'email', label: 'Email', description: 'SMTP email', hasUserInfoModal: true, hasUserSettings: true, icon: 'notif-email-icon' },
+  { id: 'webpush', label: 'WebPush', description: 'Browser push', hasUserInfoModal: true, icon: 'notif-webpush-icon' },
 ]
 
 export const USER_FACEABLE_PROVIDERS = ['discord', 'pushover', 'telegram', 'pushbullet', 'email']

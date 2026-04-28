@@ -6,7 +6,7 @@ import PushoverUserProvider from './providers/PushoverUserProvider'
 import TelegramUserProvider from './providers/TelegramUserProvider'
 import PushbulletUserProvider from './providers/PushbulletUserProvider'
 import EmailUserProvider from './providers/EmailUserProvider'
-import { USER_FACEABLE_PROVIDERS, PROVIDERS } from '../../components/admin/notifications/constants'
+import { USER_FACEABLE_PROVIDERS } from '../../components/admin/notifications/constants'
 
 const USER_PROVIDER_MAP = {
   discord: { Component: DiscordUserProvider, label: 'Discord' },
@@ -14,6 +14,20 @@ const USER_PROVIDER_MAP = {
   telegram: { Component: TelegramUserProvider, label: 'Telegram' },
   pushbullet: { Component: PushbulletUserProvider, label: 'Pushbullet' },
   email: { Component: EmailUserProvider, label: 'Email' },
+}
+
+const USER_ENABLED_FIELD = {
+  discord: 'discord_enabled',
+  pushover: 'pushover_enabled',
+  telegram: 'telegram_enabled',
+  pushbullet: 'pushbullet_enabled',
+  email: 'email_enabled',
+}
+
+function buildEnabledMap(s) {
+  return Object.fromEntries(
+    Object.entries(USER_ENABLED_FIELD).map(([id, key]) => [id, !!s?.[key]])
+  )
 }
 
 export default function UserNotifications({ settings, onToast, onUpdateSettings }) {
@@ -29,8 +43,9 @@ export default function UserNotifications({ settings, onToast, onUpdateSettings 
     notify_process_failed: settings?.notify_process_failed !== false,
     notify_issue_new: settings?.notify_issue_new !== false,
   })
+  const [userProviderEnabled, setUserProviderEnabled] = useState(() => buildEnabledMap(settings))
 
-  // Build list of enabled providers from settings
+  // Build list of enabled providers from settings (only admin-enabled ones appear)
   const enabledProviderKeys = settings?.enabled_providers || USER_FACEABLE_PROVIDERS
   const providers = enabledProviderKeys
     .filter(k => USER_PROVIDER_MAP[k])
@@ -57,8 +72,12 @@ export default function UserNotifications({ settings, onToast, onUpdateSettings 
     setActive(id)
   }, [])
 
-  const handleProviderSave = useCallback(() => {
-    // Refresh settings if needed
+  const handleProviderSave = useCallback(async () => {
+    try {
+      const { userApi } = await import('../../services/api')
+      const { data } = await userApi.getSettings()
+      setUserProviderEnabled(buildEnabledMap(data))
+    } catch {}
   }, [])
 
   const renderContent = () => {
@@ -82,7 +101,7 @@ export default function UserNotifications({ settings, onToast, onUpdateSettings 
 
   return (
     <div className="notif-layout">
-      <UserProviderSidebar providers={providers} active={active} onChange={handleProviderChange} />
+      <UserProviderSidebar providers={providers} active={active} onChange={handleProviderChange} providerEnabled={userProviderEnabled} />
       <div className="notif-content">
         {renderContent()}
       </div>

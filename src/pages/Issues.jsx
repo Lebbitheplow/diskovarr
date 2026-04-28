@@ -1,4 +1,5 @@
-import React, { useState, useCallback, useEffect } from 'react'
+import React, { useState, useCallback, useEffect, useRef } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import {
   issuesApi,
 } from '../services/api'
@@ -31,6 +32,7 @@ function scopeLabel(issue) {
 }
 
 export default function Issues() {
+  const [searchParams] = useSearchParams()
   const { user } = useAuth()
   const { error: toastError, success: toastSuccess } = useToast()
 
@@ -157,6 +159,22 @@ export default function Issues() {
       setCommentsLoading(false)
     }
   }, [])
+
+  const idParam = searchParams.get('id')
+  const deepLinkDone = useRef(false)
+
+  useEffect(() => {
+    if (!idParam || deepLinkDone.current) return
+    issuesApi.getIssue(parseInt(idParam))
+      .then(({ data }) => {
+        if (data) {
+          setIssuesMap(prev => ({ ...prev, [data.id]: data }))
+          handleViewDetails(data.id)
+          deepLinkDone.current = true
+        }
+      })
+      .catch(() => {})
+  }, [idParam, handleViewDetails])
 
   const handleCommentSubmit = useCallback(async () => {
     if (!selectedIssue || !commentInput.trim()) return

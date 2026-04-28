@@ -66,6 +66,17 @@ class SlackAgent extends BaseAgent {
       });
     }
 
+    // URL link
+    if (payload.url) {
+      blocks.push({
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `<${payload.url}|View in Diskovarr>`,
+        },
+      });
+    }
+
     // Footer
     blocks.push({
       type: 'context',

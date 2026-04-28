@@ -24,6 +24,14 @@ class PushbulletAgent extends BaseAgent {
   }
 
   buildPayload(type, payload) {
+    if (payload.url) {
+      return {
+        type: 'link',
+        title: payload.title || '',
+        body: payload.body || '',
+        url: payload.url,
+      };
+    }
     return {
       type: 'note',
       title: payload.title || '',

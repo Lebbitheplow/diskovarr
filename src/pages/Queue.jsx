@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react'
+import React, { useState, useCallback, useEffect, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import {
   queueApi,
@@ -64,6 +64,9 @@ export default function Queue() {
   const [editAllSeasons, setEditAllSeasons] = useState(false)
   const [deleteRequestId, setDeleteRequestId] = useState(null)
   const [noConfirmDelete, setNoConfirmDelete] = useState(() => localStorage.getItem('diskovarr_no_confirm_delete') === 'true')
+
+  const idParam = searchParams.get('id')
+  const deepLinkDone = useRef(false)
 
   const loadQueue = useCallback(async (filter, pageNum) => {
     setLoading(true)
@@ -159,6 +162,18 @@ export default function Queue() {
       setEditAllSeasons(true)
     }
   }, [])
+
+  useEffect(() => {
+    if (!idParam || deepLinkDone.current) return
+    queueApi.getRequest(parseInt(idParam))
+      .then(({ data }) => {
+        if (data) {
+          handleEdit(data)
+          deepLinkDone.current = true
+        }
+      })
+      .catch(() => {})
+  }, [idParam, handleEdit])
 
   const handleEditSave = useCallback(async () => {
     if (!editRequest) return

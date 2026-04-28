@@ -95,6 +95,7 @@ class EmailAgent extends BaseAgent {
       <h3>${this.escapeHtml(title)}</h3>
       ${body ? `<p>${this.escapeHtml(body)}</p>` : ''}
       ${posterUrl ? `<div class="poster"><img src="${this.escapeHtml(posterUrl)}" alt="Poster" /></div>` : ''}
+      ${payload.url ? `<div style="text-align:center;margin-top:16px;"><a href="${this.escapeHtml(payload.url)}" style="display:inline-block;padding:8px 20px;background:#e94560;color:#fff;border-radius:6px;text-decoration:none;font-size:13px;font-weight:600;">View in Diskovarr</a></div>` : ''}
     </div>
     <div class="footer">
       <p>Sent by ${this.escapeHtml(senderName)}</p>

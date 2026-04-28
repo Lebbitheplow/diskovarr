@@ -47,6 +47,14 @@ async function processPendingNotifications() {
         // For bundles with multiple items, the per-item body is stale — clear it
         payload.body = notif.bundle_count > 1 ? null : (notif.body || payload.body);
       }
+      const appUrl = db.getSetting('app_public_url', '') || '';
+      if (appUrl && notif?.data) {
+        try {
+          const d = typeof notif.data === 'string' ? JSON.parse(notif.data) : notif.data;
+          if (d.requestId) payload.url = `${appUrl}/queue?id=${d.requestId}`;
+          else if (d.issueId) payload.url = `${appUrl}/issues?id=${d.issueId}`;
+        } catch {}
+      }
       logger.debug(`notificationService: sending ${first.agent} for notif ${first.notification_id} (bundle_count=${notif?.bundle_count ?? 1})`);
       await dispatchToAgent(first.agent, payload);
     } catch (err) {

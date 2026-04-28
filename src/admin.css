@@ -1572,6 +1572,13 @@
   box-shadow: none;
 }
 
+.notif-provider-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  border-radius: 2px;
+}
+
 .notif-content {
   flex: 1;
   min-width: 0;

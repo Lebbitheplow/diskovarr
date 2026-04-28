@@ -43,7 +43,7 @@ class TelegramAgent extends BaseAgent {
     return message;
   }
 
-  async sendToChat(chatId, message, threadId, silent, posterUrl) {
+  async sendToChat(chatId, message, threadId, silent, posterUrl, url) {
     const settings = this.getSettings();
     if (!settings || !settings.botAPI) return false;
 
@@ -65,6 +65,10 @@ class TelegramAgent extends BaseAgent {
       body.caption = message;
     } else {
       body.text = message;
+    }
+
+    if (url) {
+      body.reply_markup = { inline_keyboard: [[{ text: 'View in Diskovarr', url }]] };
     }
 
     const res = await fetch(endpoint, {
@@ -97,7 +101,8 @@ class TelegramAgent extends BaseAgent {
           message,
           settings.messageThreadId || null,
           settings.sendSilently || false,
-          payload.posterUrl || ''
+          payload.posterUrl || '',
+          payload.url || null
         );
         sent++;
         logger.debug(`Telegram: sent to admin chat ${settings.chatId}`);
@@ -112,7 +117,8 @@ class TelegramAgent extends BaseAgent {
             message,
             prefs.telegram_message_thread_id || null,
             prefs.telegram_send_silently || false,
-            payload.posterUrl || ''
+            payload.posterUrl || '',
+            payload.url || null
           );
           sent++;
           logger.debug(`Telegram: sent to user ${payload.userId} (${prefs.telegram_chat_id})`);

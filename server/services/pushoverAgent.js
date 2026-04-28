@@ -27,21 +27,23 @@ async function sendPushover({ appToken, userKey, title, message, url, urlTitle, 
   if (!res.ok) throw new Error(`Pushover returned ${res.status}`);
 }
 
-async function sendNotification({ type, title, body, userId, posterUrl }) {
+async function sendNotification({ type, title, body, userId, posterUrl, url }) {
   const config = getConfig();
   if (!config || !config.enabled || !config.appToken) return;
   const enabledTypes = config.notificationTypes || [];
   if (!enabledTypes.includes(type)) return;
+  const deepUrl = url || null;
+  const deepUrlTitle = url ? 'View in Diskovarr' : null;
   try {
     // Global key
     if (config.userKey) {
-      await sendPushover({ appToken: config.appToken, userKey: config.userKey, title, message: body, sound: config.sound || null, posterUrl, embedPoster: config.embedPoster });
+      await sendPushover({ appToken: config.appToken, userKey: config.userKey, title, message: body, sound: config.sound || null, posterUrl, embedPoster: config.embedPoster, url: deepUrl, urlTitle: deepUrlTitle });
     }
     // Per-user key
     if (userId) {
       const prefs = db.getUserNotificationPrefs(userId);
       if (prefs.pushover_enabled && prefs.pushover_user_key) {
-        await sendPushover({ appToken: config.appToken, userKey: prefs.pushover_user_key, title, message: body, sound: config.sound || null, posterUrl, embedPoster: config.embedPoster });
+        await sendPushover({ appToken: config.appToken, userKey: prefs.pushover_user_key, title, message: body, sound: config.sound || null, posterUrl, embedPoster: config.embedPoster, url: deepUrl, urlTitle: deepUrlTitle });
       }
     }
   } catch (err) {
@@ -98,7 +100,7 @@ function shouldSendType(diskovarrType) {
 
 // Manager interface: send(type, payload)
 async function sendForManager(type, payload) {
-  return sendNotification({ type, title: payload.title, body: payload.body, posterUrl: payload.posterUrl, userId: payload.userId });
+  return sendNotification({ type, title: payload.title, body: payload.body, posterUrl: payload.posterUrl, userId: payload.userId, url: payload.url });
 }
 
 module.exports = {

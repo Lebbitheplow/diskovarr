@@ -1297,6 +1297,17 @@ router.get('/queue', async (req, res) => {
   });
 });
 
+// GET /api/queue/:id — fetch a single request by id
+router.get('/queue/:id', (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  const request = db.getRequestById(parseInt(req.params.id));
+  if (!request) return res.status(404).json({ error: 'Not found' });
+  const isAdmin = !!(req.session.isAdmin || req.session.isPlexAdminUser)
+    || db.getPrivilegedUserIds().includes(String(req.session.plexUser.id));
+  if (!isAdmin && String(request.user_id) !== String(req.session.plexUser.id)) return res.status(403).json({ error: 'Forbidden' });
+  res.json(request);
+});
+
 // PUT /api/queue/:id — edit a pending request
 router.put('/queue/:id', (req, res) => {
   if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
@@ -1473,6 +1484,17 @@ router.get('/issues', (req, res) => {
   res.json({ issues: rows, total, page: pageNum, totalPages: Math.ceil(total / limit) || 1 });
 });
 
+// GET /api/issues/:id — fetch a single issue by id
+router.get('/issues/:id', (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  const issue = db.getIssueById(parseInt(req.params.id));
+  if (!issue) return res.status(404).json({ error: 'Not found' });
+  const isAdmin = !!(req.session.isAdmin || req.session.isPlexAdminUser)
+    || db.getPrivilegedUserIds().includes(String(req.session.plexUser.id));
+  if (!isAdmin && String(issue.user_id) !== String(req.session.plexUser.id)) return res.status(403).json({ error: 'Forbidden' });
+  res.json(issue);
+});
+
 // POST /api/issues/:id/resolve — mark resolved with optional note
 router.post('/issues/:id/resolve', requirePrivileged, async (req, res) => {
   const issue = db.getIssueById(req.params.id);
@@ -1609,6 +1631,14 @@ router.get('/user/settings', (req, res) => {
   const isElevated = !isAdmin && db.getPrivilegedUserIds().includes(String(userId));
   const discordConfig = (() => { try { return JSON.parse(db.getSetting('discord_agent', 'null')); } catch { return null; } })();
   const pushoverConfig = pushoverAgent.getConfig();
+  const getAgentEnabled = (key) => { try { const c = JSON.parse(db.getSetting(key, 'null')); return !!(c && c.enabled); } catch { return false; } };
+  const enabled_providers = [
+    discordConfig?.enabled ? 'discord' : null,
+    pushoverConfig?.enabled ? 'pushover' : null,
+    getAgentEnabled('telegram_agent') ? 'telegram' : null,
+    getAgentEnabled('pushbullet_agent') ? 'pushbullet' : null,
+    getAgentEnabled('email_agent') ? 'email' : null,
+  ].filter(Boolean);
   res.json({
     region: prefs.region,
     language: prefs.language,
@@ -1620,6 +1650,7 @@ router.get('/user/settings', (req, res) => {
     pushover_agent_enabled: !!(pushoverConfig && pushoverConfig.enabled),
     discord_agent_enabled: !!(discordConfig && discordConfig.enabled),
     discord_invite_link: discordConfig?.inviteLink || null,
+    enabled_providers,
     ...notif,
   });
 });

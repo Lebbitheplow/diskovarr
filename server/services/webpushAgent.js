@@ -118,6 +118,7 @@ class WebPushAgent extends BaseAgent {
       subject: payload.title || '',
       message: payload.body || '',
       image: payload.posterUrl || undefined,
+      url: payload.url || undefined,
     });
 
     try {

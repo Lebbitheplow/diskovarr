@@ -26,8 +26,12 @@ class GotifyAgent extends BaseAgent {
   buildPayload(type, payload) {
     const settings = this.getSettings();
     const title = payload.title || '';
-    const message = payload.body || '';
+    let message = payload.body || '';
     const priority = settings.priority ?? 0;
+
+    if (payload.url) {
+      message += `\n\n[View in Diskovarr](${payload.url})`;
+    }
 
     return {
       title,

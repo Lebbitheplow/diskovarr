@@ -50,6 +50,10 @@ class NtfyAgent extends BaseAgent {
       ntfyPayload.attach = payload.posterUrl;
     }
 
+    if (payload.url) {
+      ntfyPayload.click = payload.url;
+    }
+
     return ntfyPayload;
   }
 

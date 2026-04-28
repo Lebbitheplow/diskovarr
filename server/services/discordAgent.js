@@ -23,9 +23,10 @@ const TYPE_COLORS = {
 
 // ── Webhook mode ───────────────────────────────────────────────────────────────
 
-async function sendWebhookEmbed({ webhookUrl, title, description, color, posterUrl, mentionRole, botUsername, botAvatarUrl }) {
+async function sendWebhookEmbed({ webhookUrl, title, description, color, url, posterUrl, mentionRole, botUsername, botAvatarUrl }) {
   if (!webhookUrl) return;
   const embed = { title, description, color: color || 0xe5a00d };
+  if (url) embed.url = url;
   if (posterUrl) embed.thumbnail = { url: posterUrl };
   const payload = { embeds: [embed] };
   if (mentionRole) payload.content = `<@&${mentionRole}>`;
@@ -111,7 +112,7 @@ function _resolveBotEnabled(config) {
   return config.enabled && config.mode === 'bot';
 }
 
-async function sendNotification({ type, title, body, posterUrl, userId }) {
+async function sendNotification({ type, title, body, posterUrl, userId, url }) {
   const config = getConfig();
   if (!config || !config.enabled) {
     logger.debug('Discord: agent disabled or no config, skipping');
@@ -131,6 +132,7 @@ async function sendNotification({ type, title, body, posterUrl, userId }) {
     description: body || '',
     color: TYPE_COLORS[type] || 0xe5a00d,
   };
+  if (url) embed.url = url;
   if (botEmbedPoster && posterUrl) embed.image = { url: posterUrl };
 
   // Resolve avatar URL: explicit URL > publicUrl-derived > none
@@ -142,11 +144,11 @@ async function sendNotification({ type, title, body, posterUrl, userId }) {
   // Webhook path — independent of bot
   if (webhookEnabled && config.webhookUrl && webhookTypes.includes(type)) {
     try {
+      const webhookEmbed = { title, description: body || '', color: TYPE_COLORS[type] || 0xe5a00d };
+      if (url) webhookEmbed.url = url;
       await sendWebhookEmbed({
         webhookUrl: config.webhookUrl,
-        title,
-        description: body || '',
-        color: TYPE_COLORS[type] || 0xe5a00d,
+        ...webhookEmbed,
         posterUrl: webhookEmbedPoster ? posterUrl : null,
         mentionRole: config.enableMentions ? config.notificationRoleId : null,
         botUsername: config.botUsername,
@@ -160,7 +162,9 @@ async function sendNotification({ type, title, body, posterUrl, userId }) {
       const prefs = db.getUserNotificationPrefs(userId);
       if (prefs?.discord_enabled && prefs?.discord_webhook && prefs.discord_webhook !== config.webhookUrl) {
         try {
-          await sendWebhookEmbed({ webhookUrl: prefs.discord_webhook, title, description: body || '', color: TYPE_COLORS[type] || 0xe5a00d, posterUrl: webhookEmbedPoster ? posterUrl : null, botAvatarUrl: avatarUrl });
+          const userEmbed = { title, description: body || '', color: TYPE_COLORS[type] || 0xe5a00d };
+          if (url) userEmbed.url = url;
+          await sendWebhookEmbed({ webhookUrl: prefs.discord_webhook, ...userEmbed, posterUrl: webhookEmbedPoster ? posterUrl : null, botAvatarUrl: avatarUrl });
         } catch (err) {
           logger.warn('Discord per-user webhook error:', err.message);
         }
@@ -255,7 +259,7 @@ function shouldSendType(diskovarrType) {
 
 // Manager interface: send(type, payload)
 async function sendForManager(type, payload) {
-  return sendNotification({ type, title: payload.title, body: payload.body, posterUrl: payload.posterUrl, userId: payload.userId });
+  return sendNotification({ type, title: payload.title, body: payload.body, posterUrl: payload.posterUrl, userId: payload.userId, url: payload.url });
 }
 
 module.exports = {

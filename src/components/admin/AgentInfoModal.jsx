@@ -11,6 +11,7 @@ function AgentInfoModal({ agent, onClose }) {
           inset: 0,
           zIndex: 1100,
           background: 'rgba(0,0,0,0.75)',
+          display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
         }}
@@ -108,6 +109,7 @@ function AgentInfoModal({ agent, onClose }) {
           inset: 0,
           zIndex: 1100,
           background: 'rgba(0,0,0,0.75)',
+          display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
         }}
@@ -166,6 +168,7 @@ function AgentInfoModal({ agent, onClose }) {
           inset: 0,
           zIndex: 1100,
           background: 'rgba(0,0,0,0.75)',
+          display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
         }}
@@ -226,6 +229,7 @@ function AgentInfoModal({ agent, onClose }) {
           inset: 0,
           zIndex: 1100,
           background: 'rgba(0,0,0,0.75)',
+          display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
         }}
@@ -287,7 +291,7 @@ function AgentInfoModal({ agent, onClose }) {
       </div>
     ),
     webhook: (
-      <div style={{ position: 'fixed', inset: 0, zIndex: 1100, background: 'rgba(0,0,0,0.75)', alignItems: 'center', justifyContent: 'center' }} onClick={onClose}>
+      <div style={{ position: 'fixed', inset: 0, zIndex: 1100, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={onClose}>
         <div style={{ background: 'var(--bg-secondary)', borderRadius: 14, padding: 28, width: 'min(500px, 92vw)', border: '1px solid var(--border)', position: 'relative', maxHeight: '88vh', overflowY: 'auto' }} onClick={(e) => e.stopPropagation()}>
           <button onClick={onClose} style={{ position: 'absolute', top: 14, right: 16, background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 20, cursor: 'pointer' }}>&times;</button>
           <h3 style={{ margin: '0 0 16px', fontSize: '1.05rem' }}>Webhook Notifications</h3>
@@ -308,7 +312,7 @@ function AgentInfoModal({ agent, onClose }) {
       </div>
     ),
     slack: (
-      <div style={{ position: 'fixed', inset: 0, zIndex: 1100, background: 'rgba(0,0,0,0.75)', alignItems: 'center', justifyContent: 'center' }} onClick={onClose}>
+      <div style={{ position: 'fixed', inset: 0, zIndex: 1100, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={onClose}>
         <div style={{ background: 'var(--bg-secondary)', borderRadius: 14, padding: 28, width: 'min(500px, 92vw)', border: '1px solid var(--border)', position: 'relative', maxHeight: '88vh', overflowY: 'auto' }} onClick={(e) => e.stopPropagation()}>
           <button onClick={onClose} style={{ position: 'absolute', top: 14, right: 16, background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 20, cursor: 'pointer' }}>&times;</button>
           <h3 style={{ margin: '0 0 16px', fontSize: '1.05rem' }}>Slack Notifications</h3>
@@ -325,7 +329,7 @@ function AgentInfoModal({ agent, onClose }) {
       </div>
     ),
     gotify: (
-      <div style={{ position: 'fixed', inset: 0, zIndex: 1100, background: 'rgba(0,0,0,0.75)', alignItems: 'center', justifyContent: 'center' }} onClick={onClose}>
+      <div style={{ position: 'fixed', inset: 0, zIndex: 1100, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={onClose}>
         <div style={{ background: 'var(--bg-secondary)', borderRadius: 14, padding: 28, width: 'min(500px, 92vw)', border: '1px solid var(--border)', position: 'relative', maxHeight: '88vh', overflowY: 'auto' }} onClick={(e) => e.stopPropagation()}>
           <button onClick={onClose} style={{ position: 'absolute', top: 14, right: 16, background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 20, cursor: 'pointer' }}>&times;</button>
           <h3 style={{ margin: '0 0 16px', fontSize: '1.05rem' }}>Gotify Notifications</h3>
@@ -341,7 +345,7 @@ function AgentInfoModal({ agent, onClose }) {
       </div>
     ),
     ntfy: (
-      <div style={{ position: 'fixed', inset: 0, zIndex: 1100, background: 'rgba(0,0,0,0.75)', alignItems: 'center', justifyContent: 'center' }} onClick={onClose}>
+      <div style={{ position: 'fixed', inset: 0, zIndex: 1100, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={onClose}>
         <div style={{ background: 'var(--bg-secondary)', borderRadius: 14, padding: 28, width: 'min(500px, 92vw)', border: '1px solid var(--border)', position: 'relative', maxHeight: '88vh', overflowY: 'auto' }} onClick={(e) => e.stopPropagation()}>
           <button onClick={onClose} style={{ position: 'absolute', top: 14, right: 16, background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 20, cursor: 'pointer' }}>&times;</button>
           <h3 style={{ margin: '0 0 16px', fontSize: '1.05rem' }}>ntfy Notifications</h3>
@@ -360,7 +364,7 @@ function AgentInfoModal({ agent, onClose }) {
       </div>
     ),
     telegram: (
-      <div style={{ position: 'fixed', inset: 0, zIndex: 1100, background: 'rgba(0,0,0,0.75)', alignItems: 'center', justifyContent: 'center' }} onClick={onClose}>
+      <div style={{ position: 'fixed', inset: 0, zIndex: 1100, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={onClose}>
         <div style={{ background: 'var(--bg-secondary)', borderRadius: 14, padding: 28, width: 'min(500px, 92vw)', border: '1px solid var(--border)', position: 'relative', maxHeight: '88vh', overflowY: 'auto' }} onClick={(e) => e.stopPropagation()}>
           <button onClick={onClose} style={{ position: 'absolute', top: 14, right: 16, background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 20, cursor: 'pointer' }}>&times;</button>
           <h3 style={{ margin: '0 0 16px', fontSize: '1.05rem' }}>Telegram Notifications</h3>
@@ -377,7 +381,7 @@ function AgentInfoModal({ agent, onClose }) {
       </div>
     ),
     pushbullet: (
-      <div style={{ position: 'fixed', inset: 0, zIndex: 1100, background: 'rgba(0,0,0,0.75)', alignItems: 'center', justifyContent: 'center' }} onClick={onClose}>
+      <div style={{ position: 'fixed', inset: 0, zIndex: 1100, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={onClose}>
         <div style={{ background: 'var(--bg-secondary)', borderRadius: 14, padding: 28, width: 'min(500px, 92vw)', border: '1px solid var(--border)', position: 'relative', maxHeight: '88vh', overflowY: 'auto' }} onClick={(e) => e.stopPropagation()}>
           <button onClick={onClose} style={{ position: 'absolute', top: 14, right: 16, background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 20, cursor: 'pointer' }}>&times;</button>
           <h3 style={{ margin: '0 0 16px', fontSize: '1.05rem' }}>Pushbullet Notifications</h3>
@@ -394,7 +398,7 @@ function AgentInfoModal({ agent, onClose }) {
       </div>
     ),
     email: (
-      <div style={{ position: 'fixed', inset: 0, zIndex: 1100, background: 'rgba(0,0,0,0.75)', alignItems: 'center', justifyContent: 'center' }} onClick={onClose}>
+      <div style={{ position: 'fixed', inset: 0, zIndex: 1100, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={onClose}>
         <div style={{ background: 'var(--bg-secondary)', borderRadius: 14, padding: 28, width: 'min(500px, 92vw)', border: '1px solid var(--border)', position: 'relative', maxHeight: '88vh', overflowY: 'auto' }} onClick={(e) => e.stopPropagation()}>
           <button onClick={onClose} style={{ position: 'absolute', top: 14, right: 16, background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 20, cursor: 'pointer' }}>&times;</button>
           <h3 style={{ margin: '0 0 16px', fontSize: '1.05rem' }}>Email (SMTP) Notifications</h3>
@@ -409,7 +413,7 @@ function AgentInfoModal({ agent, onClose }) {
       </div>
     ),
     webpush: (
-      <div style={{ position: 'fixed', inset: 0, zIndex: 1100, background: 'rgba(0,0,0,0.75)', alignItems: 'center', justifyContent: 'center' }} onClick={onClose}>
+      <div style={{ position: 'fixed', inset: 0, zIndex: 1100, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={onClose}>
         <div style={{ background: 'var(--bg-secondary)', borderRadius: 14, padding: 28, width: 'min(500px, 92vw)', border: '1px solid var(--border)', position: 'relative', maxHeight: '88vh', overflowY: 'auto' }} onClick={(e) => e.stopPropagation()}>
           <button onClick={onClose} style={{ position: 'absolute', top: 14, right: 16, background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 20, cursor: 'pointer' }}>&times;</button>
           <h3 style={{ margin: '0 0 16px', fontSize: '1.05rem' }}>WebPush Notifications</h3>

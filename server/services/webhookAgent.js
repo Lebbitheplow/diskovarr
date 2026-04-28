@@ -12,6 +12,7 @@ const KEY_MAP = {
   subject: (p) => (p.title || ''),
   message: (p) => (p.body || ''),
   image: (p) => (p.posterUrl || ''),
+  url: (p) => (p.url || ''),
   timestamp: () => new Date().toISOString(),
 };
 
