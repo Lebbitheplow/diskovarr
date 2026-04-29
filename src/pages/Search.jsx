@@ -320,7 +320,7 @@ export default function Search() {
                 <button type="button" className="search-page-clear" onClick={() => { setInputValue(''); setSuggestions([]); setShowSuggestions(false) }} aria-label="Clear">✕</button>
               )}
               {suggestions.length > 0 && showSuggestions && (
-                <div className="search-page-dropdown">
+                <div className="search-page-dropdown open">
                   {suggestions.slice(0, 6).map((item, idx) => (
                     <div
                       key={item.tmdbId || idx}

@@ -16,7 +16,6 @@ const Login = lazy(() => import('./pages/Login'))
 const Callback = lazy(() => import('./pages/Callback'))
 const Admin = lazy(() => import('./pages/Admin'))
 const AdminLogin = lazy(() => import('./pages/AdminLogin'))
-const RivenBrowser = lazy(() => import('./pages/RivenBrowser'))
 
 function LoadingScreen() {
   return (
@@ -101,7 +100,6 @@ export default function App() {
             </ProtectedRoute>
           } />
           <Route path="/admin/login" element={<AdminLogin />} />
-          <Route path="/admin/riven" element={<RivenBrowser />} />
           <Route path="/admin/*" element={<Admin />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

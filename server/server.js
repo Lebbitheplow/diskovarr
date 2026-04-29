@@ -94,7 +94,7 @@ app.use('/auth', require('./routes/auth'))
 app.use('/api/v1', require('./routes/overseerrShim'))
 app.use('/api', require('./routes/api'))
 app.use('/admin', require('./routes/admin'))
-app.use('/admin/riven', require('./routes/admin'), require('./routes/riven'))
+app.use('/admin/riven', require('./routes/riven'))
 
 // Dynamic theme/icon routes (need Express)
 const db = require('./db/database')

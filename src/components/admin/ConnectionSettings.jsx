@@ -902,7 +902,7 @@ function RivenSection({ rivenEnabled, rivenUrl, rivenApiKey, rivenRdkey, dumbReq
               DUMB / Riven
               <button type="button" className="agent-info-btn" title="API key info">&#9432;</button>
             </span>
-            <span className="conn-block-desc">All-in-one debrid media stack — routes approved requests through DUMB&apos;s Riven component and enables the torrent browser</span>
+            <span className="conn-block-desc">All-in-one debrid media stack — routes approved requests through DUMB&apos;s Riven component</span>
           </div>
           <div className="conn-toggle-wrap">
             <span className="conn-toggle-label">{enabled ? 'Enabled' : 'Disabled'}</span>
@@ -948,12 +948,6 @@ function RivenSection({ rivenEnabled, rivenUrl, rivenApiKey, rivenRdkey, dumbReq
           <button className="btn-admin btn-primary conn-action-btn" onClick={handleSave} disabled={saveLoading}>
             {saveLoading ? 'Saving...' : 'Save'}
           </button>
-          {enabled && (
-            <button className="btn-admin btn-primary conn-action-btn" style={{ background: 'var(--accent)', color: '#000' }}
-              onClick={() => window.location.href = '/admin/riven/browse'}>
-              Browse Torrents &rarr;
-            </button>
-          )}
         </div>
 
         {/* DUMB Integration subsection */}
