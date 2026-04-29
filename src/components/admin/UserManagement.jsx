@@ -670,12 +670,15 @@ export default function UserManagement({ onDataLoaded, onToast, connections, onO
       </div>
 
       {/* Individual Requests */}
-      <div style={{ marginTop: 24, paddingTop: 20, borderTop: '1px solid var(--border)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+      <div className="admin-section">
+        <div className="admin-section-header">
+          <div>
+            <h2 className="section-title">Individual Requests</h2>
+            <p className="section-desc" style={{ margin: 0 }}>
+              When enabled, TV show requests present a season selector instead of requesting all seasons at once.
+            </p>
+          </div>
           <div className="conn-toggle-row" style={{ margin: 0 }}>
-            <span className="conn-toggle-sublabel" style={{ color: '#fff', fontSize: '0.9rem', fontWeight: 500 }}>
-              Individual Requests
-            </span>
             <label className="slide-toggle">
               <input
                 type="checkbox"
@@ -686,9 +689,6 @@ export default function UserManagement({ onDataLoaded, onToast, connections, onO
               <span className="slide-track" />
             </label>
           </div>
-          <p className="section-desc" style={{ margin: 0, fontSize: '0.82rem' }}>
-            When enabled, TV show requests present a season selector instead of requesting all seasons at once.
-          </p>
         </div>
       </div>
 
@@ -715,7 +715,10 @@ export default function UserManagement({ onDataLoaded, onToast, connections, onO
 
         <div className="user-table-wrap">
           <div className="user-table">
-            <div className="user-table-header">
+            <div
+              className="user-table-header"
+              style={{ gridTemplateColumns: discoverEnabled ? '36px minmax(140px,1fr) 110px 80px 120px 120px' : '36px minmax(140px,1fr) 110px 80px 120px' }}
+            >
               <span>
                 <label className="slide-toggle" style={{ width: 32, height: 20, cursor: 'pointer' }}>
                   <input
@@ -750,8 +753,8 @@ export default function UserManagement({ onDataLoaded, onToast, connections, onO
                     className="user-table-row"
                     key={user.user_id}
                     style={{
+                      gridTemplateColumns: discoverEnabled ? '36px minmax(140px,1fr) 110px 80px 120px 120px' : '36px minmax(140px,1fr) 110px 80px 120px',
                       background: isSelected ? 'var(--accent-dim)' : undefined,
-                      opacity: isSelected ? 1 : 1,
                     }}
                   >
                     <span>
@@ -767,7 +770,7 @@ export default function UserManagement({ onDataLoaded, onToast, connections, onO
                       </label>
                     </span>
                     <span className="user-id">
-                      <Avatar url={user.avatar} username={user.username} />
+                      <Avatar url={user.thumb} username={user.username} />
                       <div>
                         <span>{user.username}</span>
                         {user.user_id && (
@@ -776,23 +779,25 @@ export default function UserManagement({ onDataLoaded, onToast, connections, onO
                       </div>
                     </span>
                     <span className="watched-count-cell">
-                      {user.watched_items ?? user.watchedCount ?? 0}
+                      {(user.watched_count ?? 0).toLocaleString()} items
                     </span>
                     <span>
-                      {user.requests ?? user.requestCount ?? 0}
+                      {user.request_count > 0 ? user.request_count.toLocaleString() : '—'}
                     </span>
                     <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>
-                      {formatRelativeTime(user.last_visit || user.lastVisit || user.last_seen || user.lastSeen)}
+                      {formatRelativeTime(user.last_login)}
                     </span>
-                    <span className="user-actions">
-                      <button
-                        className="btn-admin btn-sm"
-                        onClick={() => onOpenUserSettings?.(user.user_id, user.username)}
-                        title={`Edit settings for ${user.username}`}
-                      >
-                        Settings
-                      </button>
-                    </span>
+                    {discoverEnabled && (
+                      <span className="user-actions">
+                        <button
+                          className="btn-admin btn-sm"
+                          onClick={() => onOpenUserSettings?.(user.user_id, user.username)}
+                          title={`Edit settings for ${user.username}`}
+                        >
+                          Settings
+                        </button>
+                      </span>
+                    )}
                   </div>
                 )
               })

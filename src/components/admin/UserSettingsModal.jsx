@@ -3,7 +3,7 @@ import { adminUserSettings } from '../../services/adminApi'
 import adminApi from '../../services/adminApi'
 
 const REGIONS = [
-  { value: '', label: 'Default' },
+  { value: '', label: 'All Regions' },
   { value: 'US', label: 'United States' },
   { value: 'GB', label: 'United Kingdom' },
   { value: 'CA', label: 'Canada' },
@@ -14,22 +14,32 @@ const REGIONS = [
   { value: 'IT', label: 'Italy' },
   { value: 'JP', label: 'Japan' },
   { value: 'KR', label: 'South Korea' },
+  { value: 'IN', label: 'India' },
   { value: 'BR', label: 'Brazil' },
   { value: 'MX', label: 'Mexico' },
-  { value: 'IN', label: 'India' },
+  { value: 'NL', label: 'Netherlands' },
+  { value: 'SE', label: 'Sweden' },
+  { value: 'NO', label: 'Norway' },
+  { value: 'DK', label: 'Denmark' },
+  { value: 'FI', label: 'Finland' },
+  { value: 'PL', label: 'Poland' },
 ]
 
 const LANGUAGES = [
-  { value: '', label: 'Default' },
+  { value: '', label: 'All Languages' },
   { value: 'en', label: 'English' },
   { value: 'es', label: 'Spanish' },
   { value: 'fr', label: 'French' },
   { value: 'de', label: 'German' },
   { value: 'it', label: 'Italian' },
-  { value: 'pt', label: 'Portuguese' },
   { value: 'ja', label: 'Japanese' },
   { value: 'ko', label: 'Korean' },
   { value: 'zh', label: 'Chinese' },
+  { value: 'pt', label: 'Portuguese' },
+  { value: 'ru', label: 'Russian' },
+  { value: 'nl', label: 'Dutch' },
+  { value: 'pl', label: 'Polish' },
+  { value: 'sv', label: 'Swedish' },
 ]
 
 const LANDING_PAGES = [
@@ -39,16 +49,19 @@ const LANDING_PAGES = [
   { value: 'requests', label: 'Requests' },
 ]
 
-const NOTIF_TYPES = [
-  { key: 'notify_approved',      label: 'Request approved' },
-  { key: 'notify_denied',        label: 'Request denied' },
-  { key: 'notify_available',     label: 'Request available in library' },
-  { key: 'notify_pending',       label: 'New request pending (admin)' },
-  { key: 'notify_auto_approved', label: 'Request auto-approved' },
-  { key: 'notify_process_failed',label: 'Request processing error' },
-  { key: 'notify_issue_new',     label: 'New issue reported' },
-  { key: 'notify_issue_update',  label: 'Issue status updated' },
-  { key: 'notify_issue_comment', label: 'Issue comment added' },
+const NOTIF_TYPES_BASE = [
+  { key: 'notify_approved',      label: 'Request Approved' },
+  { key: 'notify_denied',        label: 'Request Declined' },
+  { key: 'notify_available',     label: 'Request Available' },
+  { key: 'notify_issue_update',  label: 'Issue Status Updated' },
+  { key: 'notify_issue_comment', label: 'Issue Comment' },
+]
+
+const NOTIF_TYPES_ADMIN = [
+  { key: 'notify_pending',       label: 'New Request Pending' },
+  { key: 'notify_auto_approved', label: 'Request Auto-Approved' },
+  { key: 'notify_process_failed',label: 'Processing Failed' },
+  { key: 'notify_issue_new',     label: 'New Issue Reported' },
 ]
 
 function Toggle({ checked, onChange, label, disabled }) {
@@ -66,6 +79,7 @@ function Toggle({ checked, onChange, label, disabled }) {
 export default function UserSettingsModal({ userId, username, onClose, onToast, enabledProviders }) {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [ownerUserId, setOwnerUserId] = useState(null)
 
   // Request limit overrides
   const [overrideGlobal, setOverrideGlobal] = useState(false)
@@ -132,7 +146,11 @@ export default function UserSettingsModal({ userId, username, onClose, onToast, 
 
   const loadSettings = useCallback(async () => {
     try {
-      const { data } = await adminUserSettings.get(userId)
+      const [{ data }, statusRes] = await Promise.all([
+        adminUserSettings.get(userId),
+        adminApi.get('/status').catch(() => ({ data: {} })),
+      ])
+      setOwnerUserId(statusRes.data?.ownerUserId || null)
       setOverrideGlobal(!!data.overrideGlobal)
       setMovieUnlimited(data.movieLimit === 0)
       setMovieCount(data.movieLimit > 0 ? data.movieLimit : 1)
@@ -389,7 +407,17 @@ export default function UserSettingsModal({ userId, username, onClose, onToast, 
 
         {/* ── Admin Privileges ── */}
         <div style={{ marginBottom: 16, paddingBottom: 16, borderBottom: '1px solid var(--border)' }}>
-          <Toggle checked={isAdmin} onChange={(e) => setIsAdmin(e.target.checked)} label="Elevated privileges (queue access)" />
+          <Toggle
+            checked={isAdmin}
+            onChange={(e) => setIsAdmin(e.target.checked)}
+            label="Elevated privileges — can view and manage the request queue"
+            disabled={ownerUserId && String(userId) === String(ownerUserId)}
+          />
+          {ownerUserId && String(userId) === String(ownerUserId) && (
+            <p style={{ margin: '6px 0 0 40px', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+              Locked: designated server owner
+            </p>
+          )}
         </div>
 
         {/* ── Personalization ── */}
@@ -534,9 +562,20 @@ export default function UserSettingsModal({ userId, username, onClose, onToast, 
 
         {/* ── Notification Types ── */}
         <div style={{ marginBottom: 20, paddingBottom: 16, borderBottom: '1px solid var(--border)' }}>
-          <div style={sectionLabel}>Notification Types</div>
+          <div style={sectionLabel}>Notification Settings</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {NOTIF_TYPES.map(({ key, label }) => (
+            {NOTIF_TYPES_BASE.map(({ key, label }) => (
+              <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  className="themed-checkbox"
+                  checked={notifTypes[key]}
+                  onChange={(e) => setNotifTypes(prev => ({ ...prev, [key]: e.target.checked }))}
+                />
+                {label}
+              </label>
+            ))}
+            {isAdmin && NOTIF_TYPES_ADMIN.map(({ key, label }) => (
               <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem', cursor: 'pointer' }}>
                 <input
                   type="checkbox"

@@ -198,7 +198,7 @@
 
 .user-table-header {
   display: grid;
-  grid-template-columns: minmax(140px, 1fr) 110px 120px 320px;
+  grid-template-columns: 36px minmax(140px,1fr) 110px 80px 120px;
   gap: 16px;
   padding: 10px 16px;
   background: var(--bg-elevated);
@@ -211,7 +211,7 @@
 
 .user-table-row {
   display: grid;
-  grid-template-columns: minmax(140px, 1fr) 110px 120px 320px;
+  grid-template-columns: 36px minmax(140px,1fr) 110px 80px 120px;
   gap: 16px;
   padding: 12px 16px;
   border-top: 1px solid var(--border);
