@@ -679,6 +679,63 @@ async function buildTrendingSections(requestedIds, dismissedIds, libraryTmdbIds,
   return { trendingMovies, trendingTV };
 }
 
+/**
+ * Build upcoming sections (movies + TV) from TMDB's upcoming/discover endpoints.
+ * Returns items with future release dates (next 90 days) that are not in the
+ * library and not dismissed.  Fetches 3 pages per type.
+ */
+async function buildUpcomingSections(requestedIds, dismissedIds, libraryTmdbIds, libraryTitleYears, mature) {
+  function normTitle(t) {
+    return (t || '').toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim();
+  }
+  function isInLibrary(tmdbId, mediaType, title, year) {
+    if (libraryTmdbIds.has(String(tmdbId))) return true;
+    const norm = normTitle(title);
+    if (libraryTitleYears.has(norm + '|' + (year || ''))) return true;
+    if (year) {
+      if (libraryTitleYears.has(norm + '|' + (year - 1))) return true;
+      if (libraryTitleYears.has(norm + '|' + (year + 1))) return true;
+    }
+    return false;
+  }
+
+  // Fetch 3 pages per type (20 results per page from TMDB)
+  const upcomingOpts = { includeAdult: mature };
+  const [moviePages, tvPages] = await Promise.all([
+    Promise.all([1, 2, 3].map(p => tmdbService.getUpcoming('movie', p, upcomingOpts))),
+    Promise.all([1, 2, 3].map(p => tmdbService.getUpcoming('tv', p, upcomingOpts))),
+  ]);
+
+  async function enrichAndFilter(candidates, mediaType) {
+    const preFiltered = candidates
+      .filter(c => !isInLibrary(c.tmdbId, mediaType, c.title, c.year))
+      .filter(c => !dismissedIds.has(`${c.tmdbId}:${mediaType}`));
+
+    const details = await Promise.all(
+      preFiltered.map(c => tmdbService.getItemDetails(c.tmdbId, mediaType))
+    );
+
+    const today = new Date().toISOString().slice(0, 10);
+    return details
+      .filter(item => item && !isInLibrary(item.tmdbId, item.mediaType, item.title, item.year))
+      .filter(item => item.releaseDate && item.releaseDate >= today)
+      .filter(item => !item.isAnime)
+      .slice(0, 50)
+      .map(item => ({
+        ...item,
+        isRequested: requestedIds.has(`${item.tmdbId}:${item.mediaType}`),
+        reasons: [],
+      }));
+  }
+
+  const [upcomingMovies, upcomingTV] = await Promise.all([
+    enrichAndFilter(moviePages.flat(), 'movie'),
+    enrichAndFilter(tvPages.flat(), 'tv'),
+  ]);
+
+  return { upcomingMovies, upcomingTV };
+}
+
 async function getDiscoverRecommendations(userId, userToken, { mature, hideRequested = false } = {}) {
   // Use stored preference as authoritative source; runtime param can override for post-filter
   const prefs = db.getUserPreferences(userId);
@@ -734,11 +791,21 @@ async function getDiscoverRecommendations(userId, userToken, { mature, hideReque
   const libraryTmdbIds = db.getLibraryTmdbIds();
   const libraryTitleYears = db.getLibraryTitleYearSet();
 
-  const [trendingResult] = await Promise.all([
+  const [trendingResult, upcomingResult] = await Promise.all([
     buildTrendingSections(requestedIds, dismissedIds, libraryTmdbIds, libraryTitleYears, mature),
+    buildUpcomingSections(requestedIds, dismissedIds, libraryTmdbIds, libraryTitleYears, mature),
   ]);
 
   function markTrending(items) {
+    return items
+      .filter(item => !hideRequested || !requestedIds.has(`${item.tmdbId}:${item.mediaType}`))
+      .map(item => ({
+        ...item,
+        isMyRequest: userRequestedIds.has(`${item.tmdbId}:${item.mediaType}`),
+      }));
+  }
+
+  function markUpcoming(items) {
     return items
       .filter(item => !hideRequested || !requestedIds.has(`${item.tmdbId}:${item.mediaType}`))
       .map(item => ({
@@ -754,6 +821,8 @@ async function getDiscoverRecommendations(userId, userToken, { mature, hideReque
     anime: filterAndMark(tieredSample(pools.anime, 60)),
     trendingMovies: markTrending(trendingResult.trendingMovies),
     trendingTV: markTrending(trendingResult.trendingTV),
+    upcomingMovies: markUpcoming(upcomingResult.upcomingMovies),
+    upcomingTV: markUpcoming(upcomingResult.upcomingTV),
   };
 }
 

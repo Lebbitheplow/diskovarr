@@ -14,6 +14,7 @@ import SkeletonLoader from '../components/SkeletonLoader'
 import DetailModal from '../components/DetailModal'
 import Modal from '../components/Modal'
 import { useToast } from '../context/ToastContext'
+import { useAuth } from '../context/AuthContext'
 
 function posterUrl(path) {
   if (!path) return null
@@ -25,6 +26,8 @@ export default function Search() {
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
   const { error: toastError, success: toastSuccess } = useToast()
+  const { user } = useAuth()
+  const isAdmin = !!(user?.isAdmin)
 
   // URL is the source of truth for committed search state
   const urlQuery = searchParams.get('q') || ''
@@ -613,7 +616,7 @@ export default function Search() {
               const altOptions = []
               if (defaultSvc !== 'overseerr' && hasOverseerr) altOptions.push({ svc: 'overseerr', name: 'Overseerr' })
               if (defaultSvc !== 'riven' && hasRiven) altOptions.push({ svc: 'riven', name: 'Riven' })
-              if (defaultSvc !== directSvc && hasDirect) altOptions.push({ svc: directSvc, name: directName })
+              if (defaultSvc !== directSvc && hasDirect && (services.directRequestAccess !== '1' || isAdmin)) altOptions.push({ svc: directSvc, name: directName })
               return (
                 <>
                   {altOptions.length > 0 && (

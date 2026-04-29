@@ -15,6 +15,7 @@ import SkeletonLoader from '../components/SkeletonLoader'
 import ToggleSwitch from '../components/ToggleSwitch'
 import Modal from '../components/Modal'
 import { useToast } from '../context/ToastContext'
+import { useAuth } from '../context/AuthContext'
 
 const GENRE_META = {
   'Action':          { gradient: 'linear-gradient(145deg, #7f1d1d 0%, #c2410c 60%, #ea580c 100%)', emoji: '💥' },
@@ -46,6 +47,13 @@ function posterUrl(path) {
   return '/api/poster?path=' + encodeURIComponent(path)
 }
 
+function formatReleaseDate(dateStr) {
+  if (!dateStr) return null
+  const d = new Date(dateStr + 'T00:00:00')
+  if (isNaN(d)) return null
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
 function makeReasonTag(text) {
   const tag = document.createElement('span')
   tag.className = 'reason-tag'
@@ -70,6 +78,8 @@ function makeReasonTag(text) {
 
 export default function Explore() {
   const { error: toastError, success: toastSuccess } = useToast()
+  const { user } = useAuth()
+  const isAdmin = !!(user?.isAdmin)
 
   const [recommendations, setRecommendations] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -229,6 +239,8 @@ export default function Explore() {
           anime: updateItem(prev.anime || []),
           trendingMovies: updateItem(prev.trendingMovies || []),
           trendingTV: updateItem(prev.trendingTV || []),
+          upcomingMovies: updateItem(prev.upcomingMovies || []),
+          upcomingTV: updateItem(prev.upcomingTV || []),
         }
       })
       toastSuccess('You\'ll be notified when ' + item.title + ' is available')
@@ -251,6 +263,8 @@ export default function Explore() {
           anime: filterItems(prev.anime || []),
           trendingMovies: filterItems(prev.trendingMovies || []),
           trendingTV: filterItems(prev.trendingTV || []),
+          upcomingMovies: filterItems(prev.upcomingMovies || []),
+          upcomingTV: filterItems(prev.upcomingTV || []),
         }
       })
       toastSuccess('Not interested')
@@ -314,6 +328,8 @@ export default function Explore() {
           anime: updateItem(prev.anime || []),
           trendingMovies: updateItem(prev.trendingMovies || []),
           trendingTV: updateItem(prev.trendingTV || []),
+          upcomingMovies: updateItem(prev.upcomingMovies || []),
+          upcomingTV: updateItem(prev.upcomingTV || []),
         }
       })
     } catch (e) {
@@ -348,6 +364,8 @@ export default function Explore() {
       anime: filterItems(recommendations.anime || []),
       trendingMovies: filterItems(recommendations.trendingMovies || []),
       trendingTV: filterItems(recommendations.trendingTV || []),
+      upcomingMovies: filterItems(recommendations.upcomingMovies || []),
+      upcomingTV: filterItems(recommendations.upcomingTV || []),
     }
   }, [recommendations, matureEnabled])
 
@@ -754,6 +772,102 @@ export default function Explore() {
                 </Carousel>
               </section>
             )}
+
+            {filteredRecommendations()?.upcomingMovies && filteredRecommendations().upcomingMovies.length >= 8 && (
+              <section className="section" id="section-upcoming-movies">
+                <div className="section-header">
+                  <h2 className="section-title">Upcoming Movies</h2>
+                  <span className="section-badge badge-upcoming">Coming Soon</span>
+                </div>
+                <Carousel>
+                  {filteredItems(filteredRecommendations()?.upcomingMovies).map(item => (
+                    <div key={item.tmdbId + item.mediaType} className="card" data-tmdb-id={item.tmdbId} data-adult={item.adult ? 'true' : undefined} data-request-tmdb={item.tmdbId} onClick={() => handleOpenModal(item)}>
+                      <button className="card-poster-link" onClick={() => handleOpenModal(item)} type="button">
+                        {item.posterUrl && <img className="card-poster" src={posterUrl(item.posterUrl)} alt={item.title} loading="lazy" />}
+                        <div className="card-poster-placeholder">{item.title?.charAt(0) || '?'}</div>
+                        <span className={'badge-upcoming-card' + (item.badgeRequested ? ' badge-requested' : '')}>{item.badgeRequested ? 'Requested' : 'Coming Soon'}</span>
+                        <div className="card-overlay">
+                          <div className="card-overlay-actions">
+                            {item.ratingKey && (
+                              <button className={'btn-icon btn-watchlist' + (watchlistCache[item.ratingKey] ? ' in-watchlist' : '')} onClick={(e) => { e.stopPropagation(); handleToggleWatchlist(item) }}>
+                                {watchlistCache[item.ratingKey] ? '✓ In Watchlist' : '+ Watchlist'}
+                              </button>
+                            )}
+                            {!item.ratingKey && (
+                              <button
+                                className={'btn-icon btn-request' + (item.isMyRequest ? ' btn-request-sent' : '')}
+                                onClick={(e) => { e.stopPropagation(); !item.isMyRequest && (item.isRequested ? handleNotify(item) : openRequestDialog(item)) }}
+                                disabled={item.isMyRequest}
+                              >
+                                {item.isMyRequest ? 'Requested ✓' : (item.isRequested ? 'Notify Me' : 'Request')}
+                              </button>
+                            )}
+                            {!item.badgeRequested && (
+                              <button className="btn-icon btn-dismiss" onClick={(e) => { e.stopPropagation(); handleDismiss(item) }}>✕</button>
+                            )}
+                          </div>
+                        </div>
+                      </button>
+                      <div className="card-info">
+                        <div className="card-title">{item.title}</div>
+                        <div className="card-meta">
+                          {item.releaseDate && <span className="card-year">{formatReleaseDate(item.releaseDate)}</span>}
+                          {item.voteAverage && <span className="card-rating">★ {item.voteAverage.toFixed(1)}</span>}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </Carousel>
+              </section>
+            )}
+
+            {filteredRecommendations()?.upcomingTV && filteredRecommendations().upcomingTV.length >= 8 && (
+              <section className="section" id="section-upcoming-tv">
+                <div className="section-header">
+                  <h2 className="section-title">Upcoming TV Shows</h2>
+                  <span className="section-badge badge-upcoming">Coming Soon</span>
+                </div>
+                <Carousel>
+                  {filteredItems(filteredRecommendations()?.upcomingTV).map(item => (
+                    <div key={item.tmdbId + item.mediaType} className="card" data-tmdb-id={item.tmdbId} data-adult={item.adult ? 'true' : undefined} data-request-tmdb={item.tmdbId} onClick={() => handleOpenModal(item)}>
+                      <button className="card-poster-link" onClick={() => handleOpenModal(item)} type="button">
+                        {item.posterUrl && <img className="card-poster" src={posterUrl(item.posterUrl)} alt={item.title} loading="lazy" />}
+                        <div className="card-poster-placeholder">{item.title?.charAt(0) || '?'}</div>
+                        <span className={'badge-upcoming-card' + (item.badgeRequested ? ' badge-requested' : '')}>{item.badgeRequested ? 'Requested' : 'Coming Soon'}</span>
+                        <div className="card-overlay">
+                          <div className="card-overlay-actions">
+                            {item.ratingKey && (
+                              <button className={'btn-icon btn-watchlist' + (watchlistCache[item.ratingKey] ? ' in-watchlist' : '')} onClick={(e) => { e.stopPropagation(); handleToggleWatchlist(item) }}>
+                                {watchlistCache[item.ratingKey] ? '✓ In Watchlist' : '+ Watchlist'}
+                              </button>
+                            )}
+                            {!item.ratingKey && (
+                              <button
+                                className={'btn-icon btn-request' + (item.isMyRequest ? ' btn-request-sent' : '')}
+                                onClick={(e) => { e.stopPropagation(); !item.isMyRequest && (item.isRequested ? handleNotify(item) : openRequestDialog(item)) }}
+                                disabled={item.isMyRequest}
+                              >
+                                {item.isMyRequest ? 'Requested ✓' : (item.isRequested ? 'Notify Me' : 'Request')}
+                              </button>
+                            )}
+                            {!item.badgeRequested && (
+                              <button className="btn-icon btn-dismiss" onClick={(e) => { e.stopPropagation(); handleDismiss(item) }}>✕</button>
+                            )}
+                          </div>
+                        </div>
+                      </button>
+                      <div className="card-info">
+                        <div className="card-title">{item.title}</div>
+                        <div className="card-meta">
+                          {item.releaseDate && <span className="card-year">{formatReleaseDate(item.releaseDate)}</span>}
+                          {item.voteAverage && <span className="card-rating">★ {item.voteAverage.toFixed(1)}</span>}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </Carousel>
+              </section>
+            )}
           </>
         )}
         <section className="section" id="section-genre-browse">
@@ -851,7 +965,7 @@ export default function Explore() {
               const altOptions = []
               if (defaultSvc !== 'overseerr' && hasOverseerr) altOptions.push({ svc: 'overseerr', name: 'Overseerr' })
               if (defaultSvc !== 'riven' && hasRiven) altOptions.push({ svc: 'riven', name: 'Riven' })
-              if (defaultSvc !== directSvc && hasDirect) altOptions.push({ svc: directSvc, name: directName })
+              if (defaultSvc !== directSvc && hasDirect && (services.directRequestAccess !== '1' || isAdmin)) altOptions.push({ svc: directSvc, name: directName })
               return (
                 <>
                   {altOptions.length > 0 && (

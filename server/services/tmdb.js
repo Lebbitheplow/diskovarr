@@ -279,6 +279,32 @@ async function getTrending(mediaType, page = 1, opts = {}) {
   }
 }
 
+// Upcoming movies (next 90 days) or upcoming TV (next 90 days by air date)
+async function getUpcoming(mediaType, page = 1, opts = {}) {
+  try {
+    const adultParam = opts.includeAdult ? 'true' : 'false';
+    const today = new Date().toISOString().slice(0, 10);
+    const in90Days = new Date(Date.now() + 90 * 86400000).toISOString().slice(0, 10);
+
+    let json;
+    if (mediaType === 'movie') {
+      json = await tmdbFetch(`/discover/movie?page=${page}&include_adult=${adultParam}&primary_release_date.gte=${today}&primary_release_date.lte=${in90Days}&sort_by=popularity.desc`);
+    } else {
+      json = await tmdbFetch(`/discover/tv?page=${page}&include_adult=${adultParam}&first_air_date.gte=${today}&first_air_date.lte=${in90Days}&sort_by=popularity.desc`);
+    }
+    if (!json) return [];
+    return (json.results || []).map(r => ({
+      tmdbId: r.id,
+      mediaType,
+      title: r.title || r.name,
+      releaseDate: r.release_date || r.first_air_date || r.primary_release_date || null,
+      year: parseInt((r.release_date || r.first_air_date || r.primary_release_date || '').slice(0, 4)) || 0,
+    }));
+  } catch {
+    return [];
+  }
+}
+
 // Batch fetch details for a list of { tmdbId, mediaType } candidates
 // Respects rate limits with small delays between uncached requests
 async function batchGetDetails(candidates) {
@@ -336,7 +362,7 @@ async function discoverByGenreName(genreName, mediaType, page = 1, opts = {}) {
 
 module.exports = {
   getItemDetails, getRecommendations, getSimilar, getPersonCandidates,
-  discoverByGenreIds, discoverByKeywordId, discoverAnime, getTrending,
+  discoverByGenreIds, discoverByKeywordId, discoverAnime, getTrending, getUpcoming,
   discoverByGenreName, batchGetDetails, testApiKey, posterUrl,
   tmdbFetchPublic: tmdbFetch,
   MOVIE_GENRE_MAP, TV_GENRE_MAP,

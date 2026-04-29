@@ -305,15 +305,46 @@ const CONNECTION_KEYS = [
   'overseerr_url', 'overseerr_api_key', 'overseerr_enabled',
   'radarr_url', 'radarr_api_key', 'radarr_enabled', 'radarr_quality_profile_id', 'radarr_quality_profile_name',
   'sonarr_url', 'sonarr_api_key', 'sonarr_enabled', 'sonarr_quality_profile_id', 'sonarr_quality_profile_name',
+  'riven_url', 'riven_api_key', 'riven_rdkey', 'riven_enabled', 'dumb_request_mode',
   'default_request_service',
   'individual_seasons_enabled',
   'direct_request_access',
   'app_public_url',
 ];
 
+router.get('/connections/settings', requireAdmin, (req, res) => {
+  const overseerrUrl = db.getSetting('overseerr_url', '');
+  const overseerrKey = db.getSetting('overseerr_api_key', '');
+  const radarrUrl    = db.getSetting('radarr_url', '');
+  const radarrKey    = db.getSetting('radarr_api_key', '');
+  const sonarrUrl    = db.getSetting('sonarr_url', '');
+  const sonarrKey    = db.getSetting('sonarr_api_key', '');
+  const rivenUrl     = db.getSetting('riven_url', '');
+  res.json({
+    plex_url:                    db.getSetting('plex_url', ''),
+    tautulli_url:                db.getSetting('tautulli_url', ''),
+    discover_enabled:            db.getSetting('discover_enabled', '1') === '1',
+    overseerr_url:               overseerrUrl,
+    overseerr_enabled:           !!(overseerrUrl && overseerrKey) && db.getSetting('overseerr_enabled', '0') === '1',
+    radarr_url:                  radarrUrl,
+    radarr_enabled:              !!(radarrUrl && radarrKey) && db.getSetting('radarr_enabled', '0') === '1',
+    radarr_quality_profile_id:   db.getSetting('radarr_quality_profile_id', ''),
+    radarr_quality_profile_name: db.getSetting('radarr_quality_profile_name', ''),
+    sonarr_url:                  sonarrUrl,
+    sonarr_enabled:              !!(sonarrUrl && sonarrKey) && db.getSetting('sonarr_enabled', '0') === '1',
+    sonarr_quality_profile_id:   db.getSetting('sonarr_quality_profile_id', ''),
+    sonarr_quality_profile_name: db.getSetting('sonarr_quality_profile_name', ''),
+    riven_url:                   rivenUrl,
+    riven_enabled:               !!rivenUrl && db.getSetting('riven_enabled', '0') === '1',
+    dumb_request_mode:           db.getSetting('dumb_request_mode', 'pull'),
+    default_request_service:     db.getSetting('default_request_service', 'overseerr'),
+    direct_request_access:       db.getSetting('direct_request_access', '0'),
+  });
+});
+
 router.post('/connections/save', requireAdmin, (req, res) => {
   const body = req.body;
-  const BOOL_KEYS = new Set(['discover_enabled','overseerr_enabled','radarr_enabled','sonarr_enabled','individual_seasons_enabled','direct_request_access']);
+  const BOOL_KEYS = new Set(['discover_enabled','overseerr_enabled','radarr_enabled','sonarr_enabled','riven_enabled','individual_seasons_enabled','direct_request_access']);
   for (const key of CONNECTION_KEYS) {
     if (key in body) {
       // Checkboxes send '1' when checked, absent when unchecked — only default to '0' for boolean keys
@@ -377,10 +408,11 @@ router.post('/connections/test/overseerr', requireAdmin, async (req, res) => {
 
 router.post('/connections/test/radarr', requireAdmin, async (req, res) => {
   const { url, apiKey } = req.body;
-  if (!url || !apiKey) return res.json({ ok: false, message: 'URL and API key required' });
+  const effectiveKey = apiKey || db.getSetting('radarr_api_key', '');
+  if (!url || !effectiveKey) return res.json({ ok: false, message: 'URL and API key required' });
   try {
     const r = await fetch(`${url.replace(/\/$/, '')}/api/v3/system/status`, {
-      headers: { 'X-Api-Key': apiKey, 'Accept': 'application/json' },
+      headers: { 'X-Api-Key': effectiveKey, 'Accept': 'application/json' },
       signal: AbortSignal.timeout(8000),
     });
     if (!r.ok) return res.json({ ok: false, message: `Radarr returned ${r.status}` });
@@ -393,10 +425,11 @@ router.post('/connections/test/radarr', requireAdmin, async (req, res) => {
 
 router.post('/connections/test/sonarr', requireAdmin, async (req, res) => {
   const { url, apiKey } = req.body;
-  if (!url || !apiKey) return res.json({ ok: false, message: 'URL and API key required' });
+  const effectiveKey = apiKey || db.getSetting('sonarr_api_key', '');
+  if (!url || !effectiveKey) return res.json({ ok: false, message: 'URL and API key required' });
   try {
     const r = await fetch(`${url.replace(/\/$/, '')}/api/v3/system/status`, {
-      headers: { 'X-Api-Key': apiKey, 'Accept': 'application/json' },
+      headers: { 'X-Api-Key': effectiveKey, 'Accept': 'application/json' },
       signal: AbortSignal.timeout(8000),
     });
     if (!r.ok) return res.json({ ok: false, message: `Sonarr returned ${r.status}` });
@@ -410,8 +443,8 @@ router.post('/connections/test/sonarr', requireAdmin, async (req, res) => {
 router.get('/connections/quality-profiles/:service', requireAdmin, async (req, res) => {
   const { service } = req.params;
   if (!['radarr', 'sonarr'].includes(service)) return res.status(400).json({ ok: false, message: 'Invalid service' });
-  const url = db.getSetting(`${service}_url`, '');
-  const apiKey = db.getSetting(`${service}_api_key`, '');
+  const url = req.query.url || db.getSetting(`${service}_url`, '');
+  const apiKey = req.query.apiKey || db.getSetting(`${service}_api_key`, '');
   if (!url || !apiKey) return res.json({ ok: false, message: 'Service not configured — save URL and API key first' });
   try {
     const r = await fetch(`${url.replace(/\/$/, '')}/api/v3/qualityprofile`, {

@@ -90,9 +90,10 @@ export const adminUserSettings = {
 /** Connections */
 export const adminConnections = {
   save: (data) => adminApi.post('/connections/save', data),
+  settings: () => adminApi.get('/connections/settings'),
   reveal: () => adminApi.get('/connections/reveal'),
   test: (serviceName, data) => adminApi.post(`/connections/test/${serviceName}`, data),
-  getQualityProfiles: (service) => adminApi.get(`/connections/quality-profiles/${service}`),
+  getQualityProfiles: (service, params = {}) => adminApi.get(`/connections/quality-profiles/${service}`, { params }),
   setDefaultService: (service) => adminApi.post('/connections/save', { default_request_service: service }),
   setDirectRequestAccess: (adminOnly) => adminApi.post('/connections/save', { direct_request_access: adminOnly ? '1' : '0' }),
 }
@@ -155,6 +156,7 @@ export const adminCompat = {
 /** DUMB/Riven */
 export const adminRiven = {
   save: (data) => adminApi.post('/connections/save', data),
+  getConfig: () => adminApi.get('/riven/config'),
   test: (data) => adminApi.post('/riven/config/test', data),
   setMode: (mode) => adminApi.post('/connections/save', { dumb_request_mode: mode }),
 }

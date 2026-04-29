@@ -15,7 +15,7 @@ function maskKey(key) {
 
 function buildUrl(host, port) {
   if (!host) return ''
-  if (port && port !== '0') return host + (host.endsWith('/') ? '' : '/') + port
+  if (port && port !== '0') return host.replace(/\/$/, '') + ':' + port
   return host
 }
 
@@ -26,7 +26,13 @@ function parseHost(url) {
 
 function parsePort(url) {
   if (!url) return ''
-  try { const u = new URL(url); return u.port || '' } catch { return '' }
+  try {
+    const u = new URL(url)
+    if (u.port) return u.port
+    // Handle legacy /port path format stored by old buildUrl bug (e.g., http://host/7878)
+    const m = u.pathname.match(/^\/(\d+)\/?$/)
+    return m ? m[1] : ''
+  } catch { return '' }
 }
 
 
@@ -135,7 +141,7 @@ function PlexSection({ plexUrl, plexToken, onUpdate, onSave, onToast }) {
             <span className="conn-field-label">Token</span>
             <div className="conn-input-wrap">
               <input type={tokenVisible ? 'text' : 'password'} className="conn-input" placeholder="Plex Token"
-                value={token} onChange={handleTokenInput} autoComplete="new-password" />
+                value={tokenVisible && token === MASKED ? plexToken : token} onChange={handleTokenInput} autoComplete="new-password" />
               <div className="conn-input-btns">
                 <button type="button" className="conn-input-icon-btn"
                   onClick={() => setTokenVisible(!tokenVisible)} title="Show / hide" />
@@ -222,7 +228,7 @@ function TautulliSection({ tautulliUrl, tautulliApiKey, onUpdate, onSave, onToas
             <span className="conn-field-label">API Key</span>
             <div className="conn-input-wrap">
               <input type={apiKeyVisible ? 'text' : 'password'} className="conn-input" placeholder="API Key"
-                value={apiKey} onChange={(e) => setApiKey(e.target.value)} onBlur={handleBlur} autoComplete="new-password" />
+                value={apiKeyVisible && apiKey === MASKED ? tautulliApiKey : apiKey} onChange={(e) => setApiKey(e.target.value)} onBlur={handleBlur} autoComplete="new-password" />
               <div className="conn-input-btns">
                 <button type="button" className="conn-input-icon-btn"
                   onClick={() => setApiKeyVisible(!apiKeyVisible)} title="Show / hide" />
@@ -249,6 +255,7 @@ function TmdbSection({ tmdbApiKey, discoverEnabled, onUpdate, onSave, onToast })
   const [saveLoading, setSaveLoading] = useState(false)
   const [toast, setToast] = useState(null)
   const realKey = apiKey === MASKED ? '' : apiKey
+  const hasKey = apiKey === MASKED || !!apiKey
 
   useEffect(() => { setApiKey(tmdbApiKey ? MASKED : '') }, [tmdbApiKey])
   useEffect(() => { setDiscover(!!discoverEnabled) }, [discoverEnabled])
@@ -294,8 +301,8 @@ function TmdbSection({ tmdbApiKey, discoverEnabled, onUpdate, onSave, onToast })
               <span className="conn-toggle-sublabel" style={{ color: '#fff' }}>Diskovarr Requests Tab</span>
               <div className="conn-toggle-row">
                 <span className="conn-toggle-label">{discover ? 'Enabled' : 'Disabled'}</span>
-                <label className="slide-toggle" title={!realKey ? 'Save a TMDB API key first' : ''}>
-                  <input type="checkbox" checked={discover} disabled={!realKey}
+                <label className="slide-toggle" title={!hasKey ? 'Save a TMDB API key first' : ''}>
+                  <input type="checkbox" checked={discover} disabled={!hasKey}
                     onChange={(e) => handleToggle(e.target.checked)} />
                   <span className="slide-track" />
                 </label>
@@ -308,7 +315,7 @@ function TmdbSection({ tmdbApiKey, discoverEnabled, onUpdate, onSave, onToast })
             <span className="conn-field-label">API Key</span>
             <div className="conn-input-wrap">
               <input type={apiKeyVisible ? 'text' : 'password'} className="conn-input" placeholder="API Key (v3 auth)"
-                value={apiKey} onChange={(e) => { setApiKey(e.target.value); onUpdate({ tmdb_api_key: e.target.value }) }}
+                value={apiKeyVisible && apiKey === MASKED ? tmdbApiKey : apiKey} onChange={(e) => { setApiKey(e.target.value); onUpdate({ tmdb_api_key: e.target.value }) }}
                 onBlur={() => { adminConnections.save({ tmdb_api_key: realKey }).catch(() => {}) }}
                 autoComplete="new-password" />
               <div className="conn-input-btns">
@@ -425,12 +432,16 @@ function OverseerrSection({ overseerrUrl, overseerrApiKey, overseerrEnabled, onU
   useEffect(() => { setApiKey(overseerrApiKey ? MASKED : '') }, [overseerrApiKey])
   useEffect(() => { setEnabled(overseerrEnabled) }, [overseerrEnabled])
 
-  const hasBothFields = host && realKey
+  const hasBothFields = !!host && (apiKey === MASKED || !!apiKey)
 
   const handleBlur = useCallback(() => {
     const url = buildUrl(host, port)
-    onUpdate?.({ overseerr_url: url, overseerr_api_key: realKey })
-  }, [host, port, realKey, onUpdate])
+    if (apiKey === MASKED) {
+      onUpdate?.({ overseerr_url: url })
+    } else {
+      onUpdate?.({ overseerr_url: url, overseerr_api_key: apiKey })
+    }
+  }, [host, port, apiKey, onUpdate])
 
   const handleEnabledToggle = async (checked) => {
     setEnabled(checked)
@@ -472,7 +483,7 @@ function OverseerrSection({ overseerrUrl, overseerrApiKey, overseerrEnabled, onU
           <div className="conn-toggle-wrap">
             <span className="conn-toggle-label">{enabled ? 'Enabled' : 'Disabled'}</span>
             <label className="slide-toggle" title={!hasBothFields ? 'Enter URL and API key first' : ''}>
-              <input type="checkbox" checked={enabled} disabled={!hasBothFields}
+              <input type="checkbox" checked={enabled} disabled={!enabled && !hasBothFields}
                 onChange={(e) => handleEnabledToggle(e.target.checked)} />
               <span className="slide-track" />
             </label>
@@ -493,7 +504,7 @@ function OverseerrSection({ overseerrUrl, overseerrApiKey, overseerrEnabled, onU
             <span className="conn-field-label">API Key</span>
             <div className="conn-input-wrap">
               <input type={apiKeyVisible ? 'text' : 'password'} className="conn-input" placeholder="API Key"
-                value={apiKey} onChange={(e) => setApiKey(e.target.value)} onBlur={handleBlur} autoComplete="new-password" />
+                value={apiKeyVisible && apiKey === MASKED ? overseerrApiKey : apiKey} onChange={(e) => setApiKey(e.target.value)} onBlur={handleBlur} autoComplete="new-password" />
               <div className="conn-input-btns">
                 <button type="button" className="conn-input-icon-btn"
                   onClick={() => setApiKeyVisible(!apiKeyVisible)} title="Show / hide" />
@@ -532,13 +543,17 @@ function RadarrSection({ radarrUrl, radarrApiKey, radarrEnabled, radarrQualityPr
   useEffect(() => { setProfileId(radarrQualityProfileId || '') }, [radarrQualityProfileId])
   useEffect(() => { setProfilesList(profiles || []) }, [profiles])
 
-  const hasBothFields = host && realKey
+  const hasBothFields = !!host && (apiKey === MASKED || !!apiKey)
   const canEnable = hasBothFields && !!profileId
 
   const handleBlur = useCallback(() => {
     const url = buildUrl(host, port)
-    onUpdate?.({ radarr_url: url, radarr_api_key: realKey })
-  }, [host, port, realKey, onUpdate])
+    if (apiKey === MASKED) {
+      onUpdate?.({ radarr_url: url })
+    } else {
+      onUpdate?.({ radarr_url: url, radarr_api_key: apiKey })
+    }
+  }, [host, port, apiKey, onUpdate])
 
   const handleEnabledToggle = async (checked) => {
     setEnabled(checked)
@@ -565,10 +580,12 @@ function RadarrSection({ radarrUrl, radarrApiKey, radarrEnabled, radarrQualityPr
     if (!hasBothFields) return
     setTestLoading(true)
     try {
-      await adminConnections.test('radarr', { url: buildUrl(host, port), apiKey: realKey })
+      const testUrl = buildUrl(host, port)
+      await adminConnections.test('radarr', { url: testUrl, apiKey: realKey })
       onToast?.('Radarr connection successful')
-      const res = await adminConnections.getQualityProfiles('radarr')
-      const list = (res.data || []).map(p => ({ id: p.id.toString(), name: p.name }))
+      const profileParams = { url: testUrl, ...(realKey ? { apiKey: realKey } : {}) }
+      const res = await adminConnections.getQualityProfiles('radarr', profileParams)
+      const list = (res.data?.profiles || []).map(p => ({ id: p.id.toString(), name: p.name }))
       setProfilesList(list)
       if (radarrQualityProfileId && !list.find(p => p.id === radarrQualityProfileId)) {
         setProfileId(radarrQualityProfileId)
@@ -609,7 +626,7 @@ function RadarrSection({ radarrUrl, radarrApiKey, radarrEnabled, radarrQualityPr
           <div className="conn-toggle-wrap">
             <span className="conn-toggle-label">{enabled ? 'Enabled' : 'Disabled'}</span>
             <label className="slide-toggle" title={!canEnable ? 'Test connection and select a quality profile first' : ''}>
-              <input type="checkbox" checked={enabled} disabled={!canEnable}
+              <input type="checkbox" checked={enabled} disabled={!enabled && !canEnable}
                 onChange={(e) => handleEnabledToggle(e.target.checked)} />
               <span className="slide-track" />
             </label>
@@ -630,7 +647,7 @@ function RadarrSection({ radarrUrl, radarrApiKey, radarrEnabled, radarrQualityPr
             <span className="conn-field-label">API Key</span>
             <div className="conn-input-wrap">
               <input type={apiKeyVisible ? 'text' : 'password'} className="conn-input" placeholder="API Key"
-                value={apiKey} onChange={(e) => setApiKey(e.target.value)} onBlur={handleBlur} autoComplete="new-password" />
+                value={apiKeyVisible && apiKey === MASKED ? radarrApiKey : apiKey} onChange={(e) => setApiKey(e.target.value)} onBlur={handleBlur} autoComplete="new-password" />
               <div className="conn-input-btns">
                 <button type="button" className="conn-input-icon-btn"
                   onClick={() => setApiKeyVisible(!apiKeyVisible)} title="Show / hide" />
@@ -686,13 +703,17 @@ function SonarrSection({ sonarrUrl, sonarrApiKey, sonarrEnabled, sonarrQualityPr
   useEffect(() => { setProfileId(sonarrQualityProfileId || '') }, [sonarrQualityProfileId])
   useEffect(() => { setProfilesList(profiles || []) }, [profiles])
 
-  const hasBothFields = host && realKey
+  const hasBothFields = !!host && (apiKey === MASKED || !!apiKey)
   const canEnable = hasBothFields && !!profileId
 
   const handleBlur = useCallback(() => {
     const url = buildUrl(host, port)
-    onUpdate?.({ sonarr_url: url, sonarr_api_key: realKey })
-  }, [host, port, realKey, onUpdate])
+    if (apiKey === MASKED) {
+      onUpdate?.({ sonarr_url: url })
+    } else {
+      onUpdate?.({ sonarr_url: url, sonarr_api_key: apiKey })
+    }
+  }, [host, port, apiKey, onUpdate])
 
   const handleEnabledToggle = async (checked) => {
     setEnabled(checked)
@@ -719,10 +740,12 @@ function SonarrSection({ sonarrUrl, sonarrApiKey, sonarrEnabled, sonarrQualityPr
     if (!hasBothFields) return
     setTestLoading(true)
     try {
-      await adminConnections.test('sonarr', { url: buildUrl(host, port), apiKey: realKey })
+      const testUrl = buildUrl(host, port)
+      await adminConnections.test('sonarr', { url: testUrl, apiKey: realKey })
       onToast?.('Sonarr connection successful')
-      const res = await adminConnections.getQualityProfiles('sonarr')
-      const list = (res.data || []).map(p => ({ id: p.id.toString(), name: p.name }))
+      const profileParams = { url: testUrl, ...(realKey ? { apiKey: realKey } : {}) }
+      const res = await adminConnections.getQualityProfiles('sonarr', profileParams)
+      const list = (res.data?.profiles || []).map(p => ({ id: p.id.toString(), name: p.name }))
       setProfilesList(list)
       if (sonarrQualityProfileId && !list.find(p => p.id === sonarrQualityProfileId)) {
         setProfileId(sonarrQualityProfileId)
@@ -763,7 +786,7 @@ function SonarrSection({ sonarrUrl, sonarrApiKey, sonarrEnabled, sonarrQualityPr
           <div className="conn-toggle-wrap">
             <span className="conn-toggle-label">{enabled ? 'Enabled' : 'Disabled'}</span>
             <label className="slide-toggle" title={!canEnable ? 'Test connection and select a quality profile first' : ''}>
-              <input type="checkbox" checked={enabled} disabled={!canEnable}
+              <input type="checkbox" checked={enabled} disabled={!enabled && !canEnable}
                 onChange={(e) => handleEnabledToggle(e.target.checked)} />
               <span className="slide-track" />
             </label>
@@ -784,7 +807,7 @@ function SonarrSection({ sonarrUrl, sonarrApiKey, sonarrEnabled, sonarrQualityPr
             <span className="conn-field-label">API Key</span>
             <div className="conn-input-wrap">
               <input type={apiKeyVisible ? 'text' : 'password'} className="conn-input" placeholder="API Key"
-                value={apiKey} onChange={(e) => setApiKey(e.target.value)} onBlur={handleBlur} autoComplete="new-password" />
+                value={apiKeyVisible && apiKey === MASKED ? sonarrApiKey : apiKey} onChange={(e) => setApiKey(e.target.value)} onBlur={handleBlur} autoComplete="new-password" />
               <div className="conn-input-btns">
                 <button type="button" className="conn-input-icon-btn"
                   onClick={() => setApiKeyVisible(!apiKeyVisible)} title="Show / hide" />
@@ -857,14 +880,15 @@ function RivenSection({ rivenEnabled, rivenUrl, rivenApiKey, rivenRdkey, dumbReq
   const handleSave = async () => {
     setSaveLoading(true)
     try {
-      const fullUrl = url && url !== 'http://' ? (rivenUrl && rivenUrl.startsWith('http') ? rivenUrl : (url + (rivenUrl ? '' : ''))) : ''
-      await adminRiven.save({
+      const fullUrl = url && url !== 'http://' ? url : ''
+      const savePayload = {
         riven_enabled: enabled,
         riven_url: fullUrl,
-        riven_api_key: realKey,
-        riven_rdkey: realRdkey,
-      })
-      onSave?.({ riven_url: fullUrl, riven_api_key: realKey, riven_rdkey: realRdkey })
+        ...(realKey ? { riven_api_key: realKey } : {}),
+        ...(realRdkey ? { riven_rdkey: realRdkey } : {}),
+      }
+      await adminRiven.save(savePayload)
+      onSave?.({ riven_url: fullUrl })
       onToast?.('DUMB / Riven settings saved')
     } catch (err) {
       onToast?.(err.message || 'Failed to save DUMB / Riven settings', 'error')
@@ -1031,12 +1055,44 @@ export default function ConnectionSettings({ onDataLoaded, onToast }) {
 
   const loadInitialData = useCallback(async () => {
     try {
-      const [connRes, compatRes] = await Promise.all([
+      const [connRes, settingsRes, compatRes, rivenRes] = await Promise.all([
         adminConnections.reveal(),
+        adminConnections.settings(),
         adminCompat.getConfig(),
+        adminRiven.getConfig().catch(() => null),
       ])
-      const data = connRes.data
+      const r = connRes.data
+      const rv = rivenRes?.data
+      const revealSnake = {
+        plex_token:        r.plexToken,
+        tautulli_api_key:  r.tautulliApiKey,
+        tmdb_api_key:      r.tmdbApiKey,
+        overseerr_api_key: r.overseerrApiKey,
+        radarr_api_key:    r.radarrApiKey,
+        sonarr_api_key:    r.sonarrApiKey,
+        diskovarr_api_key: r.diskovarrApiKey,
+        agregarr_api_key:  r.agregarrApiKey,
+        dumb_api_key:      r.dumbApiKey,
+        compat_api_key:    r.compatApiKey,
+        riven_api_key:     rv?.hasApiKey ? MASKED : '',
+        riven_rdkey:       rv?.hasRdKey  ? MASKED : '',
+      }
+      const rivenSettings = rv ? {
+        riven_url:         rv.url || settingsRes.data.riven_url || '',
+        riven_enabled:     rv.enabled ?? settingsRes.data.riven_enabled,
+        dumb_request_mode: rv.dumbRequestMode || settingsRes.data.dumb_request_mode || 'pull',
+      } : {}
+      const data = { ...settingsRes.data, ...rivenSettings, ...revealSnake }
       setFields(data)
+
+      // Pre-load quality profiles for already-configured services
+      const s = settingsRes.data
+      const [radarrProfileRes, sonarrProfileRes] = await Promise.all([
+        s.radarr_url && r.radarrApiKey ? adminConnections.getQualityProfiles('radarr').catch(() => null) : null,
+        s.sonarr_url && r.sonarrApiKey ? adminConnections.getQualityProfiles('sonarr').catch(() => null) : null,
+      ])
+      if (radarrProfileRes?.data?.profiles) setRadarrProfiles(radarrProfileRes.data.profiles.map(p => ({ id: p.id.toString(), name: p.name })))
+      if (sonarrProfileRes?.data?.profiles) setSonarrProfiles(sonarrProfileRes.data.profiles.map(p => ({ id: p.id.toString(), name: p.name })))
       setCompatKey(compatRes.data?.app?.api_key || compatRes.data?.app?.apiKey || '')
       onDataLoaded?.(data)
     } catch (err) {

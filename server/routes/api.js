@@ -817,7 +817,8 @@ router.get('/explore/services', (req, res) => {
   // Default only applies when both sides are configured; otherwise the available service wins
   const hasBothSides = (hasOverseerr || hasRiven) && (hasRadarr || hasSonarr);
   const defaultService = hasBothSides ? (c.defaultRequestService || 'overseerr') : null;
-  res.json({ overseerr: hasOverseerr, radarr: hasRadarr, sonarr: hasSonarr, riven: hasRiven, defaultService });
+  const directRequestAccess = db.getDirectRequestAccess();
+  res.json({ overseerr: hasOverseerr, radarr: hasRadarr, sonarr: hasSonarr, riven: hasRiven, defaultService, directRequestAccess });
 });
 
 // GET /api/explore/recommendations
