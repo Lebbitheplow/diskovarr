@@ -418,6 +418,31 @@ function OverseerrCompatSection({ enabled, onToggle, apiKey, onRegenerate }) {
   )
 }
 
+// ── Default Landing Page Section ───────────────────────────────
+function DefaultLandingPageSection({ value, onChange }) {
+  const isExplore = value === 'explore'
+  return (
+    <div className="admin-section">
+      <div className="admin-section-header">
+        <div>
+          <h2 className="section-title">Default Landing Page</h2>
+          <p className="section-desc" style={{ marginTop: 4 }}>
+            Set the page all users land on after logging in. Individual users can override this in their own settings.
+          </p>
+        </div>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '4px 0' }}>
+        <span className={!isExplore ? 'service-label-active' : 'service-label-inactive'}>Diskovarr</span>
+        <label className="slide-toggle slide-toggle-always-on">
+          <input type="checkbox" checked={isExplore} onChange={(e) => onChange(e.target.checked ? 'explore' : 'home')} />
+          <span className="slide-track" />
+        </label>
+        <span className={isExplore ? 'service-label-active' : 'service-label-inactive'}>Diskovarr Requests</span>
+      </div>
+    </div>
+  )
+}
+
 // ── Main Component ─────────────────────────────────────────────
 export default function GeneralSettings({ onDataLoaded, onToast }) {
   const [appPublicUrl, setAppPublicUrl] = useState('')
@@ -432,6 +457,7 @@ export default function GeneralSettings({ onDataLoaded, onToast }) {
   const [hasApiKey, setHasApiKey] = useState(false)
   const [compatEnabled, setCompatEnabled] = useState(false)
   const [compatApiKey, setCompatApiKey] = useState('')
+  const [defaultLandingPage, setDefaultLandingPage] = useState('home')
   const [loading, setLoading] = useState(true)
 
   const pollStatus = useCallback(async () => {
@@ -454,6 +480,7 @@ export default function GeneralSettings({ onDataLoaded, onToast }) {
       if (s.themeColor) setThemeColor(s.themeColor)
       if (s.compatEnabled !== undefined) setCompatEnabled(s.compatEnabled)
       if (s.compatApiKey) setCompatApiKey(s.compatApiKey)
+      if (s.defaultLandingPage) setDefaultLandingPage(s.defaultLandingPage)
       onDataLoaded?.(s)
     } catch { /* ignore polling errors */ }
   }, [onDataLoaded])
@@ -480,6 +507,7 @@ export default function GeneralSettings({ onDataLoaded, onToast }) {
         if (s.themeColor) setThemeColor(s.themeColor)
         if (s.compatEnabled !== undefined) setCompatEnabled(s.compatEnabled)
         if (s.compatApiKey) setCompatApiKey(s.compatApiKey)
+        if (s.defaultLandingPage) setDefaultLandingPage(s.defaultLandingPage)
         onDataLoaded?.(s)
         setLoading(false)
         if (s.syncInProgress) {
@@ -554,6 +582,16 @@ export default function GeneralSettings({ onDataLoaded, onToast }) {
     }
   }, [onToast])
 
+  const handleDefaultLandingPageChange = useCallback(async (val) => {
+    try {
+      await adminConnections.save({ landing_page: val })
+      setDefaultLandingPage(val)
+      onToast?.(`Default landing page set to ${val}`)
+    } catch (err) {
+      onToast?.(err.message || 'Failed to save landing page', 'error')
+    }
+  }, [onToast])
+
   const handleCompatRegenerate = useCallback(async () => {
     try {
       await adminCompat.regenerateKey()
@@ -572,6 +610,10 @@ export default function GeneralSettings({ onDataLoaded, onToast }) {
       <AppOptionsSection
         appPublicUrl={appPublicUrl}
         onAppPublicUrlChange={setAppPublicUrl}
+      />
+      <DefaultLandingPageSection
+        value={defaultLandingPage}
+        onChange={handleDefaultLandingPageChange}
       />
       <ThemeColorSection
         themeColor={themeColor}

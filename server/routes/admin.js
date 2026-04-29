@@ -141,6 +141,7 @@ router.get('/status', requireAdmin, (req, res) => {
     compatEnabled: !!(compatApp && compatApp.enabled),
     compatApiKey: compatApp?.api_key || null,
     themeColor: db.getThemeColor(),
+    defaultLandingPage: db.getLandingPage(),
   });
 });
 
@@ -310,6 +311,7 @@ const CONNECTION_KEYS = [
   'individual_seasons_enabled',
   'direct_request_access',
   'app_public_url',
+  'landing_page',
 ];
 
 router.get('/connections/settings', requireAdmin, (req, res) => {

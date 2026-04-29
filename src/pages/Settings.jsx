@@ -186,12 +186,12 @@ export default function Settings() {
                 <div className="settings-field" style={{ marginTop: '20px', padding: '0' }}>
                   <label className="settings-label">Default Landing Page</label>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 0' }}>
-                    <span className="landing-label" style={{ fontWeight: s.landing_page !== 'explore' ? '600' : '400', opacity: s.landing_page !== 'explore' ? '1' : '0.6' }}>Diskovarr</span>
+                    <span className={s.landing_page !== 'explore' ? 'service-label-active' : 'service-label-inactive'}>Diskovarr</span>
                     <label className="slide-toggle slide-toggle-always-on">
                       <input type="checkbox" defaultChecked={s.landing_page === 'explore'} onChange={(e) => handleLandingPageChange(e.target.checked)} />
                       <span className="slide-track" />
                     </label>
-                    <span className="landing-label" style={{ fontWeight: s.landing_page === 'explore' ? '600' : '400', opacity: s.landing_page === 'explore' ? '1' : '0.6' }}>Diskovarr Requests</span>
+                    <span className={s.landing_page === 'explore' ? 'service-label-active' : 'service-label-inactive'}>Diskovarr Requests</span>
                   </div>
                 </div>
               )}
