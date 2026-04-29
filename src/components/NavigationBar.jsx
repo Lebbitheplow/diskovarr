@@ -40,6 +40,25 @@ export default function NavigationBar() {
   const suggestTimerRef = useRef(null)
   const bellDropdownRef = useRef(null)
   const bellBtnRef = useRef(null)
+  const userBtnRef = useRef(null)
+  const [menuRight, setMenuRight] = useState(null)
+
+  // Align the dropdown menu's right edge with the desktop user button.
+  // The menu is rendered outside <nav> (to avoid the nav's z-index stacking context),
+  // so it uses position:fixed. We compute the right offset from the button's bounding rect
+  // each time the menu opens. On mobile the button is display:none (rect.width === 0) so
+  // we fall back to the CSS default (null = no inline style).
+  useEffect(() => {
+    if (!fabOpen) return
+    if (userBtnRef.current) {
+      const rect = userBtnRef.current.getBoundingClientRect()
+      if (rect.width > 0) {
+        setMenuRight(Math.round(window.innerWidth - rect.right))
+        return
+      }
+    }
+    setMenuRight(null)
+  }, [fabOpen])
 
   const currentPath = location.pathname
 
@@ -350,6 +369,7 @@ export default function NavigationBar() {
             </div>
 
             <button
+              ref={userBtnRef}
               className="nav-user-btn"
               onClick={() => setFabOpen(!fabOpen)}
               aria-label="Open menu"
@@ -379,7 +399,7 @@ export default function NavigationBar() {
       {/* FAB menu */}
       {fabOpen && (
         <>
-          <div className="nav-fab-menu open">
+          <div className="nav-fab-menu open" style={menuRight !== null ? { right: menuRight } : undefined}>
             <div className="nav-fab-menu-user">
               {user?.thumb ? (
                 <img className="nav-fab-menu-avatar" src={`/api/poster?path=${encodeURIComponent(user.thumb)}`} alt={user.username}
