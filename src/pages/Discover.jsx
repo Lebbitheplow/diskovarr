@@ -81,7 +81,7 @@ export default function Discover() {
     }
   }, [toastError])
 
-  const fetchResults = useCallback(async (reset = true, overridePage) => {
+  const fetchResults = useCallback(async (reset = true, overridePage, searchOverride) => {
     if (loadingRef.current) return
     loadingRef.current = true
     if (reset) {
@@ -97,7 +97,7 @@ export default function Discover() {
       sort,
       genres: [...genres].join(','),
       page: reset ? 1 : (overridePage || page),
-      q: search,
+      q: searchOverride !== undefined ? searchOverride : search,
     })
 
     try {
@@ -144,8 +144,8 @@ export default function Discover() {
 
   const handleSearchClear = useCallback(() => {
     setSearch('')
-    debouncedFetch(true)
-  }, [debouncedFetch])
+    fetchResults(true, undefined, '')
+  }, [fetchResults])
 
   const handleTypeChange = useCallback((newType) => {
     setType(newType)
