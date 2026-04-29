@@ -141,11 +141,19 @@ export default function NavigationBar() {
     return () => clearTimeout(suggestTimerRef.current)
   }, [searchQuery, fetchSuggestions])
 
-  const navigateToSearch = useCallback((q) => {
+  const navigateToSearch = useCallback((itemOrQuery) => {
     setSearchResults([])
     setSearchQuery('')
     setSearchOpen(false)
-    navigate(`/search?q=${encodeURIComponent(q)}`)
+    if (itemOrQuery && typeof itemOrQuery === 'object' && itemOrQuery.tmdbId) {
+      const params = new URLSearchParams()
+      params.set('q', itemOrQuery.title)
+      params.set('selectedTmdbId', itemOrQuery.tmdbId)
+      params.set('selectedType', itemOrQuery.mediaType)
+      navigate('/search?' + params.toString())
+    } else {
+      navigate(`/search?q=${encodeURIComponent(typeof itemOrQuery === 'string' ? itemOrQuery : '')}`)
+    }
   }, [navigate])
 
   // Close search when clicking outside
@@ -235,16 +243,16 @@ export default function NavigationBar() {
                   spellCheck="false"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      const q = searchQuery.trim()
-                      if (q) {
-                        if (searchActiveIdx >= 0 && searchActiveIdx < searchResults.length) {
-                          navigateToSearch(searchResults[searchActiveIdx].title)
-                        } else {
-                          navigateToSearch(q)
-                        }
-                      }
+                 onKeyDown={(e) => {
+                     if (e.key === 'Enter') {
+                       const q = searchQuery.trim()
+                       if (q) {
+                         if (searchActiveIdx >= 0 && searchActiveIdx < searchResults.length) {
+                           navigateToSearch(searchResults[searchActiveIdx])
+                         } else {
+                           navigateToSearch(q)
+                         }
+                       }
                     } else if (e.key === 'Escape') {
                       setSearchOpen(false)
                       searchInputRef.current?.blur()
@@ -266,7 +274,7 @@ export default function NavigationBar() {
                   <div
                     key={item.id || item.tmdbId}
                     className={`hero-suggest-row ${idx === searchActiveIdx ? 'active' : ''}`}
-                    onMouseDown={(e) => { e.preventDefault(); navigateToSearch(item.title) }}
+                    onMouseDown={(e) => { e.preventDefault(); navigateToSearch(item) }}
                   >
                     <div className="hero-suggest-poster">
                       {item.posterUrl ? (

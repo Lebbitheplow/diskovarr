@@ -67,6 +67,7 @@ export const searchApi = {
   getSuggestions: (query) => api.get('/search/suggest', { params: { q: query } }),
   getDetails: (tmdbId, type) => api.get('/search/details', { params: { tmdbId, type } }),
   getSeasons: (tmdbId) => api.get('/search/seasons', { params: { tmdbId } }),
+  getSimilar: (tmdbId, type, hideLibrary) => api.get('/search/similar', { params: { tmdbId, type, hideLibrary } }),
 }
 
 /** Watchlist */

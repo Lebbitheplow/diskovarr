@@ -805,6 +805,247 @@ router.get('/search', async (req, res) => {
   }
 });
 
+// ── "More Like This" ──────────────────────────────────────────────────────────
+// GET /api/search/similar?tmdbId=X&type=movie|tv&hideLibrary=false
+// Returns up to 20 similar items (cross-type) based on TMDB similarity + local
+// metadata overlap.  Enforces request permission and hide-in-library filters.
+router.get('/search/similar', async (req, res) => {
+  const { tmdbId, type, hideLibrary } = req.query;
+  if (!tmdbId || !['movie', 'tv'].includes(type)) {
+    return res.status(400).json({ error: 'tmdbId and type are required' });
+  }
+  if (!/^\d+$/.test(String(tmdbId))) {
+    return res.status(400).json({ error: 'Invalid tmdbId' });
+  }
+  const numericTmdbId = Number(tmdbId);
+  const hideLib = hideLibrary === 'true';
+  const { id: userId } = req.session.plexUser;
+  const discoverEnabled = db.isDiscoverEnabled();
+  const requestedIds = db.getAllRequestedTmdbIds();
+  const dismissedKeys = db.getDismissals(userId);
+
+  try {
+    // Fetch library items for cross-referencing inLibrary status
+    const [movies, tv] = await Promise.all([
+      plexService.getLibraryItems(plexService.MOVIES_SECTION),
+      plexService.getLibraryItems(plexService.TV_SECTION),
+    ]);
+    const libraryByTmdb = new Map();
+    for (const item of [...movies, ...tv]) {
+      if (item.tmdbId) libraryByTmdb.set(String(item.tmdbId), item);
+    }
+    const libraryTmdbSet = new Set(libraryByTmdb.keys());
+    const watchedKeys = db.getWatchedKeysFromDb(String(userId));
+    const watchlistKeys = new Set(db.getWatchlistFromDb(userId));
+
+    // Helper to build a result item from a TMDB-enriched candidate
+    function buildResult(candidate) {
+      const libItem = libraryByTmdb.get(String(candidate.tmdbId));
+      if (hideLib && libItem) return null;
+      if (!discoverEnabled && !libItem) return null;
+      return {
+        tmdbId: candidate.tmdbId,
+        mediaType: candidate.mediaType,
+        title: candidate.title,
+        year: candidate.year || null,
+        overview: candidate.overview || '',
+        posterUrl: candidate.posterUrl,
+        voteAverage: candidate.voteAverage || 0,
+        genres: candidate.genres || [],
+        contentRating: candidate.contentRating || null,
+        inLibrary: !!libItem,
+        ratingKey: libItem?.ratingKey || null,
+        deepLink: libItem ? plexService.getDeepLink(libItem.ratingKey) : null,
+        plexAppLink: libItem ? plexService.getAppLink(libItem.ratingKey) : null,
+        isInWatchlist: libItem ? watchlistKeys.has(libItem.ratingKey) : false,
+        isWatched: libItem ? watchedKeys.has(libItem.ratingKey) : false,
+        isRequested: !libItem && requestedIds.has(`${candidate.tmdbId}:${candidate.mediaType}`),
+        _popularity: candidate.popularity || 0,
+        _rank: candidate._rank ?? 9999,
+      };
+    }
+
+    // ── TMDB path ──────────────────────────────────────────────────────────
+    if (db.hasTmdbKey()) {
+      // Get source item details (for title)
+      const sourceDetails = await tmdbService.getItemDetails(numericTmdbId, type).catch(() => null);
+      if (!sourceDetails) {
+        return res.json({ sourceTitle: null, similar: [] });
+      }
+
+      const sourceTitle = sourceDetails.title;
+      const allCandidates = [];
+      const seenKeys = new Set();
+      seenKeys.add(`${numericTmdbId}:${type}`); // exclude the source item itself
+
+      // Use /recommendations (3 pages) as the candidate pool.
+      // /similar is intentionally excluded: it uses naive genre/keyword bag-matching and
+      // consistently returns unrelated content. /recommendations is editorially curated
+      // and produces meaningfully related results.
+      const fetches = [
+        tmdbService.getRecommendations(numericTmdbId, type, 1).catch(() => []),
+        tmdbService.getRecommendations(numericTmdbId, type, 2).catch(() => []),
+        tmdbService.getRecommendations(numericTmdbId, type, 3).catch(() => []),
+      ];
+      const [recs1, recs2, recs3] = await Promise.all(fetches);
+      const raw = [...recs1, ...recs2, ...recs3];
+
+      // Deduplicate by (tmdbId, mediaType) — movies and TV share the same integer space
+      for (const r of raw) {
+        const key = `${r.tmdbId}:${r.mediaType}`;
+        if (seenKeys.has(key)) continue;
+        seenKeys.add(key);
+        allCandidates.push(r);
+      }
+
+      // Enrich from cache (fast — most items already cached from pool builds).
+      // Preserve insertion rank so TMDB's relevance ordering (similar > recs p1 > recs p2)
+      // is not destroyed by a raw popularity re-sort later.
+      const enriched = [];
+      for (let i = 0; i < allCandidates.length; i++) {
+        const c = allCandidates[i];
+        const cached = db.getTmdbCache(c.tmdbId, c.mediaType);
+        if (cached) {
+          enriched.push({ ...cached, _rank: i });
+        } else {
+          // Fetch details for uncached items
+          const details = await tmdbService.getItemDetails(c.tmdbId, c.mediaType).catch(() => null);
+          if (details) enriched.push({ ...details, _rank: i });
+        }
+      }
+
+      // Content-safety filter: block Kids TV (10762) and Reality/Talk (10764, 10767)
+      // from appearing in results unless the source item is itself in that category.
+      const KIDS_TV_GENRE_ID = 10762;
+      const REALITY_GENRE_IDS = new Set([10764, 10767]);
+      const sourceGenreIdSet = new Set(sourceDetails.genreIds || []);
+      const sourceIsKidsTV = sourceGenreIdSet.has(KIDS_TV_GENRE_ID);
+      const sourceIsReality = [...sourceGenreIdSet].some(id => REALITY_GENRE_IDS.has(id));
+
+      const safeEnriched = enriched.filter(candidate => {
+        const candIds = new Set(candidate.genreIds || []);
+        if (candIds.has(KIDS_TV_GENRE_ID) !== sourceIsKidsTV) return false;
+        const candIsReality = [...candIds].some(id => REALITY_GENRE_IDS.has(id));
+        if (candIsReality !== sourceIsReality) return false;
+        return true;
+      });
+
+      // Local metadata scoring: rerank TMDB recommendations by verified metadata overlap.
+      // TMDB ordering is used as a tiebreaker, so items TMDB rates highly but with
+      // no local overlap still appear — but items with strong overlap float to the top.
+      function computeLocalScore(src, cand) {
+        let s = 0;
+        // Franchise / collection match (strongest signal)
+        if (src.collection && cand.collection && src.collection === cand.collection) s += 50;
+        // Director / creator overlap
+        const srcDirs = new Set(src.directors || []);
+        for (const d of (cand.directors || [])) if (srcDirs.has(d)) s += 20;
+        // Top-5 cast overlap (avoid minor-role noise)
+        const srcCast = new Set((src.cast || []).slice(0, 5));
+        for (const a of (cand.cast || []).slice(0, 5)) if (srcCast.has(a)) s += 8;
+        // Genre overlap: primary genre (index 0) worth more than secondary
+        const candGids = new Set(cand.genreIds || []);
+        (src.genreIds || []).forEach((id, i) => { if (candGids.has(id)) s += i === 0 ? 10 : 5; });
+        // Keyword / theme overlap
+        const srcKws = new Set(src.keywords || []);
+        for (const kw of (cand.keywords || [])) if (srcKws.has(kw)) s += 2;
+        // Same original language
+        if (src.originalLanguage && src.originalLanguage === cand.originalLanguage) s += 3;
+        return s;
+      }
+
+      // Sort: local metadata score first, TMDB position as tiebreaker, popularity last
+      const scoredEnriched = safeEnriched.map(c => ({ ...c, _localScore: computeLocalScore(sourceDetails, c) }));
+      scoredEnriched.sort((a, b) => b._localScore - a._localScore || a._rank - b._rank || b.popularity - a.popularity);
+
+      const results = scoredEnriched
+        .map(buildResult)
+        .filter(Boolean)
+        .filter(item => !dismissedKeys.has(item.ratingKey))
+        .slice(0, 20)
+        .map(item => {
+          delete item._popularity;
+          delete item._rank;
+          return item;
+        });
+
+      return res.json({ sourceTitle, similar: results });
+    }
+
+    // ── No-TMDB fallback: local metadata-based scoring ─────────────────────
+    // Look up source item from cache
+    const sourceCached = db.getTmdbCache(numericTmdbId, type);
+    if (!sourceCached) {
+      return res.json({ sourceTitle: null, similar: [] });
+    }
+
+    const sourceGenres = new Set(sourceCached.genres || []);
+    const sourceCast = new Set(sourceCached.cast || []);
+    const sourceDirectors = new Set(sourceCached.directors || []);
+    const sourceStudio = sourceCached.studio ? new Set(sourceCached.studio.split(',').map(s => s.trim())) : new Set();
+    const sourceKeywords = sourceCached.keywords || [];
+
+    // Get all cached TMDB items (both movie and TV)
+    const allCached = db.getAllTmdbCacheItems();
+
+    // Score each candidate by overlap
+    const FALLBACK_THRESHOLD = 12; // raised from 5: 2 genres alone (6 pts) no longer qualifies
+    const sourceIsKidsTV = (sourceCached.genreIds || []).includes(10762);
+    const scored = [];
+    for (const item of allCached) {
+      if (item.tmdbId === numericTmdbId) continue;
+      let score = 0;
+
+      for (const g of (item.genres || [])) if (sourceGenres.has(g)) score += 3;
+
+      // Limit cast to top 5 to avoid minor-role contamination
+      for (const a of (item.cast || []).slice(0, 5)) if (sourceCast.has(a)) score += 5;
+
+      for (const d of (item.directors || [])) if (sourceDirectors.has(d)) score += 8;
+      if (item.studio) {
+        for (const s of item.studio.split(',').map(x => x.trim())) {
+          if (sourceStudio.has(s)) score += 4;
+        }
+      }
+      for (const kw of (item.keywords || [])) {
+        if (sourceKeywords.includes(kw)) score += 2;
+      }
+
+      // Same media type bonus
+      if (item.mediaType === type) score += 3;
+
+      // Heavy penalty for kids/adult mismatch
+      const itemIsKidsTV = (item.genreIds || []).includes(10762);
+      if (itemIsKidsTV !== sourceIsKidsTV) score -= 20;
+
+      if (score < FALLBACK_THRESHOLD) continue;
+      scored.push({ ...item, score, _popularity: item.popularity || 0 });
+    }
+
+    scored.sort((a, b) => b.score - a.score || b._popularity - a._popularity);
+
+    const results = scored
+      .slice(0, 20)
+      .map(item => {
+        delete item.score;
+        return buildResult(item);
+      })
+      .filter(Boolean)
+      .filter(item => !dismissedKeys.has(item.ratingKey))
+      .map(item => {
+        delete item._popularity;
+        delete item._rank;
+        return item;
+      });
+
+    return res.json({ sourceTitle: sourceCached.title, similar: results });
+
+  } catch (err) {
+    logger.error('search/similar error:', err.message);
+    res.status(500).json({ error: 'Failed to fetch similar items' });
+  }
+});
+
 // ── Explore (external content) recommendations ────────────────────────────────
 
 // GET /api/explore/services — which request services are enabled

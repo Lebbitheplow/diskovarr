@@ -10,6 +10,7 @@ import {
   queueApi,
 } from '../services/api'
 import MediaCard from '../components/MediaCard'
+import Carousel from '../components/Carousel'
 import SkeletonLoader from '../components/SkeletonLoader'
 import DetailModal from '../components/DetailModal'
 import Modal from '../components/Modal'
@@ -32,6 +33,8 @@ export default function Search() {
   // URL is the source of truth for committed search state
   const urlQuery = searchParams.get('q') || ''
   const urlGenre = searchParams.get('genre') || ''
+  const selectedTmdbId = searchParams.get('selectedTmdbId') || ''
+  const selectedType = searchParams.get('selectedType') || ''
 
   const [inputValue, setInputValue] = useState(urlQuery)
   const [activeTab, setActiveTab] = useState('all')
@@ -55,6 +58,9 @@ export default function Search() {
   const [seasons, setSeasons] = useState([])
   const [selectedSeasons, setSelectedSeasons] = useState(['all'])
   const [services, setServices] = useState({})
+  const [similarItems, setSimilarItems] = useState([])
+  const [similarSourceTitle, setSimilarSourceTitle] = useState('')
+  const [similarLoading, setSimilarLoading] = useState(false)
   const suggestTimerRef = useRef(null)
   const searchInputRef = useRef(null)
 
@@ -63,7 +69,7 @@ export default function Search() {
     setInputValue(urlQuery)
   }, [urlQuery])
 
-  // Reset filters and tab when search changes
+  // Reset filters, tab, and similar section when search changes
   useEffect(() => {
     setActiveTab('all')
     setHideLibrary(!!urlGenre)
@@ -72,6 +78,8 @@ export default function Search() {
     setFilterYearTo('')
     setFilterContentRatings([])
     setFilterMinScore(null)
+    setSimilarItems([])
+    setSimilarSourceTitle('')
   }, [urlQuery, urlGenre])
 
   const loadWatchlist = useCallback(async () => {
@@ -114,6 +122,53 @@ export default function Search() {
     exploreApi.getServices().then(({ data }) => setServices(data || {})).catch(() => {})
   }, [loadWatchlist])
 
+  // Fetch "More Like This" when a specific item was selected via autocomplete
+  useEffect(() => {
+    if (!selectedTmdbId || !selectedType) {
+      setSimilarItems([])
+      setSimilarSourceTitle('')
+      return
+    }
+    let cancelled = false
+    setSimilarLoading(true)
+    setSimilarSourceTitle('')
+    searchApi.getSimilar(selectedTmdbId, selectedType, hideLibrary)
+      .then(({ data }) => {
+        if (cancelled) return
+        setSimilarSourceTitle(data.sourceTitle || '')
+        setSimilarItems(data.similar || [])
+      })
+      .catch(() => {
+        if (cancelled) return
+        setSimilarItems([])
+        setSimilarSourceTitle('')
+      })
+      .finally(() => {
+        if (cancelled) return
+        setSimilarLoading(false)
+      })
+    return () => { cancelled = true }
+  }, [selectedTmdbId, selectedType])
+
+  // Refetch similar items when hideLibrary changes (server may filter differently)
+  useEffect(() => {
+    if (!selectedTmdbId || !selectedType) return
+    let cancelled = false
+    setSimilarLoading(true)
+    searchApi.getSimilar(selectedTmdbId, selectedType, hideLibrary)
+      .then(({ data }) => {
+        if (cancelled) return
+        setSimilarItems(data.similar || [])
+      })
+      .catch(() => {
+        if (!cancelled) setSimilarItems([])
+      })
+      .finally(() => {
+        if (!cancelled) setSimilarLoading(false)
+      })
+    return () => { cancelled = true }
+  }, [hideLibrary, selectedTmdbId, selectedType])
+
   const debouncedSuggestions = useCallback((q) => {
     clearTimeout(suggestTimerRef.current)
     if (q.length < 2) { setSuggestions([]); setShowSuggestions(false); return }
@@ -140,18 +195,22 @@ export default function Search() {
     debouncedSuggestions(e.target.value)
   }, [debouncedSuggestions])
 
-  const handleSuggestionClick = useCallback((title) => {
-    setInputValue(title)
+  const handleSuggestionClick = useCallback((suggestion) => {
+    setInputValue(suggestion.title)
     setSuggestions([])
     setShowSuggestions(false)
-    navigate('/search?q=' + encodeURIComponent(title))
+    const params = new URLSearchParams()
+    params.set('q', suggestion.title)
+    params.set('selectedTmdbId', suggestion.tmdbId)
+    params.set('selectedType', suggestion.mediaType)
+    navigate('/search?' + params.toString())
   }, [navigate])
 
   const handleKeyDown = useCallback((e) => {
     if (e.key === 'Enter') {
       if (activeSuggestionIdx >= 0 && activeSuggestionIdx < suggestions.length) {
         e.preventDefault()
-        handleSuggestionClick(suggestions[activeSuggestionIdx].title)
+        handleSuggestionClick(suggestions[activeSuggestionIdx])
       } else {
         handleSubmit(e)
       }
@@ -239,6 +298,9 @@ export default function Search() {
 
   const movieResults = displayResults.filter(item => item.mediaType === 'movie')
   const tvResults = displayResults.filter(item => item.mediaType === 'tv')
+  const displaySimilar = useMemo(() => {
+    return hideLibrary ? similarItems.filter(i => !i.inLibrary) : similarItems
+  }, [similarItems, hideLibrary])
 
   const handleSeasonToggle = useCallback((season) => {
     setSelectedSeasons(prev => {
@@ -328,7 +390,7 @@ export default function Search() {
                     <div
                       key={item.tmdbId || idx}
                       className={'hero-suggest-row' + (idx === activeSuggestionIdx ? ' active' : '')}
-                      onMouseDown={(e) => { e.preventDefault(); handleSuggestionClick(item.title) }}
+                      onMouseDown={(e) => { e.preventDefault(); handleSuggestionClick(item) }}
                     >
                       <div className="hero-suggest-poster">
                         {item.posterUrl ? (
@@ -533,6 +595,75 @@ export default function Search() {
         <div className="search-empty" style={{ gridColumn: '1/-1' }}>
           <p>No results found for "{urlGenre ? urlGenre : urlQuery}".</p>
         </div>
+      )}
+
+      {similarSourceTitle && (
+        <section className="section" id="section-more-like-this">
+          <div className="section-header">
+            <h2 className="section-title">More Like This</h2>
+            <span className="section-badge">
+              Showing recommendations for: {similarSourceTitle}
+            </span>
+          </div>
+          {similarLoading ? (
+            <SkeletonLoader count={8} rows={1} />
+          ) : displaySimilar.length > 0 ? (
+            <Carousel>
+              {displaySimilar.map(item => (
+                <div key={item.tmdbId + item.mediaType} className="card search-card">
+                  <button className="card-poster-link" onClick={() => handleOpenModal(item)} type="button">
+                    {item.posterUrl && (
+                      <img className="card-poster" src={posterUrl(item.posterUrl)} alt={item.title} loading="lazy" />
+                    )}
+                    <div className="card-poster-placeholder">{item.title?.charAt(0) || '?'}</div>
+                    {item.inLibrary ? (
+                      <span className="badge-in-library">In Library</span>
+                    ) : (
+                      <span className={'badge-not-in-library' + (item.isRequested ? ' badge-requested' : '')}>
+                        {item.isRequested ? 'Requested' : 'Not in Library'}
+                      </span>
+                    )}
+                    {item.isWatched && (
+                      <div className="card-watched-badge" title="Watched">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" width="12" height="12">
+                          <polyline points="20 6 9 17 4 12" />
+                        </svg>
+                      </div>
+                    )}
+                    <div className="card-overlay">
+                      <div className="card-overlay-actions">
+                        {item.inLibrary && item.ratingKey ? (
+                          <button
+                            className={'btn-icon btn-watchlist' + (watchlistCache[item.ratingKey] ? ' in-watchlist' : '')}
+                            onClick={(e) => { e.stopPropagation(); handleToggleWatchlist(item) }}
+                          >
+                            {watchlistCache[item.ratingKey] ? '✓ In Watchlist' : '+ Watchlist'}
+                          </button>
+                        ) : null}
+                        {!item.inLibrary && (
+                          <button
+                            className={'btn-icon btn-request' + (item.isRequested ? ' btn-request-sent' : '')}
+                            onClick={(e) => { e.stopPropagation(); setRequestItem(item) }}
+                            disabled={item.isRequested}
+                          >
+                            {item.isRequested ? 'Requested ✓' : 'Request'}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </button>
+                  <div className="card-info">
+                    <div className="card-title">{item.title}</div>
+                    <div className="card-meta">
+                      {item.year && <span className="card-year">{item.year}</span>}
+                      {item.voteAverage && <span className="card-rating">★ {item.voteAverage.toFixed(1)}</span>}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </Carousel>
+          ) : null}
+        </section>
       )}
 
       {page < totalPages && displayResults.length > 0 && (
