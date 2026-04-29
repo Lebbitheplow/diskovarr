@@ -461,7 +461,9 @@ export default function Explore() {
                           <img className="card-poster" src={posterUrl(item.posterUrl)} alt={item.title} loading="lazy" />
                         )}
                         <div className="card-poster-placeholder">{item.title?.charAt(0) || '?'}</div>
-                        <span className={'badge-not-in-library' + (item.badgeRequested ? ' badge-requested' : '')}>{item.badgeRequested ? 'Requested' : 'Not in Library'}</span>
+                        {item.releaseDate && item.releaseDate > new Date().toISOString().slice(0, 10)
+                          ? <span className={'badge-upcoming-card' + (item.badgeRequested ? ' badge-requested' : '')}>{item.badgeRequested ? 'Requested' : 'Coming Soon'}</span>
+                          : <span className={'badge-not-in-library' + (item.badgeRequested ? ' badge-requested' : '')}>{item.badgeRequested ? 'Requested' : 'Not in Library'}</span>}
                         <div className="card-overlay">
                           <div className="card-overlay-actions">
                             {item.ratingKey && (
@@ -516,7 +518,9 @@ export default function Explore() {
                       <button className="card-poster-link" onClick={() => handleOpenModal(item)} type="button">
                         {item.posterUrl && <img className="card-poster" src={posterUrl(item.posterUrl)} alt={item.title} loading="lazy" />}
                         <div className="card-poster-placeholder">{item.title?.charAt(0) || '?'}</div>
-                        <span className={'badge-not-in-library' + (item.badgeRequested ? ' badge-requested' : '')}>{item.badgeRequested ? 'Requested' : 'Not in Library'}</span>
+                        {item.releaseDate && item.releaseDate > new Date().toISOString().slice(0, 10)
+                          ? <span className={'badge-upcoming-card' + (item.badgeRequested ? ' badge-requested' : '')}>{item.badgeRequested ? 'Requested' : 'Coming Soon'}</span>
+                          : <span className={'badge-not-in-library' + (item.badgeRequested ? ' badge-requested' : '')}>{item.badgeRequested ? 'Requested' : 'Not in Library'}</span>}
                         <div className="card-overlay">
                           <div className="card-overlay-actions">
                             {item.ratingKey && (
@@ -568,7 +572,9 @@ export default function Explore() {
                       <button className="card-poster-link" onClick={() => handleOpenModal(item)} type="button">
                         {item.posterUrl && <img className="card-poster" src={posterUrl(item.posterUrl)} alt={item.title} loading="lazy" />}
                         <div className="card-poster-placeholder">{item.title?.charAt(0) || '?'}</div>
-                        <span className={'badge-not-in-library' + (item.badgeRequested ? ' badge-requested' : '')}>{item.badgeRequested ? 'Requested' : 'Not in Library'}</span>
+                        {item.releaseDate && item.releaseDate > new Date().toISOString().slice(0, 10)
+                          ? <span className={'badge-upcoming-card' + (item.badgeRequested ? ' badge-requested' : '')}>{item.badgeRequested ? 'Requested' : 'Coming Soon'}</span>
+                          : <span className={'badge-not-in-library' + (item.badgeRequested ? ' badge-requested' : '')}>{item.badgeRequested ? 'Requested' : 'Not in Library'}</span>}
                         <div className="card-overlay">
                           <div className="card-overlay-actions">
                             {item.ratingKey && (
@@ -620,7 +626,9 @@ export default function Explore() {
                       <button className="card-poster-link" onClick={() => handleOpenModal(item)} type="button">
                         {item.posterUrl && <img className="card-poster" src={posterUrl(item.posterUrl)} alt={item.title} loading="lazy" />}
                         <div className="card-poster-placeholder">{item.title?.charAt(0) || '?'}</div>
-                        <span className={'badge-not-in-library' + (item.badgeRequested ? ' badge-requested' : '')}>{item.badgeRequested ? 'Requested' : 'Not in Library'}</span>
+                        {item.releaseDate && item.releaseDate > new Date().toISOString().slice(0, 10)
+                          ? <span className={'badge-upcoming-card' + (item.badgeRequested ? ' badge-requested' : '')}>{item.badgeRequested ? 'Requested' : 'Coming Soon'}</span>
+                          : <span className={'badge-not-in-library' + (item.badgeRequested ? ' badge-requested' : '')}>{item.badgeRequested ? 'Requested' : 'Not in Library'}</span>}
                         <div className="card-overlay">
                           <div className="card-overlay-actions">
                             {item.ratingKey && (
@@ -663,6 +671,30 @@ export default function Explore() {
               </section>
             )}
 
+            <section className="section" id="section-genre-browse">
+              <div className="section-header">
+                <h2 className="section-title">Browse by Genre</h2>
+              </div>
+              <Carousel variant="genre">
+                {GENRES.map((genre, idx) => {
+                  const meta = GENRE_META[genre] || { gradient: 'linear-gradient(145deg, #1e293b, #334155)', emoji: '🎬' }
+                  return (
+                    <Link
+                      key={`${genre}-${idx}`}
+                      to={`/search?genre=${encodeURIComponent(genre)}`}
+                      className="genre-tile"
+                      style={{ background: meta.gradient }}
+                    >
+                      <span className="genre-tile-emoji">{meta.emoji}</span>
+                      <div className="genre-tile-footer">
+                        <span className="genre-tile-name">{genre}</span>
+                      </div>
+                    </Link>
+                  )
+                })}
+              </Carousel>
+            </section>
+
             {filteredRecommendations()?.trendingMovies && filteredRecommendations().trendingMovies.length >= 8 && (
               <section className="section" id="section-trending-movies">
                 <div className="section-header">
@@ -675,7 +707,9 @@ export default function Explore() {
                       <button className="card-poster-link" onClick={() => handleOpenModal(item)} type="button">
                         {item.posterUrl && <img className="card-poster" src={posterUrl(item.posterUrl)} alt={item.title} loading="lazy" />}
                         <div className="card-poster-placeholder">{item.title?.charAt(0) || '?'}</div>
-                        <span className={'badge-not-in-library' + (item.badgeRequested ? ' badge-requested' : '')}>{item.badgeRequested ? 'Requested' : 'Not in Library'}</span>
+                        {item.releaseDate && item.releaseDate > new Date().toISOString().slice(0, 10)
+                          ? <span className={'badge-upcoming-card' + (item.badgeRequested ? ' badge-requested' : '')}>{item.badgeRequested ? 'Requested' : 'Coming Soon'}</span>
+                          : <span className={'badge-not-in-library' + (item.badgeRequested ? ' badge-requested' : '')}>{item.badgeRequested ? 'Requested' : 'Not in Library'}</span>}
                         <div className="card-overlay">
                           <div className="card-overlay-actions">
                             {item.ratingKey && (
@@ -730,7 +764,9 @@ export default function Explore() {
                       <button className="card-poster-link" onClick={() => handleOpenModal(item)} type="button">
                         {item.posterUrl && <img className="card-poster" src={posterUrl(item.posterUrl)} alt={item.title} loading="lazy" />}
                         <div className="card-poster-placeholder">{item.title?.charAt(0) || '?'}</div>
-                        <span className={'badge-not-in-library' + (item.badgeRequested ? ' badge-requested' : '')}>{item.badgeRequested ? 'Requested' : 'Not in Library'}</span>
+                        {item.releaseDate && item.releaseDate > new Date().toISOString().slice(0, 10)
+                          ? <span className={'badge-upcoming-card' + (item.badgeRequested ? ' badge-requested' : '')}>{item.badgeRequested ? 'Requested' : 'Coming Soon'}</span>
+                          : <span className={'badge-not-in-library' + (item.badgeRequested ? ' badge-requested' : '')}>{item.badgeRequested ? 'Requested' : 'Not in Library'}</span>}
                         <div className="card-overlay">
                           <div className="card-overlay-actions">
                             {item.ratingKey && (
@@ -870,29 +906,6 @@ export default function Explore() {
             )}
           </>
         )}
-        <section className="section" id="section-genre-browse">
-          <div className="section-header">
-            <h2 className="section-title">Browse by Genre</h2>
-          </div>
-          <Carousel variant="genre">
-            {GENRES.map((genre, idx) => {
-              const meta = GENRE_META[genre] || { gradient: 'linear-gradient(145deg, #1e293b, #334155)', emoji: '🎬' }
-              return (
-                <Link
-                  key={`${genre}-${idx}`}
-                  to={`/search?genre=${encodeURIComponent(genre)}`}
-                  className="genre-tile"
-                  style={{ background: meta.gradient }}
-                >
-                  <span className="genre-tile-emoji">{meta.emoji}</span>
-                  <div className="genre-tile-footer">
-                    <span className="genre-tile-name">{genre}</span>
-                  </div>
-                </Link>
-              )
-            })}
-          </Carousel>
-        </section>
       </main>
 
       {selectedItem && (

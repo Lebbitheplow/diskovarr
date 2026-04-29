@@ -319,8 +319,8 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest, onNot
   const isShow = item.type === 'show' || item.mediaType === 'tv'
 
   return (
-    <div className="detail-modal-wrap open" aria-hidden="false">
-      <div className="detail-modal-card" role="dialog" aria-modal="true">
+    <div className="detail-modal-wrap open" aria-hidden="false" onClick={handleClose}>
+      <div className="detail-modal-card" role="dialog" aria-modal="true" onClick={e => e.stopPropagation()}>
         <button className="detail-modal-close" onClick={handleClose} aria-label="Close">✕</button>
         {heroPath && (
           <div className="detail-modal-hero" style={{ backgroundImage: `url(${posterUrl(heroPath)})` }} />

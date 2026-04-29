@@ -382,7 +382,12 @@ export default function Search() {
                 autoFocus
               />
               {inputValue && (
-                <button type="button" className="search-page-clear" onClick={() => { setInputValue(''); setSuggestions([]); setShowSuggestions(false) }} aria-label="Clear">✕</button>
+                <button type="button" className="search-page-clear" onClick={() => {
+                  setInputValue(''); setSuggestions([]); setShowSuggestions(false)
+                  const params = new URLSearchParams(searchParams)
+                  params.delete('q'); params.delete('selectedTmdbId'); params.delete('selectedType')
+                  navigate('/search' + (params.toString() ? '?' + params.toString() : ''))
+                }} aria-label="Clear">✕</button>
               )}
               {suggestions.length > 0 && showSuggestions && (
                 <div className="search-page-dropdown open">
@@ -490,6 +495,10 @@ export default function Search() {
                     <div className="card-poster-placeholder">{item.title?.charAt(0) || '?'}</div>
                     {item.inLibrary ? (
                       <span className="badge-in-library">In Library</span>
+                    ) : item.releaseDate && item.releaseDate > new Date().toISOString().slice(0, 10) ? (
+                      <span className={'badge-upcoming-card' + (item.isRequested ? ' badge-requested' : '')}>
+                        {item.isRequested ? 'Requested' : 'Coming Soon'}
+                      </span>
                     ) : (
                       <span className={'badge-not-in-library' + (item.isRequested ? ' badge-requested' : '')}>
                         {item.isRequested ? 'Requested' : 'Not in Library'}
@@ -546,6 +555,10 @@ export default function Search() {
                   <div className="card-poster-placeholder">{item.title?.charAt(0) || '?'}</div>
                   {item.inLibrary ? (
                     <span className="badge-in-library">In Library</span>
+                  ) : item.releaseDate && item.releaseDate > new Date().toISOString().slice(0, 10) ? (
+                    <span className={'badge-upcoming-card' + (item.isRequested ? ' badge-requested' : '')}>
+                      {item.isRequested ? 'Requested' : 'Coming Soon'}
+                    </span>
                   ) : (
                     <span className={'badge-not-in-library' + (item.isRequested ? ' badge-requested' : '')}>
                       {item.isRequested ? 'Requested' : 'Not in Library'}
@@ -618,6 +631,10 @@ export default function Search() {
                     <div className="card-poster-placeholder">{item.title?.charAt(0) || '?'}</div>
                     {item.inLibrary ? (
                       <span className="badge-in-library">In Library</span>
+                    ) : item.releaseDate && item.releaseDate > new Date().toISOString().slice(0, 10) ? (
+                      <span className={'badge-upcoming-card' + (item.isRequested ? ' badge-requested' : '')}>
+                        {item.isRequested ? 'Requested' : 'Coming Soon'}
+                      </span>
                     ) : (
                       <span className={'badge-not-in-library' + (item.isRequested ? ' badge-requested' : '')}>
                         {item.isRequested ? 'Requested' : 'Not in Library'}
