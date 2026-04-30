@@ -270,9 +270,23 @@ function VerboseLoggingSection({ enabled, onChange }) {
 }
 
 // ── API Key Section ────────────────────────────────────────────
-function ApiKeySection({ apiKey, hasKey, onRegenerate }) {
+function ApiKeySection({ hasKey, onRegenerate, resetToken }) {
   const [visible, setVisible] = useState(false)
+  const [fetchedKey, setFetchedKey] = useState('')
   const [regenerating, setRegenerating] = useState(false)
+
+  // Clear fetched key whenever a regeneration completes (token bumped by parent)
+  useEffect(() => { setFetchedKey(''); setVisible(false) }, [resetToken])
+
+  const handleToggleVisible = async () => {
+    if (!visible && !fetchedKey) {
+      try {
+        const res = await adminConnections.reveal()
+        setFetchedKey(res.data.diskovarrApiKey || '')
+      } catch { /* ignore */ }
+    }
+    setVisible(v => !v)
+  }
 
   const handleRegenerate = async () => {
     setRegenerating(true)
@@ -288,7 +302,12 @@ function ApiKeySection({ apiKey, hasKey, onRegenerate }) {
 
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(apiKey)
+      let key = fetchedKey
+      if (!key) {
+        const res = await adminConnections.reveal()
+        key = res.data.diskovarrApiKey || ''
+      }
+      await navigator.clipboard.writeText(key)
     } catch { /* ignore */ }
   }
 
@@ -309,14 +328,14 @@ function ApiKeySection({ apiKey, hasKey, onRegenerate }) {
               id="settings-api-key"
               className="conn-input"
               readOnly
-              value={hasKey ? '••••••••' : ''}
+              value={visible && fetchedKey ? fetchedKey : hasKey ? '••••••••' : ''}
               placeholder="No key generated yet"
               style={{ cursor: 'text' }}
             />
             <div className="conn-input-btns">
               {hasKey && (
                 <>
-                  <button type="button" className="conn-input-icon-btn" onClick={() => setVisible(!visible)} title="Show / hide" />
+                  <button type="button" className="conn-input-icon-btn" onClick={handleToggleVisible} title="Show / hide" />
                   <button type="button" className="conn-input-icon-btn is-copy" onClick={handleCopy} title="Copy to clipboard" />
                 </>
               )}
@@ -384,7 +403,7 @@ function OverseerrCompatSection({ enabled, onToggle, apiKey, onRegenerate }) {
               id="compat-api-key"
               className="conn-input"
               readOnly
-              value={apiKey ? '••••••••' : ''}
+              value={visible && apiKey ? apiKey : apiKey ? '••••••••' : ''}
               placeholder="No key generated yet"
               autoComplete="off"
               style={{ cursor: 'text' }}
@@ -453,8 +472,8 @@ export default function GeneralSettings({ onDataLoaded, onToast }) {
   const [syncStatus, setSyncStatus] = useState(null)
   const [autoSync, setAutoSync] = useState(false)
   const [verboseLogging, setVerboseLogging] = useState(false)
-  const [apiKey, setApiKey] = useState('')
   const [hasApiKey, setHasApiKey] = useState(false)
+  const [apiKeyResetToken, setApiKeyResetToken] = useState(0)
   const [compatEnabled, setCompatEnabled] = useState(false)
   const [compatApiKey, setCompatApiKey] = useState('')
   const [defaultLandingPage, setDefaultLandingPage] = useState('home')
@@ -563,10 +582,8 @@ export default function GeneralSettings({ onDataLoaded, onToast }) {
     try {
       await adminSettings.generateApiKey()
       setHasApiKey(true)
+      setApiKeyResetToken(t => t + 1)
       onToast?.('API key regenerated')
-      // Reload status to get new key
-      const res = await adminStatus.get()
-      if (res.data.apiKey) setApiKey(res.data.apiKey)
     } catch (err) {
       onToast?.(err.message || 'Failed to regenerate key', 'error')
     }
@@ -631,9 +648,9 @@ export default function GeneralSettings({ onDataLoaded, onToast }) {
         onChange={handleVerboseLoggingChange}
       />
       <ApiKeySection
-        apiKey={apiKey}
         hasKey={hasApiKey}
         onRegenerate={handleApiKeyRegenerate}
+        resetToken={apiKeyResetToken}
       />
       <OverseerrCompatSection
         enabled={compatEnabled}

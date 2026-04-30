@@ -57,7 +57,7 @@ function requireAdmin(req, res, next) {
 
 // ── Sync state (in-process — survives as long as server runs) ─────────────────
 
-let autoSyncEnabled = true;
+let autoSyncEnabled = db.getSetting('auto_sync_enabled', '1') === '1';
 let syncInProgress = false;
 let lastSyncError = null;
 
@@ -173,11 +173,13 @@ router.post('/sync/library', requireAdmin, async (req, res) => {
 
 router.post('/sync/auto/enable', requireAdmin, (req, res) => {
   autoSyncEnabled = true;
+  db.setSetting('auto_sync_enabled', '1');
   res.json({ success: true, autoSyncEnabled });
 });
 
 router.post('/sync/auto/disable', requireAdmin, (req, res) => {
   autoSyncEnabled = false;
+  db.setSetting('auto_sync_enabled', '0');
   res.json({ success: true, autoSyncEnabled });
 });
 
