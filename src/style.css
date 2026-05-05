@@ -1415,8 +1415,8 @@ img {
   aspect-ratio: 2 / 3;
   object-fit: cover;
   border-radius: 6px;
-  opacity: 0.46;
-  filter: brightness(0.65) saturate(0.85);
+  opacity: 0.61;
+  filter: brightness(0.82) saturate(0.85);
   display: block;
 }
 

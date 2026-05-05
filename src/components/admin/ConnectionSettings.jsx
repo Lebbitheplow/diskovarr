@@ -840,24 +840,20 @@ function SonarrSection({ sonarrUrl, sonarrApiKey, sonarrEnabled, sonarrQualityPr
   )
 }
 
-function RivenSection({ rivenEnabled, rivenUrl, rivenApiKey, rivenRdkey, dumbRequestMode, compatKey,
+function RivenSection({ rivenEnabled, rivenUrl, rivenApiKey, dumbRequestMode, compatKey,
   onUpdate, onSave, onToast }) {
   const [url, setUrl] = useState(parseHost(rivenUrl))
   const [apiKey, setApiKey] = useState(rivenApiKey ? MASKED : '')
-  const [rdkey, setRdkey] = useState(rivenRdkey ? MASKED : '')
   const [apiKeyVisible, setApiKeyVisible] = useState(false)
-  const [rdkeyVisible, setRdkeyVisible] = useState(false)
   const [testLoading, setTestLoading] = useState(false)
   const [saveLoading, setSaveLoading] = useState(false)
   const [toast, setToast] = useState(null)
   const [enabled, setEnabled] = useState(!!rivenEnabled)
   const [mode, setMode] = useState(dumbRequestMode || 'pull')
   const realKey = apiKey === MASKED ? '' : apiKey
-  const realRdkey = rdkey === MASKED ? '' : rdkey
 
   useEffect(() => { setUrl(parseHost(rivenUrl)) }, [rivenUrl])
   useEffect(() => { setApiKey(rivenApiKey ? MASKED : '') }, [rivenApiKey])
-  useEffect(() => { setRdkey(rivenRdkey ? MASKED : '') }, [rivenRdkey])
   useEffect(() => { setEnabled(!!rivenEnabled) }, [rivenEnabled])
   useEffect(() => { setMode(dumbRequestMode || 'pull') }, [dumbRequestMode])
 
@@ -870,7 +866,7 @@ function RivenSection({ rivenEnabled, rivenUrl, rivenApiKey, rivenRdkey, dumbReq
   const handleTest = async () => {
     setTestLoading(true)
     try {
-      await adminRiven.test({ url: url || rivenUrl, apiKey: realKey, riven_rdkey: realRdkey })
+      await adminRiven.test({ url: url || rivenUrl, apiKey: realKey })
       onToast?.('Riven connection successful')
     } catch (err) {
       onToast?.(err.message || 'Riven test failed', 'error')
@@ -885,7 +881,6 @@ function RivenSection({ rivenEnabled, rivenUrl, rivenApiKey, rivenRdkey, dumbReq
         riven_enabled: enabled,
         riven_url: fullUrl,
         ...(realKey ? { riven_api_key: realKey } : {}),
-        ...(realRdkey ? { riven_rdkey: realRdkey } : {}),
       }
       await adminRiven.save(savePayload)
       onSave?.({ riven_url: fullUrl })
@@ -951,18 +946,6 @@ function RivenSection({ rivenEnabled, rivenUrl, rivenApiKey, rivenRdkey, dumbReq
               <div className="conn-input-btns">
                 <button type="button" className="conn-input-icon-btn"
                   onClick={() => setApiKeyVisible(!apiKeyVisible)} title="Show / hide" />
-              </div>
-            </div>
-          </div>
-          <div className="conn-field-group conn-field-key">
-            <span className="conn-field-label">Real-Debrid Key <span className="conn-field-optional">auto-read from DUMB</span></span>
-            <div className="conn-input-wrap">
-              <input type={rdkeyVisible ? 'text' : 'password'} className="conn-input"
-                placeholder="Auto-detected from RIVEN_DOWNLOADERS_REAL_DEBRID_API_KEY"
-                value={rdkey} onChange={(e) => setRdkey(e.target.value)} autoComplete="new-password" />
-              <div className="conn-input-btns">
-                <button type="button" className="conn-input-icon-btn"
-                  onClick={() => setRdkeyVisible(!rdkeyVisible)} title="Show / hide" />
               </div>
             </div>
           </div>
@@ -1075,7 +1058,6 @@ export default function ConnectionSettings({ onDataLoaded, onToast }) {
         dumb_api_key:      r.dumbApiKey,
         compat_api_key:    r.compatApiKey,
         riven_api_key:     rv?.hasApiKey ? MASKED : '',
-        riven_rdkey:       rv?.hasRdKey  ? MASKED : '',
       }
       const rivenSettings = rv ? {
         riven_url:         rv.url || settingsRes.data.riven_url || '',
@@ -1260,7 +1242,6 @@ export default function ConnectionSettings({ onDataLoaded, onToast }) {
           rivenEnabled={fields.riven_enabled}
           rivenUrl={fields.riven_url}
           rivenApiKey={fields.riven_api_key}
-          rivenRdkey={fields.riven_rdkey}
           dumbRequestMode={fields.dumb_request_mode || 'pull'}
           compatKey={compatKey}
           onUpdate={handleRivenUpdate}

@@ -30,6 +30,9 @@ server/data/
 FINAL_PLAN_SUMMARY.md
 IMPLEMENTATION_PLAN.md
 
+# Build and deployment scripts (contain personal info / credentials)
+scripts/
+
 # Dev helpers
 proxy-server.js
 proxy.js
