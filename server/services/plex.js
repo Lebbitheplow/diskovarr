@@ -210,13 +210,15 @@ async function syncUserWatched(userId, userToken) {
           return { MediaContainer: {} };
         });
 
-    const accountParam = `&accountID=${userId}`;
+    // Use the user's own token when available — admin token + accountID only works for Plex Home managed users
+    const fetchToken = userToken || getPlexToken();
+    const accountParam = userToken ? '' : `&accountID=${userId}`;
 
     // Fetch Plex + Tautulli in parallel
     const [plexMoviesJson, plexTVJson, deckJson, tautulliMovieKeys, tautulliShowKeys] = await Promise.all([
-      safeFetch(`${getPlexUrl()}/library/sections/${getMoviesSection()}/all?unwatched=0${accountParam}&X-Plex-Container-Size=99999&X-Plex-Token=${getPlexToken()}`, 45000),
-      safeFetch(`${getPlexUrl()}/library/sections/${getTvSection()}/all?unwatched=0${accountParam}&X-Plex-Container-Size=99999&X-Plex-Token=${getPlexToken()}`, 45000),
-      safeFetch(`${getPlexUrl()}/library/onDeck?${accountParam}&X-Plex-Container-Size=9999&X-Plex-Token=${getPlexToken()}`, 20000),
+      safeFetch(`${getPlexUrl()}/library/sections/${getMoviesSection()}/all?unwatched=0${accountParam}&X-Plex-Container-Size=99999&X-Plex-Token=${fetchToken}`, 45000),
+      safeFetch(`${getPlexUrl()}/library/sections/${getTvSection()}/all?unwatched=0${accountParam}&X-Plex-Container-Size=99999&X-Plex-Token=${fetchToken}`, 45000),
+      safeFetch(`${getPlexUrl()}/library/onDeck?${accountParam}&X-Plex-Container-Size=9999&X-Plex-Token=${fetchToken}`, 20000),
       tautulliService.getWatchedMovieKeys(userId),
       tautulliService.getWatchedShowKeys(userId),
     ]);

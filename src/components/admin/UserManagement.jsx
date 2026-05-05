@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react'
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import adminApi, {
   adminUsers,
   adminUserSettings,
@@ -15,21 +15,19 @@ const USER_AVATAR_FALLBACK = 'data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.or
 
 function formatRelativeTime(timestamp) {
   if (!timestamp) return 'Never'
-  const d = new Date(timestamp)
+  // seen_at is stored as Unix seconds; convert to ms
+  const ms = timestamp < 1e10 ? timestamp * 1000 : timestamp
+  const d = new Date(ms)
   const now = new Date()
   const diffMs = now - d
   if (diffMs < 0) return 'Just now'
   const diffMin = Math.floor(diffMs / 60000)
   const diffHrs = Math.floor(diffMin / 60)
   const diffDays = Math.floor(diffHrs / 24)
-  const diffWeeks = Math.floor(diffDays / 7)
-  const diffMonths = Math.floor(diffDays / 30)
   if (diffMin < 1) return 'Just now'
   if (diffMin < 60) return `${diffMin}m ago`
   if (diffHrs < 24) return `${diffHrs}h ago`
-  if (diffDays < 7) return `${diffDays}d ago`
-  if (diffWeeks < 5) return `${diffWeeks}w ago`
-  if (diffMonths < 12) return `${diffMonths}mo ago`
+  if (diffDays < 9) return `${diffDays}d ago`
   return d.toLocaleDateString()
 }
 
@@ -169,6 +167,142 @@ function PaginationControls({
           </button>
         </div>
       </div>
+    </div>
+  )
+}
+
+function SearchableSelect({ options, value, onChange, placeholder = 'Select...', disabled = false }) {
+  const [open, setOpen] = useState(false)
+  const [search, setSearch] = useState('')
+  const containerRef = useRef(null)
+  const inputRef = useRef(null)
+
+  const selected = options.find((o) => o.value === value) || null
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    if (!q) return options
+    return options.filter((o) => o.label.toLowerCase().includes(q))
+  }, [options, search])
+
+  useEffect(() => {
+    if (!open) return
+    const handler = (e) => {
+      if (containerRef.current && !containerRef.current.contains(e.target)) {
+        setOpen(false)
+        setSearch('')
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+
+  const handleToggle = () => {
+    if (disabled) return
+    setOpen((v) => {
+      if (!v) setTimeout(() => inputRef.current?.focus(), 0)
+      else setSearch('')
+      return !v
+    })
+  }
+
+  const handleSelect = (val) => {
+    onChange(val)
+    setOpen(false)
+    setSearch('')
+  }
+
+  return (
+    <div ref={containerRef} style={{ position: 'relative', width: '100%' }}>
+      <button
+        type="button"
+        onClick={handleToggle}
+        disabled={disabled}
+        className="conn-select"
+        style={{
+          width: '100%',
+          textAlign: 'left',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 8,
+          cursor: disabled ? 'not-allowed' : 'pointer',
+          opacity: disabled ? 0.6 : 1,
+          boxSizing: 'border-box',
+        }}
+      >
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+          {selected ? selected.label : <span style={{ color: 'var(--text-muted)' }}>{placeholder}</span>}
+        </span>
+        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', flexShrink: 0 }}>{open ? '▲' : '▼'}</span>
+      </button>
+
+      {open && (
+        <div style={{
+          position: 'absolute',
+          top: 'calc(100% + 4px)',
+          left: 0,
+          right: 0,
+          zIndex: 200,
+          background: 'var(--bg-elevated)',
+          border: '1px solid var(--accent)',
+          borderRadius: 12,
+          boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+          overflow: 'hidden',
+        }}>
+          <div style={{ padding: '8px 10px', borderBottom: '1px solid var(--border)' }}>
+            <input
+              ref={inputRef}
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search users..."
+              style={{
+                width: '100%',
+                boxSizing: 'border-box',
+                padding: '6px 12px',
+                background: 'var(--bg-secondary)',
+                border: '1px solid var(--border)',
+                borderRadius: 999,
+                color: 'var(--text-primary)',
+                fontSize: '0.85rem',
+                fontFamily: 'inherit',
+                outline: 'none',
+              }}
+              onFocus={(e) => { e.target.style.borderColor = 'var(--accent)' }}
+              onBlur={(e) => { e.target.style.borderColor = 'var(--border)' }}
+            />
+          </div>
+          <div style={{ maxHeight: 220, overflowY: 'auto' }}>
+            {filtered.length === 0 ? (
+              <div style={{ padding: '10px 16px', color: 'var(--text-muted)', fontSize: '0.85rem' }}>No users found</div>
+            ) : filtered.map((o) => (
+              <button
+                key={o.value}
+                type="button"
+                onClick={() => handleSelect(o.value)}
+                style={{
+                  width: '100%',
+                  textAlign: 'left',
+                  padding: '9px 16px',
+                  background: o.value === value ? 'var(--accent-dim)' : 'transparent',
+                  color: o.value === value ? 'var(--accent)' : 'var(--text-primary)',
+                  border: 'none',
+                  cursor: 'pointer',
+                  fontSize: '0.875rem',
+                  fontFamily: 'inherit',
+                  display: 'block',
+                  transition: 'background 0.1s',
+                }}
+                onMouseEnter={(e) => { if (o.value !== value) e.currentTarget.style.background = 'var(--bg-secondary)' }}
+                onMouseLeave={(e) => { if (o.value !== value) e.currentTarget.style.background = 'transparent' }}
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -361,8 +495,8 @@ export default function UserManagement({ onDataLoaded, onToast, connections, onO
     loadUsers(newPage, newPerPage)
   }, [loadUsers])
 
-  const handleOwnerChange = useCallback((e) => {
-    setServerOwner(e.target.value)
+  const handleOwnerChange = useCallback((userId) => {
+    setServerOwner(userId)
   }, [])
 
   const handleSaveOwner = useCallback(async () => {
@@ -606,20 +740,16 @@ export default function UserManagement({ onDataLoaded, onToast, connections, onO
           <div className="conn-field-group" style={{ flex: '1 1 260px', minWidth: 0 }}>
             <label className="conn-field-label">Server Owner</label>
             <div className="conn-input-wrap" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 6 }}>
-              <select
-                className="conn-select"
+              <SearchableSelect
+                options={allUsersList.map((u) => ({
+                  value: u.user_id,
+                  label: `${u.username}${u.user_id ? ` (${u.user_id})` : ''}`,
+                }))}
                 value={serverOwner}
                 onChange={handleOwnerChange}
-                style={{ width: '100%', minWidth: 0, boxSizing: 'border-box' }}
+                placeholder="Select a user..."
                 disabled={savingOwner}
-              >
-                <option value="">Select a user...</option>
-                {allUsersList.map((u) => (
-                  <option key={u.user_id} value={u.user_id}>
-                    {u.username} {u.user_id ? `(${u.user_id})` : ''}
-                  </option>
-                ))}
-              </select>
+              />
               {ownerUser && (
                 <span className="conn-hint">
                   Currently: {ownerUser.username} {ownerUser.user_id && `(${ownerUser.user_id})`}

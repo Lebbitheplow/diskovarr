@@ -107,7 +107,8 @@ router.post('/logout', (req, res) => {
 
 router.get('/users', requireAdmin, (req, res) => {
   const page = Math.max(1, parseInt(req.query.page) || 1);
-  const perPage = [10, 25, 50].includes(parseInt(req.query.perPage)) ? parseInt(req.query.perPage) : 10;
+  const perPageParsed = parseInt(req.query.perPage);
+  const perPage = [10, 25, 50].includes(perPageParsed) ? perPageParsed : perPageParsed > 50 ? Math.min(perPageParsed, 9999) : 10;
   const allUsers = db.getAdminStats().users;
   const total = allUsers.length;
   const users = allUsers.slice((page - 1) * perPage, page * perPage);

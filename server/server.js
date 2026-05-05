@@ -253,7 +253,7 @@ app.listen(PORT, '0.0.0.0', () => {
         const s = JSON.parse(sess)
         if (s?.plexUser?.id && s?.plexUser?.token) {
           const db = require('./db/database')
-          db.upsertKnownUser(s.plexUser.id, s.plexUser.username, s.plexUser.thumb, s.plexUser.token)
+          db.seedKnownUser(s.plexUser.id, s.plexUser.username, s.plexUser.thumb, s.plexUser.token)
         }
       } catch {}
     }

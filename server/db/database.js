@@ -452,30 +452,32 @@ function getAdminStats() {
     .get(process.env.PLEX_TV_SECTION_ID || '2')?.c || 0;
   const dismissalCount = db.prepare("SELECT COUNT(*) as c FROM dismissals").get()?.c || 0;
 
-  // Per-user watched counts — include users from sync_log even if they have 0 watched items
+  // Per-user watched counts — all known users, watched count only includes library items
   const watchedStats = db.prepare(`
     SELECT
-      s.uid AS user_id,
-      COALESCE(ku.username, s.uid) AS username,
+      ku.user_id,
+      ku.username,
       ku.thumb,
       ku.seen_at AS last_login,
       COALESCE(w.watched_count, 0) AS watched_count,
-      COALESCE(w.last_sync, s.last_sync) AS last_sync,
+      COALESCE(sl.last_sync, 0) AS last_sync,
       COALESCE(r.request_count, 0) AS request_count
-    FROM (
+    FROM known_users ku
+    LEFT JOIN (
+      SELECT uw.user_id, COUNT(*) as watched_count, MAX(uw.synced_at) as last_sync
+      FROM user_watched uw
+      JOIN library_items li ON li.rating_key = uw.rating_key
+      GROUP BY uw.user_id
+    ) w ON w.user_id = ku.user_id
+    LEFT JOIN (
       SELECT SUBSTR(key, 9) AS uid, last_sync
       FROM sync_log WHERE key LIKE 'watched_%'
-    ) s
-    LEFT JOIN (
-      SELECT user_id, COUNT(*) as watched_count, MAX(synced_at) as last_sync
-      FROM user_watched GROUP BY user_id
-    ) w ON w.user_id = s.uid
-    LEFT JOIN known_users ku ON ku.user_id = s.uid
+    ) sl ON sl.uid = ku.user_id
     LEFT JOIN (
       SELECT user_id, COUNT(*) as request_count
       FROM discover_requests GROUP BY user_id
-    ) r ON r.user_id = s.uid
-    ORDER BY last_sync DESC
+    ) r ON r.user_id = ku.user_id
+    ORDER BY ku.seen_at DESC
   `).all();
 
   // Sync times
@@ -529,6 +531,18 @@ function upsertKnownUser(userId, username, thumb, token) {
     INSERT OR REPLACE INTO known_users (user_id, username, thumb, seen_at, plex_token)
     VALUES (?, ?, ?, ?, ?)
   `).run(String(userId), username, thumb || null, Math.floor(Date.now() / 1000), token || null);
+}
+
+// Seed from sessions on startup — updates token/name/thumb but preserves seen_at
+function seedKnownUser(userId, username, thumb, token) {
+  db.prepare(`
+    INSERT INTO known_users (user_id, username, thumb, seen_at, plex_token)
+    VALUES (?, ?, ?, 0, ?)
+    ON CONFLICT(user_id) DO UPDATE SET
+      username = excluded.username,
+      thumb = excluded.thumb,
+      plex_token = excluded.plex_token
+  `).run(String(userId), username, thumb || null, token || null);
 }
 
 function getAllKnownUsersWithTokens() {
@@ -1561,7 +1575,7 @@ module.exports = {
   addDismissal, getDismissals, removeDismissal,
   addToWatchlistDb, removeFromWatchlistDb, getWatchlistFromDb,
   updateWatchlistPlexIds, getWatchlistPlexIds, updateWatchlistPlexGuid,
-  upsertKnownUser, touchKnownUser, getKnownUsers, getAllKnownUsersWithTokens, getLibraryItemByTmdbId,
+  upsertKnownUser, seedKnownUser, touchKnownUser, getKnownUsers, getAllKnownUsersWithTokens, getLibraryItemByTmdbId,
   upsertManyItems, getLibraryItemsFromDb, getLibraryItemByKey,
   replaceWatchedBatch, getWatchedKeysFromDb,
   upsertUserRatings, getUserRatingsFromDb,
