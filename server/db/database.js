@@ -452,7 +452,7 @@ function getAdminStats() {
     .get(process.env.PLEX_TV_SECTION_ID || '2')?.c || 0;
   const dismissalCount = db.prepare("SELECT COUNT(*) as c FROM dismissals").get()?.c || 0;
 
-  // Per-user watched counts — all known users, watched count only includes library items
+  // Per-user watched counts — all known users, counts all watched items (not filtered by current library)
   const watchedStats = db.prepare(`
     SELECT
       ku.user_id,
@@ -466,7 +466,6 @@ function getAdminStats() {
     LEFT JOIN (
       SELECT uw.user_id, COUNT(*) as watched_count, MAX(uw.synced_at) as last_sync
       FROM user_watched uw
-      JOIN library_items li ON li.rating_key = uw.rating_key
       GROUP BY uw.user_id
     ) w ON w.user_id = ku.user_id
     LEFT JOIN (

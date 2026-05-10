@@ -210,9 +210,25 @@ async function syncUserWatched(userId, userToken) {
           return { MediaContainer: {} };
         });
 
-    // Use the user's own token when available — admin token + accountID only works for Plex Home managed users
-    const fetchToken = userToken || getPlexToken();
-    const accountParam = userToken ? '' : `&accountID=${userId}`;
+    // Resolve token: provided > stored in DB > admin token (last resort)
+    const providedToken = userToken;
+    let resolvedToken = providedToken;
+    let usingAccountParam = false;
+
+    if (!resolvedToken) {
+      const storedUser = db.prepare('SELECT plex_token FROM known_users WHERE user_id = ?').get(String(userId));
+      if (storedUser && storedUser.plex_token) {
+        resolvedToken = storedUser.plex_token;
+        console.log(`[watchedSync] Using stored token for user ${userId}`);
+      } else {
+        resolvedToken = getPlexToken();
+        usingAccountParam = true;
+        console.warn(`[watchedSync] No stored token for user ${userId}, falling back to admin token + accountID (may return global data)`);
+      }
+    }
+
+    const fetchToken = resolvedToken;
+    const accountParam = usingAccountParam ? `&accountID=${userId}` : '';
 
     // Fetch Plex + Tautulli in parallel
     const [plexMoviesJson, plexTVJson, deckJson, tautulliMovieKeys, tautulliShowKeys] = await Promise.all([

@@ -429,7 +429,7 @@ export default function NavigationBar() {
             <div className="info-modal-logo">
               <span className="logo-icon"><LogoIcon /></span>
               <span className="logo-text">Diskovarr</span>
-              <button className="info-modal-version" onClick={() => { setInfoOpen(false); setChangelogOpen(true) }}>v{import.meta.env.VITE_APP_VERSION || '1.17.12'}</button>
+              <button className="info-modal-version" onClick={() => { setInfoOpen(false); setChangelogOpen(true) }}>v{import.meta.env.VITE_APP_VERSION || '2.0.0'}</button>
             </div>
             <p className="info-modal-tagline">Personalized Plex recommendations based on your watch history.</p>
             <div className="info-modal-sections">
@@ -481,7 +481,35 @@ export default function NavigationBar() {
             <div className="info-modal-sections" id="changelog-entries">
               <div className="info-modal-section">
                 <div className="info-modal-section-title">
-                  v{import.meta.env.VITE_APP_VERSION || '1.17.12'}{' '}
+                  v{import.meta.env.VITE_APP_VERSION || '2.0.0'}{' '}
+                  <span style={{ fontWeight: '400', color: 'var(--text-secondary)', fontSize: '0.78rem' }}>2026-05-04</span>
+                </div>
+                <p style={{ margin: '4px 0 2px', fontSize: '0.78rem', fontWeight: '600', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Additions</p>
+                <ul style={{ margin: '0 0 8px', paddingLeft: '18px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <li style={{ fontSize: '0.84rem' }}>Added genre lists to the Requests page</li>
+                  <li style={{ fontSize: '0.84rem' }}>Added "Coming Soon" items to the Requests page</li>
+                  <li style={{ fontSize: '0.84rem' }}>Added toggle to hide library items on the Search page</li>
+                  <li style={{ fontSize: '0.84rem' }}>Introduced new filter section for the Search and Filter pages</li>
+                  <li style={{ fontSize: '0.84rem' }}>Added "More Like This" recommendations on the Search page</li>
+                  <li style={{ fontSize: '0.84rem' }}>Added 8 notification agents: Webhook, Slack, Gotify, ntfy, Pushbullet, Telegram, Email, WebPush</li>
+                  <li style={{ fontSize: '0.84rem' }}>Added scrolling poster tiles to the login page</li>
+                  <li style={{ fontSize: '0.84rem' }}>Notifications now include clickable hyperlinks</li>
+                </ul>
+                <p style={{ margin: '4px 0 2px', fontSize: '0.78rem', fontWeight: '600', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Removals</p>
+                <ul style={{ margin: '0 0 8px', paddingLeft: '18px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <li style={{ fontSize: '0.84rem' }}>Removed torrent browser</li>
+                  <li style={{ fontSize: '0.84rem' }}>Removed Real-Debrid key field from the admin page</li>
+                </ul>
+                <p style={{ margin: '4px 0 2px', fontSize: '0.78rem', fontWeight: '600', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Fixes & Improvements</p>
+                <ul style={{ margin: '0 0 0', paddingLeft: '18px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <li style={{ fontSize: '0.84rem' }}>Watchlist now properly imports items from user watchlists</li>
+                  <li style={{ fontSize: '0.84rem' }}>Admin user selector now supports scrolling and search</li>
+                  <li style={{ fontSize: '0.84rem' }}>Improved functionality in the Seerr compatibility shim</li>
+                </ul>
+              </div>
+              <div className="info-modal-section">
+                <div className="info-modal-section-title">
+                  v1.17.12{' '}
                   <span style={{ fontWeight: '400', color: 'var(--text-secondary)', fontSize: '0.78rem' }}>2025-01-01</span>
                 </div>
                 <ul style={{ margin: '6px 0 0', paddingLeft: '18px', display: 'flex', flexDirection: 'column', gap: '4px' }}>

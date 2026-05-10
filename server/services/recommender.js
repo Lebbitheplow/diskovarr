@@ -854,22 +854,28 @@ function invalidateAllCaches() {
  * Uses DB-cached watched data (no user token needed).
  */
 async function warmAllUserCaches() {
-  const users = db.getKnownUsers();
-  if (!users.length) return;
+  const usersWithTokens = db.getAllKnownUsersWithTokens();
+  const allUsers = db.getKnownUsers();
+  if (!allUsers.length) return;
   let warmed = 0;
   let skipped = 0;
-  for (const user of users) {
-    const key = String(user.user_id);
+  for (const { user_id, plex_token } of usersWithTokens) {
+    const key = String(user_id);
     const existing = recCache.get(key);
     if (existing && (Date.now() - existing.builtAt) < REC_CACHE_TTL) { skipped++; continue; }
     try {
-      await getRecommendations(key, null);
+      await getRecommendations(key, plex_token);
       warmed++;
     } catch (err) {
       logger.debug(`warmAllUserCaches: skip user ${key} — ${err.message}`);
     }
   }
-  logger.info(`Rec pre-warm: ${warmed} warmed, ${skipped} already fresh (${users.length} total users)`);
+  const usersWithoutTokens = allUsers.length - usersWithTokens.length;
+  if (usersWithoutTokens > 0) {
+    logger.info(`Rec pre-warm: ${warmed} warmed, ${skipped} already fresh, ${usersWithoutTokens} users without stored tokens (${allUsers.length} total)`);
+  } else {
+    logger.info(`Rec pre-warm: ${warmed} warmed, ${skipped} already fresh (${allUsers.length} total users)`);
+  }
 }
 
 module.exports = {

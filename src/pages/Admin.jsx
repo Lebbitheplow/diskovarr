@@ -8,7 +8,7 @@ import BulkSettingsModal from '../components/admin/BulkSettingsModal'
 import AgentInfoModal from '../components/admin/AgentInfoModal'
 import { adminStatus, adminNotifications } from '../services/adminApi'
 
-const APP_VERSION = '1.17.12'
+const APP_VERSION = '2.0.0'
 
 const LOGO_SVG = (
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="1em" height="1em" fill="none" aria-hidden="true">

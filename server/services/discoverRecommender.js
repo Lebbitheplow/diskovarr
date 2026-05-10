@@ -855,20 +855,17 @@ async function refreshSharedCandidatePools() {
  * Mirrors recommender.warmAllUserCaches() — called by the 28-min background job in server.js.
  */
 async function warmAllUserDiscoverCaches() {
-  const userIds = db.getKnownUserIds();
-  if (!userIds.length) return;
-  console.log(`[discoverRec] warmAllUserDiscoverCaches: ${userIds.length} user(s)`);
-  // Get a representative admin token for Plex API calls (needed for watchedKeys)
-  const plexAdminToken = plexService.getAdminToken ? plexService.getAdminToken() : null;
-  for (const userId of userIds) {
+  const usersWithTokens = db.getAllKnownUsersWithTokens();
+  if (!usersWithTokens.length) return;
+  console.log(`[discoverRec] warmAllUserDiscoverCaches: ${usersWithTokens.length} user(s)`);
+  for (const { user_id, plex_token } of usersWithTokens) {
     try {
-      const userToken = plexAdminToken; // use admin token as fallback; per-user token not available here
-      const pools = await buildDiscoverPools(userId, userToken);
+      const pools = await buildDiscoverPools(user_id, plex_token);
       const builtAt = Date.now();
-      discoverCache.set(String(userId), { pools, builtAt });
-      db.setDiscoverPool(String(userId), pools, builtAt);
+      discoverCache.set(String(user_id), { pools, builtAt });
+      db.setDiscoverPool(String(user_id), pools, builtAt);
     } catch (err) {
-      console.warn(`[discoverRec] warmAllUserDiscoverCaches failed for user ${userId}:`, err.message);
+      console.warn(`[discoverRec] warmAllUserDiscoverCaches failed for user ${user_id}:`, err.message);
     }
   }
 }

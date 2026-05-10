@@ -198,7 +198,7 @@ router.post('/sync/watched/:userId', requireAdmin, async (req, res) => {
   for (const row of rows) {
     try {
       const s = JSON.parse(row.sess);
-      if (s.plexUser && s.plexUser.id === userId) {
+      if (s.plexUser && String(s.plexUser.id) === String(userId)) {
         userToken = s.plexUser.token;
         break;
       }
@@ -206,7 +206,14 @@ router.post('/sync/watched/:userId', requireAdmin, async (req, res) => {
   }
 
   if (!userToken) {
-    return res.json({ success: false, message: 'User not found in active sessions. They need to be signed in.' });
+    const storedUser = db.prepare('SELECT plex_token FROM known_users WHERE user_id = ?').get(String(userId));
+    if (storedUser && storedUser.plex_token) {
+      userToken = storedUser.plex_token;
+    }
+  }
+
+  if (!userToken) {
+    return res.json({ success: false, message: 'No token available for this user. They need to sign in to Diskovarr first.' });
   }
 
   res.json({ success: true, message: 'Watched sync started for user ' + userId });
