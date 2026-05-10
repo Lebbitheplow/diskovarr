@@ -423,8 +423,8 @@ export default function NavigationBar() {
 
       {/* Info modal */}
       {infoOpen && (
-        <div className="info-modal-backdrop open">
-          <div className="info-modal-card" role="dialog" aria-modal="true">
+        <div className="info-modal-backdrop open" onClick={() => setInfoOpen(false)}>
+          <div className="info-modal-card" role="dialog" aria-modal="true" onClick={e => e.stopPropagation()}>
             <button className="info-modal-close" onClick={() => setInfoOpen(false)} aria-label="Close">✕</button>
             <div className="info-modal-logo">
               <span className="logo-icon"><LogoIcon /></span>
@@ -472,8 +472,8 @@ export default function NavigationBar() {
 
       {/* Changelog modal */}
       {changelogOpen && (
-        <div className="info-modal-backdrop open">
-          <div className="info-modal-card" role="dialog" aria-modal="true" style={{ maxWidth: '520px' }}>
+        <div className="info-modal-backdrop open" onClick={() => setChangelogOpen(false)}>
+          <div className="info-modal-card" role="dialog" aria-modal="true" onClick={e => e.stopPropagation()} style={{ maxWidth: '520px' }}>
             <button className="info-modal-close" onClick={() => setChangelogOpen(false)} aria-label="Close">✕</button>
             <div className="info-modal-logo">
               <span className="logo-text">Changelog</span>
