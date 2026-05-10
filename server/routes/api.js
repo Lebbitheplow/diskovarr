@@ -1714,6 +1714,20 @@ router.post('/issues', async (req, res) => {
   res.json({ success: true, id });
 });
 
+// Enrich an issue row with a resolved posterUrl
+function enrichIssuePoster(issue) {
+  const libItem = db.getLibraryItemByKey(issue.rating_key);
+  const mediaType = libItem?.type === 'show' ? 'tv' : issue.media_type;
+  const cached = libItem?.tmdbId ? db.getTmdbCache(libItem.tmdbId, mediaType) : null;
+  let posterUrl = null;
+  if (cached?.posterUrl) {
+    posterUrl = cached.posterUrl;
+  } else if (libItem?.thumb) {
+    posterUrl = `/api/poster?path=${encodeURIComponent(libItem.thumb)}`;
+  }
+  return { ...issue, posterUrl };
+}
+
 // GET /api/issues — paginated list (admin sees all, users see own)
 router.get('/issues', (req, res) => {
   if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
@@ -1726,7 +1740,8 @@ router.get('/issues', (req, res) => {
   const { rows, total } = isAdmin
     ? db.getAllIssues(limit, (pageNum - 1) * limit, status)
     : db.getUserIssues(userId, limit, (pageNum - 1) * limit, status);
-  res.json({ issues: rows, total, page: pageNum, totalPages: Math.ceil(total / limit) || 1 });
+  const enriched = rows.map(enrichIssuePoster);
+  res.json({ issues: enriched, total, page: pageNum, totalPages: Math.ceil(total / limit) || 1 });
 });
 
 // GET /api/issues/:id — fetch a single issue by id
@@ -1737,7 +1752,7 @@ router.get('/issues/:id', (req, res) => {
   const isAdmin = !!(req.session.isAdmin || req.session.isPlexAdminUser)
     || db.getPrivilegedUserIds().includes(String(req.session.plexUser.id));
   if (!isAdmin && String(issue.user_id) !== String(req.session.plexUser.id)) return res.status(403).json({ error: 'Forbidden' });
-  res.json(issue);
+  res.json(enrichIssuePoster(issue));
 });
 
 // POST /api/issues/:id/resolve — mark resolved with optional note

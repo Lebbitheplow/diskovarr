@@ -9,6 +9,12 @@ import { useAuth } from '../context/AuthContext'
 
 const STATUS_LABELS = { open: 'Open', resolved: 'Resolved', closed: 'Closed' }
 
+function posterUrl(path) {
+  if (!path) return null
+  if (path.startsWith('http://') || path.startsWith('https://')) return path
+  return '/api/poster?path=' + encodeURIComponent(path)
+}
+
 function fmtDate(ts) {
   if (!ts) return ''
   const diff = Math.floor(Date.now() / 1000) - ts
@@ -329,12 +335,12 @@ export default function Issues() {
               {issues.map(issue => (
                 <tr key={issue.id} id={`issue-row-${issue.id}`}>
                   <td>
-                    <div className="queue-title-cell">
-                      {issue.poster_path ? (
-                        <img className="queue-poster" src={`/api/poster?path=${encodeURIComponent(issue.poster_path)}`} alt="" loading="lazy" />
-                      ) : (
+                   <div className="queue-title-cell">
+                       {issue.posterUrl ? (
+                        <img className="queue-poster" src={posterUrl(issue.posterUrl)} alt="" loading="lazy" />
+                       ) : (
                         <div className="queue-poster-placeholder">?</div>
-                      )}
+                       )}
                       <div className="queue-title-info">
                         <div className="queue-title">{issue.title}</div>
                         {issue.description && <div className="issue-description" style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: '2px', maxWidth: '320px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{issue.description}</div>}
