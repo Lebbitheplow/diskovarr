@@ -3,8 +3,37 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../context/ToastContext'
 import { notificationsApi, searchApi } from '../services/api'
+import Modal from './Modal'
 
 const LOGO_SVG = 'M7.5 17.5h13M3 8.5h2.5v9M7 11h3v6.5M11 10h2.5v7.5M15 9a5 5 0 1 0 0 0 5 5 0 1 0 0 0M18.5 12.5l3.5 3.5'
+
+const URL_RE = /(https?:\/\/[^\s<]+)/g
+const URL_TEST = /^https?:\/\/[^\s<]+$/
+
+function renderTextWithLinks(text) {
+  if (!text) return null
+  const parts = text.split(URL_RE)
+  const elements = []
+  parts.forEach((part, i) => {
+    if (URL_TEST.test(part)) {
+      elements.push(
+        React.createElement('a', {
+          key: i,
+          href: part,
+          target: '_blank',
+          rel: 'noopener noreferrer',
+          style: { color: 'var(--accent)', textDecoration: 'underline' },
+        }, part)
+      )
+    } else if (part) {
+      elements.push(...part.split('\n').map((line, j) => [
+        j > 0 ? React.createElement('br', { key: `${i}-${j}-br` }) : null,
+        line || '\u00A0'
+      ]).flat())
+    }
+  })
+  return elements
+}
 
 function LogoIcon() {
   return (
@@ -34,6 +63,7 @@ export default function NavigationBar() {
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState([])
   const [searchActiveIdx, setSearchActiveIdx] = useState(-1)
+  const [selectedBroadcast, setSelectedBroadcast] = useState(null)
   const searchInputRef = useRef(null)
   const searchWrapRef = useRef(null)
   const searchDropdownRef = useRef(null)
@@ -125,8 +155,8 @@ export default function NavigationBar() {
     await markRead(notification.id)
 
     if (notification.type === 'broadcast') {
-      setInfoOpen(false)
-      // Could show a broadcast modal here
+      setBellOpen(false)
+      setSelectedBroadcast(notification)
     } else if (notification.type.startsWith('request_')) {
       navigate('/queue')
     } else if (notification.type === 'request_available') {
@@ -520,6 +550,17 @@ export default function NavigationBar() {
           </div>
         </div>
       )}
+
+      {/* Broadcast notification modal */}
+      <Modal isOpen={!!selectedBroadcast} onClose={() => setSelectedBroadcast(null)}>
+        {selectedBroadcast && (
+          <div className="broadcast-modal-body">
+            <div className="broadcast-modal-title">{selectedBroadcast.title}</div>
+            <div className="broadcast-modal-message">{renderTextWithLinks(selectedBroadcast.body)}</div>
+            <div className="broadcast-modal-time">{agoString(selectedBroadcast.created_at)}</div>
+          </div>
+        )}
+      </Modal>
     </>
   )
 }
