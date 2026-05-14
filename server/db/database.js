@@ -711,8 +711,8 @@ function getConnectionSettings() {
     defaultRequestService: getSetting('default_request_service', 'overseerr'),
     rivenUrl: getSetting('riven_url', '') || 'http://127.0.0.1:8082',
     rivenApiKey: getSetting('riven_api_key', ''),
-    rivenEnabled: getSetting('riven_enabled', '0') === '1',
-    dumbEnabled: getSetting('dumb_enabled', '0') === '1',
+    rivenEnabled: ['1', 'true'].includes(getSetting('riven_enabled', '0')),
+    dumbEnabled: ['1', 'true'].includes(getSetting('dumb_enabled', '0')),
     dumbRequestMode: getSetting('dumb_request_mode', 'pull'),
   };
 }

@@ -177,6 +177,10 @@ function toOverseerrRequest(row) {
 
 // Pick the best available service for a request
 function pickService(mediaType) {
+  // If DUMB pull mode is active, route to riven (submitRequestToService will early-return).
+  const dumbPullActive = db.getSetting('dumb_request_mode', 'pull') === 'pull' && ['1', 'true'].includes(db.getSetting('riven_enabled', '0'));
+  if (dumbPullActive) return 'riven';
+
   const c = db.getConnectionSettings();
   if (mediaType === 'movie') {
     if (c.radarrEnabled && c.radarrUrl) return 'radarr';
@@ -188,6 +192,55 @@ function pickService(mediaType) {
     if (c.rivenEnabled && c.rivenUrl) return 'riven';
   }
   return 'none';
+}
+
+// Create and enqueue a request_available notification for the requester.
+// Idempotent: skips if notified_available_at is already set.
+// Also removes any stale request_process_failed notifications for the same tmdbId.
+function notifyRequestAvailable(request) {
+  if (request.notified_available_at) {
+    logger.debug(`[shim] request #${request.id} already notified available, skipping`);
+    return;
+  }
+  try {
+    const prefs = db.getUserNotificationPrefs(request.user_id);
+    if (prefs.notify_available) {
+      const title = request.title || 'Unknown';
+      const notifId = db.createOrBundleNotification({
+        userId: request.user_id,
+        type: 'request_available',
+        title: `"${title}" is now available`,
+        body: 'Your requested content has been added to the library.',
+        data: { requestId: request.id, tmdbId: request.tmdb_id, mediaType: request.media_type, title },
+      });
+      db.enqueueNotification({
+        notificationId: notifId, agent: 'discord', userId: request.user_id,
+        payload: { type: 'request_available', title: `"${title}" is now available`, body: 'Your requested content has been added to the library.', posterUrl: request.poster_url },
+      });
+      db.enqueueNotification({
+        notificationId: notifId, agent: 'pushover', userId: request.user_id,
+        payload: { type: 'request_available', title: `"${title}" is now available`, body: 'Your requested content has been added to the library.', posterUrl: request.poster_url },
+      });
+      logger.info(`[shim] request_available notification enqueued for user ${request.user_id} — "${title}"`);
+    }
+    // Clean up any stale request_process_failed notifications for this tmdbId
+    try {
+      const failedNotifs = db.prepare(
+        "SELECT id FROM notifications WHERE type = 'request_process_failed' AND (user_id = ? OR user_id IS NULL)"
+      ).all(String(request.user_id));
+      for (const n of failedNotifs) {
+        const nData = typeof n.data === 'string' ? JSON.parse(n.data) : n.data;
+        if (nData && nData.tmdbId === request.tmdb_id) {
+          db.prepare('DELETE FROM notifications WHERE id = ?').run(n.id);
+          logger.info(`[shim] removed stale request_process_failed notification #${n.id} for "${title}"`);
+        }
+      }
+    } catch (e) {
+      logger.warn(`[shim] error cleaning stale failure notifications:`, e.message);
+    }
+  } catch (e) {
+    logger.warn(`[shim] error notifying request available for #${request.id}:`, e.message);
+  }
 }
 
 // ── GET /api/v1/auth/me ───────────────────────────────────────────────────────
@@ -746,6 +799,7 @@ router.put('/media/:id/available', (req, res) => {
     `SELECT * FROM discover_requests WHERE tmdb_id = ? AND status = 'approved' ORDER BY requested_at DESC LIMIT 1`
   ).get(tmdbId);
   if (!request) return res.status(404).json({ message: 'No approved request found for this media' });
+  notifyRequestAvailable(request);
   db.markRequestsNotifiedAvailable([request.id]);
   process.emit('diskovarr:checkFulfilled');
   logger.info(`[shim] DUMB marked tmdbId=${tmdbId} available — request #${request.id}`);
@@ -910,11 +964,11 @@ router.post('/media/:id/:status', (req, res) => {
   if (!tmdbId) return res.status(400).json({ message: 'Invalid id' });
   const { status } = req.params;
   if (status === 'available') {
-    // Same as PUT /media/:id/available
     const request = db.prepare(
       `SELECT * FROM discover_requests WHERE tmdb_id = ? AND status = 'approved' ORDER BY requested_at DESC LIMIT 1`
     ).get(tmdbId);
     if (request) {
+      notifyRequestAvailable(request);
       db.markRequestsNotifiedAvailable([request.id]);
       process.emit('diskovarr:checkFulfilled');
     }

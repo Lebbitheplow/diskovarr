@@ -163,6 +163,54 @@ router.post('/sync/library', requireAdmin, async (req, res) => {
     await plexService.warmCache();
     recommender.invalidateAllCaches();
     discoverRecommender.invalidateAllCaches();
+
+    // After sync: check for newly fulfilled requests and notify their requesters
+    try {
+      const libraryTmdbIds = db.getLibraryTmdbIds();
+      const fulfilled = db.getUnnotifiedFulfilledRequests(libraryTmdbIds);
+      if (fulfilled.length > 0) {
+        const notifiedIds = [];
+        for (const req of fulfilled) {
+          const prefs = db.getUserNotificationPrefs(req.user_id);
+          if (prefs.notify_available) {
+            const title = req.title || 'Unknown';
+            const notifId = db.createOrBundleNotification({
+              userId: req.user_id,
+              type: 'request_available',
+              title: `"${title}" is now available`,
+              body: 'Your requested content has been added to the library.',
+              data: { requestId: req.id, tmdbId: req.tmdb_id, mediaType: req.media_type, title },
+            });
+            db.enqueueNotification({
+              notificationId: notifId, agent: 'discord', userId: req.user_id,
+              payload: { type: 'request_available', title: `"${title}" is now available`, body: 'Your requested content has been added to the library.', posterUrl: req.poster_url },
+            });
+            db.enqueueNotification({
+              notificationId: notifId, agent: 'pushover', userId: req.user_id,
+              payload: { type: 'request_available', title: `"${title}" is now available`, body: 'Your requested content has been added to the library.', posterUrl: req.poster_url },
+            });
+            // Remove any stale request_process_failed notifications for this tmdbId
+            try {
+              const failedNotifs = db.prepare(
+                "SELECT id FROM notifications WHERE type = 'request_process_failed' AND (user_id = ? OR user_id IS NULL)"
+              ).all(String(req.user_id));
+              for (const n of failedNotifs) {
+                const nData = typeof n.data === 'string' ? JSON.parse(n.data) : n.data;
+                if (nData && nData.tmdbId === req.tmdb_id) {
+                  db.prepare('DELETE FROM notifications WHERE id = ?').run(n.id);
+                }
+              }
+            } catch {}
+          }
+          notifiedIds.push(req.id);
+        }
+        db.markRequestsNotifiedAvailable(notifiedIds);
+        console.log(`[Admin] Fulfilled ${notifiedIds.length} requests detected by library sync`);
+      }
+    } catch (fulfillErr) {
+      console.warn('[Admin] Fulfillment check after sync failed:', fulfillErr.message);
+    }
+
     console.log('[Admin] Manual library sync completed');
   } catch (err) {
     lastSyncError = err.message;
@@ -235,6 +283,14 @@ router.post('/theme/color', requireAdmin, (req, res) => {
     return res.status(400).json({ error: 'Invalid color — must be a 6-digit hex value' });
   }
   db.setThemeColor(color);
+  // Sync the Discord bot avatar to the new accent colour
+  try {
+    const discordCfg = JSON.parse(db.getSetting('discord_agent', '{}') || '{}');
+    if (discordCfg.botEnabled && discordCfg.botToken && !discordCfg.botAvatarUrl) {
+      const discordAgent = require('../services/discordAgent');
+      discordAgent.updateBotAvatar(discordCfg.botToken, color).catch(() => {});
+    }
+  } catch {}
   res.json({ success: true, color });
 });
 
@@ -347,7 +403,7 @@ router.get('/connections/settings', requireAdmin, (req, res) => {
     sonarr_quality_profile_id:   db.getSetting('sonarr_quality_profile_id', ''),
     sonarr_quality_profile_name: db.getSetting('sonarr_quality_profile_name', ''),
     riven_url:                   rivenUrl,
-    riven_enabled:               !!rivenUrl && db.getSetting('riven_enabled', '0') === '1',
+    riven_enabled:               !!rivenUrl && ['1', 'true'].includes(db.getSetting('riven_enabled', '0')),
     dumb_request_mode:           db.getSetting('dumb_request_mode', 'pull'),
     default_request_service:     db.getSetting('default_request_service', 'overseerr'),
     direct_request_access:       db.getSetting('direct_request_access', '0'),
@@ -651,19 +707,62 @@ router.post('/requests/:id/approve', requireAdmin, async (req, res) => {
     if (request.status !== 'pending') return res.status(400).json({ error: 'Request is not pending' });
 
     const storedSeasons = request.seasons_json ? JSON.parse(request.seasons_json) : null;
-    await submitRequestToService({
-      tmdbId: request.tmdb_id,
-      mediaType: request.media_type,
-      title: request.title,
-      service: request.service,
-      seasons: storedSeasons,
-    });
+    // If service is 'none', pick the best available service now
+    const dumbPullActive = db.getSetting('dumb_request_mode', 'pull') === 'pull' && ['1', 'true'].includes(db.getSetting('riven_enabled', '0'));
+    const service = (!request.service || request.service === 'none')
+      ? (dumbPullActive ? 'riven'
+        : (request.media_type === 'movie'
+            ? (db.getConnectionSettings().radarrEnabled ? 'radarr' : db.getConnectionSettings().overseerrEnabled ? 'overseerr' : 'riven')
+            : (db.getConnectionSettings().sonarrEnabled ? 'sonarr' : db.getConnectionSettings().overseerrEnabled ? 'overseerr' : 'riven')))
+      : request.service;
+    if (service !== 'none') {
+      await submitRequestToService({
+        tmdbId: request.tmdb_id,
+        mediaType: request.media_type,
+        title: request.title,
+        service,
+        seasons: storedSeasons,
+      });
+    }
 
     db.updateRequestStatus(request.id, 'approved', null);
     logger.info(`Request approved by admin: id=${request.id} tmdbId=${request.tmdb_id} title="${request.title}"`);
+    // Notify the requester
+    try {
+      const prefs = db.getUserNotificationPrefs(request.user_id);
+      if (prefs.notify_approved) {
+        const notifId = db.createOrBundleNotification({
+          userId: request.user_id,
+          type: 'request_approved',
+          title: `"${request.title}" approved`,
+          body: 'Your request has been approved and submitted.',
+          data: { requestId: request.id, tmdbId: request.tmdb_id, mediaType: request.media_type, title: request.title },
+        });
+        db.enqueueNotification({ notificationId: notifId, agent: 'discord', userId: request.user_id, payload: { type: 'request_approved', title: `"${request.title}" approved`, body: 'Your request has been approved and submitted.', posterUrl: request.poster_url } });
+        db.enqueueNotification({ notificationId: notifId, agent: 'pushover', userId: request.user_id, payload: { type: 'request_approved', title: `"${request.title}" approved`, body: 'Your request has been approved and submitted.', posterUrl: request.poster_url } });
+      }
+    } catch (e) { logger.warn('notification error:', e.message); }
     res.json({ success: true, request: db.getRequestById(request.id) });
   } catch (err) {
     console.error('admin approve error:', err);
+    // Notify admins of the failure
+    try {
+      const request = db.getRequestById(req.params.id);
+      const title = request?.title || 'Unknown';
+      const tmdbId = request?.tmdb_id;
+      const mediaType = request?.media_type;
+      for (const adminId of db.getPrivilegedUserIds()) {
+        const prefs = db.getUserNotificationPrefs(adminId);
+        if (prefs.notify_process_failed) {
+          db.createOrBundleNotification({
+            userId: adminId, type: 'request_process_failed',
+            title: `Request failed: "${title}"`,
+            body: err.message,
+            data: { tmdbId, mediaType, title },
+          });
+        }
+      }
+    } catch (e) { logger.warn('notification error:', e.message); }
     res.status(500).json({ error: err.message });
   }
 });

@@ -1060,7 +1060,10 @@ router.get('/explore/services', (req, res) => {
   const hasRiven     = c.rivenEnabled && !!c.rivenUrl;
   // Default only applies when both sides are configured; otherwise the available service wins
   const hasBothSides = (hasOverseerr || hasRiven) && (hasRadarr || hasSonarr);
-  const defaultService = hasBothSides ? (c.defaultRequestService || 'overseerr') : null;
+  const dumbPullActive = db.getSetting('dumb_request_mode', 'pull') === 'pull' && hasRiven;
+  const defaultService = dumbPullActive
+    ? 'riven'
+    : (hasBothSides ? (c.defaultRequestService || 'overseerr') : null);
   const directRequestAccess = db.getDirectRequestAccess();
   res.json({ overseerr: hasOverseerr, radarr: hasRadarr, sonarr: hasSonarr, riven: hasRiven, defaultService, directRequestAccess });
 });
@@ -1264,7 +1267,7 @@ async function submitRequestToService(requestData) {
     }
   } else if (service === 'riven') {
     // DUMB pull mode: skip the push — DUMB polls /api/v1/request?filter=approved instead
-    if (db.getSetting('riven_enabled', '0') === '1' && db.getSetting('dumb_request_mode', 'pull') === 'pull') {
+    if (['1', 'true'].includes(db.getSetting('riven_enabled', '0')) && db.getSetting('dumb_request_mode', 'pull') === 'pull') {
       logger.info(`[riven] DUMB pull mode active — skipping push for tmdbId=${tmdbId}`);
       return;
     }
@@ -1361,9 +1364,13 @@ router.post('/request', async (req, res) => {
     const cachedItem = db.getTmdbCache(tmdbId, mediaType);
     const storedPosterUrl = cachedItem?.posterUrl || null;
 
+    // When DUMB pull mode is active, route to riven so submitRequestToService early-returns cleanly.
+    const dumbPullActive = db.getSetting('dumb_request_mode', 'pull') === 'pull' && ['1', 'true'].includes(db.getSetting('riven_enabled', '0'));
+    const effectiveService = dumbPullActive ? 'riven' : service;
+
     if (!autoApprove) {
       // Store as pending — do NOT submit to service
-      db.addDiscoverRequestWithStatus(userId, tmdbId, mediaType, title || '', service, seasonsCount, 'pending', seasons || null, storedPosterUrl);
+      db.addDiscoverRequestWithStatus(userId, tmdbId, mediaType, title || '', effectiveService, seasonsCount, 'pending', seasons || null, storedPosterUrl);
       logger.info(`Request queued (pending approval): user=${userId} tmdbId=${tmdbId} type=${mediaType} title="${title}" service=${service}`);
       // Notify admins of new pending request
       try {
@@ -1388,10 +1395,10 @@ router.post('/request', async (req, res) => {
     }
 
     // Auto-approve: submit to service immediately (skip if no service configured)
-    if (service !== 'none') await submitRequestToService({ tmdbId, mediaType, title, service, seasons });
+    if (effectiveService !== 'none') await submitRequestToService({ tmdbId, mediaType, title, service: effectiveService, seasons });
 
-    db.addDiscoverRequestWithStatus(userId, tmdbId, mediaType, title || '', service, seasonsCount, 'approved', seasons || null, storedPosterUrl);
-    logger.info(`Request submitted: user=${userId} tmdbId=${tmdbId} type=${mediaType} title="${title}" service=${service}`);
+    db.addDiscoverRequestWithStatus(userId, tmdbId, mediaType, title || '', effectiveService, seasonsCount, 'approved', seasons || null, storedPosterUrl);
+    logger.info(`Request submitted: user=${userId} tmdbId=${tmdbId} type=${mediaType} title="${title}" service=${effectiveService}`);
 
 
     // Add the item to the user's native Plex.tv Watchlist so they can track it
@@ -1582,11 +1589,14 @@ router.post('/queue/:id/approve', requirePrivileged, async (req, res) => {
     if (request.status !== 'pending') return res.status(400).json({ error: 'Request is not pending' });
 
     const storedSeasons = request.seasons_json ? JSON.parse(request.seasons_json) : null;
-    // If service is 'none' (e.g. queued via shim), pick the best available service now
+    // If service is 'none' (e.g. queued via shim), pick the best available service now.
+    // When DUMB pull mode is active, prefer riven so submitRequestToService early-returns cleanly.
+    const dumbPullActive = db.getSetting('dumb_request_mode', 'pull') === 'pull' && ['1', 'true'].includes(db.getSetting('riven_enabled', '0'));
     const service = (!request.service || request.service === 'none')
-      ? (request.media_type === 'movie'
-          ? (db.getConnectionSettings().radarrEnabled ? 'radarr' : db.getConnectionSettings().overseerrEnabled ? 'overseerr' : 'riven')
-          : (db.getConnectionSettings().sonarrEnabled ? 'sonarr' : db.getConnectionSettings().overseerrEnabled ? 'overseerr' : 'riven'))
+      ? (dumbPullActive ? 'riven'
+        : (request.media_type === 'movie'
+            ? (db.getConnectionSettings().radarrEnabled ? 'radarr' : db.getConnectionSettings().overseerrEnabled ? 'overseerr' : 'riven')
+            : (db.getConnectionSettings().sonarrEnabled ? 'sonarr' : db.getConnectionSettings().overseerrEnabled ? 'overseerr' : 'riven')))
       : request.service;
     await submitRequestToService({
       tmdbId: request.tmdb_id,

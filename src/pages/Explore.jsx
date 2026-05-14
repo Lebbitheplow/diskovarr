@@ -283,9 +283,11 @@ export default function Explore() {
       if (prev[0] === 'all' && prev.length === 1) {
         return [String(season)]
       }
-      const next = prev.filter(s => String(s) !== String(season))
-      if (next.length === 0) return ['all']
-      return next
+      if (prev.includes(String(season))) {
+        const next = prev.filter(s => String(s) !== String(season))
+        return next.length === 0 ? ['all'] : next
+      }
+      return [...prev, String(season)]
     })
   }, [])
 

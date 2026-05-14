@@ -175,6 +175,54 @@ async function fetchAndUpsertItem(ratingKey, sectionId) {
     else cached.data.push(parsed);
   }
 
+  // Check if this item fulfills any approved requests
+  if (parsed.tmdbId) {
+    try {
+      const libraryTmdbIds = db.getLibraryTmdbIds();
+      const fulfilled = db.getUnnotifiedFulfilledRequests(libraryTmdbIds);
+      if (fulfilled.length > 0) {
+        const notifiedIds = [];
+        for (const req of fulfilled) {
+          const prefs = db.getUserNotificationPrefs(req.user_id);
+          if (prefs.notify_available) {
+            const title = req.title || 'Unknown';
+            const notifId = db.createOrBundleNotification({
+              userId: req.user_id,
+              type: 'request_available',
+              title: `"${title}" is now available`,
+              body: 'Your requested content has been added to the library.',
+              data: { requestId: req.id, tmdbId: req.tmdb_id, mediaType: req.media_type, title },
+            });
+            db.enqueueNotification({
+              notificationId: notifId, agent: 'discord', userId: req.user_id,
+              payload: { type: 'request_available', title: `"${title}" is now available`, body: 'Your requested content has been added to the library.', posterUrl: req.poster_url },
+            });
+            db.enqueueNotification({
+              notificationId: notifId, agent: 'pushover', userId: req.user_id,
+              payload: { type: 'request_available', title: `"${title}" is now available`, body: 'Your requested content has been added to the library.', posterUrl: req.poster_url },
+            });
+            try {
+              const failedNotifs = db.prepare(
+                "SELECT id FROM notifications WHERE type = 'request_process_failed' AND (user_id = ? OR user_id IS NULL)"
+              ).all(String(req.user_id));
+              for (const n of failedNotifs) {
+                const nData = typeof n.data === 'string' ? JSON.parse(n.data) : n.data;
+                if (nData && nData.tmdbId === req.tmdb_id) {
+                  db.prepare('DELETE FROM notifications WHERE id = ?').run(n.id);
+                }
+              }
+            } catch {}
+          }
+          notifiedIds.push(req.id);
+        }
+        db.markRequestsNotifiedAvailable(notifiedIds);
+        console.log(`[plex] Fulfilled ${notifiedIds.length} requests via Plex item detection`);
+      }
+    } catch (err) {
+      console.warn('[plex] Fulfillment check failed:', err.message);
+    }
+  }
+
   return parsed;
 }
 
@@ -644,4 +692,71 @@ module.exports = {
   getPlexUrl,
   getPlexToken,
   getPlexServerId,
+  startWebSocket,
 };
+
+// ── Plex SSE — real-time new-content detection ───────────────────────────────
+// Connects to PMS /:/eventsource/notifications (Server-Sent Events), the same
+// endpoint Tautulli uses. Fires onNewItem for fully-analyzed items (state 5).
+function startWebSocket(onNewItem) {
+  const logger = require('./logger');
+  let dead = false;
+  let abortCtrl = null;
+
+  async function connect() {
+    if (dead) return;
+    const plexUrl   = getPlexUrl();
+    const plexToken = getPlexToken();
+    if (!plexUrl || !plexToken) {
+      logger.warn('[plex sse] Plex URL or token not configured — skipping');
+      return;
+    }
+    const sseUrl = `${plexUrl}/:/eventsource/notifications?X-Plex-Token=${plexToken}`;
+    abortCtrl = new AbortController();
+    try {
+      const res = await fetch(sseUrl, { signal: abortCtrl.signal });
+      if (!res.ok) {
+        logger.warn(`[plex sse] HTTP ${res.status} — retrying in 30 s`);
+        if (!dead) setTimeout(connect, 30000);
+        return;
+      }
+      logger.info('[plex sse] Connected to Plex notification stream');
+      let buf = '';
+      const decoder = new TextDecoder();
+      for await (const chunk of res.body) {
+        if (dead) break;
+        buf += decoder.decode(chunk, { stream: true });
+        const lines = buf.split('\n');
+        buf = lines.pop(); // keep incomplete last line
+        for (const line of lines) {
+          if (!line.startsWith('data:')) continue;
+          try {
+            const msg = JSON.parse(line.slice(5).trim());
+            const container = msg.NotificationContainer;
+            if (!container || container.type !== 'timeline') continue;
+            for (const entry of (container.TimelineEntry || [])) {
+              if (entry.identifier !== 'com.plexapp.plugins.library') continue;
+              if (entry.state !== 5) continue;
+              const ratingKey = String(entry.itemID || '');
+              const sectionId = String(entry.sectionID || entry.librarySectionID || '');
+              if (!ratingKey) continue;
+              logger.info(`[plex sse] library.new ratingKey=${ratingKey} type=${entry.type} title="${entry.title || ''}"`);
+              onNewItem(ratingKey, sectionId);
+            }
+          } catch { /* ignore malformed lines */ }
+        }
+      }
+    } catch (err) {
+      if (dead) return;
+      logger.warn('[plex sse] Stream error:', err.message);
+    }
+    if (!dead) {
+      logger.info('[plex sse] Disconnected — reconnecting in 30 s');
+      setTimeout(connect, 30000);
+    }
+  }
+
+  connect();
+
+  return { close: () => { dead = true; try { abortCtrl?.abort(); } catch {} } };
+}

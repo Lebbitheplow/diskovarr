@@ -779,11 +779,17 @@ async function getDiscoverRecommendations(userId, userToken, { mature, hideReque
       .filter(item => !dismissedIds.has(`${item.tmdbId}:${item.mediaType}`))
       .filter(item => mature || !item.adult)
       .filter(item => !hideRequested || !requestedIds.has(`${item.tmdbId}:${item.mediaType}`))
-      .map(item => ({
-        ...item,
-        isRequested: requestedIds.has(`${item.tmdbId}:${item.mediaType}`),
-        isMyRequest: userRequestedIds.has(`${item.tmdbId}:${item.mediaType}`),
-      }));
+      .map(item => {
+        const key = `${item.tmdbId}:${item.mediaType}`;
+        const isRequested = requestedIds.has(key);
+        const isMyRequest = userRequestedIds.has(key);
+        return {
+          ...item,
+          isRequested,
+          isMyRequest,
+          badgeRequested: isRequested,
+        };
+      });
   }
 
   // Trending sections run in parallel with the pool sampling — they use
@@ -799,19 +805,19 @@ async function getDiscoverRecommendations(userId, userToken, { mature, hideReque
   function markTrending(items) {
     return items
       .filter(item => !hideRequested || !requestedIds.has(`${item.tmdbId}:${item.mediaType}`))
-      .map(item => ({
-        ...item,
-        isMyRequest: userRequestedIds.has(`${item.tmdbId}:${item.mediaType}`),
-      }));
+      .map(item => {
+        const key = `${item.tmdbId}:${item.mediaType}`;
+        return { ...item, isMyRequest: userRequestedIds.has(key), badgeRequested: requestedIds.has(key) };
+      });
   }
 
   function markUpcoming(items) {
     return items
       .filter(item => !hideRequested || !requestedIds.has(`${item.tmdbId}:${item.mediaType}`))
-      .map(item => ({
-        ...item,
-        isMyRequest: userRequestedIds.has(`${item.tmdbId}:${item.mediaType}`),
-      }));
+      .map(item => {
+        const key = `${item.tmdbId}:${item.mediaType}`;
+        return { ...item, isMyRequest: userRequestedIds.has(key), badgeRequested: requestedIds.has(key) };
+      });
   }
 
   return {

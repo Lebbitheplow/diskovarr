@@ -98,6 +98,22 @@ app.use('/admin/riven', require('./routes/riven'))
 
 // Dynamic theme/icon routes (need Express)
 const db = require('./db/database')
+
+// Track last visit for logged-in users (throttled to once per 5 minutes per user)
+const _lastVisitTouch = new Map()
+app.use((req, res, next) => {
+  const userId = req.session?.plexUser?.id;
+  if (userId) {
+    const now = Date.now();
+    const last = _lastVisitTouch.get(userId) || 0;
+    if (now - last > 5 * 60 * 1000) {
+      _lastVisitTouch.set(userId, now);
+      try { db.touchKnownUser(userId); } catch {}
+    }
+  }
+  next();
+});
+
 const APP_VERSION = require('./package.json').version
 function bgGradientCss() {
   const color = db.getThemeColor()
@@ -268,6 +284,53 @@ app.listen(PORT, '0.0.0.0', () => {
       logger.warn('Startup library sync failed:', err.message)
     }
 
+    // One-shot fulfillment check on startup — catches requests fulfilled while server was down
+    try {
+      const libraryTmdbIds = db.getLibraryTmdbIds();
+      const fulfilled = db.getUnnotifiedFulfilledRequests(libraryTmdbIds);
+      if (fulfilled.length > 0) {
+        const notifiedIds = [];
+        for (const req of fulfilled) {
+          const prefs = db.getUserNotificationPrefs(req.user_id);
+          if (prefs.notify_available) {
+            const title = req.title || 'Unknown';
+            const notifId = db.createOrBundleNotification({
+              userId: req.user_id,
+              type: 'request_available',
+              title: `"${title}" is now available`,
+              body: 'Your requested content has been added to the library.',
+              data: { requestId: req.id, tmdbId: req.tmdb_id, mediaType: req.media_type, title },
+            });
+            db.enqueueNotification({
+              notificationId: notifId, agent: 'discord', userId: req.user_id,
+              payload: { type: 'request_available', title: `"${title}" is now available`, body: 'Your requested content has been added to the library.', posterUrl: req.poster_url },
+            });
+            db.enqueueNotification({
+              notificationId: notifId, agent: 'pushover', userId: req.user_id,
+              payload: { type: 'request_available', title: `"${title}" is now available`, body: 'Your requested content has been added to the library.', posterUrl: req.poster_url },
+            });
+            // Clean up stale failure notifications
+            try {
+              const failedNotifs = db.prepare(
+                "SELECT id FROM notifications WHERE type = 'request_process_failed' AND (user_id = ? OR user_id IS NULL)"
+              ).all(String(req.user_id));
+              for (const n of failedNotifs) {
+                const nData = typeof n.data === 'string' ? JSON.parse(n.data) : n.data;
+                if (nData && nData.tmdbId === req.tmdb_id) {
+                  db.prepare('DELETE FROM notifications WHERE id = ?').run(n.id);
+                }
+              }
+            } catch {}
+          }
+          notifiedIds.push(req.id);
+        }
+        db.markRequestsNotifiedAvailable(notifiedIds);
+        logger.info(`Startup fulfilled ${notifiedIds.length} requests detected in library`);
+      }
+    } catch (fulfillErr) {
+      logger.warn('Startup fulfillment check failed:', fulfillErr.message);
+    }
+
     // Sync Plex.tv watchlists for all known users 10s after library sync
     setTimeout(() => plexService.syncAllUserWatchlists()
       .catch(err => logger.warn('Startup watchlist sync failed:', err.message)),
@@ -308,4 +371,16 @@ app.listen(PORT, '0.0.0.0', () => {
     .catch(err => logger.warn('Periodic watchlist sync failed:', err.message)),
     30 * 60 * 1000
   )
+
+  // Connect to Plex WebSocket for real-time new-content detection.
+  // Mimics how Tautulli receives library.new flags directly from PMS.
+  plexService.startWebSocket((ratingKey, sectionId) => {
+    plexService.fetchAndUpsertItem(ratingKey, sectionId)
+      .then(() => {
+        recommender.invalidateAllCaches();
+        discoverRecommender.invalidateAllCaches();
+        process.emit('diskovarr:checkFulfilled');
+      })
+      .catch(err => logger.warn('[plex ws] fetchAndUpsertItem error:', err.message));
+  });
 })

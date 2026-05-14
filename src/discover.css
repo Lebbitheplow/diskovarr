@@ -297,6 +297,12 @@
   border-color: var(--border-hover);
 }
 
+.chip-sm.active {
+  background: var(--accent-dim);
+  border-color: var(--accent-border);
+  color: var(--accent);
+}
+
 /* ── Initial / empty state ──────────────────────────────── */
 
 .discover-empty {
