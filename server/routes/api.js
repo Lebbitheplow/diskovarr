@@ -1691,6 +1691,15 @@ router.post('/queue/:id/deny', requirePrivileged, (req, res) => {
 });
 
 // DELETE /api/queue/:id
+// POST /api/queue/bulk-delete — admin-only bulk removal
+router.post('/queue/bulk-delete', requirePrivileged, (req, res) => {
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(Number).filter(Number.isFinite) : [];
+  if (ids.length === 0) return res.status(400).json({ error: 'No ids provided' });
+  if (ids.length > 500) return res.status(400).json({ error: 'Too many ids (max 500)' });
+  const deletedCount = db.deleteRequestsByIds(ids);
+  res.json({ success: true, deletedCount });
+});
+
 router.delete('/queue/:id', (req, res) => {
   if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
   const isAdmin = !!(req.session.isAdmin || req.session.isPlexAdminUser)
@@ -1843,6 +1852,15 @@ router.post('/issues/:id/close', requirePrivileged, async (req, res) => {
     }
   } catch (e) { logger.warn('Issue notification error:', e.message); }
   res.json({ success: true });
+});
+
+// POST /api/issues/bulk-delete — admin-only bulk removal
+router.post('/issues/bulk-delete', requirePrivileged, (req, res) => {
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(Number).filter(Number.isFinite) : [];
+  if (ids.length === 0) return res.status(400).json({ error: 'No ids provided' });
+  if (ids.length > 500) return res.status(400).json({ error: 'Too many ids (max 500)' });
+  const deletedCount = db.deleteIssuesByIds(ids);
+  res.json({ success: true, deletedCount });
 });
 
 // DELETE /api/issues/:id

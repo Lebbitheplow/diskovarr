@@ -76,6 +76,34 @@ export default function Issues() {
   const [openCount, setOpenCount] = useState(0)
   const [actionModalLoading, setActionModalLoading] = useState(false)
   const [commentSubmitting, setCommentSubmitting] = useState(false)
+  const [selectedIds, setSelectedIds] = useState(() => new Set())
+  const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false)
+  const [bulkDeleteLoading, setBulkDeleteLoading] = useState(false)
+
+  const toggleSelect = useCallback((id) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }, [])
+
+  const toggleSelectAll = useCallback(() => {
+    setSelectedIds(prev => {
+      const allIds = issues.map(i => i.id)
+      const allSelected = allIds.length > 0 && allIds.every(id => prev.has(id))
+      if (allSelected) {
+        const next = new Set(prev)
+        allIds.forEach(id => next.delete(id))
+        return next
+      }
+      const next = new Set(prev)
+      allIds.forEach(id => next.add(id))
+      return next
+    })
+  }, [issues])
+
+  const clearSelection = useCallback(() => setSelectedIds(new Set()), [])
 
   const loadIssues = useCallback(async (filter, pageNum) => {
     setLoading(true)
@@ -102,7 +130,25 @@ export default function Issues() {
 
   useEffect(() => {
     loadIssues(currentFilter, 1)
+    setSelectedIds(new Set())
   }, [currentFilter, debouncedSearchQuery, selectedUser, dateFrom, dateTo, loadIssues])
+
+  const handleBulkDelete = useCallback(async () => {
+    if (selectedIds.size === 0) return
+    setBulkDeleteLoading(true)
+    try {
+      const ids = Array.from(selectedIds)
+      const { data } = await issuesApi.bulkDelete(ids)
+      toastSuccess(`Deleted ${data.deletedCount ?? ids.length} issue${(data.deletedCount ?? ids.length) === 1 ? '' : 's'}`)
+      setSelectedIds(new Set())
+      setBulkDeleteConfirm(false)
+      loadIssues(currentFilter, page)
+    } catch (e) {
+      toastError(e.message || 'Bulk delete failed')
+    } finally {
+      setBulkDeleteLoading(false)
+    }
+  }, [selectedIds, currentFilter, page, loadIssues, toastSuccess, toastError])
 
   useEffect(() => {
     if (!isAdmin) return
@@ -332,6 +378,15 @@ export default function Issues() {
         {showNewIssue ? 'Hide New Issue Form' : '+ New Issue'}
       </button>
 
+      {isAdmin && selectedIds.size > 0 && (
+        <div className="bulk-action-bar">
+          <span className="bulk-action-bar-count">{selectedIds.size} selected</span>
+          <span className="bulk-action-bar-spacer" />
+          <button type="button" className="btn-bulk-clear" onClick={clearSelection}>Clear</button>
+          <button type="button" className="btn-bulk-delete" onClick={() => setBulkDeleteConfirm(true)}>Delete selected</button>
+        </div>
+      )}
+
       {showNewIssue && (
         <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: '12px', padding: '24px', marginBottom: '20px' }}>
           <h3 style={{ margin: '0 0 16px', fontSize: '1rem', fontWeight: '600' }}>New Issue Report</h3>
@@ -394,6 +449,23 @@ export default function Issues() {
           <table className="queue-table">
             <thead>
               <tr>
+                {isAdmin && (
+                  <th className="bulk-col">
+                    <input
+                      type="checkbox"
+                      className="bulk-checkbox"
+                      checked={issues.length > 0 && issues.every(i => selectedIds.has(i.id))}
+                      ref={el => {
+                        if (!el) return
+                        const some = issues.some(i => selectedIds.has(i.id))
+                        const all = issues.length > 0 && issues.every(i => selectedIds.has(i.id))
+                        el.indeterminate = some && !all
+                      }}
+                      onChange={toggleSelectAll}
+                      aria-label="Select all on page"
+                    />
+                  </th>
+                )}
                 <th>Title</th>
                 {isAdmin && <th>Reporter</th>}
                 <th>Scope</th>
@@ -405,8 +477,20 @@ export default function Issues() {
             <tbody>
               {issues.map(issue => {
                 const isSelected = selectedUser === issue.user_id
+                const isChecked = selectedIds.has(issue.id)
                 return (
                   <tr key={issue.id} id={`issue-row-${issue.id}`}>
+                    {isAdmin && (
+                      <td className="bulk-col">
+                        <input
+                          type="checkbox"
+                          className="bulk-checkbox"
+                          checked={isChecked}
+                          onChange={() => toggleSelect(issue.id)}
+                          aria-label={`Select issue ${issue.id}`}
+                        />
+                      </td>
+                    )}
                     <td>
                      <div className="queue-title-cell">
                         {issue.posterUrl ? (
@@ -459,6 +543,19 @@ export default function Issues() {
           </select>
         </div>
       )}
+
+      <Modal isOpen={bulkDeleteConfirm} onClose={() => setBulkDeleteConfirm(false)}>
+        <div>
+          <h3>Delete {selectedIds.size} issue{selectedIds.size === 1 ? '' : 's'}?</h3>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.88rem' }}>This cannot be undone.</p>
+          <div className="edit-modal-actions">
+            <button className="edit-modal-cancel" onClick={() => setBulkDeleteConfirm(false)}>Cancel</button>
+            <button className="btn-queue-delete" onClick={handleBulkDelete} disabled={bulkDeleteLoading}>
+              {bulkDeleteLoading ? 'Deleting...' : 'Delete'}
+            </button>
+          </div>
+        </div>
+      </Modal>
 
       <Modal isOpen={actionModal.open} onClose={() => setActionModal({ open: false, type: null, issueId: null })}>
         <div>

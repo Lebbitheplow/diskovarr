@@ -88,6 +88,7 @@ export const queueApi = {
   deleteRequest: (id) => api.delete(`/queue/${id}`),
   updateRequest: (id, data) => api.put(`/queue/${id}`, data),
   getUsers: () => api.get('/queue/users'),
+  bulkDelete: (ids) => api.post('/queue/bulk-delete', { ids }),
 }
 
 /** Issues */
@@ -103,6 +104,7 @@ export const issuesApi = {
   closeIssue: (id) => api.post(`/issues/${id}/close`),
   closeIssueWithNote: (id, data) => api.post(`/issues/${id}/close`, data),
   deleteIssue: (id) => api.delete(`/issues/${id}`),
+  bulkDelete: (ids) => api.post('/issues/bulk-delete', { ids }),
   deleteComment: (id, commentId) => api.delete(`/issues/${id}/comments/${commentId}`),
 }
 

@@ -3880,6 +3880,77 @@ img {
   text-decoration-color: var(--accent);
 }
 
+/* ── Bulk select / bulk delete ──────────────────────────── */
+.queue-table th.bulk-col,
+.queue-table td.bulk-col {
+  width: 36px;
+  padding-left: 12px;
+  padding-right: 4px;
+  text-align: center;
+}
+
+.bulk-checkbox {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: var(--accent);
+  vertical-align: middle;
+}
+
+.bulk-action-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  background: var(--accent-dim);
+  border: 1px solid var(--accent-border);
+  border-radius: 10px;
+  font-size: 0.85rem;
+  color: var(--text-primary);
+}
+
+.bulk-action-bar-count {
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.bulk-action-bar-spacer { flex: 1; }
+
+.bulk-action-bar .btn-bulk-delete {
+  background: rgba(255, 82, 82, 0.12);
+  border: 1px solid rgba(255, 82, 82, 0.45);
+  color: #ff6b6b;
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.bulk-action-bar .btn-bulk-delete:hover {
+  background: rgba(255, 82, 82, 0.22);
+  color: #ff5252;
+}
+
+.bulk-action-bar .btn-bulk-clear {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.bulk-action-bar .btn-bulk-clear:hover {
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
 /* ── Date range filter ──────────────────────────────────── */
 .date-range-filter {
   position: relative;

@@ -962,6 +962,20 @@ function deleteRequest(id) {
   db.prepare('DELETE FROM discover_requests WHERE id = ?').run(Number(id));
 }
 
+function deleteRequestsByIds(ids) {
+  if (!Array.isArray(ids) || ids.length === 0) return 0;
+  const stmt = db.prepare('DELETE FROM discover_requests WHERE id = ?');
+  const tx = db.transaction((rows) => {
+    let count = 0;
+    for (const id of rows) {
+      const r = stmt.run(Number(id));
+      count += r.changes;
+    }
+    return count;
+  });
+  return tx(ids);
+}
+
 function deleteRequestsByUser(userId) {
   db.prepare('DELETE FROM discover_requests WHERE user_id = ?').run(String(userId));
 }
@@ -1514,6 +1528,20 @@ function deleteIssue(id) {
   db.prepare('DELETE FROM issues WHERE id = ?').run(Number(id));
 }
 
+function deleteIssuesByIds(ids) {
+  if (!Array.isArray(ids) || ids.length === 0) return 0;
+  const stmt = db.prepare('DELETE FROM issues WHERE id = ?');
+  const tx = db.transaction((rows) => {
+    let count = 0;
+    for (const id of rows) {
+      const r = stmt.run(Number(id));
+      count += r.changes;
+    }
+    return count;
+  });
+  return tx(ids);
+}
+
 // ── Issue comments ─────────────────────────────────────────────────────────────
 
 function addIssueComment(issueId, userId, comment, isAdmin) {
@@ -1701,7 +1729,7 @@ module.exports = {
   getGlobalRequestLimits, setGlobalRequestLimits,
   getUserRequestLimitOverride, setUserRequestLimitOverride, getAllUserRequestLimitOverrides,
   getEffectiveLimits, countRecentMovieRequests, countRecentSeasonRequests,
-  getPendingRequests, getAllRequests, getRequestUsers, updateRequestStatus, deleteRequest, deleteRequestsByUser,
+  getPendingRequests, getAllRequests, getRequestUsers, updateRequestStatus, deleteRequest, deleteRequestsByIds, deleteRequestsByUser,
   getEffectiveAutoApprove, setUserAdmin, isAdminUser,
   getUserSettings, saveUserSettings,
   getUserPreferences, setUserPreferences,
@@ -1712,7 +1740,7 @@ module.exports = {
   getUserNotificationPrefs, setUserNotificationPrefs,
   getAdminUserIds, getPrivilegedUserIds,
   enqueueNotification, getPendingQueuedNotifications, markQueueItemSent, deleteQueueItem,
-  createIssue, getIssueById, getAllIssues, getUserIssues, getIssueUsers, updateIssueStatus, deleteIssue,
+  createIssue, getIssueById, getAllIssues, getUserIssues, getIssueUsers, updateIssueStatus, deleteIssue, deleteIssuesByIds,
   addIssueComment, getIssueComments, deleteIssueComment,
   getUnnotifiedFulfilledRequests, markRequestsNotifiedAvailable,
   // API apps (Agregarr / external integrations)

@@ -73,6 +73,19 @@ export default function Queue() {
   const [editAllSeasons, setEditAllSeasons] = useState(false)
   const [deleteRequestId, setDeleteRequestId] = useState(null)
   const [noConfirmDelete, setNoConfirmDelete] = useState(() => localStorage.getItem('diskovarr_no_confirm_delete') === 'true')
+  const [selectedIds, setSelectedIds] = useState(() => new Set())
+  const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false)
+  const [bulkDeleteLoading, setBulkDeleteLoading] = useState(false)
+
+  const toggleSelect = useCallback((id) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }, [])
+
+  const clearSelection = useCallback(() => setSelectedIds(new Set()), [])
 
   const idParam = searchParams.get('id')
   const deepLinkDone = useRef(false)
@@ -105,7 +118,40 @@ export default function Queue() {
 
   useEffect(() => {
     loadQueue(currentFilter, 1)
+    setSelectedIds(new Set())
   }, [currentFilter, debouncedSearchQuery, selectedUser, dateFrom, dateTo, loadQueue])
+
+  const toggleSelectAll = useCallback(() => {
+    setSelectedIds(prev => {
+      const allIds = requests.map(r => r.id)
+      const allSelected = allIds.length > 0 && allIds.every(id => prev.has(id))
+      if (allSelected) {
+        const next = new Set(prev)
+        allIds.forEach(id => next.delete(id))
+        return next
+      }
+      const next = new Set(prev)
+      allIds.forEach(id => next.add(id))
+      return next
+    })
+  }, [requests])
+
+  const handleBulkDelete = useCallback(async () => {
+    if (selectedIds.size === 0) return
+    setBulkDeleteLoading(true)
+    try {
+      const ids = Array.from(selectedIds)
+      const { data } = await queueApi.bulkDelete(ids)
+      toastSuccess(`Deleted ${data.deletedCount ?? ids.length} request${(data.deletedCount ?? ids.length) === 1 ? '' : 's'}`)
+      setSelectedIds(new Set())
+      setBulkDeleteConfirm(false)
+      loadQueue(currentFilter, page)
+    } catch (e) {
+      toastError(e.message || 'Bulk delete failed')
+    } finally {
+      setBulkDeleteLoading(false)
+    }
+  }, [selectedIds, currentFilter, page, loadQueue, toastSuccess, toastError])
 
   useEffect(() => {
     if (!isAdmin) return
@@ -298,6 +344,15 @@ export default function Queue() {
         )}
       </div>
 
+      {isAdmin && selectedIds.size > 0 && (
+        <div className="bulk-action-bar">
+          <span className="bulk-action-bar-count">{selectedIds.size} selected</span>
+          <span className="bulk-action-bar-spacer" />
+          <button type="button" className="btn-bulk-clear" onClick={clearSelection}>Clear</button>
+          <button type="button" className="btn-bulk-delete" onClick={() => setBulkDeleteConfirm(true)}>Delete selected</button>
+        </div>
+      )}
+
       {loading ? (
         <div className="queue-loading">Loading requests...</div>
       ) : requests.length === 0 ? (
@@ -309,6 +364,23 @@ export default function Queue() {
           <table className="queue-table">
             <thead>
               <tr>
+                {isAdmin && (
+                  <th className="bulk-col">
+                    <input
+                      type="checkbox"
+                      className="bulk-checkbox"
+                      checked={requests.length > 0 && requests.every(r => selectedIds.has(r.id))}
+                      ref={el => {
+                        if (!el) return
+                        const some = requests.some(r => selectedIds.has(r.id))
+                        const all = requests.length > 0 && requests.every(r => selectedIds.has(r.id))
+                        el.indeterminate = some && !all
+                      }}
+                      onChange={toggleSelectAll}
+                      aria-label="Select all on page"
+                    />
+                  </th>
+                )}
                 <th className={'sortable' + (sortCol === 'title' ? ' ' + (sortDir === 'ASC' ? 'sort-asc' : 'sort-desc') : '')} data-col="title" onClick={() => handleSort('title')}>Title</th>
                 {isAdmin && <th className={'sortable' + (sortCol === 'username' ? ' ' + (sortDir === 'ASC' ? 'sort-asc' : 'sort-desc') : '')} data-col="user" onClick={() => handleSort('user')}>User</th>}
                 <th className={'sortable' + (sortCol === 'media_type' ? ' ' + (sortDir === 'ASC' ? 'sort-asc' : 'sort-desc') : '')} data-col="type" onClick={() => handleSort('type')}>Type</th>
@@ -323,8 +395,20 @@ export default function Queue() {
                 const ds = r.displayStatus || r.status
                 const mediaType = r.media_type === 'movie' ? 'movie' : 'tv'
                 const isSelected = selectedUser === r.user_id
+                const isChecked = selectedIds.has(r.id)
                 return (
                   <tr key={r.id} className={(isPending ? 'pending-row' : '')} id={`req-row-${r.id}`}>
+                    {isAdmin && (
+                      <td className="bulk-col">
+                        <input
+                          type="checkbox"
+                          className="bulk-checkbox"
+                          checked={isChecked}
+                          onChange={() => toggleSelect(r.id)}
+                          aria-label={`Select request ${r.id}`}
+                        />
+                      </td>
+                    )}
                     <td>
                       <div className="queue-title-cell">
                         {r.posterUrl ? (
@@ -471,6 +555,19 @@ export default function Queue() {
             </div>
           </div>
         )}
+      </Modal>
+
+      <Modal isOpen={bulkDeleteConfirm} onClose={() => setBulkDeleteConfirm(false)}>
+        <div style={{ maxWidth: '380px' }}>
+          <h3>Delete {selectedIds.size} request{selectedIds.size === 1 ? '' : 's'}?</h3>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', margin: '8px 0 16px' }}>This cannot be undone.</p>
+          <div className="edit-modal-actions">
+            <button className="edit-modal-cancel" onClick={() => setBulkDeleteConfirm(false)}>Cancel</button>
+            <button className="edit-modal-save" style={{ background: 'var(--accent-red, #e53e3e)' }} onClick={handleBulkDelete} disabled={bulkDeleteLoading}>
+              {bulkDeleteLoading ? 'Deleting...' : 'Delete'}
+            </button>
+          </div>
+        </div>
       </Modal>
 
       <Modal isOpen={!!deleteRequestId} onClose={() => setDeleteRequestId(null)}>
