@@ -900,11 +900,34 @@ function getPendingRequests() {
   `).all();
 }
 
-function getAllRequests(limit = 20, offset = 0, statusFilter = null, orderBy = 'requested_at', orderDir = 'DESC') {
+function getAllRequests(limit = 20, offset = 0, statusFilter = null, orderBy = 'requested_at', orderDir = 'DESC', search = null, userIdFilter = null, dateFrom = null, dateTo = null) {
   const ALLOWED_COLS = { title: 'dr.title', username: 'COALESCE(ku.username, dr.user_id)', media_type: 'dr.media_type', requested_at: 'dr.requested_at', status: 'dr.status' };
   const col = ALLOWED_COLS[orderBy] || 'dr.requested_at';
   const dir = orderDir === 'ASC' ? 'ASC' : 'DESC';
-  const where = statusFilter && statusFilter !== 'all' ? `WHERE dr.status = '${statusFilter}'` : '';
+  const clauses = [];
+  const params = [];
+  if (statusFilter && statusFilter !== 'all') {
+    clauses.push('dr.status = ?');
+    params.push(statusFilter);
+  }
+  if (search && String(search).trim()) {
+    const like = `%${String(search).trim()}%`;
+    clauses.push('(dr.title LIKE ? OR COALESCE(ku.username, dr.user_id) LIKE ?)');
+    params.push(like, like);
+  }
+  if (userIdFilter) {
+    clauses.push('dr.user_id = ?');
+    params.push(String(userIdFilter));
+  }
+  if (Number.isFinite(dateFrom)) {
+    clauses.push('dr.requested_at >= ?');
+    params.push(Number(dateFrom));
+  }
+  if (Number.isFinite(dateTo)) {
+    clauses.push('dr.requested_at <= ?');
+    params.push(Number(dateTo));
+  }
+  const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
   const rows = db.prepare(`
     SELECT dr.*, COALESCE(ku.username, dr.user_id) AS username, ku.thumb AS user_thumb
     FROM discover_requests dr
@@ -912,11 +935,22 @@ function getAllRequests(limit = 20, offset = 0, statusFilter = null, orderBy = '
     ${where}
     ORDER BY ${col} ${dir}
     LIMIT ? OFFSET ?
-  `).all(Number(limit), Number(offset));
+  `).all(...params, Number(limit), Number(offset));
   const countRow = db.prepare(`
-    SELECT COUNT(*) as cnt FROM discover_requests dr ${where}
-  `).get();
+    SELECT COUNT(*) as cnt FROM discover_requests dr
+    LEFT JOIN known_users ku ON ku.user_id = dr.user_id
+    ${where}
+  `).get(...params);
   return { rows, total: countRow?.cnt || 0 };
+}
+
+function getRequestUsers() {
+  return db.prepare(`
+    SELECT DISTINCT dr.user_id AS id, COALESCE(ku.username, dr.user_id) AS name
+    FROM discover_requests dr
+    LEFT JOIN known_users ku ON ku.user_id = dr.user_id
+    ORDER BY name COLLATE NOCASE ASC
+  `).all();
 }
 
 function updateRequestStatus(id, status, denialNote = null) {
@@ -1065,13 +1099,30 @@ function setUserPreferences(userId, { region, language, auto_request_movies, aut
     .run(region || null, language || null, auto_request_movies ? 1 : 0, auto_request_tv ? 1 : 0, landing_page || null, show_mature ? 1 : 0, String(userId));
 }
 
-function getUserRequests(userId, limit = 20, offset = 0, statusFilter = null, orderBy = 'requested_at', orderDir = 'DESC') {
+function getUserRequests(userId, limit = 20, offset = 0, statusFilter = null, orderBy = 'requested_at', orderDir = 'DESC', search = null, dateFrom = null, dateTo = null) {
   const ALLOWED_COLS = { title: 'dr.title', username: 'COALESCE(ku.username, dr.user_id)', media_type: 'dr.media_type', requested_at: 'dr.requested_at', status: 'dr.status' };
   const col = ALLOWED_COLS[orderBy] || 'dr.requested_at';
   const dir = orderDir === 'ASC' ? 'ASC' : 'DESC';
-  const where = statusFilter && statusFilter !== 'all'
-    ? `WHERE dr.user_id = ? AND dr.status = '${statusFilter}'`
-    : 'WHERE dr.user_id = ?';
+  const clauses = ['dr.user_id = ?'];
+  const params = [String(userId)];
+  if (statusFilter && statusFilter !== 'all') {
+    clauses.push('dr.status = ?');
+    params.push(statusFilter);
+  }
+  if (search && String(search).trim()) {
+    const like = `%${String(search).trim()}%`;
+    clauses.push('(dr.title LIKE ? OR COALESCE(ku.username, dr.user_id) LIKE ?)');
+    params.push(like, like);
+  }
+  if (Number.isFinite(dateFrom)) {
+    clauses.push('dr.requested_at >= ?');
+    params.push(Number(dateFrom));
+  }
+  if (Number.isFinite(dateTo)) {
+    clauses.push('dr.requested_at <= ?');
+    params.push(Number(dateTo));
+  }
+  const where = `WHERE ${clauses.join(' AND ')}`;
   const rows = db.prepare(`
     SELECT dr.*, COALESCE(ku.username, dr.user_id) AS username, ku.thumb AS user_thumb
     FROM discover_requests dr
@@ -1079,8 +1130,12 @@ function getUserRequests(userId, limit = 20, offset = 0, statusFilter = null, or
     ${where}
     ORDER BY ${col} ${dir}
     LIMIT ? OFFSET ?
-  `).all(String(userId), Number(limit), Number(offset));
-  const countRow = db.prepare(`SELECT COUNT(*) as cnt FROM discover_requests dr ${where}`).get(String(userId));
+  `).all(...params, Number(limit), Number(offset));
+  const countRow = db.prepare(`
+    SELECT COUNT(*) as cnt FROM discover_requests dr
+    LEFT JOIN known_users ku ON ku.user_id = dr.user_id
+    ${where}
+  `).get(...params);
   return { rows, total: countRow?.cnt || 0 };
 }
 
@@ -1369,36 +1424,85 @@ function getIssueById(id) {
   `).get(Number(id));
 }
 
-function getAllIssues(limit, offset, statusFilter) {
-  const where = statusFilter && statusFilter !== 'all' ? 'WHERE i.status = ?' : '';
-  const params = statusFilter && statusFilter !== 'all'
-    ? [statusFilter, Number(limit), Number(offset)]
-    : [Number(limit), Number(offset)];
+function getAllIssues(limit, offset, statusFilter, search = null, userIdFilter = null, dateFrom = null, dateTo = null) {
+  const clauses = [];
+  const params = [];
+  if (statusFilter && statusFilter !== 'all') {
+    clauses.push('i.status = ?');
+    params.push(statusFilter);
+  }
+  if (search && String(search).trim()) {
+    const like = `%${String(search).trim()}%`;
+    clauses.push('(i.title LIKE ? OR i.description LIKE ? OR COALESCE(ku.username, i.user_id) LIKE ?)');
+    params.push(like, like, like);
+  }
+  if (userIdFilter) {
+    clauses.push('i.user_id = ?');
+    params.push(String(userIdFilter));
+  }
+  if (Number.isFinite(dateFrom)) {
+    clauses.push('i.created_at >= ?');
+    params.push(Number(dateFrom));
+  }
+  if (Number.isFinite(dateTo)) {
+    clauses.push('i.created_at <= ?');
+    params.push(Number(dateTo));
+  }
+  const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
   const rows = db.prepare(`
     SELECT i.*, COALESCE(ku.username, i.user_id) AS username
     FROM issues i LEFT JOIN known_users ku ON ku.user_id = i.user_id
     ${where} ORDER BY i.created_at DESC LIMIT ? OFFSET ?
-  `).all(...params);
-  const cntParams = statusFilter && statusFilter !== 'all' ? [statusFilter] : [];
-  const { cnt } = db.prepare(`SELECT COUNT(*) as cnt FROM issues i ${where}`).get(...cntParams);
+  `).all(...params, Number(limit), Number(offset));
+  const { cnt } = db.prepare(`
+    SELECT COUNT(*) as cnt FROM issues i
+    LEFT JOIN known_users ku ON ku.user_id = i.user_id
+    ${where}
+  `).get(...params);
   return { rows, total: cnt || 0 };
 }
 
-function getUserIssues(userId, limit, offset, statusFilter) {
-  const extraWhere = statusFilter && statusFilter !== 'all' ? 'AND i.status = ?' : '';
-  const params = statusFilter && statusFilter !== 'all'
-    ? [String(userId), statusFilter, Number(limit), Number(offset)]
-    : [String(userId), Number(limit), Number(offset)];
+function getUserIssues(userId, limit, offset, statusFilter, search = null, dateFrom = null, dateTo = null) {
+  const clauses = ['i.user_id = ?'];
+  const params = [String(userId)];
+  if (statusFilter && statusFilter !== 'all') {
+    clauses.push('i.status = ?');
+    params.push(statusFilter);
+  }
+  if (search && String(search).trim()) {
+    const like = `%${String(search).trim()}%`;
+    clauses.push('(i.title LIKE ? OR i.description LIKE ? OR COALESCE(ku.username, i.user_id) LIKE ?)');
+    params.push(like, like, like);
+  }
+  if (Number.isFinite(dateFrom)) {
+    clauses.push('i.created_at >= ?');
+    params.push(Number(dateFrom));
+  }
+  if (Number.isFinite(dateTo)) {
+    clauses.push('i.created_at <= ?');
+    params.push(Number(dateTo));
+  }
+  const where = `WHERE ${clauses.join(' AND ')}`;
   const rows = db.prepare(`
     SELECT i.*, COALESCE(ku.username, i.user_id) AS username
     FROM issues i LEFT JOIN known_users ku ON ku.user_id = i.user_id
-    WHERE i.user_id = ? ${extraWhere} ORDER BY i.created_at DESC LIMIT ? OFFSET ?
-  `).all(...params);
-  const cntParams = statusFilter && statusFilter !== 'all'
-    ? [String(userId), statusFilter] : [String(userId)];
-  const { cnt } = db.prepare(`SELECT COUNT(*) as cnt FROM issues i WHERE i.user_id = ? ${extraWhere}`)
-    .get(...cntParams);
+    ${where} ORDER BY i.created_at DESC LIMIT ? OFFSET ?
+  `).all(...params, Number(limit), Number(offset));
+  const { cnt } = db.prepare(`
+    SELECT COUNT(*) as cnt FROM issues i
+    LEFT JOIN known_users ku ON ku.user_id = i.user_id
+    ${where}
+  `).get(...params);
   return { rows, total: cnt || 0 };
+}
+
+function getIssueUsers() {
+  return db.prepare(`
+    SELECT DISTINCT i.user_id AS id, COALESCE(ku.username, i.user_id) AS name
+    FROM issues i
+    LEFT JOIN known_users ku ON ku.user_id = i.user_id
+    ORDER BY name COLLATE NOCASE ASC
+  `).all();
 }
 
 function updateIssueStatus(id, status, adminNote) {
@@ -1597,7 +1701,7 @@ module.exports = {
   getGlobalRequestLimits, setGlobalRequestLimits,
   getUserRequestLimitOverride, setUserRequestLimitOverride, getAllUserRequestLimitOverrides,
   getEffectiveLimits, countRecentMovieRequests, countRecentSeasonRequests,
-  getPendingRequests, getAllRequests, updateRequestStatus, deleteRequest, deleteRequestsByUser,
+  getPendingRequests, getAllRequests, getRequestUsers, updateRequestStatus, deleteRequest, deleteRequestsByUser,
   getEffectiveAutoApprove, setUserAdmin, isAdminUser,
   getUserSettings, saveUserSettings,
   getUserPreferences, setUserPreferences,
@@ -1608,7 +1712,7 @@ module.exports = {
   getUserNotificationPrefs, setUserNotificationPrefs,
   getAdminUserIds, getPrivilegedUserIds,
   enqueueNotification, getPendingQueuedNotifications, markQueueItemSent, deleteQueueItem,
-  createIssue, getIssueById, getAllIssues, getUserIssues, updateIssueStatus, deleteIssue,
+  createIssue, getIssueById, getAllIssues, getUserIssues, getIssueUsers, updateIssueStatus, deleteIssue,
   addIssueComment, getIssueComments, deleteIssueComment,
   getUnnotifiedFulfilledRequests, markRequestsNotifiedAvailable,
   // API apps (Agregarr / external integrations)

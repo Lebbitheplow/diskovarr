@@ -87,6 +87,7 @@ export const queueApi = {
   denyRequestWithNote: (id, data) => api.post(`/queue/${id}/deny`, data),
   deleteRequest: (id) => api.delete(`/queue/${id}`),
   updateRequest: (id, data) => api.put(`/queue/${id}`, data),
+  getUsers: () => api.get('/queue/users'),
 }
 
 /** Issues */
@@ -95,7 +96,8 @@ export const issuesApi = {
   getIssue: (id) => api.get(`/issues/${id}`),
   createIssue: (data) => api.post('/issues', data),
   getIssueComments: (id) => api.get(`/issues/${id}/comments`),
-  addComment: (id, content) => api.post(`/issues/${id}/comments`, { content }),
+  addComment: (id, comment) => api.post(`/issues/${id}/comments`, { comment }),
+  getUsers: () => api.get('/issues/users'),
   resolveIssue: (id) => api.post(`/issues/${id}/resolve`),
   resolveIssueWithNote: (id, data) => api.post(`/issues/${id}/resolve`, data),
   closeIssue: (id) => api.post(`/issues/${id}/close`),

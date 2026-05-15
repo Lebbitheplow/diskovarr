@@ -3611,3 +3611,487 @@ img {
   color: var(--accent);
   font-weight: 600;
 }
+
+/* ============================================================
+   List Filter Toolbar (Queue & Issues)
+   ============================================================ */
+.list-filter-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+
+/* ── Search bar ─────────────────────────────────────────── */
+.list-search-bar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 0 1 260px;
+  max-width: 360px;
+  min-width: 160px;
+}
+
+.list-filter-toolbar .queue-filter-row { margin-bottom: 0; }
+
+.list-search-input {
+  width: 100%;
+  height: 34px;
+  padding: 0 32px 0 12px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.list-search-input:focus {
+  border-color: var(--accent);
+}
+
+.list-search-input::placeholder {
+  color: var(--text-muted);
+}
+
+.list-search-clear {
+  position: absolute;
+  right: 8px;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 1rem;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+  transition: color 0.15s;
+}
+
+.list-search-clear:hover {
+  color: var(--text-primary);
+}
+
+/* ── Searchable dropdown ────────────────────────────────── */
+.searchable-dropdown {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.searchable-dropdown-trigger {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 28px 0 12px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+  min-width: 140px;
+}
+
+.searchable-dropdown-trigger:hover {
+  border-color: var(--border-hover);
+  color: var(--text-primary);
+}
+
+.searchable-dropdown-trigger.active {
+  border-color: var(--accent-border);
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+
+.searchable-dropdown-trigger.open {
+  border-color: var(--accent);
+}
+
+.searchable-dropdown-label {
+  font-weight: 600;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.searchable-dropdown-trigger.active .searchable-dropdown-label {
+  color: var(--accent);
+}
+
+.searchable-dropdown-value {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+  font-size: 0.82rem;
+}
+
+.searchable-dropdown-clear {
+  position: absolute;
+  right: 24px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+  transition: color 0.15s;
+}
+
+.searchable-dropdown-clear:hover {
+  color: var(--text-primary);
+}
+
+.searchable-dropdown-caret {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 4px solid var(--text-muted);
+}
+
+.searchable-dropdown-panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  width: 260px;
+  max-width: calc(100vw - 24px);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+  z-index: 1000;
+  overflow: hidden;
+}
+
+.searchable-dropdown-input-wrap {
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.searchable-dropdown-input {
+  width: 100%;
+  height: 30px;
+  padding: 0 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 0.82rem;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.searchable-dropdown-input:focus {
+  border-color: var(--accent);
+}
+
+.searchable-dropdown-input::placeholder {
+  color: var(--text-muted);
+}
+
+.searchable-dropdown-list {
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.searchable-dropdown-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 12px;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  background: none;
+  border: none;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.1s;
+}
+
+.searchable-dropdown-item:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.searchable-dropdown-item.highlighted {
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+
+.searchable-dropdown-item.selected {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.searchable-dropdown-empty {
+  padding: 16px 12px;
+  text-align: center;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* ── Clear filters chip ─────────────────────────────────── */
+.chip-sm-clear {
+  margin-left: auto;
+  color: var(--text-muted);
+  border-color: var(--border);
+}
+
+.chip-sm-clear:hover {
+  color: #ff5252;
+  border-color: rgba(255, 82, 82, 0.4);
+  background: rgba(255, 82, 82, 0.08);
+}
+
+/* ── Clickable username ─────────────────────────────────── */
+.queue-user-link {
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  text-underline-offset: 2px;
+  transition: all 0.15s;
+  font-size: inherit;
+}
+
+.queue-user-link:hover {
+  opacity: 0.8;
+  text-decoration-color: var(--accent);
+}
+
+.queue-user-link.active {
+  font-weight: 600;
+  text-decoration-color: var(--accent);
+}
+
+/* ── Date range filter ──────────────────────────────────── */
+.date-range-filter {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.date-range-panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  width: 280px;
+  max-width: calc(100vw - 24px);
+  padding: 10px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+  z-index: 1000;
+}
+
+.date-range-mode-toggle {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 10px;
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  padding: 3px;
+}
+
+.date-range-mode-btn {
+  flex: 1;
+  padding: 5px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.date-range-mode-btn.active {
+  background: var(--accent-dim);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.date-range-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.date-range-header-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.date-range-nav-btn {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.date-range-nav-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.date-range-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+  margin-bottom: 4px;
+}
+
+.date-range-weekday {
+  text-align: center;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.date-range-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+
+.date-range-cell {
+  height: 30px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 0.8rem;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+}
+
+.date-range-cell:hover {
+  background: var(--bg-hover);
+}
+
+.date-range-cell.muted {
+  color: var(--text-muted);
+  opacity: 0.45;
+}
+
+.date-range-cell.today {
+  outline: 1px solid var(--accent-border);
+  outline-offset: -2px;
+}
+
+.date-range-cell.in-range {
+  background: var(--accent-dim);
+  color: var(--accent);
+  border-radius: 0;
+}
+
+.date-range-cell.endpoint {
+  background: var(--accent);
+  color: #000;
+  font-weight: 600;
+  border-radius: 6px;
+}
+
+.date-range-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.date-range-clear-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: inherit;
+}
+
+.date-range-clear-btn:hover {
+  color: #ff5252;
+}
+
+/* ── Mobile responsive ──────────────────────────────────── */
+@media (max-width: 768px) {
+  .list-filter-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .list-search-bar {
+    max-width: none;
+    flex: 1 1 auto;
+  }
+
+  .searchable-dropdown {
+    width: 100%;
+  }
+
+  .searchable-dropdown-trigger {
+    width: 100%;
+    min-width: unset;
+  }
+
+  .searchable-dropdown-panel {
+    width: 100%;
+    max-width: none;
+  }
+
+  .queue-filter-row {
+    order: -1;
+  }
+
+  .date-range-filter {
+    width: 100%;
+  }
+
+  .date-range-filter .searchable-dropdown-trigger {
+    width: 100%;
+    min-width: unset;
+  }
+
+  .date-range-panel {
+    width: 100%;
+    max-width: none;
+  }
+
+  .chip-sm-clear {
+    margin-left: 0;
+    align-self: flex-start;
+  }
+}

@@ -5,6 +5,9 @@ import {
   searchApi,
 } from '../services/api'
 import Modal from '../components/Modal'
+import SearchableDropdown from '../components/SearchableDropdown'
+import DateRangeFilter from '../components/DateRangeFilter'
+import useListFilters from '../hooks/useListFilters'
 import { useToast } from '../context/ToastContext'
 import { useAuth } from '../context/AuthContext'
 
@@ -22,7 +25,6 @@ const STATUS_LABELS = {
   denied: 'Denied',
 }
 
-// Maps display column names to DB column names used by the API sort parameter
 const COL_TO_SORT = { title: 'title', user: 'username', type: 'media_type', age: 'requested_at', status: 'status' }
 
 function fmtDate(ts) {
@@ -45,8 +47,17 @@ export default function Queue() {
   const { user } = useAuth()
   const { error: toastError, success: toastSuccess } = useToast()
 
-  const initialFilter = searchParams.get('filter') || 'all'
-  const [currentFilter, setCurrentFilter] = useState(initialFilter)
+  const isAdmin = !!(user?.isAdmin || user?.isPlexAdminUser || user?.isElevated || user?.isPrivileged)
+
+  const {
+    searchQuery, setSearchQuery, debouncedSearchQuery,
+    selectedUser, setSelectedUser,
+    currentFilter, setCurrentFilter,
+    dateFrom, dateTo, setDateRange,
+    users, setUsers,
+    hasActiveFilters, clearAllFilters,
+  } = useListFilters({ initialFilter: searchParams.get('filter') || 'all' })
+
   const [requests, setRequests] = useState([])
   const [loading, setLoading] = useState(true)
   const [page, setPage] = useState(1)
@@ -55,8 +66,6 @@ export default function Queue() {
   const [perPage, setPerPage] = useState(() => parseInt(localStorage.getItem('diskovarr_queue_per_page') || '25'))
   const [sortCol, setSortCol] = useState('requested_at')
   const [sortDir, setSortDir] = useState('DESC')
-
-  const isAdmin = !!(user?.isAdmin || user?.isPlexAdminUser || user?.isElevated || user?.isPrivileged)
 
   const [editRequest, setEditRequest] = useState(null)
   const [editService, setEditService] = useState('')
@@ -71,13 +80,18 @@ export default function Queue() {
   const loadQueue = useCallback(async (filter, pageNum) => {
     setLoading(true)
     try {
-      const { data } = await queueApi.getQueue({
+      const params = {
         status: filter,
         page: pageNum,
         limit: perPage,
         sort: sortCol,
         sortDir,
-      })
+      }
+      if (debouncedSearchQuery) params.search = debouncedSearchQuery
+      if (selectedUser) params.userId = selectedUser
+      if (dateFrom) params.from = dateFrom
+      if (dateTo) params.to = dateTo
+      const { data } = await queueApi.getQueue(params)
       setRequests(data.requests || [])
       setTotalPages(data.totalPages || 1)
       setTotal(data.total || 0)
@@ -87,11 +101,18 @@ export default function Queue() {
     } finally {
       setLoading(false)
     }
-  }, [perPage, sortCol, sortDir, toastError])
+  }, [perPage, sortCol, sortDir, debouncedSearchQuery, selectedUser, dateFrom, dateTo, toastError])
 
   useEffect(() => {
     loadQueue(currentFilter, 1)
-  }, [currentFilter, loadQueue])
+  }, [currentFilter, debouncedSearchQuery, selectedUser, dateFrom, dateTo, loadQueue])
+
+  useEffect(() => {
+    if (!isAdmin) return
+    queueApi.getUsers()
+      .then(({ data }) => setUsers(data.users || []))
+      .catch(() => {})
+  }, [isAdmin, setUsers])
 
   const loadPendingCount = useCallback(async () => {
     try {
@@ -109,7 +130,7 @@ export default function Queue() {
 
   const handleFilterChange = useCallback((filter) => {
     setCurrentFilter(filter)
-  }, [])
+  }, [setCurrentFilter])
 
   const handleApprove = useCallback(async (id) => {
     try {
@@ -211,6 +232,10 @@ export default function Queue() {
     loadQueue(currentFilter, 1)
   }, [currentFilter, loadQueue])
 
+  const handleUsernameClick = useCallback((userId) => {
+    setSelectedUser(prev => prev === userId ? '' : userId)
+  }, [setSelectedUser])
+
   return (
     <main className="main-content queue-page">
       <div className="queue-hero">
@@ -218,24 +243,67 @@ export default function Queue() {
         <p>{isAdmin ? 'Review and manage media requests from all users.' : 'Your media requests and their status.'}</p>
       </div>
 
-      <div className="queue-filter-row">
-        {['all', 'pending', 'requested', 'available', 'approved', 'denied'].map(status => (
-          <button
-            key={status}
-            className={'queue-filter-btn' + (currentFilter === status ? ' active' : '')}
-            data-status={status}
-            onClick={() => handleFilterChange(status)}
-          >
-            {status === 'all' ? 'All' : STATUS_LABELS[status] || status}
-            {status === 'pending' && <span id="pending-count-label"></span>}
+      <div className="list-filter-toolbar">
+        <div className="list-search-bar">
+          <input
+            className="list-search-input"
+            type="search"
+            placeholder="Search by title or user..."
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }}
+          />
+          {searchQuery && (
+            <button className="list-search-clear" onClick={() => setSearchQuery('')} type="button">&times;</button>
+          )}
+        </div>
+
+        {isAdmin && (
+          <SearchableDropdown
+            options={users}
+            value={selectedUser}
+            onChange={setSelectedUser}
+            placeholder="All Users"
+            label="User"
+            clearLabel="All Users"
+            noResultsLabel="No users found"
+          />
+        )}
+
+        <DateRangeFilter
+          value={{ from: dateFrom, to: dateTo }}
+          onChange={setDateRange}
+          label="Date"
+          placeholder="Any date"
+        />
+
+        <div className="queue-filter-row">
+          {['all', 'pending', 'requested', 'available', 'approved', 'denied'].map(status => (
+            <button
+              key={status}
+              className={'queue-filter-btn' + (currentFilter === status ? ' active' : '')}
+              data-status={status}
+              onClick={() => handleFilterChange(status)}
+            >
+              {status === 'all' ? 'All' : STATUS_LABELS[status] || status}
+              {status === 'pending' && <span id="pending-count-label"></span>}
+            </button>
+          ))}
+        </div>
+
+        {hasActiveFilters && (
+          <button className="chip-sm chip-sm-clear" onClick={clearAllFilters}>
+            Clear Filters
           </button>
-        ))}
+        )}
       </div>
 
       {loading ? (
         <div className="queue-loading">Loading requests...</div>
       ) : requests.length === 0 ? (
-        <div className="queue-empty">No requests found.</div>
+        <div className="queue-empty">
+          {hasActiveFilters ? 'No matching requests found. Try adjusting your filters.' : 'No requests found.'}
+        </div>
       ) : (
         <div className="table-scroll-wrap">
           <table className="queue-table">
@@ -254,6 +322,7 @@ export default function Queue() {
                 const isPending = r.status === 'pending'
                 const ds = r.displayStatus || r.status
                 const mediaType = r.media_type === 'movie' ? 'movie' : 'tv'
+                const isSelected = selectedUser === r.user_id
                 return (
                   <tr key={r.id} className={(isPending ? 'pending-row' : '')} id={`req-row-${r.id}`}>
                     <td>
@@ -292,7 +361,16 @@ export default function Queue() {
                         </div>
                       </div>
                     </td>
-                    {isAdmin && <td className="queue-user">{r.user_id && r.user_id.startsWith('__svc_') ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}><span style={{ fontSize: '0.7rem', background: 'var(--accent)', color: '#000', padding: '1px 5px', borderRadius: '4px', fontWeight: '700', letterSpacing: '0.02em' }}>bot</span>{r.username || r.user_id}</span> : r.username || r.user_id}</td>}
+                    {isAdmin && <td className="queue-user">
+                      {r.user_id && r.user_id.startsWith('__svc_') ? (
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+                          <span style={{ fontSize: '0.7rem', background: 'var(--accent)', color: '#000', padding: '1px 5px', borderRadius: '4px', fontWeight: '700', letterSpacing: '0.02em' }}>bot</span>
+                          <span className={'queue-user-link' + (isSelected ? ' active' : '')} onClick={() => handleUsernameClick(r.user_id)}>{r.username || r.user_id}</span>
+                        </span>
+                      ) : (
+                        <span className={'queue-user-link' + (isSelected ? ' active' : '')} onClick={() => handleUsernameClick(r.user_id)}>{r.username || r.user_id}</span>
+                      )}
+                    </td>}
                     <td><span className={'type-badge type-' + mediaType}>{mediaType === 'movie' ? 'Movie' : 'TV'}</span></td>
                     <td>{fmtDate(r.requested_at)}</td>
                     <td><span className={'status-badge-' + ds}>{STATUS_LABELS[ds] || ds}</span></td>

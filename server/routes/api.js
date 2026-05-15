@@ -1469,12 +1469,16 @@ router.get('/queue', async (req, res) => {
   const isAdmin = !!(req.session.isAdmin || req.session.isPlexAdminUser)
     || db.getPrivilegedUserIds().includes(String(req.session.plexUser.id));
   const userId = req.session.plexUser.id;
-  const { status = 'all', page = '1', limit: limitParam = '25', sort: sortParam = 'requested_at', sortDir: sortDirParam = 'DESC' } = req.query;
+  const { status = 'all', page = '1', limit: limitParam = '25', sort: sortParam = 'requested_at', sortDir: sortDirParam = 'DESC', search: searchParam = '', userId: userIdParam = '', from: fromParam = '', to: toParam = '' } = req.query;
   const limit = Math.min(100, Math.max(1, parseInt(limitParam) || 25));
   const pageNum = Math.max(1, parseInt(page) || 1);
   const ALLOWED_SORT_COLS = ['title', 'username', 'media_type', 'requested_at', 'status'];
   const sortCol = ALLOWED_SORT_COLS.includes(sortParam) ? sortParam : 'requested_at';
   const sortDir = sortDirParam === 'ASC' ? 'ASC' : 'DESC';
+  const search = typeof searchParam === 'string' ? searchParam.trim() : '';
+  const userIdFilter = isAdmin && typeof userIdParam === 'string' && userIdParam.trim() ? userIdParam.trim() : null;
+  const dateFrom = (() => { const n = parseInt(fromParam, 10); return Number.isFinite(n) ? n : null; })();
+  const dateTo = (() => { const n = parseInt(toParam, 10); return Number.isFinite(n) ? n : null; })();
 
   // 'requested' and 'available' are computed displayStatuses derived from approved rows:
   //   requested = approved + NOT in library
@@ -1486,14 +1490,18 @@ router.get('/queue', async (req, res) => {
 
   let rows, total;
   if (isComputedFilter) {
-    const all = isAdmin ? db.getAllRequests(10000, 0, 'approved', sortCol, sortDir) : db.getUserRequests(userId, 10000, 0, 'approved', sortCol, sortDir);
+    const all = isAdmin
+      ? db.getAllRequests(10000, 0, 'approved', sortCol, sortDir, search || null, userIdFilter, dateFrom, dateTo)
+      : db.getUserRequests(userId, 10000, 0, 'approved', sortCol, sortDir, search || null, dateFrom, dateTo);
     const filtered = all.rows.filter(r =>
       status === 'available' ? libraryTmdbIds.has(String(r.tmdb_id)) : !libraryTmdbIds.has(String(r.tmdb_id))
     );
     total = filtered.length;
     rows = filtered.slice((pageNum - 1) * limit, pageNum * limit);
   } else {
-    ({ rows, total } = isAdmin ? db.getAllRequests(limit, (pageNum - 1) * limit, dbStatus, sortCol, sortDir) : db.getUserRequests(userId, limit, (pageNum - 1) * limit, dbStatus, sortCol, sortDir));
+    ({ rows, total } = isAdmin
+      ? db.getAllRequests(limit, (pageNum - 1) * limit, dbStatus, sortCol, sortDir, search || null, userIdFilter, dateFrom, dateTo)
+      : db.getUserRequests(userId, limit, (pageNum - 1) * limit, dbStatus, sortCol, sortDir, search || null, dateFrom, dateTo));
   }
 
   // Fetch TMDB details on-demand for rows with no cache entry, or TV rows whose
@@ -1547,6 +1555,15 @@ router.get('/queue', async (req, res) => {
     page: pageNum,
     totalPages: Math.ceil(total / limit),
   });
+});
+
+// GET /api/queue/users — distinct users who have made requests (admin-only, for filter dropdown)
+router.get('/queue/users', (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  const isAdmin = !!(req.session.isAdmin || req.session.isPlexAdminUser)
+    || db.getPrivilegedUserIds().includes(String(req.session.plexUser.id));
+  if (!isAdmin) return res.status(403).json({ error: 'Forbidden' });
+  res.json({ users: db.getRequestUsers() });
 });
 
 // GET /api/queue/:id — fetch a single request by id
@@ -1744,14 +1761,27 @@ router.get('/issues', (req, res) => {
   const isAdmin = !!(req.session.isAdmin || req.session.isPlexAdminUser)
     || db.getPrivilegedUserIds().includes(String(req.session.plexUser.id));
   const userId = String(req.session.plexUser.id);
-  const { status = 'all', page = '1', limit: lp = '25' } = req.query;
+  const { status = 'all', page = '1', limit: lp = '25', search: searchParam = '', userId: userIdParam = '', from: fromParam = '', to: toParam = '' } = req.query;
   const limit = Math.min(100, Math.max(1, parseInt(lp) || 25));
   const pageNum = Math.max(1, parseInt(page) || 1);
+  const search = typeof searchParam === 'string' ? searchParam.trim() : '';
+  const userIdFilter = isAdmin && typeof userIdParam === 'string' && userIdParam.trim() ? userIdParam.trim() : null;
+  const dateFrom = (() => { const n = parseInt(fromParam, 10); return Number.isFinite(n) ? n : null; })();
+  const dateTo = (() => { const n = parseInt(toParam, 10); return Number.isFinite(n) ? n : null; })();
   const { rows, total } = isAdmin
-    ? db.getAllIssues(limit, (pageNum - 1) * limit, status)
-    : db.getUserIssues(userId, limit, (pageNum - 1) * limit, status);
+    ? db.getAllIssues(limit, (pageNum - 1) * limit, status, search || null, userIdFilter, dateFrom, dateTo)
+    : db.getUserIssues(userId, limit, (pageNum - 1) * limit, status, search || null, dateFrom, dateTo);
   const enriched = rows.map(enrichIssuePoster);
   res.json({ issues: enriched, total, page: pageNum, totalPages: Math.ceil(total / limit) || 1 });
+});
+
+// GET /api/issues/users — distinct users who have reported issues (admin-only, for filter dropdown)
+router.get('/issues/users', (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  const isAdmin = !!(req.session.isAdmin || req.session.isPlexAdminUser)
+    || db.getPrivilegedUserIds().includes(String(req.session.plexUser.id));
+  if (!isAdmin) return res.status(403).json({ error: 'Forbidden' });
+  res.json({ users: db.getIssueUsers() });
 });
 
 // GET /api/issues/:id — fetch a single issue by id

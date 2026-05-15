@@ -4,6 +4,9 @@ import {
   issuesApi,
 } from '../services/api'
 import Modal from '../components/Modal'
+import SearchableDropdown from '../components/SearchableDropdown'
+import DateRangeFilter from '../components/DateRangeFilter'
+import useListFilters from '../hooks/useListFilters'
 import { useToast } from '../context/ToastContext'
 import { useAuth } from '../context/AuthContext'
 
@@ -43,7 +46,16 @@ export default function Issues() {
   const { error: toastError, success: toastSuccess } = useToast()
 
   const isAdmin = !!(user?.isAdmin || user?.isPlexAdminUser || user?.isElevated || user?.isPrivileged)
-  const [currentFilter, setCurrentFilter] = useState('all')
+
+  const {
+    searchQuery, setSearchQuery, debouncedSearchQuery,
+    selectedUser, setSelectedUser,
+    currentFilter, setCurrentFilter,
+    dateFrom, dateTo, setDateRange,
+    users, setUsers,
+    hasActiveFilters, clearAllFilters,
+  } = useListFilters({ initialFilter: searchParams.get('filter') || 'all' })
+
   const [issues, setIssues] = useState([])
   const [loading, setLoading] = useState(true)
   const [page, setPage] = useState(1)
@@ -68,7 +80,12 @@ export default function Issues() {
   const loadIssues = useCallback(async (filter, pageNum) => {
     setLoading(true)
     try {
-      const { data } = await issuesApi.getIssues({ status: filter, page: pageNum, limit: perPage })
+      const params = { status: filter, page: pageNum, limit: perPage }
+      if (debouncedSearchQuery) params.search = debouncedSearchQuery
+      if (selectedUser) params.userId = selectedUser
+      if (dateFrom) params.from = dateFrom
+      if (dateTo) params.to = dateTo
+      const { data } = await issuesApi.getIssues(params)
       setIssues(data.issues || [])
       setTotalPages(data.totalPages || 1)
       setTotal(data.total || 0)
@@ -81,11 +98,18 @@ export default function Issues() {
     } finally {
       setLoading(false)
     }
-  }, [perPage, toastError])
+  }, [perPage, debouncedSearchQuery, selectedUser, dateFrom, dateTo, toastError])
 
   useEffect(() => {
     loadIssues(currentFilter, 1)
-  }, [currentFilter, loadIssues])
+  }, [currentFilter, debouncedSearchQuery, selectedUser, dateFrom, dateTo, loadIssues])
+
+  useEffect(() => {
+    if (!isAdmin) return
+    issuesApi.getUsers()
+      .then(({ data }) => setUsers(data.users || []))
+      .catch(() => {})
+  }, [isAdmin, setUsers])
 
   const loadOpenCount = useCallback(async () => {
     try {
@@ -105,7 +129,7 @@ export default function Issues() {
 
   const handleFilterChange = useCallback((filter) => {
     setCurrentFilter(filter)
-  }, [])
+  }, [setCurrentFilter])
 
   const handleResolve = useCallback((id) => {
     setActionModal({ open: true, type: 'resolve', issueId: id })
@@ -238,6 +262,10 @@ export default function Issues() {
     loadIssues(currentFilter, 1)
   }, [currentFilter, loadIssues])
 
+  const handleUsernameClick = useCallback((userId) => {
+    setSelectedUser(prev => prev === userId ? '' : userId)
+  }, [setSelectedUser])
+
   return (
     <main className="main-content queue-page">
       <div className="queue-hero">
@@ -245,18 +273,59 @@ export default function Issues() {
         <p>{isAdmin ? 'Review and manage reported issues from all users.' : 'Issues you have reported about library items.'}</p>
       </div>
 
-      <div className="queue-filter-row">
-        {['all', 'open', 'resolved', 'closed'].map(status => (
-          <button
-            key={status}
-            className={'queue-filter-btn' + (currentFilter === status ? ' active' : '')}
-            data-status={status}
-            onClick={() => handleFilterChange(status)}
-          >
-            {status === 'all' ? 'All' : STATUS_LABELS[status]}
-            {status === 'open' && openCount > 0 && <span id="open-count-label">({openCount})</span>}
+      <div className="list-filter-toolbar">
+        <div className="list-search-bar">
+          <input
+            className="list-search-input"
+            type="search"
+            placeholder="Search by title, reporter, or description..."
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }}
+          />
+          {searchQuery && (
+            <button className="list-search-clear" onClick={() => setSearchQuery('')} type="button">&times;</button>
+          )}
+        </div>
+
+        {isAdmin && (
+          <SearchableDropdown
+            options={users}
+            value={selectedUser}
+            onChange={setSelectedUser}
+            placeholder="All Users"
+            label="User"
+            clearLabel="All Users"
+            noResultsLabel="No users found"
+          />
+        )}
+
+        <DateRangeFilter
+          value={{ from: dateFrom, to: dateTo }}
+          onChange={setDateRange}
+          label="Date"
+          placeholder="Any date"
+        />
+
+        <div className="queue-filter-row">
+          {['all', 'open', 'resolved', 'closed'].map(status => (
+            <button
+              key={status}
+              className={'queue-filter-btn' + (currentFilter === status ? ' active' : '')}
+              data-status={status}
+              onClick={() => handleFilterChange(status)}
+            >
+              {status === 'all' ? 'All' : STATUS_LABELS[status]}
+              {status === 'open' && openCount > 0 && <span id="open-count-label">({openCount})</span>}
+            </button>
+          ))}
+        </div>
+
+        {hasActiveFilters && (
+          <button className="chip-sm chip-sm-clear" onClick={clearAllFilters}>
+            Clear Filters
           </button>
-        ))}
+        )}
       </div>
 
       <button className="chip-sm" onClick={() => setShowNewIssue(!showNewIssue)} style={{ marginBottom: '16px', padding: '6px 16px' }}>
@@ -317,7 +386,9 @@ export default function Issues() {
       {loading ? (
         <div className="queue-loading">Loading issues...</div>
       ) : issues.length === 0 ? (
-        <div className="queue-empty">No issues found.</div>
+        <div className="queue-empty">
+          {hasActiveFilters ? 'No matching issues found. Try adjusting your filters.' : 'No issues found.'}
+        </div>
       ) : (
         <div className="table-scroll-wrap">
           <table className="queue-table">
@@ -332,40 +403,45 @@ export default function Issues() {
               </tr>
             </thead>
             <tbody>
-              {issues.map(issue => (
-                <tr key={issue.id} id={`issue-row-${issue.id}`}>
-                  <td>
-                   <div className="queue-title-cell">
-                       {issue.posterUrl ? (
-                        <img className="queue-poster" src={posterUrl(issue.posterUrl)} alt="" loading="lazy" />
-                       ) : (
-                        <div className="queue-poster-placeholder">?</div>
-                       )}
-                      <div className="queue-title-info">
-                        <div className="queue-title">{issue.title}</div>
-                        {issue.description && <div className="issue-description" style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: '2px', maxWidth: '320px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{issue.description}</div>}
-                        {issue.admin_note && <div className="admin-note">Note: {issue.admin_note}</div>}
+              {issues.map(issue => {
+                const isSelected = selectedUser === issue.user_id
+                return (
+                  <tr key={issue.id} id={`issue-row-${issue.id}`}>
+                    <td>
+                     <div className="queue-title-cell">
+                        {issue.posterUrl ? (
+                         <img className="queue-poster" src={posterUrl(issue.posterUrl)} alt="" loading="lazy" />
+                        ) : (
+                         <div className="queue-poster-placeholder">?</div>
+                        )}
+                        <div className="queue-title-info">
+                          <div className="queue-title">{issue.title}</div>
+                          {issue.description && <div className="issue-description" style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: '2px', maxWidth: '320px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{issue.description}</div>}
+                          {issue.admin_note && <div className="admin-note">Note: {issue.admin_note}</div>}
+                        </div>
                       </div>
-                    </div>
-                  </td>
-                  {isAdmin && <td className="queue-user">{issue.username || issue.user_id}</td>}
-                  <td><span className="scope-badge">{scopeLabel(issue)}</span></td>
-                  <td>{fmtDate(issue.created_at)}</td>
-                  <td><span className={'status-badge-' + issue.status}>{STATUS_LABELS[issue.status] || issue.status}</span></td>
-                  <td><div className="queue-actions">
-                    <button className="btn-page" onClick={() => handleViewDetails(issue.id)} style={{ fontSize: '0.82rem', padding: '4px 10px' }}>
-                      Details{issue._commentCount > 0 && <span className="comment-count-badge">{issue._commentCount}</span>}
-                    </button>
-                    {isAdmin && issue.status === 'open' && (
-                      <>
-                        <button className="btn-queue-approve" onClick={() => handleResolve(issue.id)}>Resolve</button>
-                        <button className="btn-queue-deny" onClick={() => handleClose(issue.id)}>Close</button>
-                      </>
-                    )}
-                    {isAdmin && <button className="btn-queue-delete" onClick={() => handleDeleteIssue(issue.id)}>Delete</button>}
-                  </div></td>
-                </tr>
-              ))}
+                    </td>
+                    {isAdmin && <td className="queue-user">
+                      <span className={'queue-user-link' + (isSelected ? ' active' : '')} onClick={() => handleUsernameClick(issue.user_id)}>{issue.username || issue.user_id}</span>
+                    </td>}
+                    <td><span className="scope-badge">{scopeLabel(issue)}</span></td>
+                    <td>{fmtDate(issue.created_at)}</td>
+                    <td><span className={'status-badge-' + issue.status}>{STATUS_LABELS[issue.status] || issue.status}</span></td>
+                    <td><div className="queue-actions">
+                      <button className="btn-page" onClick={() => handleViewDetails(issue.id)} style={{ fontSize: '0.82rem', padding: '4px 10px' }}>
+                        Details{issue._commentCount > 0 && <span className="comment-count-badge">{issue._commentCount}</span>}
+                      </button>
+                      {isAdmin && issue.status === 'open' && (
+                        <>
+                          <button className="btn-queue-approve" onClick={() => handleResolve(issue.id)}>Resolve</button>
+                          <button className="btn-queue-deny" onClick={() => handleClose(issue.id)}>Close</button>
+                        </>
+                      )}
+                      {isAdmin && <button className="btn-queue-delete" onClick={() => handleDeleteIssue(issue.id)}>Delete</button>}
+                    </div></td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>
@@ -428,7 +504,9 @@ export default function Issues() {
                   {isAdmin && (
                     <div className="details-row">
                       <div className="details-label">Reporter</div>
-                      <div className="details-value">{issue.username || issue.user_id}</div>
+                      <div className="details-value">
+                        <span className={'queue-user-link' + (selectedUser === issue.user_id ? ' active' : '')} onClick={() => { handleUsernameClick(issue.user_id); setSelectedIssue(null) }}>{issue.username || issue.user_id}</span>
+                      </div>
                     </div>
                   )}
                   <div className="details-row">
