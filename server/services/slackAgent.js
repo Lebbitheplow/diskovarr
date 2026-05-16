@@ -2,6 +2,7 @@ const db = require('../db/database');
 const logger = require('./logger');
 const BaseAgent = require('./notificationAgents/base');
 const { hasNotificationType, TYPE_COLORS } = require('./notificationAgents/types');
+const { toPlainText } = require('./messageFormat');
 
 // Slack Block Kit agent for incoming webhooks
 
@@ -145,7 +146,7 @@ class SlackAgent extends BaseAgent {
   async sendBroadcast(message) {
     await this.send('broadcast', {
       title: 'Message from Server Admin',
-      body: message,
+      body: toPlainText(message),
     });
   }
 }

@@ -2,6 +2,7 @@ const db = require('../db/database');
 const logger = require('./logger');
 const BaseAgent = require('./notificationAgents/base');
 const { hasNotificationType } = require('./notificationAgents/types');
+const { forGotify } = require('./messageFormat');
 
 // Gotify agent — self-hosted notification server
 // Docs: https://gotify.net/docs/push
@@ -104,7 +105,7 @@ class GotifyAgent extends BaseAgent {
   async sendBroadcast(message) {
     await this.send('broadcast', {
       title: 'Message from Server Admin',
-      body: message,
+      body: forGotify(message),
     });
   }
 }

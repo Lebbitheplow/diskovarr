@@ -2,6 +2,7 @@ const db = require('../db/database');
 const logger = require('./logger');
 const BaseAgent = require('./notificationAgents/base');
 const { hasNotificationType, TYPE_MAP } = require('./notificationAgents/types');
+const { toPlainText } = require('./messageFormat');
 
 // Template variable map for webhook JSON payloads
 // Maps {{variable_name}} → value from notification payload
@@ -177,7 +178,7 @@ class WebhookAgent extends BaseAgent {
     await this.send('broadcast', {
       event: 'Broadcast',
       title: 'Message from Server Admin',
-      body: message,
+      body: toPlainText(message),
       posterUrl: '',
     });
   }

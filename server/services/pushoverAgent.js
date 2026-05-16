@@ -1,6 +1,7 @@
 const db = require('../db/database');
 const logger = require('./logger');
 const { hasNotificationType } = require('./notificationAgents/types');
+const { toPlainText } = require('./messageFormat');
 
 function getConfig() {
   const raw = db.getSetting('pushover_agent', null);
@@ -60,6 +61,7 @@ async function sendTest(appToken, userKey) {
 async function sendBroadcast(message) {
   const config = getConfig();
   if (!config || !config.enabled || !config.appToken) return;
+  message = toPlainText(message);
 
   const sentKeys = new Set();
   if (config.userKey) {

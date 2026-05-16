@@ -2,6 +2,7 @@ const db = require('../db/database');
 const logger = require('./logger');
 const BaseAgent = require('./notificationAgents/base');
 const { hasNotificationType } = require('./notificationAgents/types');
+const { toPlainText } = require('./messageFormat');
 
 // Pushbullet agent — push notifications
 // Docs: https://docs.pushbullet.com/
@@ -124,7 +125,7 @@ class PushbulletAgent extends BaseAgent {
 
     const payload = {
       title: 'Message from Server Admin',
-      body: message,
+      body: toPlainText(message),
     };
 
     try {

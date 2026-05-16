@@ -2,6 +2,7 @@ const db = require('../db/database');
 const logger = require('./logger');
 const BaseAgent = require('./notificationAgents/base');
 const { hasNotificationType } = require('./notificationAgents/types');
+const { toPlainText } = require('./messageFormat');
 
 // ntfy agent — self-hosted or cloud pub-sub notification service
 // Docs: https://ntfy.sh/docs/publish/
@@ -140,7 +141,7 @@ class NtfyAgent extends BaseAgent {
   async sendBroadcast(message) {
     await this.send('broadcast', {
       title: 'Message from Server Admin',
-      body: message,
+      body: toPlainText(message),
     });
   }
 }

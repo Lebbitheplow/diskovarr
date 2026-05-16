@@ -1,6 +1,7 @@
 const db = require('../db/database');
 const logger = require('./logger');
 const { hasNotificationType } = require('./notificationAgents/types');
+const { forDiscord } = require('./messageFormat');
 
 function getConfig() {
   const raw = db.getSetting('discord_agent', null);
@@ -211,6 +212,7 @@ async function sendTest({ mode, webhookUrl, botToken, discordUserId, botUsername
 async function sendBroadcast(message) {
   const config = getConfig();
   if (!config || !config.enabled) return;
+  message = forDiscord(message);
 
   const avatarUrl = config.botAvatarUrl || (config.publicUrl ? `${config.publicUrl}/discord-avatar.png` : null);
   const embed = { title: 'Message from Server Admin', description: message, color: 0xe5a00d };

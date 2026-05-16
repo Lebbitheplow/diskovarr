@@ -2,6 +2,7 @@ const db = require('../db/database');
 const logger = require('./logger');
 const BaseAgent = require('./notificationAgents/base');
 const { hasNotificationType } = require('./notificationAgents/types');
+const { toPlainText } = require('./messageFormat');
 
 // Telegram agent — Bot API for messaging
 // Docs: https://core.telegram.org/bots/api
@@ -167,7 +168,7 @@ class TelegramAgent extends BaseAgent {
     const settings = this.getSettings();
     if (!settings || !settings.enabled || !settings.botAPI) return;
 
-    const broadcastMsg = `*Message from Server Admin*\n\n${this.escapeText(message)}`;
+    const broadcastMsg = `*Message from Server Admin*\n\n${this.escapeText(toPlainText(message))}`;
 
     try {
       // Send to admin chat

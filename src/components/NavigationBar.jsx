@@ -10,6 +10,30 @@ const LOGO_SVG = 'M7.5 17.5h13M3 8.5h2.5v9M7 11h3v6.5M11 10h2.5v7.5M15 9a5 5 0 1
 const URL_RE = /(https?:\/\/[^\s<]+)/g
 const URL_TEST = /^https?:\/\/[^\s<]+$/
 
+// Matches **bold**, __underline__, ==highlight==, *italic* (non-greedy, single-line). Order matters:
+// double-marker variants must be tried before single-asterisk italic.
+const MD_RE = /(\*\*([^*\n]+?)\*\*)|(__([^_\n]+?)__)|(==([^=\n]+?)==)|(\*([^*\n]+?)\*)/g
+const HIGHLIGHT_STYLE = { background: 'var(--accent-dim2)', color: 'var(--accent)', padding: '0 4px', borderRadius: '3px' }
+
+function renderInlineMarkdown(text, keyPrefix) {
+  // Returns an array of React nodes with bold/italic/underline/highlight applied. No URL handling here.
+  const out = []
+  let lastIndex = 0
+  let m
+  let idx = 0
+  MD_RE.lastIndex = 0
+  while ((m = MD_RE.exec(text)) !== null) {
+    if (m.index > lastIndex) out.push(text.slice(lastIndex, m.index))
+    if (m[1]) out.push(React.createElement('strong', { key: `${keyPrefix}-md-${idx++}` }, m[2]))
+    else if (m[3]) out.push(React.createElement('u', { key: `${keyPrefix}-md-${idx++}` }, m[4]))
+    else if (m[5]) out.push(React.createElement('mark', { key: `${keyPrefix}-md-${idx++}`, style: HIGHLIGHT_STYLE }, m[6]))
+    else if (m[7]) out.push(React.createElement('em', { key: `${keyPrefix}-md-${idx++}` }, m[8]))
+    lastIndex = m.index + m[0].length
+  }
+  if (lastIndex < text.length) out.push(text.slice(lastIndex))
+  return out
+}
+
 function renderTextWithLinks(text) {
   if (!text) return null
   const parts = text.split(URL_RE)
@@ -26,10 +50,12 @@ function renderTextWithLinks(text) {
         }, part)
       )
     } else if (part) {
-      elements.push(...part.split('\n').map((line, j) => [
-        j > 0 ? React.createElement('br', { key: `${i}-${j}-br` }) : null,
-        line || '\u00A0'
-      ]).flat())
+      part.split('\n').forEach((line, j) => {
+        if (j > 0) elements.push(React.createElement('br', { key: `${i}-${j}-br` }))
+        if (!line) { elements.push('\u00A0'); return }
+        const rendered = renderInlineMarkdown(line, `${i}-${j}`)
+        rendered.forEach((node) => elements.push(node))
+      })
     }
   })
   return elements

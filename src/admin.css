@@ -796,6 +796,76 @@
   box-shadow: 0 0 0 3px var(--accent-glow);
 }
 
+/* ── Broadcast formatting toolbar ────────────────────────────── */
+
+.broadcast-toolbar {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.broadcast-fmt-btn {
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
+}
+
+.broadcast-fmt-btn:hover {
+  border-color: var(--accent);
+  background: var(--bg-elevated);
+  color: var(--accent);
+}
+
+.broadcast-fmt-btn:active {
+  transform: translateY(1px);
+}
+
+.broadcast-fmt-swatch {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  background: var(--accent);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+}
+
+.broadcast-editor {
+  display: block;
+  min-height: 80px;
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  text-align: left;
+  border-radius: var(--radius-lg);
+  cursor: text;
+}
+
+.broadcast-editor:empty::before,
+.broadcast-editor[data-empty]::before {
+  content: attr(data-placeholder);
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.broadcast-editor mark {
+  background: var(--accent-dim2);
+  color: var(--accent);
+  padding: 0 4px;
+  border-radius: 3px;
+}
+
 /* ── Sliding toggle ──────────────────────────────────────────── */
 
 .conn-toggle-wrap {

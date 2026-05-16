@@ -1,6 +1,7 @@
 const db = require('../db/database');
 const logger = require('./logger');
 const BaseAgent = require('./notificationAgents/base');
+const { toPlainText } = require('./messageFormat');
 const webpush = require('web-push');
 
 // WebPush agent — browser push notifications
@@ -225,7 +226,7 @@ class WebPushAgent extends BaseAgent {
   async sendBroadcast(message) {
     const payload = {
       title: 'Message from Server Admin',
-      body: message,
+      body: toPlainText(message),
       type: 'broadcast',
     };
 

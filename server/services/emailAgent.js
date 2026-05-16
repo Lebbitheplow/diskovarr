@@ -2,6 +2,7 @@ const db = require('../db/database');
 const logger = require('./logger');
 const BaseAgent = require('./notificationAgents/base');
 const { hasNotificationType } = require('./notificationAgents/types');
+const { toPlainText } = require('./messageFormat');
 const nodemailer = require('nodemailer');
 
 // Email agent — SMTP with optional PGP encryption
@@ -213,7 +214,7 @@ class EmailAgent extends BaseAgent {
 
     const payload = {
       title: 'Message from Server Admin',
-      body: message,
+      body: toPlainText(message),
     };
 
     const users = db.getKnownUsers();
