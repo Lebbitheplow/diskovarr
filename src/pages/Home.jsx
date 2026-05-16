@@ -12,6 +12,7 @@ import DetailModal from '../components/DetailModal'
 import SkeletonLoader from '../components/SkeletonLoader'
 import ToggleSwitch from '../components/ToggleSwitch'
 import { useToast } from '../context/ToastContext'
+import { useAuth } from '../context/AuthContext'
 
 const MATURE_RATINGS = new Set(['r', 'tv-ma', 'nc-17', 'x', 'nr'])
 
@@ -32,6 +33,7 @@ export default function Home() {
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
   const { error: toastError, success: toastSuccess } = useToast()
+  const { user } = useAuth()
 
   const [recommendations, setRecommendations] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -213,13 +215,13 @@ export default function Home() {
     !item.contentRating || !MATURE_RATINGS.has(item.contentRating.toLowerCase())
   )
 
-  const username = window.location.href.includes('welcome=1') ? '' : ''
-
   return (
     <>
       <main className="main-content">
         <div className="hero">
-          <h1 className="hero-title">Welcome back</h1>
+          <h1 className="hero-title">
+            Welcome back{user?.username ? <>, <span style={{ color: 'var(--accent)' }}>{user.username}</span></> : ''}
+          </h1>
           <p className="hero-sub">Personalized picks based on your watch history</p>
           <div className="hero-controls hero-controls-split">
             <ToggleSwitch
