@@ -5,10 +5,12 @@ import { adminNotifications } from '../../../services/adminApi'
 // Highlight (==) is a non-standard marker rendered with the app accent in the in-app modal; in channels
 // that don't recognize it (Discord, Pushover) it shows as raw text — acceptable degradation.
 const FORMATS = [
-  { key: 'bold',      label: 'B', title: 'Bold (Ctrl+B)',            style: { fontWeight: 700 } },
-  { key: 'italic',    label: 'I', title: 'Italic (Ctrl+I)',          style: { fontStyle: 'italic' } },
-  { key: 'underline', label: 'U', title: 'Underline (Ctrl+U)',       style: { textDecoration: 'underline' } },
-  { key: 'highlight',             title: 'Highlight (Ctrl+Shift+H)', swatch: true },
+  { key: 'bold',      label: 'B',   title: 'Bold (Ctrl+B)',                style: { fontWeight: 700 } },
+  { key: 'italic',    label: 'I',   title: 'Italic (Ctrl+I)',              style: { fontStyle: 'italic' } },
+  { key: 'underline', label: 'U',   title: 'Underline (Ctrl+U)',           style: { textDecoration: 'underline' } },
+  { key: 'strike',    label: 'S',   title: 'Strikethrough (Ctrl+Shift+S)', style: { textDecoration: 'line-through' } },
+  { key: 'code',      label: '<>',  title: 'Code (Ctrl+E)',                style: { fontFamily: 'var(--font-mono, monospace)', fontSize: '0.85rem', letterSpacing: '-1px' } },
+  { key: 'highlight',               title: 'Highlight (Ctrl+Shift+H)',     swatch: true },
 ]
 
 // Walk a DOM node and emit the equivalent markdown text. Used at submit time to convert the rich
@@ -28,29 +30,31 @@ function nodeToMarkdown(node) {
     else if (tag === 'b' || tag === 'strong')         out += `**${inner()}**`
     else if (tag === 'i' || tag === 'em')             out += `*${inner()}*`
     else if (tag === 'u')                             out += `__${inner()}__`
+    else if (tag === 's' || tag === 'strike' || tag === 'del') out += `~~${inner()}~~`
+    else if (tag === 'code')                          out += `\`${inner()}\``
     else if (tag === 'mark' || child.dataset?.mark)   out += `==${inner()}==`
     else out += inner()
   }
   return out
 }
 
-function wrapSelectionInMark() {
+function wrapSelectionInTag(tagName, datasetKey) {
   const sel = window.getSelection()
   if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return
   const range = sel.getRangeAt(0)
-  const mark = document.createElement('mark')
-  mark.dataset.mark = '1'
+  const el = document.createElement(tagName)
+  if (datasetKey) el.dataset[datasetKey] = '1'
   try {
-    range.surroundContents(mark)
+    range.surroundContents(el)
   } catch {
     // surroundContents fails on selections that cross element boundaries; fall back to extract+insert
     const frag = range.extractContents()
-    mark.appendChild(frag)
-    range.insertNode(mark)
+    el.appendChild(frag)
+    range.insertNode(el)
   }
   sel.removeAllRanges()
   const r = document.createRange()
-  r.selectNodeContents(mark)
+  r.selectNodeContents(el)
   sel.addRange(r)
 }
 
@@ -71,7 +75,9 @@ export default function BroadcastMessage({ onToast }) {
     const el = editorRef.current
     if (!el) return
     el.focus()
-    if (key === 'highlight') wrapSelectionInMark()
+    if (key === 'highlight') wrapSelectionInTag('mark', 'mark')
+    else if (key === 'code') wrapSelectionInTag('code')
+    else if (key === 'strike') document.execCommand('strikeThrough', false)
     else document.execCommand(key, false)
     setEmpty(checkEmpty())
   }
@@ -80,7 +86,9 @@ export default function BroadcastMessage({ onToast }) {
     if (!(e.ctrlKey || e.metaKey)) return
     const k = e.key.toLowerCase()
     if (e.shiftKey && k === 'h') { e.preventDefault(); applyFormat('highlight'); return }
+    if (e.shiftKey && k === 's') { e.preventDefault(); applyFormat('strike');    return }
     if (e.shiftKey) return
+    if (k === 'e') { e.preventDefault(); applyFormat('code'); return }
     const map = { b: 'bold', i: 'italic', u: 'underline' }
     if (map[k]) { e.preventDefault(); applyFormat(map[k]) }
   }

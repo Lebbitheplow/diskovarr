@@ -866,6 +866,15 @@
   border-radius: 3px;
 }
 
+.broadcast-editor code {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.9em;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  padding: 0 4px;
+  border-radius: 3px;
+}
+
 /* ── Sliding toggle ──────────────────────────────────────────── */
 
 .conn-toggle-wrap {
