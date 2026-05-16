@@ -223,16 +223,18 @@ router.get('/discover', async (req, res) => {
       type = 'all',
       genres = '',
       decade = '',
-      minRating = '0',
+      minScore = '0',
       sort = 'recommended',
       page = '1',
       q = '',
+      contentRatings = '',
     } = req.query;
 
     const PAGE_SIZE = 40;
     const pageNum = Math.max(1, parseInt(page) || 1);
-    const minRatingNum = parseFloat(minRating) || 0;
+    const minScoreNum = parseFloat(minScore) || 0;
     const genreList = genres ? genres.split(',').map(g => g.trim().toLowerCase()).filter(Boolean) : [];
+    const contentRatingList = contentRatings ? contentRatings.split(',').map(s => s.trim()).filter(Boolean) : [];
     const searchQuery = q.trim().toLowerCase();
 
     const [movies, tv, dismissedKeys] = await Promise.all([
@@ -252,11 +254,13 @@ router.get('/discover', async (req, res) => {
     else if (type === 'anime') pool = animeItems;
     else pool = [...movies, ...tvOnlyItems, ...animeItems];
 
+    // Pool minus dismissed — basis for the available-options chips
+    const visiblePool = pool.filter(item => !dismissedKeys.has(item.ratingKey));
+
     // Apply filters
-    let filtered = pool.filter(item => {
-      if (dismissedKeys.has(item.ratingKey)) return false;
+    let filtered = visiblePool.filter(item => {
       if (searchQuery && !item.title.toLowerCase().includes(searchQuery)) return false;
-      if (item.audienceRating < minRatingNum) return false;
+      if (item.audienceRating < minScoreNum) return false;
       if (genreList.length > 0) {
         const itemGenres = item.genres.map(g => g.toLowerCase());
         if (!genreList.some(g => itemGenres.includes(g))) return false;
@@ -264,6 +268,9 @@ router.get('/discover', async (req, res) => {
       if (decade) {
         const d = parseInt(decade);
         if (!item.year || Math.floor(item.year / 10) * 10 !== d) return false;
+      }
+      if (contentRatingList.length > 0) {
+        if (!contentRatingList.includes(item.contentRating)) return false;
       }
       return true;
     });
@@ -287,8 +294,10 @@ router.get('/discover', async (req, res) => {
     const total = filtered.length;
     const items = filtered.slice((pageNum - 1) * PAGE_SIZE, pageNum * PAGE_SIZE);
 
-    // Get all available genres from the pool for the filter UI
-    const allGenres = [...new Set(pool.flatMap(i => i.genres))].sort();
+    // Get all available genres and content ratings from the visible pool for the filter UI
+    const allGenres = [...new Set(visiblePool.flatMap(i => i.genres))].sort();
+    const ratingSet = new Set(visiblePool.map(i => i.contentRating).filter(Boolean));
+    const availableContentRatings = CONTENT_RATING_ORDER_SERVER.filter(r => ratingSet.has(r));
 
     // Attach watchlist and watched status from local DB (no Plex API needed)
     const watchlistKeys = new Set(db.getWatchlistFromDb(userId));
@@ -307,6 +316,7 @@ router.get('/discover', async (req, res) => {
       page: pageNum,
       pages: Math.ceil(total / PAGE_SIZE),
       availableGenres: allGenres,
+      availableContentRatings,
     });
   } catch (err) {
     console.error('discover error:', err);
@@ -618,15 +628,93 @@ router.get('/search/seasons', async (req, res) => {
 });
 
 // GET /api/search?q=term&genre=name&type=movie|tv&page=N
-// Supports text search (q) and genre-based browsing (genre + type)
+//        &contentRatings=PG,PG-13&filterGenres=Action,Drama
+//        &yearFrom=2000&yearTo=2010&minScore=7
+// Supports text search (q) and genre-based browsing (genre + type), with
+// server-side filtering applied uniformly so the total count, pagination,
+// and availableContentRatings/availableGenres all reflect the filtered set.
+const SEARCH_PAGE_SIZE = 40;
+const CONTENT_RATING_ORDER_SERVER = ['G','PG','PG-13','R','NC-17','TV-G','TV-PG','TV-14','TV-MA'];
+const TEXT_SEARCH_MAX_TMDB_PAGES = 3;
+
+// In-memory cache of the TMDB-derived pool per (query, lang, region). Keeps
+// filter changes instant — they re-slice this pool instead of re-hitting TMDB.
+// Pool contains user-independent data only; per-user fields (inLibrary,
+// watchlist, etc.) are layered on at request time.
+const SEARCH_POOL_TTL_MS = 10 * 60 * 1000;
+const SEARCH_POOL_MAX_ENTRIES = 100;
+const _searchPoolCache = new Map();
+
+function getSearchPool(key) {
+  const entry = _searchPoolCache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.ts > SEARCH_POOL_TTL_MS) {
+    _searchPoolCache.delete(key);
+    return null;
+  }
+  // Refresh LRU position
+  _searchPoolCache.delete(key);
+  _searchPoolCache.set(key, entry);
+  return entry.items;
+}
+
+function setSearchPool(key, items) {
+  if (_searchPoolCache.size >= SEARCH_POOL_MAX_ENTRIES) {
+    const firstKey = _searchPoolCache.keys().next().value;
+    if (firstKey !== undefined) _searchPoolCache.delete(firstKey);
+  }
+  _searchPoolCache.set(key, { items, ts: Date.now() });
+}
+
+function parseCsv(v) {
+  if (!v) return [];
+  return String(v).split(',').map(s => s.trim()).filter(Boolean);
+}
+
+function applySearchFilters(pool, { filterGenres, contentRatings, yearFrom, yearTo, minScore }) {
+  return pool.filter(item => {
+    if (filterGenres.length > 0) {
+      const itemGenres = (item.genres || []);
+      if (!filterGenres.every(g => itemGenres.includes(g))) return false;
+    }
+    if (contentRatings.length > 0) {
+      if (!contentRatings.includes(item.contentRating)) return false;
+    }
+    if (yearFrom != null && (item.year || 0) < yearFrom) return false;
+    if (yearTo != null && (item.year || Infinity) > yearTo) return false;
+    if (minScore != null && (item.voteAverage || 0) < minScore) return false;
+    return true;
+  });
+}
+
+function computeAvailable(pool) {
+  const ratingSet = new Set();
+  const genreSet = new Set();
+  for (const item of pool) {
+    if (item.contentRating) ratingSet.add(item.contentRating);
+    for (const g of (item.genres || [])) if (g) genreSet.add(g);
+  }
+  return {
+    availableContentRatings: CONTENT_RATING_ORDER_SERVER.filter(r => ratingSet.has(r)),
+    availableGenres: [...genreSet].sort(),
+  };
+}
+
 router.get('/search', async (req, res) => {
   const q = (req.query.q || '').trim();
   const genre = (req.query.genre || '').trim();
   const type = (req.query.type || 'movie').toLowerCase();
   const page = Math.max(1, parseInt(req.query.page) || 1);
 
+  const filterGenres = parseCsv(req.query.filterGenres);
+  const contentRatings = parseCsv(req.query.contentRatings);
+  const yearFrom = req.query.yearFrom ? parseInt(req.query.yearFrom) : null;
+  const yearTo = req.query.yearTo ? parseInt(req.query.yearTo) : null;
+  const minScore = req.query.minScore ? parseFloat(req.query.minScore) : null;
+  const filterOpts = { filterGenres, contentRatings, yearFrom, yearTo, minScore };
+
   if (!q && !genre) {
-    return res.json({ results: [], total: 0, pages: 0, page: 1, query: '' });
+    return res.json({ results: [], total: 0, pages: 0, page: 1, query: '', availableContentRatings: [], availableGenres: [] });
   }
 
   // Library-only search when discover/TMDB is not configured
@@ -658,7 +746,7 @@ router.get('/search', async (req, res) => {
           isWatched: watchedKeys.has(item.ratingKey),
           isRequested: false,
         }));
-      return res.json({ results: matched, total: matched.length, pages: 1, page: 1, query: q });
+      return res.json({ results: matched, total: matched.length, pages: 1, page: 1, query: q, availableContentRatings: [], availableGenres: [] });
     } catch (err) {
       console.error('search error:', err);
       return res.status(500).json({ error: 'Search failed: ' + err.message });
@@ -683,123 +771,127 @@ router.get('/search', async (req, res) => {
     const watchedKeys = db.getWatchedKeysFromDb(String(userId));
     const requestedIds = db.getAllRequestedTmdbIds();
 
-    let externalResults = [];
-    let totalAvailable = 0;
+    const poolKey = isGenreSearch
+      ? `g:${genre.toLowerCase()}:${userLanguage || ''}:${userRegion || ''}:${type}`
+      : `q:${q.toLowerCase()}:${userLanguage || ''}:${userRegion || ''}`;
 
-    if (isGenreSearch) {
-      // Genre-based search: return ALL cached tmdb_cache results for the genre so frontend can split into sections
-      let cachedMovies = db.getItemsByGenre('movie', genre);
-      let cachedTV = db.getItemsByGenre('tv', genre);
+    let externalResults = getSearchPool(poolKey);
 
-      // Filter by user's language preference if set
-      if (userLanguage) {
-        cachedMovies = cachedMovies.filter(item => item.originalLanguage === userLanguage);
-        cachedTV = cachedTV.filter(item => item.originalLanguage === userLanguage);
-        console.log(`[search] Genre "${genre}" filtered by language "${userLanguage}": ${cachedMovies.length} movies + ${cachedTV.length} tv`);
-      }
+    if (!externalResults) {
+      if (isGenreSearch) {
+        let cachedMovies = db.getItemsByGenre('movie', genre);
+        let cachedTV = db.getItemsByGenre('tv', genre);
 
-      if (cachedMovies.length > 0 || cachedTV.length > 0) {
-        const cached = [...cachedMovies, ...cachedTV];
-        console.log(`[search] Genre "${genre}": ${cachedMovies.length} movies + ${cachedTV.length} tv from cache`);
-        externalResults = cached;
+        if (userLanguage) {
+          cachedMovies = cachedMovies.filter(item => item.originalLanguage === userLanguage);
+          cachedTV = cachedTV.filter(item => item.originalLanguage === userLanguage);
+        }
+
+        if (cachedMovies.length > 0 || cachedTV.length > 0) {
+          externalResults = [...cachedMovies, ...cachedTV];
+          console.log(`[search] Genre "${genre}": ${cachedMovies.length} movies + ${cachedTV.length} tv from db cache`);
+        } else {
+          const MAX_CANDIDATE_PAGES = 5;
+          const allCandidates = [];
+          const fetchType = ['movie', 'tv'].includes(type) ? type : 'movie';
+          const discoverOpts = {};
+          if (userRegion) discoverOpts.region = userRegion;
+          if (userLanguage) discoverOpts.language = userLanguage;
+          for (let p = 1; p <= MAX_CANDIDATE_PAGES; p++) {
+            const pageResults = await tmdbService.discoverByGenreName(genre, fetchType, p, { includeAdult: true, ...discoverOpts });
+            if (!pageResults.length) break;
+            allCandidates.push(...pageResults);
+          }
+          const enriched = await tmdbService.batchGetDetails(
+            allCandidates.map(r => ({ tmdbId: r.tmdbId, mediaType: r.mediaType }))
+          );
+          externalResults = enriched.filter(item => item !== null);
+          if (userLanguage) {
+            externalResults = externalResults.filter(item => item.originalLanguage === userLanguage);
+          }
+        }
       } else {
-        // Fallback: fetch from TMDB discover and let batchGetDetails cache them
-        const MAX_CANDIDATE_PAGES = 5;
-        const allCandidates = [];
-        const fetchType = ['movie', 'tv'].includes(type) ? type : 'movie';
-        const discoverOpts = {};
-        if (userRegion) discoverOpts.region = userRegion;
-        if (userLanguage) discoverOpts.language = userLanguage;
-        for (let p = 1; p <= MAX_CANDIDATE_PAGES; p++) {
-          const pageResults = await tmdbService.discoverByGenreName(genre, fetchType, p, { includeAdult: true, ...discoverOpts });
-          if (!pageResults.length) break;
-          allCandidates.push(...pageResults);
+        const allMatches = [];
+        for (let p = 1; p <= TEXT_SEARCH_MAX_TMDB_PAGES; p++) {
+          const json = await tmdbService.tmdbFetchPublic(
+            `/search/multi?query=${encodeURIComponent(q)}&page=${p}&include_adult=false`
+          );
+          const pageItems = (json?.results || []).filter(r => r.media_type === 'movie' || r.media_type === 'tv');
+          if (!pageItems.length) break;
+          allMatches.push(...pageItems);
+          if (p >= (json?.total_pages || 1)) break;
         }
         const enriched = await tmdbService.batchGetDetails(
-          allCandidates.map(r => ({ tmdbId: r.tmdbId, mediaType: r.mediaType }))
+          allMatches.map(r => ({ tmdbId: r.id, mediaType: r.media_type }))
         );
         externalResults = enriched.filter(item => item !== null);
-
-        // Apply language filter to fallback results too
-        if (userLanguage) {
-          externalResults = externalResults.filter(item => item.originalLanguage === userLanguage);
-        }
       }
+
+      setSearchPool(poolKey, externalResults);
     } else {
-      // Text search: fetch TMDB and library in parallel, cross-reference inLibrary
-      const libraryByTmdb = new Map();
-      for (const item of [...movies, ...tv]) {
-        if (item.tmdbId) libraryByTmdb.set(String(item.tmdbId), item);
-      }
-
-      const json = await tmdbService.tmdbFetchPublic(
-        `/search/multi?query=${encodeURIComponent(q)}&page=${page}&include_adult=false`
-      );
-
-      const results = (json?.results || [])
-        .filter(r => r.media_type === 'movie' || r.media_type === 'tv')
-        .map(r => {
-          const tmdbId = String(r.id);
-          const libItem = libraryByTmdb.get(tmdbId);
-          const idMap = r.media_type === 'movie' ? MOVIE_ID_TO_GENRE : TV_ID_TO_GENRE;
-          return {
-            tmdbId: r.id,
-            mediaType: r.media_type,
-            title: r.title || r.name,
-            year: parseInt((r.release_date || r.first_air_date || '').slice(0, 4)) || null,
-            releaseDate: r.release_date || r.first_air_date || null,
-            overview: r.overview || '',
-            posterUrl: r.poster_path ? `https://image.tmdb.org/t/p/w342${r.poster_path}` : null,
-            voteAverage: r.vote_average || 0,
-            genres: (r.genre_ids || []).map(id => idMap[id]).filter(Boolean),
-            contentRating: null,
-            inLibrary: !!libItem,
-            ratingKey: libItem?.ratingKey || null,
-            deepLink: libItem ? plexService.getDeepLink(libItem.ratingKey) : null,
-            plexAppLink: libItem ? plexService.getAppLink(libItem.ratingKey) : null,
-            isInWatchlist: libItem ? watchlistKeys.has(libItem.ratingKey) : false,
-            isWatched: libItem ? watchedKeys.has(libItem.ratingKey) : false,
-            isRequested: !libItem && requestedIds.has(`${r.id}:${r.media_type}`),
-          };
-        });
-
-      return res.json({
-        results,
-        total: json?.total_results || results.length,
-        pages: Math.min(json?.total_pages || 1, 10),
-        page,
-        query: q,
-      });
+      console.log(`[search] pool cache hit "${poolKey}" (${externalResults.length} items)`);
     }
 
-    // Genre search: enrich with user-specific data
-    const filtered = externalResults.filter(item => !libraryTmdbIds.has(String(item.tmdbId)));
-    const results = filtered.map(item => ({
-      tmdbId: item.tmdbId,
-      mediaType: item.mediaType,
-      title: item.title,
-      year: item.year,
-      releaseDate: item.releaseDate || null,
-      overview: item.overview || '',
-      posterUrl: item.posterUrl,
-      voteAverage: item.voteAverage || 0,
-      genres: item.genres || [],
-      contentRating: item.contentRating || null,
-      inLibrary: false,
-      ratingKey: null,
-      deepLink: null,
-      plexAppLink: null,
-      isInWatchlist: false,
-      isWatched: false,
-      isRequested: requestedIds.has(`${item.tmdbId}:${item.mediaType}`),
-    }));
+    // Common path: enrich, filter, paginate (works for both genre and text search)
+    const libraryByTmdb = new Map();
+    for (const item of [...movies, ...tv]) {
+      if (item.tmdbId) libraryByTmdb.set(String(item.tmdbId), item);
+    }
+
+    // For genre search we historically hide items already in library; preserve that.
+    // Text search keeps in-library items so users can find what they own.
+    const visiblePool = isGenreSearch
+      ? externalResults.filter(item => !libraryTmdbIds.has(String(item.tmdbId)))
+      : externalResults;
+
+    let filteredPool = applySearchFilters(visiblePool, filterOpts);
+    const { availableContentRatings, availableGenres } = computeAvailable(visiblePool);
+
+    // Sort by popularity (fallback voteAverage) so highest-signal items lead.
+    filteredPool.sort((a, b) => (b.popularity || 0) - (a.popularity || 0) || (b.voteAverage || 0) - (a.voteAverage || 0));
+
+    const total = filteredPool.length;
+    // Genre browsing needs the full set so the Movies/TV tabs are accurate and
+    // the user sees the same depth as before. Text search paginates to avoid
+    // shipping hundreds of unrelated TMDB hits at once.
+    const usePagination = !isGenreSearch;
+    const pages = usePagination ? Math.max(1, Math.ceil(total / SEARCH_PAGE_SIZE)) : 1;
+    const pageItems = usePagination
+      ? filteredPool.slice((page - 1) * SEARCH_PAGE_SIZE, page * SEARCH_PAGE_SIZE)
+      : filteredPool;
+
+    const results = pageItems.map(item => {
+      const libItem = libraryByTmdb.get(String(item.tmdbId));
+      const inLibrary = isGenreSearch ? false : !!libItem;
+      return {
+        tmdbId: item.tmdbId,
+        mediaType: item.mediaType,
+        title: item.title,
+        year: item.year,
+        releaseDate: item.releaseDate || null,
+        overview: item.overview || '',
+        posterUrl: item.posterUrl,
+        voteAverage: item.voteAverage || 0,
+        genres: item.genres || [],
+        contentRating: item.contentRating || null,
+        inLibrary,
+        ratingKey: inLibrary ? libItem.ratingKey : null,
+        deepLink: inLibrary ? plexService.getDeepLink(libItem.ratingKey) : null,
+        plexAppLink: inLibrary ? plexService.getAppLink(libItem.ratingKey) : null,
+        isInWatchlist: inLibrary ? watchlistKeys.has(libItem.ratingKey) : false,
+        isWatched: inLibrary ? watchedKeys.has(libItem.ratingKey) : false,
+        isRequested: !inLibrary && requestedIds.has(`${item.tmdbId}:${item.mediaType}`),
+      };
+    });
 
     res.json({
       results,
-      total: results.length,
-      pages: 1,
-      page: 1,
-      query: genre,
+      total,
+      pages,
+      page,
+      query: isGenreSearch ? genre : q,
+      availableContentRatings,
+      availableGenres,
     });
   } catch (err) {
     console.error('search error:', err);

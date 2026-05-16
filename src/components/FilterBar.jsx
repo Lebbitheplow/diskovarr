@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import ToggleSwitch from './ToggleSwitch'
+import { CONTENT_RATING_ORDER } from './filterConstants'
 
-const CONTENT_RATING_ORDER = ['G','PG','PG-13','R','NC-17','TV-G','TV-PG','TV-14','TV-MA']
 const SCORE_THRESHOLDS = [
   { label: '★ 9+', value: 9 },
   { label: '★ 8+', value: 8 },

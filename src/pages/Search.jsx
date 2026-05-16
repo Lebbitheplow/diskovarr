@@ -45,6 +45,8 @@ export default function Search() {
   const [filterContentRatings, setFilterContentRatings] = useState([])
   const [filterMinScore, setFilterMinScore] = useState(null)
   const [results, setResults] = useState([])
+  const [availableContentRatings, setAvailableContentRatings] = useState([])
+  const [availableGenres, setAvailableGenres] = useState([])
   const [loading, setLoading] = useState(false)
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
@@ -69,7 +71,10 @@ export default function Search() {
     setInputValue(urlQuery)
   }, [urlQuery])
 
-  // Reset filters, tab, and similar section when search changes
+  // Reset filters, tab, and similar section when search changes. Filter resets
+  // are applied via state setters — the refetch effect below picks them up on
+  // the next render (one extra fetch on query change, but always with the
+  // correct filter snapshot).
   useEffect(() => {
     setActiveTab('all')
     setHideLibrary(!!urlGenre)
@@ -91,12 +96,12 @@ export default function Search() {
     } catch { /* ignore */ }
   }, [])
 
-  // fetchSearchResults takes q/g/pg as args so it doesn't close over stale state
-  const fetchSearchResults = useCallback(async (q, g, pg = 1, append = false) => {
+  // fetchSearchResults takes args explicitly so it doesn't close over stale state
+  const fetchSearchResults = useCallback(async (q, g, pg = 1, append = false, filters = {}) => {
     if (!q && !g) { setResults([]); return }
     if (!append) setLoading(true)
     try {
-      const { data } = await searchApi.search(q, pg, g || undefined)
+      const { data } = await searchApi.search(q, pg, g || undefined, undefined, filters)
       if (append) {
         setResults(prev => [...prev, ...(data.results || [])])
       } else {
@@ -104,6 +109,8 @@ export default function Search() {
       }
       setTotalPages(data.pages || 1)
       setTotalResults(data.total || 0)
+      setAvailableContentRatings(data.availableContentRatings || [])
+      setAvailableGenres(data.availableGenres || [])
     } catch {
       toastError('Search failed. Please try again.')
     } finally {
@@ -111,11 +118,17 @@ export default function Search() {
     }
   }, [toastError])
 
-  // Fire search whenever the URL's q or genre param changes
+  // Refetch when query, genre, or any filter changes — reset to page 1
   useEffect(() => {
     setPage(1)
-    fetchSearchResults(urlQuery, urlGenre, 1, false)
-  }, [urlQuery, urlGenre]) // eslint-disable-line react-hooks/exhaustive-deps
+    fetchSearchResults(urlQuery, urlGenre, 1, false, {
+      filterGenres,
+      contentRatings: filterContentRatings,
+      yearFrom: filterYearFrom,
+      yearTo: filterYearTo,
+      minScore: filterMinScore,
+    })
+  }, [urlQuery, urlGenre, filterGenres, filterContentRatings, filterYearFrom, filterYearTo, filterMinScore]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     loadWatchlist()
@@ -261,40 +274,24 @@ export default function Search() {
   const handleLoadMore = useCallback(() => {
     const nextPage = page + 1
     setPage(nextPage)
-    fetchSearchResults(urlQuery, urlGenre, nextPage, true)
-  }, [page, urlQuery, urlGenre, fetchSearchResults])
+    fetchSearchResults(urlQuery, urlGenre, nextPage, true, {
+      filterGenres,
+      contentRatings: filterContentRatings,
+      yearFrom: filterYearFrom,
+      yearTo: filterYearTo,
+      minScore: filterMinScore,
+    })
+  }, [page, urlQuery, urlGenre, fetchSearchResults, filterGenres, filterContentRatings, filterYearFrom, filterYearTo, filterMinScore])
 
   const handleClearGenre = useCallback(() => {
     setActiveTab('all')
     navigate('/search')
   }, [navigate])
 
-  const availableGenres = useMemo(() => {
-    const set = new Set()
-    results.forEach(r => (r.genres || []).forEach(g => set.add(g)))
-    return [...set].sort()
-  }, [results])
-
-  const availableContentRatings = useMemo(() => {
-    const order = ['G','PG','PG-13','R','NC-17','TV-G','TV-PG','TV-14','TV-MA']
-    const set = new Set(results.map(r => r.contentRating).filter(Boolean))
-    return order.filter(r => set.has(r))
-  }, [results])
-
+  // Server applies all filters; hideLibrary is a view-only toggle kept client-side.
   const displayResults = useMemo(() => {
-    let r = hideLibrary ? results.filter(i => !i.inLibrary) : results
-    if (filterGenres.length > 0)
-      r = r.filter(i => filterGenres.every(g => (i.genres || []).includes(g)))
-    if (filterYearFrom)
-      r = r.filter(i => i.year >= parseInt(filterYearFrom))
-    if (filterYearTo)
-      r = r.filter(i => i.year <= parseInt(filterYearTo))
-    if (filterContentRatings.length > 0)
-      r = r.filter(i => filterContentRatings.includes(i.contentRating))
-    if (filterMinScore)
-      r = r.filter(i => (i.voteAverage || 0) >= filterMinScore)
-    return r
-  }, [results, hideLibrary, filterGenres, filterYearFrom, filterYearTo, filterContentRatings, filterMinScore])
+    return hideLibrary ? results.filter(i => !i.inLibrary) : results
+  }, [results, hideLibrary])
 
   const movieResults = displayResults.filter(item => item.mediaType === 'movie')
   const tvResults = displayResults.filter(item => item.mediaType === 'tv')
@@ -449,7 +446,7 @@ export default function Search() {
       {results.length > 0 && (
         <div className="search-results-meta" id="search-results-header">
           <span id="search-results-count">
-            {displayResults.length.toLocaleString()} result{displayResults.length !== 1 ? 's' : ''}{urlGenre ? ' in ' + urlGenre : ' for "' + urlQuery + '"'}
+            {totalResults.toLocaleString()} result{totalResults !== 1 ? 's' : ''}{urlGenre ? ' in ' + urlGenre : ' for "' + urlQuery + '"'}
           </span>
           {urlGenre && (
             <div className="genre-filter-badge">

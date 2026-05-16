@@ -3418,6 +3418,24 @@ img {
   flex-shrink: 0;
 }
 
+/* Native <select> dressed as a filter chip (used for Decade) */
+.filter-chip-select {
+  position: relative;
+}
+.filter-chip-select select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  appearance: none;
+}
+
 /* Inline panel — part of the flow, not floating */
 .filter-panel {
   display: flex;

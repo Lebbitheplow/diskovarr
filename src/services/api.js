@@ -63,7 +63,19 @@ export const discoverApi = {
 
 /** Search */
 export const searchApi = {
-  search: (query, page = 1, genre, type) => api.get('/search', { params: { q: query, page, genre, type } }),
+  search: (query, page = 1, genre, type, filters = {}) => api.get('/search', {
+    params: {
+      q: query,
+      page,
+      genre,
+      type,
+      filterGenres: filters.filterGenres?.length ? filters.filterGenres.join(',') : undefined,
+      contentRatings: filters.contentRatings?.length ? filters.contentRatings.join(',') : undefined,
+      yearFrom: filters.yearFrom || undefined,
+      yearTo: filters.yearTo || undefined,
+      minScore: filters.minScore || undefined,
+    },
+  }),
   getSuggestions: (query) => api.get('/search/suggest', { params: { q: query } }),
   getDetails: (tmdbId, type) => api.get('/search/details', { params: { tmdbId, type } }),
   getSeasons: (tmdbId) => api.get('/search/seasons', { params: { tmdbId } }),
