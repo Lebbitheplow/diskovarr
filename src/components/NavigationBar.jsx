@@ -436,7 +436,7 @@ export default function NavigationBar() {
               aria-expanded={fabOpen}
             >
               {user?.thumb ? (
-                <img src={`/api/poster?path=${encodeURIComponent(user.thumb)}`} alt={user.username}
+                <img src={user.thumb} alt={user.username}
                   onError={(e) => { e.currentTarget.outerHTML = `<span class="nav-fab-initial">${user.username.charAt(0).toUpperCase()}</span>` }} />
               ) : (
                 <span className="nav-fab-initial">{user?.username?.charAt(0).toUpperCase() || '?'}</span>
@@ -449,7 +449,7 @@ export default function NavigationBar() {
       {/* FAB for mobile */}
       <button className="nav-fab" onClick={() => setFabOpen(!fabOpen)} aria-label="Open menu" aria-expanded={fabOpen}>
         {user?.thumb ? (
-          <img src={`/api/poster?path=${encodeURIComponent(user.thumb)}`} alt={user.username}
+          <img src={user.thumb} alt={user.username}
             onError={(e) => { e.currentTarget.outerHTML = `<span class="nav-fab-initial">${user.username.charAt(0).toUpperCase()}</span>` }} />
         ) : (
           <span className="nav-fab-initial">{user?.username?.charAt(0).toUpperCase() || '?'}</span>
@@ -462,7 +462,7 @@ export default function NavigationBar() {
           <div className="nav-fab-menu open" style={menuRight !== null ? { right: menuRight } : undefined}>
             <div className="nav-fab-menu-user">
               {user?.thumb ? (
-                <img className="nav-fab-menu-avatar" src={`/api/poster?path=${encodeURIComponent(user.thumb)}`} alt={user.username}
+                <img className="nav-fab-menu-avatar" src={user.thumb} alt={user.username}
                   onError={(e) => { e.currentTarget.style.display = 'none' }} />
               ) : (
                 <div className="nav-fab-menu-avatar-placeholder">{user?.username?.charAt(0).toUpperCase() || '?'}</div>
