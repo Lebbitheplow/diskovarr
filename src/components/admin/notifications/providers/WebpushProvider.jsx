@@ -13,7 +13,7 @@ function Checkbox({ checked, onChange, children }) {
 export default function WebpushProvider({ initial, onToast, onOpenAgentInfo }) {
   const [enabled, setEnabled] = useState(initial?.enabled || false)
   const [embedPoster, setEmbedPoster] = useState(!!initial?.embedPoster)
-  const [vapidKey, setVapidKey] = useState(initial?.vapidPublic || '')
+  const [vapidKey] = useState(initial?.vapidPublic || '')
   const [testing, setTesting] = useState(false)
 
   const handleSave = useCallback(async () => {

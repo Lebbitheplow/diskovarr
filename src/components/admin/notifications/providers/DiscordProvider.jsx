@@ -22,7 +22,7 @@ export default function DiscordProvider({ initial, onToast, onOpenAgentInfo }) {
   const [botToken, setBotToken] = useState(initial?.botToken || '')
   const [botUsername, setBotUsername] = useState(initial?.botUsername || 'Diskovarr')
   const [botAvatarUrl, setBotAvatarUrl] = useState(initial?.botAvatarUrl || '')
-  const [publicUrl, setPublicUrl] = useState(initial?.publicUrl || '')
+  const [publicUrl] = useState(initial?.publicUrl || '')
   const [notificationRoleId, setNotificationRoleId] = useState(initial?.notificationRoleId || '')
   const [enableMentions, setEnableMentions] = useState(!!initial?.enableMentions)
   const [webhookEmbedPoster, setWebhookEmbedPoster] = useState(!!initial?.webhookEmbedPoster)
@@ -66,7 +66,7 @@ export default function DiscordProvider({ initial, onToast, onOpenAgentInfo }) {
     } catch (err) {
       if (onToast) onToast(err.message || 'Failed to save Discord settings', 'error')
     }
-  }, [enabled, webhookEnabled, botEnabled, webhookUrl, botToken, botUsername, botAvatarUrl, publicUrl, notificationRoleId, enableMentions, webhookEmbedPoster, botEmbedPoster, avatarRemoving, avatarFileData, inviteLink, webhookNotifTypes, botNotifTypes, onToast])
+  }, [enabled, webhookEnabled, botEnabled, webhookUrl, botToken, botUsername, botAvatarUrl, publicUrl, notificationRoleId, enableMentions, webhookEmbedPoster, botEmbedPoster, avatarRemoving, avatarFileData, inviteLink, webhookNotifTypes, botNotifTypes, onToast, collectTypes])
 
   const handleTest = useCallback(async () => {
     if (webhookEnabled && !webhookUrl) { if (onToast) onToast('Webhook URL required', 'error'); return }
@@ -84,7 +84,7 @@ export default function DiscordProvider({ initial, onToast, onOpenAgentInfo }) {
     } catch (err) {
       if (onToast) onToast(err.message || 'Failed to send test', 'error')
     } finally { setTesting(false) }
-  }, [webhookEnabled, botEnabled, webhookUrl, botToken, discordTestUserId, botNotifTypes, webhookNotifTypes, onToast])
+  }, [webhookEnabled, botEnabled, webhookUrl, botToken, discordTestUserId, botNotifTypes, webhookNotifTypes, onToast, collectTypes])
 
   const handleAvatarChange = useCallback((e) => {
     const file = e.target.files?.[0]

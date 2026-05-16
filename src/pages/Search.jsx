@@ -4,9 +4,7 @@ import FilterBar from '../components/FilterBar'
 import {
   searchApi,
   watchlistApi,
-  plexApi,
   exploreApi,
-  issuesApi,
   queueApi,
 } from '../services/api'
 import MediaCard from '../components/MediaCard'
@@ -161,7 +159,7 @@ export default function Search() {
         setSimilarLoading(false)
       })
     return () => { cancelled = true }
-  }, [selectedTmdbId, selectedType])
+  }, [selectedTmdbId, selectedType, hideLibrary])
 
   // Refetch similar items when hideLibrary changes (server may filter differently)
   useEffect(() => {
@@ -256,16 +254,6 @@ export default function Search() {
       toastError(e.message || 'Watchlist action failed')
     }
   }, [watchlistCache, toastSuccess, toastError])
-
-  const handleDismiss = useCallback(async (item) => {
-    try {
-      await plexApi.dismissItem(item.ratingKey)
-      setResults(prev => prev.filter(i => i.ratingKey !== item.ratingKey))
-      toastSuccess('Not interested')
-    } catch (e) {
-      toastError('Dismiss failed')
-    }
-  }, [toastSuccess, toastError])
 
   const handleOpenModal = useCallback((item) => {
     setSelectedItem(item)
@@ -772,7 +760,7 @@ export default function Search() {
                         type="button"
                         className="chip-sm"
                         style={{ border: '1px solid var(--border)', cursor: 'pointer', width: '100%', textAlign: 'center' }}
-                        onClick={(e) => {
+                        onClick={() => {
                           const panel = document.getElementById('request-adv-panel')
                           const toggle = document.getElementById('request-adv-toggle')
                           if (panel) {

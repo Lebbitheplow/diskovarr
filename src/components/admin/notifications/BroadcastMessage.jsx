@@ -3,7 +3,7 @@ import { adminNotifications } from '../../../services/adminApi'
 
 // Discord-flavored markdown markers — bold/italic/underline render natively in Discord webhooks/DMs.
 // Highlight (==) is a non-standard marker rendered with the app accent in the in-app modal; in channels
-// that don't recognize it (Discord, Pushover) it shows as raw text — acceptable degradation.
+// that don't recognize it (Pushover, etc.) it shows as raw text — acceptable degradation.
 const FORMATS = [
   { key: 'bold',      label: 'B',   title: 'Bold (Ctrl+B)',                style: { fontWeight: 700 } },
   { key: 'italic',    label: 'I',   title: 'Italic (Ctrl+I)',              style: { fontStyle: 'italic' } },
@@ -68,7 +68,7 @@ export default function BroadcastMessage({ onToast }) {
     const el = editorRef.current
     if (!el) return true
     // A "blank" contenteditable often still contains a <br> placeholder; check rendered text.
-    return el.innerText.replace(/​/g, '').trim() === ''
+    return el.innerText.replace(/\u200B/g, '').trim() === ''
   }
 
   const applyFormat = (key) => {
@@ -130,7 +130,7 @@ export default function BroadcastMessage({ onToast }) {
         <h2 className="section-title">Broadcast Message</h2>
       </div>
       <p className="section-desc" style={{ marginBottom: 16 }}>
-        Send a custom message to all users via all configured notification channels (in-app bell, Discord, and Pushover).
+        Send a custom message to all users via all configured notification channels (in-app bell, Discord, etc).
       </p>
       <div className="broadcast-toolbar" role="toolbar" aria-label="Text formatting">
         {FORMATS.map((f) => (

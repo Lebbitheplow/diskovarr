@@ -5,7 +5,6 @@ import {
   adminSettings,
   adminSync,
   adminConnections,
-  adminAgregarr,
   adminCompat,
 } from '../../services/adminApi'
 import { useTheme } from '../../context/ThemeContext'
@@ -20,11 +19,6 @@ const PRESET_COLORS = [
   { label: 'Orange',      hex: '#fb5607' },
   { label: 'White',       hex: '#e0e0e0' },
 ]
-
-function maskKey(key) {
-  if (!key || key.length < 8) return '••••••••'
-  return key.slice(0, 6) + '••••••••' + key.slice(-4)
-}
 
 function formatTimestamp(ts) {
   if (!ts) return 'Never'

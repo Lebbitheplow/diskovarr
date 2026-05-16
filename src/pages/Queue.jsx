@@ -165,7 +165,7 @@ export default function Queue() {
       const { data } = await queueApi.getQueue({ status: 'pending', page: 1 })
       const el = document.getElementById('pending-count-label')
       if (el) el.textContent = data.total > 0 ? `(${data.total})` : ''
-    } catch {}
+    } catch { /* ignore */ }
   }, [])
 
   useEffect(() => {
@@ -218,7 +218,7 @@ export default function Queue() {
       const { data } = await searchApi.getSeasons(request.tmdb_id)
       const rawNumbers = data.seasons || []
       let storedSeasons = null
-      try { storedSeasons = request.seasons_json ? JSON.parse(request.seasons_json) : null } catch {}
+      try { storedSeasons = request.seasons_json ? JSON.parse(request.seasons_json) : null } catch { /* ignore */ }
       const hasSelection = Array.isArray(storedSeasons) && storedSeasons.length > 0
       const selectedSet = hasSelection ? new Set(storedSeasons.map(Number)) : null
       const shaped = rawNumbers.map(n => ({ number: n, selected: selectedSet ? selectedSet.has(n) : false }))

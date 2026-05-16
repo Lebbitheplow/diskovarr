@@ -8,11 +8,6 @@ import {
 
 const MASKED = String.fromCharCode(8226).repeat(8)
 
-function maskKey(key) {
-  if (!key || key.length < 8) return MASKED
-  return key.slice(0, 6) + MASKED + key.slice(-4)
-}
-
 function buildUrl(host, port) {
   if (!host) return ''
   if (port && port !== '0') return host.replace(/\/$/, '') + ':' + port
@@ -45,7 +40,7 @@ function PlexSection({ plexUrl, plexToken, onUpdate, onSave, onToast }) {
   const [testLoading, setTestLoading] = useState(false)
   const [saveLoading, setSaveLoading] = useState(false)
   const [oauthLoading, setOauthLoading] = useState(false)
-  const [toast, setToast] = useState(null)
+  const [toast] = useState(null)
   const pollRef = useRef(null)
   const realToken = token === MASKED ? '' : token
 
@@ -106,7 +101,7 @@ function PlexSection({ plexUrl, plexToken, onUpdate, onSave, onToast }) {
             onToast?.('Signed in to Plex successfully')
             return
           }
-        } catch {}
+        } catch { /* keep polling */ }
         if (attempts < 60) pollRef.current = setTimeout(poll, 5000)
         else onToast?.('Plex sign-in timed out', 'error')
       }
@@ -170,7 +165,7 @@ function TautulliSection({ tautulliUrl, tautulliApiKey, onUpdate, onSave, onToas
   const [apiKeyVisible, setApiKeyVisible] = useState(false)
   const [testLoading, setTestLoading] = useState(false)
   const [saveLoading, setSaveLoading] = useState(false)
-  const [toast, setToast] = useState(null)
+  const [toast] = useState(null)
   const realKey = apiKey === MASKED ? '' : apiKey
 
   useEffect(() => { setHost(parseHost(tautulliUrl)); setPort(parsePort(tautulliUrl)) }, [tautulliUrl])
@@ -253,7 +248,7 @@ function TmdbSection({ tmdbApiKey, discoverEnabled, onUpdate, onSave, onToast })
   const [discover, setDiscover] = useState(!!discoverEnabled)
   const [testLoading, setTestLoading] = useState(false)
   const [saveLoading, setSaveLoading] = useState(false)
-  const [toast, setToast] = useState(null)
+  const [toast] = useState(null)
   const realKey = apiKey === MASKED ? '' : apiKey
   const hasKey = apiKey === MASKED || !!apiKey
 
@@ -414,14 +409,13 @@ function DefaultServiceSection({
   )
 }
 
-function OverseerrSection({ overseerrUrl, overseerrApiKey, overseerrEnabled, onUpdate, onSave, onToast }) {
+function OverseerrSection({ overseerrUrl, overseerrApiKey, overseerrEnabled, onUpdate, onToast }) {
   const [host, setHost] = useState(parseHost(overseerrUrl))
   const [port, setPort] = useState(parsePort(overseerrUrl))
   const [apiKey, setApiKey] = useState(overseerrApiKey ? MASKED : '')
   const [apiKeyVisible, setApiKeyVisible] = useState(false)
   const [testLoading, setTestLoading] = useState(false)
-  const [saveLoading, setSaveLoading] = useState(false)
-  const [toast, setToast] = useState(null)
+  const [toast] = useState(null)
   const [enabled, setEnabled] = useState(overseerrEnabled)
   const realKey = apiKey === MASKED ? '' : apiKey
 
@@ -458,17 +452,6 @@ function OverseerrSection({ overseerrUrl, overseerrApiKey, overseerrEnabled, onU
     } catch (err) {
       onToast?.(err.message || 'Overseerr test failed', 'error')
     } finally { setTestLoading(false) }
-  }
-
-  const handleSave = async () => {
-    setSaveLoading(true)
-    try {
-      await adminConnections.save({ overseerr_url: buildUrl(host, port), overseerr_api_key: realKey })
-      onSave?.()
-      onToast?.('Overseerr settings saved')
-    } catch (err) {
-      onToast?.(err.message || 'Failed to save Overseerr settings', 'error')
-    } finally { setSaveLoading(false) }
   }
 
   return (
@@ -521,14 +504,13 @@ function OverseerrSection({ overseerrUrl, overseerrApiKey, overseerrEnabled, onU
 }
 
 function RadarrSection({ radarrUrl, radarrApiKey, radarrEnabled, radarrQualityProfileId, radarrQualityProfileName,
-  profiles, onUpdate, onSave, onToast }) {
+  profiles, onUpdate, onToast }) {
   const [host, setHost] = useState(parseHost(radarrUrl))
   const [port, setPort] = useState(parsePort(radarrUrl))
   const [apiKey, setApiKey] = useState(radarrApiKey ? MASKED : '')
   const [apiKeyVisible, setApiKeyVisible] = useState(false)
   const [testLoading, setTestLoading] = useState(false)
-  const [saveLoading, setSaveLoading] = useState(false)
-  const [toast, setToast] = useState(null)
+  const [toast] = useState(null)
   const [enabled, setEnabled] = useState(radarrEnabled)
   const [profileId, setProfileId] = useState(radarrQualityProfileId || '')
   const [profilesList, setProfilesList] = useState(profiles || [])
@@ -594,22 +576,6 @@ function RadarrSection({ radarrUrl, radarrApiKey, radarrEnabled, radarrQualityPr
     } catch (err) {
       onToast?.(err.message || 'Radarr test failed', 'error')
     } finally { setTestLoading(false) }
-  }
-
-  const handleSave = async () => {
-    setSaveLoading(true)
-    try {
-      const sel = profilesList.find(p => p.id === profileId)
-      await adminConnections.save({
-        radarr_url: buildUrl(host, port),
-        radarr_api_key: realKey,
-        ...(profileId ? { radarr_quality_profile_id: profileId, radarr_quality_profile_name: sel?.name || radarrQualityProfileName } : {}),
-      })
-      onSave?.()
-      onToast?.('Radarr settings saved')
-    } catch (err) {
-      onToast?.(err.message || 'Failed to save Radarr settings', 'error')
-    } finally { setSaveLoading(false) }
   }
 
   const qualityRowStyle = hasBothFields ? { display: 'block' } : { display: 'none' }
@@ -681,14 +647,13 @@ function RadarrSection({ radarrUrl, radarrApiKey, radarrEnabled, radarrQualityPr
 }
 
 function SonarrSection({ sonarrUrl, sonarrApiKey, sonarrEnabled, sonarrQualityProfileId, sonarrQualityProfileName,
-  profiles, onUpdate, onSave, onToast }) {
+  profiles, onUpdate, onToast }) {
   const [host, setHost] = useState(parseHost(sonarrUrl))
   const [port, setPort] = useState(parsePort(sonarrUrl))
   const [apiKey, setApiKey] = useState(sonarrApiKey ? MASKED : '')
   const [apiKeyVisible, setApiKeyVisible] = useState(false)
   const [testLoading, setTestLoading] = useState(false)
-  const [saveLoading, setSaveLoading] = useState(false)
-  const [toast, setToast] = useState(null)
+  const [toast] = useState(null)
   const [enabled, setEnabled] = useState(sonarrEnabled)
   const [profileId, setProfileId] = useState(sonarrQualityProfileId || '')
   const [profilesList, setProfilesList] = useState(profiles || [])
@@ -754,22 +719,6 @@ function SonarrSection({ sonarrUrl, sonarrApiKey, sonarrEnabled, sonarrQualityPr
     } catch (err) {
       onToast?.(err.message || 'Sonarr test failed', 'error')
     } finally { setTestLoading(false) }
-  }
-
-  const handleSave = async () => {
-    setSaveLoading(true)
-    try {
-      const sel = profilesList.find(p => p.id === profileId)
-      await adminConnections.save({
-        sonarr_url: buildUrl(host, port),
-        sonarr_api_key: realKey,
-        ...(profileId ? { sonarr_quality_profile_id: profileId, sonarr_quality_profile_name: sel?.name || sonarrQualityProfileName } : {}),
-      })
-      onSave?.()
-      onToast?.('Sonarr settings saved')
-    } catch (err) {
-      onToast?.(err.message || 'Failed to save Sonarr settings', 'error')
-    } finally { setSaveLoading(false) }
   }
 
   const qualityRowStyle = hasBothFields ? { display: 'block' } : { display: 'none' }
@@ -847,7 +796,7 @@ function RivenSection({ rivenEnabled, rivenUrl, rivenApiKey, dumbRequestMode, co
   const [apiKeyVisible, setApiKeyVisible] = useState(false)
   const [testLoading, setTestLoading] = useState(false)
   const [saveLoading, setSaveLoading] = useState(false)
-  const [toast, setToast] = useState(null)
+  const [toast] = useState(null)
   const [enabled, setEnabled] = useState(!!rivenEnabled)
   const [mode, setMode] = useState(dumbRequestMode || 'pull')
   const realKey = apiKey === MASKED ? '' : apiKey
@@ -1005,36 +954,12 @@ export default function ConnectionSettings({ onDataLoaded, onToast }) {
   const [radarrProfiles, setRadarrProfiles] = useState([])
   const [sonarrProfiles, setSonarrProfiles] = useState([])
   const [compatKey, setCompatKey] = useState('')
-  const [radarrSaving, setRadarrSaving] = useState(false)
-  const [sonarrSaving, setSonarrSaving] = useState(false)
-
   // Derived visibility flags for Default Service section
   const hasOverseerrSide = fields.overseerr_enabled && !!fields.overseerr_url
   const hasRivenSide = !!fields.riven_enabled
   const hasDirectSide =
     (fields.radarr_enabled && !!fields.radarr_url) ||
     (fields.sonarr_enabled && !!fields.sonarr_url)
-
-  // Build full URLs for parsing
-  const plexUrl = fields.plex_url || ''
-  const plexHost = parseHost(plexUrl)
-  const plexPort = parsePort(plexUrl)
-
-  const tautulliUrl = fields.tautulli_url || ''
-  const tautulliHost = parseHost(tautulliUrl)
-  const tautulliPort = parsePort(tautulliUrl)
-
-  const overseerrUrl = fields.overseerr_url || ''
-  const overseerrHost = parseHost(overseerrUrl)
-  const overseerrPort = parsePort(overseerrUrl)
-
-  const radarrUrl = fields.radarr_url || ''
-  const radarrHost = parseHost(radarrUrl)
-  const radarrPort = parsePort(radarrUrl)
-
-  const sonarrUrl = fields.sonarr_url || ''
-  const sonarrHost = parseHost(sonarrUrl)
-  const sonarrPort = parsePort(sonarrUrl)
 
   const loadInitialData = useCallback(async () => {
     try {
@@ -1085,10 +1010,6 @@ export default function ConnectionSettings({ onDataLoaded, onToast }) {
   }, [onDataLoaded, onToast])
 
   useEffect(() => { loadInitialData() }, [loadInitialData])
-
-  const handleFieldUpdate = useCallback((patch) => {
-    setFields((prev) => ({ ...prev, ...patch }))
-  }, [])
 
   // ── Auto-save handler for field changes ──
   const debouncedSaveRef = useRef(null)
@@ -1150,9 +1071,6 @@ export default function ConnectionSettings({ onDataLoaded, onToast }) {
   if (loading) {
     return <div className="admin-section"><p style={{ color: 'var(--text-muted)' }}>Loading connection settings...</p></div>
   }
-
-  const plexHostVal = parseHost(fields.plex_url || '')
-  const plexPortVal = parsePort(fields.plex_url || '')
 
   return (
     <>
@@ -1219,7 +1137,6 @@ export default function ConnectionSettings({ onDataLoaded, onToast }) {
           radarrQualityProfileName={fields.radarr_quality_profile_name}
           profiles={radarrProfiles}
           onUpdate={handleRadarrUpdate}
-          onSave={() => setRadarrSaving(false)}
           onToast={onToast}
         />
 
@@ -1231,7 +1148,6 @@ export default function ConnectionSettings({ onDataLoaded, onToast }) {
           sonarrQualityProfileName={fields.sonarr_quality_profile_name}
           profiles={sonarrProfiles}
           onUpdate={handleSonarrUpdate}
-          onSave={() => setSonarrSaving(false)}
           onToast={onToast}
         />
       </section>

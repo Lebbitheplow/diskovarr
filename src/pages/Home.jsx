@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react'
-import { useSearchParams, useNavigate } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
 import {
   recommendationsApi,
   plexApi,
@@ -31,7 +31,6 @@ function setMatureEnabled(checked) {
 
 export default function Home() {
   const [searchParams] = useSearchParams()
-  const navigate = useNavigate()
   const { error: toastError, success: toastSuccess } = useToast()
   const { user } = useAuth()
 
@@ -46,15 +45,10 @@ export default function Home() {
   const openModalParam = searchParams.get('openModal')
   const mediaTypeParam = searchParams.get('mediaType')
 
-  const hasMatureItems = useCallback((items) => {
-    if (!items) return false
-    return items.some(item => item.contentRating && MATURE_RATINGS.has(item.contentRating.toLowerCase()))
-  }, [])
-
   const loadWatchlist = useCallback(async () => {
     try {
       const { data } = await watchlistApi.getWatchlist()
-      const cache = {}
+      const cache = {};
       (data.items || []).forEach(item => {
         cache[item.ratingKey] = true
       })

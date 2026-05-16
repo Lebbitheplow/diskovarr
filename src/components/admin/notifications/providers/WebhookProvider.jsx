@@ -18,7 +18,7 @@ export default function WebhookProvider({ initial, onToast, onOpenAgentInfo }) {
     decodeWebhookPayload(initial?.jsonPayload || DEFAULT_WEBHOOK_PAYLOAD) || decodeWebhookPayload(DEFAULT_WEBHOOK_PAYLOAD)
   )
   const [authHeader, setAuthHeader] = useState(initial?.authHeader || '')
-  const [customHeaders, setCustomHeaders] = useState(initial?.customHeaders || [])
+  const [customHeaders] = useState(initial?.customHeaders || [])
   const [supportVariables, setSupportVariables] = useState(!!initial?.supportVariables)
   const [notifTypes, setNotifTypes] = useState(
     (initial?.notificationTypes || []).length > 0 ? initial.notificationTypes : [...DEFAULT_AGENT_TYPES]

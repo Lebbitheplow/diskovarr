@@ -11,7 +11,7 @@ async function processPendingNotifications() {
   if (!pending.length) return;
 
   // Group items that share a notification_id (bundled bell notifications) so we
-  // send ONE Discord/Pushover message per bundle instead of one per queue item.
+  // send ONE external notification per bundle instead of one per queue item.
   // Items without a notification_id are sent individually.
   const grouped = new Map(); // key: "notif_id:agent:user_id" → [items ordered by id ASC]
   const ungrouped = [];
@@ -32,7 +32,7 @@ async function processPendingNotifications() {
     const notif = db.getNotificationById(first.notification_id);
 
     // If the user already read the bell notification, skip the external send —
-    // they've seen it in the app so Discord/Pushover would just be noise.
+    // they've seen it in the app so external notifications would just be noise.
     if (notif && notif.read) {
       logger.debug(`notificationService: notif ${first.notification_id} already read, skipping ${first.agent} send`);
       for (const item of items) db.markQueueItemSent(item.id);

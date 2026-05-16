@@ -19,8 +19,9 @@ export default function DiscordUserProvider({ settings, onToast, onSave }) {
     if (!userId?.trim()) { if (onToast) onToast('Enter your Discord User ID', 'error'); return }
     try {
       const { data } = await userApi.testDiscord(userId.trim())
-      if (data.ok) if (onToast) onToast('Test message sent!', 'success')
-      else if (onToast) onToast(data.error || 'Send failed', 'error')
+      if (data.ok) {
+        if (onToast) onToast('Test message sent!', 'success')
+      } else if (onToast) onToast(data.error || 'Send failed', 'error')
     } catch (e) {
       if (onToast) onToast('Send failed', 'error')
     }

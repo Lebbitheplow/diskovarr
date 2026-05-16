@@ -77,7 +77,7 @@ export default function UserNotifications({ settings, onToast, onUpdateSettings 
       const { userApi } = await import('../../services/api')
       const { data } = await userApi.getSettings()
       setUserProviderEnabled(buildEnabledMap(data))
-    } catch {}
+    } catch { /* ignore */ }
   }, [])
 
   const renderContent = () => {

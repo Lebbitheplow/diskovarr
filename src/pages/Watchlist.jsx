@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { watchlistApi, plexApi } from '../services/api'
+import { watchlistApi } from '../services/api'
 import MediaCard from '../components/MediaCard'
 import SkeletonLoader from '../components/SkeletonLoader'
 import DetailModal from '../components/DetailModal'
@@ -49,16 +49,6 @@ export default function Watchlist() {
   const handleOpenModal = useCallback((item) => {
     setSelectedItem(item)
   }, [])
-
-  const handleDismiss = useCallback(async (item) => {
-    try {
-      await plexApi.dismissItem(item.ratingKey)
-      setItems(prev => prev.filter(i => i.ratingKey !== item.ratingKey))
-      toastSuccess('Not interested')
-    } catch (e) {
-      toastError('Dismiss failed')
-    }
-  }, [toastSuccess, toastError])
 
   return (
     <main className="main-content">

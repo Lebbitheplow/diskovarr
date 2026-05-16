@@ -53,7 +53,7 @@ function MetaBadges({ item }) {
   )
 }
 
-function CastPicker({ item, onClose, onCast }) {
+function CastPicker({ item, onClose }) {
   const [clients, setClients] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -104,7 +104,7 @@ function ReportIssueForm({ item }) {
   const [submitting, setSubmitting] = useState(false)
   const [reported, setReported] = useState(false)
   const [error, setError] = useState(null)
-  const { success, error: toastError } = useToast()
+  const { success } = useToast()
 
   const isShow = item.type === 'show' || item.mediaType === 'tv'
   const [scope, setScope] = useState('series')
@@ -192,7 +192,7 @@ function ReportIssueForm({ item }) {
   )
 }
 
-export default function DetailModal({ item, onClose, onRefresh, onRequest, onNotify }) {
+export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
   const [trailerKey, setTrailerKey] = useState(null)
   const [trailerLoading, setTrailerLoading] = useState(false)
   const [inWatchlist, setInWatchlist] = useState(item?.isInWatchlist || false)
@@ -293,13 +293,14 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest, onNot
       .catch(() => {})
       .finally(() => setTrailerLoading(false))
 
+    const trailerEl = trailerRef.current
     return () => {
-      if (trailerRef.current) {
-        trailerRef.current.innerHTML = ''
-        trailerRef.current.classList.remove('active')
+      if (trailerEl) {
+        trailerEl.innerHTML = ''
+        trailerEl.classList.remove('active')
       }
     }
-  }, [item?.tmdbId])
+  }, [item?.tmdbId, item?.type, item?.mediaType])
 
   const handleClose = useCallback(() => {
     if (trailerRef.current) {
@@ -316,7 +317,6 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest, onNot
   if (item.year) metaParts.push(item.year)
   metaParts.push(mediaTypeLabel)
   const heroPath = item.art || item.thumb
-  const isShow = item.type === 'show' || item.mediaType === 'tv'
 
   return (
     <div className="detail-modal-wrap open" aria-hidden="false" onClick={handleClose}>

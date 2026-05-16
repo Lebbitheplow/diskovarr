@@ -5,7 +5,7 @@ export default function MediaCard({
   isInWatchlist = false, isWatched = false
 }) {
   const [imgError, setImgError] = useState(false)
-  const { title, year, audienceRating, contentRating, thumb, posterUrl, ratingKey, reasons, mediaType } = item
+  const { title, year, audienceRating, contentRating, thumb, posterUrl, ratingKey, reasons } = item
   const posterPath = thumb || posterUrl
 
   function makePosterSrc(path) {

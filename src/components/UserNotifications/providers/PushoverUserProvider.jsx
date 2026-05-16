@@ -19,8 +19,9 @@ export default function PushoverUserProvider({ settings, onToast, onSave }) {
     if (!userKey?.trim()) { if (onToast) onToast('Enter your Pushover user key', 'error'); return }
     try {
       const { data } = await userApi.testPushover(userKey.trim())
-      if (data.ok) if (onToast) onToast('Test message sent!', 'success')
-      else if (onToast) onToast(data.error || 'Send failed', 'error')
+      if (data.ok) {
+        if (onToast) onToast('Test message sent!', 'success')
+      } else if (onToast) onToast(data.error || 'Send failed', 'error')
     } catch (e) {
       if (onToast) onToast('Send failed', 'error')
     }

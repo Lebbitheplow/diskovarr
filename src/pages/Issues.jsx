@@ -161,7 +161,7 @@ export default function Issues() {
     try {
       const { data } = await issuesApi.getIssues({ status: 'open', page: 1, limit: 1 })
       setOpenCount(data.total || 0)
-    } catch {}
+    } catch { /* ignore */ }
   }, [])
 
   useEffect(() => {

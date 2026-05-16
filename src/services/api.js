@@ -169,7 +169,7 @@ export const adminApi = {
   getBroadcast: () => adminApiInstance.get('/broadcast'),
   setBroadcast: (message) => adminApiInstance.post('/broadcast', { message }),
   deleteBroadcast: () => adminApiInstance.delete('/broadcast'),
-  rebuildPool: () => apiInstance.post('/admin/rebuild-pool'),
+  rebuildPool: () => adminApiInstance.post('/admin/rebuild-pool'),
 }
 
 /** Error helpers */

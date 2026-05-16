@@ -3,9 +3,7 @@ import { Link } from 'react-router-dom'
 import {
   exploreApi,
   watchlistApi,
-  plexApi,
   searchApi,
-  issuesApi,
   queueApi,
 } from '../services/api'
 import MediaCard from '../components/MediaCard'
@@ -54,28 +52,6 @@ function formatReleaseDate(dateStr) {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
-function makeReasonTag(text) {
-  const tag = document.createElement('span')
-  tag.className = 'reason-tag'
-  const inner = document.createElement('span')
-  inner.className = 'reason-tag-text'
-  inner.textContent = text
-  tag.appendChild(inner)
-  setTimeout(() => {
-    const cs = window.getComputedStyle(tag)
-    const tagExtra = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight) + parseFloat(cs.borderLeftWidth) + parseFloat(cs.borderRightWidth)
-    const overflow = inner.getBoundingClientRect().width - (tag.getBoundingClientRect().width - tagExtra)
-    if (overflow > 1) {
-      const dist = Math.ceil(overflow) + 6
-      const dur = Math.max(3, (dist / 40 + 2)).toFixed(1) + 's'
-      tag.style.setProperty('--tag-scroll-dist', '-' + dist + 'px')
-      tag.style.setProperty('--tag-scroll-duration', dur)
-      tag.classList.add('reason-tag-scroll')
-    }
-  }, 50)
-  return tag
-}
-
 export default function Explore() {
   const { error: toastError, success: toastSuccess } = useToast()
   const { user } = useAuth()
@@ -92,7 +68,7 @@ export default function Explore() {
   const [selectedSeasons, setSelectedSeasons] = useState(['all'])
   const [watchlistCache, setWatchlistCache] = useState({})
   const [building, setBuilding] = useState(false)
-  const [polling, setPolling] = useState(false)
+  const [, setPolling] = useState(false)
   const [buildProgress, setBuildProgress] = useState(0)
   const intervalRef = useRef(null)
   const pollingRef = useRef(false)
@@ -289,14 +265,6 @@ export default function Explore() {
       }
       return [...prev, String(season)]
     })
-  }, [])
-
-  const handleSelectAllSeasons = useCallback((checked) => {
-    if (checked) {
-      setSelectedSeasons(['all'])
-    } else {
-      setSelectedSeasons([])
-    }
   }, [])
 
   const handleSubmitRequest = useCallback(async (service) => {
@@ -989,7 +957,7 @@ export default function Explore() {
                         type="button"
                         className="chip-sm"
                         style={{ border: '1px solid var(--border)', cursor: 'pointer', width: '100%', textAlign: 'center' }}
-                        onClick={(e) => {
+                        onClick={() => {
                           const panel = document.getElementById('request-adv-panel')
                           const toggle = document.getElementById('request-adv-toggle')
                           if (panel) {

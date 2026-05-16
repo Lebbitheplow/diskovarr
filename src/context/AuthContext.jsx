@@ -29,7 +29,7 @@ export function AuthProvider({ children }) {
   const logout = async () => {
     try {
       await axios.get('/auth/logout', { withCredentials: true })
-    } catch {}
+    } catch { /* ignore */ }
     setUser(null)
     setDiscoverAvailable(false)
     setLoading(false)
@@ -43,6 +43,7 @@ export function AuthProvider({ children }) {
   )
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useAuth() {
   const ctx = useContext(AuthContext)
   if (!ctx) throw new Error('useAuth must be used within AuthProvider')

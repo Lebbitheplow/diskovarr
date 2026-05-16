@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import adminApi, {
   adminUsers,
-  adminUserSettings,
   adminSettings,
   adminRequestLimits,
   adminConnections,
@@ -31,26 +30,9 @@ function formatRelativeTime(timestamp) {
   return d.toLocaleDateString()
 }
 
-function getDefaultUserSettings() {
-  return {
-    auto_approve_movies: false,
-    auto_approve_tv: false,
-    auto_request_movies: false,
-    auto_request_tv: false,
-    allow_download: false,
-    allow_live_tv: false,
-    allow_mature_content: false,
-    restrict_new_content_to_days: null,
-    restrict_request_limit_movies: null,
-    restrict_request_limit_tv: null,
-    restrict_request_limit_ep_all: null,
-  }
-}
-
 function Avatar({ url, username }) {
   const [error, setError] = useState(false)
   if (error || !url) {
-    const fallbackText = (username || '?').charAt(0).toUpperCase()
     return (
       <img
         src={USER_AVATAR_FALLBACK}
@@ -307,7 +289,7 @@ function SearchableSelect({ options, value, onChange, placeholder = 'Select...',
   )
 }
 
-export default function UserManagement({ onDataLoaded, onToast, connections, onOpenUserSettings, onOpenBulkSettings }) {
+export default function UserManagement({ onToast, connections, onOpenUserSettings, onOpenBulkSettings }) {
   const [users, setUsers] = useState([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(null)
@@ -331,6 +313,7 @@ export default function UserManagement({ onDataLoaded, onToast, connections, onO
   const [individualSeasonsEnabled, setIndividualSeasonsEnabled] = useState(false)
   const [savingIndividualSeasons, setSavingIndividualSeasons] = useState(false)
   const [loadingIndividualSeasons, setLoadingIndividualSeasons] = useState(false)
+  const [discoverEnabled, setDiscoverEnabled] = useState(connections?.discoverEnabled ?? false)
 
   const [globalLimits, setGlobalLimits] = useState({
     enabled: false,
@@ -692,8 +675,6 @@ export default function UserManagement({ onDataLoaded, onToast, connections, onO
   const ownerUser = useMemo(() => {
     return allUsersList.find((u) => u.user_id === serverOwner) || null
   }, [allUsersList, serverOwner])
-
-  const [discoverEnabled, setDiscoverEnabled] = useState(connections?.discoverEnabled ?? false)
 
   if (loading) {
     return (

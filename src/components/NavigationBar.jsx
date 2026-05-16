@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { useToast } from '../context/ToastContext'
 import { notificationsApi, searchApi } from '../services/api'
 import Modal from './Modal'
 
@@ -80,7 +79,6 @@ function LogoIcon() {
 
 export default function NavigationBar() {
   const { user, logout, discoverAvailable } = useAuth()
-  const { showToast } = useToast()
   const navigate = useNavigate()
   const location = useLocation()
   const [fabOpen, setFabOpen] = useState(false)
@@ -181,7 +179,7 @@ export default function NavigationBar() {
     } catch { /* ignore */ }
   }
 
-  const handleBellItemClick = async (notification, el) => {
+  const handleBellItemClick = async (notification) => {
     await markRead(notification.id)
 
     if (notification.type === 'broadcast') {
@@ -264,6 +262,7 @@ export default function NavigationBar() {
   }
 
   const agoString = (created_at) => {
+    // eslint-disable-next-line react-hooks/purity
     const ago = Math.floor((Date.now() / 1000 - created_at) / 60)
     return ago < 60 ? `${ago}m ago` : `${Math.floor(ago / 60)}h ago`
   }

@@ -29,15 +29,6 @@ const TABS = [
 ]
 
 function AdminNav({ onLogout }) {
-  const handleLogout = async () => {
-    try {
-      await fetch('/admin/logout', { method: 'POST', credentials: 'include' })
-      window.location.href = '/admin/login'
-    } catch {
-      window.location.href = '/admin/login'
-    }
-  }
-
   return (
     <nav className="nav">
       <div className="nav-inner">
