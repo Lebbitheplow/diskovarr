@@ -373,7 +373,9 @@ router.get('/clients', async (req, res) => {
       for (const r of (Array.isArray(resources) ? resources : [])) {
         const provides = (r.provides || '').split(',').map(s => s.trim());
         if ((provides.includes('player') || provides.includes('pubsub-player'))
-            && !provides.includes('server') && r.clientIdentifier && !seenIds.has(r.clientIdentifier)) {
+            && !provides.includes('server')
+            && r.owned === true
+            && r.clientIdentifier && !seenIds.has(r.clientIdentifier)) {
           clients.push({ name: r.name, machineIdentifier: r.clientIdentifier, product: r.product || '', platform: r.platform || '' });
           seenIds.add(r.clientIdentifier);
         }
@@ -392,7 +394,7 @@ router.get('/clients', async (req, res) => {
         for (const a of match[1].matchAll(/(\w+)="([^"]*)"/g)) attrs[a[1]] = a[2];
         const id = attrs.clientIdentifier;
         const product = attrs.product || '';
-        if (id && TV_PRODUCT_RE.test(product) && !seenIds.has(id)) {
+        if (id && attrs.owned === '1' && TV_PRODUCT_RE.test(product) && !seenIds.has(id)) {
           clients.push({ name: attrs.name || id, machineIdentifier: id, product, platform: attrs.platform || '' });
           seenIds.add(id);
         }
@@ -459,7 +461,7 @@ router.post('/cast', async (req, res) => {
       if (resRes.ok) {
         const resources = await resRes.json().catch(() => []);
         for (const r of (Array.isArray(resources) ? resources : [])) {
-          if (r.clientIdentifier === clientId && Array.isArray(r.connections) && r.connections.length) {
+          if (r.clientIdentifier === clientId && r.owned === true && Array.isArray(r.connections) && r.connections.length) {
             // Relay first (works from any network), local second (same-LAN only)
             const sorted = [...r.connections].sort((a, b) => (b.relay ? 1 : 0) - (a.relay ? 1 : 0));
             playerUri = sorted[0].uri;

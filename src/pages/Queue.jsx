@@ -518,10 +518,11 @@ export default function Queue() {
                 <label className="edit-field-label">Seasons</label>
                 <div>
                   <label style={{ fontSize: '0.82rem', marginBottom: '6px', display: 'block' }}>
-                    <input
-                      type="checkbox"
-                      checked={editAllSeasons}
-                      onChange={e => {
+                   <input
+                       type="checkbox"
+                       className="bulk-checkbox"
+                       checked={editAllSeasons}
+                       onChange={e => {
                         setEditAllSeasons(e.target.checked)
                         setEditSeasons(editSeasons.map(s => ({ ...s, selected: e.target.checked })))
                       }}
@@ -532,9 +533,10 @@ export default function Queue() {
                 <div className="edit-season-list">
                   {editSeasons.map(s => (
                     <label key={s.number} style={{ fontSize: '0.82rem' }}>
-                      <input
-                        type="checkbox"
-                        checked={editAllSeasons || (s.selected && !editAllSeasons)}
+                     <input
+                         type="checkbox"
+                         className="bulk-checkbox"
+                         checked={editAllSeasons || (s.selected && !editAllSeasons)}
                         onChange={e => {
                           if (e.target.checked) {
                             setEditSeasons(prev => prev.map(se => se.number === s.number ? { ...se, selected: true } : se))
@@ -575,9 +577,10 @@ export default function Queue() {
           <h3>Delete Request</h3>
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', margin: '8px 0 16px' }}>Are you sure you want to permanently delete this request?</p>
           <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.82rem', color: 'var(--text-secondary)', marginBottom: '16px' }}>
-            <input
-              type="checkbox"
-              checked={noConfirmDelete}
+           <input
+               type="checkbox"
+               className="bulk-checkbox"
+               checked={noConfirmDelete}
               onChange={e => {
                 setNoConfirmDelete(e.target.checked)
                 localStorage.setItem('diskovarr_no_confirm_delete', e.target.checked)
