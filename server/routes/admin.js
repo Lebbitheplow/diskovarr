@@ -413,10 +413,12 @@ router.get('/connections/settings', requireAdmin, (req, res) => {
 router.post('/connections/save', requireAdmin, (req, res) => {
   const body = req.body;
   const BOOL_KEYS = new Set(['discover_enabled','overseerr_enabled','radarr_enabled','sonarr_enabled','riven_enabled','individual_seasons_enabled','direct_request_access']);
+  // Booleans may arrive as true/false, '1'/'0', or 'true'/'false' depending on caller — normalize to '1'/'0'
+  // so downstream readers using strict `=== '1'` checks don't silently treat 'true' as disabled.
+  const toBool01 = (v) => (v === true || v === 1 || v === '1' || v === 'true') ? '1' : '0';
   for (const key of CONNECTION_KEYS) {
     if (key in body) {
-      // Checkboxes send '1' when checked, absent when unchecked — only default to '0' for boolean keys
-      db.setSetting(key, BOOL_KEYS.has(key) ? (body[key] || '0') : (body[key] ?? ''));
+      db.setSetting(key, BOOL_KEYS.has(key) ? toBool01(body[key]) : (body[key] ?? ''));
     }
   }
   // Invalidate discover cache when settings change

@@ -106,7 +106,7 @@ router.get('/config', (req, res) => {
     rdApiKey: getRdApiKey() ? '••••••••' : '',
     hasApiKey: !!getRivenApiKey(),
     hasRdKey: !!getRdApiKey(),
-    enabled: db.getSetting('riven_enabled', '0') === '1',
+    enabled: ['1', 'true'].includes(db.getSetting('riven_enabled', '0')),
     dumbRequestMode: db.getSetting('dumb_request_mode', 'pull'),
     dumbHasApiKey: !!(dumbApp?.api_key),
   });
