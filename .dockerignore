@@ -1,0 +1,51 @@
+# Version control & local Claude state
+.git
+.gitignore
+.github
+CLAUDE.md
+.claude
+
+# Dependencies — installed in-image via `npm ci`
+node_modules
+server/node_modules
+
+# Build output — Stage 1 produces a fresh build
+dist
+dist-ssr
+
+# Persistent data & secrets — never copy into the image
+server/data
+data
+.env
+.env.local
+**/.env
+**/.env.local
+*.db
+*.db-shm
+*.db-wal
+*.bak
+
+# Local dev helpers (also gitignored)
+proxy.cjs
+proxy.js
+proxy-server.js
+start-vite.js
+scripts
+
+# Planning docs / migration notes (gitignored locally)
+FINAL_PLAN_SUMMARY.md
+IMPLEMENTATION_PLAN.md
+
+# Editor / OS junk
+.vscode
+.idea
+.DS_Store
+*.swp
+*.swo
+
+# Logs
+*.log
+logs
+
+# README and other docs are tiny but irrelevant to the runtime
+# (Stage 1 doesn't COPY . . so they're already excluded from the frontend image)

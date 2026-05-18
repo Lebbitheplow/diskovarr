@@ -1,6 +1,6 @@
 services:
   diskovarr:
-    image: diskovarr:latest
+    image: lebbi/diskovarr:latest
     container_name: diskovarr
     restart: unless-stopped
     ports:
@@ -21,3 +21,7 @@ services:
       - PLEX_MOVIES_SECTION_ID=1
       - PLEX_TV_SECTION_ID=2
       - PORT=3232
+      # ── Optional v2.0.0 additions (uncomment to enable) ────────────
+      # - TMDB_API_KEY=your_tmdb_api_key
+      # - RIVEN_SETTINGS_PATH=/opt/riven/settings.json
+      # - APP_URL=https://diskovarr.example.com

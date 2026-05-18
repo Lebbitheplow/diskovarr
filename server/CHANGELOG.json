@@ -1,5 +1,19 @@
 [
   {
+    "version": "2.0.0",
+    "date": "2026-05-18",
+    "changes": [
+      "Full React + Express rewrite — the server-rendered EJS UI has been replaced with a modern React SPA backed by the existing Express API. All existing data, sessions, and admin settings are preserved on upgrade.",
+      "Broadcast notification editor — rich-text editor with font-style options: bold, italic, strikethrough, and inline code, with per-channel markdown stripping for Discord and Pushover delivery.",
+      "Queue and Issues — server-side search and filtering. New API endpoints support search by title, user filter, and date-range filter across the full result set rather than just the current page.",
+      "Plex SSE integration — recently-added media is now detected via Plex Server-Sent Events for faster and more reliable new-content notifications, complementing the WebSocket sync introduced in v1.17.11.",
+      "Bulk-select on Queue and Issues — themed checkboxes with bulk-delete actions for clearing multiple rows in a single click.",
+      "DUMB/Riven torrent browser — search any title, browse Torrentio results with Real-Debrid cache status, and inject a torrent directly into Riven from the admin panel.",
+      "Overseerr-compatible API expansion — significantly broader compatibility surface (40+ new endpoints) for Agregarr, DUMB, and Homarr.",
+      "Personalized home hero — greeting now uses your username rendered in your chosen accent color."
+    ]
+  },
+  {
     "version": "1.17.12",
     "date": "2026-04-07",
     "changes": [

@@ -4,6 +4,35 @@ All notable changes are documented here. Versioning follows [Semantic Versioning
 
 ---
 
+## v2.0.0 — 2026-05-18
+
+The React rewrite. The server-rendered EJS UI from v1.x is replaced with a modern React SPA served by the same Express backend. **Existing Docker users can upgrade with `docker compose pull && docker compose up -d` — all SQLite data, sessions, watch history, and admin settings are preserved.**
+
+### Added
+
+- **Broadcast notification editor** — rich-text editor with font-style options (bold, italic, strikethrough, inline code) and per-channel markdown stripping for Discord and Pushover delivery.
+- **Queue and Issues — server-side search and filtering** — new API endpoints back searchable user filters and date-range filters across the entire result set, not just the visible page.
+- **Plex SSE integration** — recently-added media is now detected via Plex Server-Sent Events, giving faster and more reliable new-content notifications. Complements the WebSocket sync introduced in v1.17.11.
+- **Bulk-select on Queue and Issues** — themed checkboxes with bulk-delete actions.
+- **DUMB/Riven torrent browser** — search any title, browse Torrentio results with Real-Debrid cache status, and inject a torrent directly into Riven from the admin panel.
+- **Overseerr-compatible API expansion** — broader compatibility surface for Agregarr, DUMB, and Homarr (40+ new endpoints).
+- **Personalized home hero** — greeting now renders your username in your accent color.
+
+### Changed
+
+- **UI architecture** — the entire user-facing UI is now a React SPA built with Vite (output: `dist/`) and served statically by Express. The legacy EJS templates and vanilla-JS frontend are removed.
+- **Docker image layout** — the image is now built from the repository root with a multi-stage `Dockerfile` that builds the React frontend and bundles it into the server runtime. Image name, port, and data volume are unchanged (`lebbi/diskovarr`, `3232`, `/app/data`).
+
+### Migration notes
+
+- Existing Docker deployments: `docker compose pull && docker compose up -d`. No `.env` changes are required.
+- `PLEX_SERVER_NAME` is now optional — the server name is auto-fetched from the Plex API. Leaving it in your existing `.env` is harmless.
+- New **optional** env vars: `TMDB_API_KEY` (enables the Requests tab), `RIVEN_SETTINGS_PATH` (enables DUMB/Riven integration), `APP_URL` (Plex OAuth callback URL when running behind a reverse proxy). The app starts without them.
+- First load after upgrade may take 30–120 seconds while the new `discover_pool_cache` table is populated. Subsequent loads are instant.
+- The session cookie name changed to `diskovarr.react.sid`; some users may need to sign in once after the first upgrade.
+
+---
+
 ## v1.17.12 — 2026-04-07
 
 ### Fixed
