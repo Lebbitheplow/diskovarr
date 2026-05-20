@@ -488,7 +488,7 @@ export default function NavigationBar() {
             <div className="info-modal-logo">
               <span className="logo-icon"><LogoIcon /></span>
               <span className="logo-text">Diskovarr</span>
-              <button className="info-modal-version" onClick={() => { setInfoOpen(false); setChangelogOpen(true) }}>v{import.meta.env.VITE_APP_VERSION || '2.0.0'}</button>
+              <button className="info-modal-version" onClick={() => { setInfoOpen(false); setChangelogOpen(true) }}>v{import.meta.env.VITE_APP_VERSION || '2.0.1'}</button>
             </div>
             <p className="info-modal-tagline">Personalized Plex recommendations based on your watch history.</p>
             <div className="info-modal-sections">
@@ -540,7 +540,18 @@ export default function NavigationBar() {
             <div className="info-modal-sections" id="changelog-entries">
               <div className="info-modal-section">
                 <div className="info-modal-section-title">
-                  v{import.meta.env.VITE_APP_VERSION || '2.0.0'}{' '}
+                  v{import.meta.env.VITE_APP_VERSION || '2.0.1'}{' '}
+                  <span style={{ fontWeight: '400', color: 'var(--text-secondary)', fontSize: '0.78rem' }}>2026-05-19</span>
+                </div>
+                <p style={{ margin: '4px 0 2px', fontSize: '0.78rem', fontWeight: '600', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Fixes & Improvements</p>
+                <ul style={{ margin: '0 0 0', paddingLeft: '18px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <li style={{ fontSize: '0.84rem' }}>Fixed search failures on certain titles (e.g. "Napoleon Dynamite") caused by double-gzipped TMDB responses from CloudFront</li>
+                  <li style={{ fontSize: '0.84rem' }}>Hardened the TMDB client to resiliently decompress nested gzip payloads, fixing intermittent failures across Search, autocomplete, item details, and Discover</li>
+                </ul>
+              </div>
+              <div className="info-modal-section">
+                <div className="info-modal-section-title">
+                  v2.0.0{' '}
                   <span style={{ fontWeight: '400', color: 'var(--text-secondary)', fontSize: '0.78rem' }}>2026-05-18</span>
                 </div>
                 <p style={{ margin: '4px 0 2px', fontSize: '0.78rem', fontWeight: '600', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Additions</p>

@@ -1,3 +1,5 @@
+const https = require('node:https');
+const zlib = require('node:zlib');
 const db = require('../db/database');
 
 const BASE = 'https://api.themoviedb.org/3';
@@ -7,16 +9,75 @@ function getApiKey() {
   return db.getSetting('tmdb_api_key', null) || process.env.TMDB_API_KEY || null;
 }
 
-async function tmdbFetch(path) {
-  const apiKey = getApiKey();
-  if (!apiKey) throw new Error('TMDB API key not configured');
-  const sep = path.includes('?') ? '&' : '?';
-  const url = `${BASE}${path}${sep}api_key=${apiKey}`;
-  const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
-  if (res.status === 401) throw new Error('TMDB API key invalid');
-  if (res.status === 404) return null;
-  if (!res.ok) throw new Error(`TMDB API error ${res.status} for ${path}`);
-  return res.json();
+// Decompress a TMDB response body.
+//
+// CloudFront in front of TMDB sometimes serves cached entries as a gzip
+// wrapper containing a single "stored" deflate block whose contents are
+// the original gzip stream plus one trailing padding byte. One round of
+// gunzipSync strips the outer wrapper but leaves bytes still beginning
+// with the gzip magic; a second round then sees a trailing byte after
+// the inner stream ends and fails with Z_BUF_ERROR ("unexpected end of
+// file"). When that happens we retry the gunzip with a few trailing
+// bytes trimmed, which is enough to unwrap the inner stream cleanly.
+function decompressBody(buf, enc) {
+  const looksGzipped = (b) => b.length >= 2 && b[0] === 0x1f && b[1] === 0x8b;
+  if (looksGzipped(buf)) {
+    for (let pass = 0; pass < 4 && looksGzipped(buf); pass++) {
+      buf = gunzipResilient(buf);
+    }
+  } else if (enc === 'deflate') {
+    buf = zlib.inflateSync(buf);
+  } else if (enc === 'br') {
+    buf = zlib.brotliDecompressSync(buf);
+  }
+  return buf;
+}
+
+function gunzipResilient(buf) {
+  let lastErr = null;
+  for (let trim = 0; trim <= 4; trim++) {
+    try {
+      return zlib.gunzipSync(buf.subarray(0, buf.length - trim));
+    } catch (e) {
+      lastErr = e;
+      if (e.code !== 'Z_BUF_ERROR') throw e;
+    }
+  }
+  throw lastErr || new Error('gunzip failed');
+}
+
+function tmdbFetch(path) {
+  return new Promise((resolve, reject) => {
+    const apiKey = getApiKey();
+    if (!apiKey) return reject(new Error('TMDB API key not configured'));
+    const sep = path.includes('?') ? '&' : '?';
+    const url = `${BASE}${path}${sep}api_key=${apiKey}`;
+
+    const req = https.get(url, {
+      headers: { 'accept-encoding': 'gzip, deflate, identity', 'accept': 'application/json' },
+      timeout: 10000,
+    }, res => {
+      const status = res.statusCode;
+      if (status === 401) { res.resume(); return reject(new Error('TMDB API key invalid')); }
+      if (status === 404) { res.resume(); return resolve(null); }
+      if (status < 200 || status >= 300) { res.resume(); return reject(new Error(`TMDB API error ${status} for ${path}`)); }
+
+      const enc = (res.headers['content-encoding'] || '').toLowerCase();
+      const rawChunks = [];
+      res.on('data', c => rawChunks.push(c));
+      res.on('end', () => {
+        try {
+          let buf = Buffer.concat(rawChunks);
+          buf = decompressBody(buf, enc);
+          const text = buf.toString('utf8');
+          resolve(text ? JSON.parse(text) : null);
+        } catch (e) { reject(e); }
+      });
+      res.on('error', reject);
+    });
+    req.on('timeout', () => req.destroy(new Error(`TMDB request timeout for ${path}`)));
+    req.on('error', reject);
+  });
 }
 
 // Small delay helper for rate-limit–friendly batching
