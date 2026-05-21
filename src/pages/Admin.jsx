@@ -7,8 +7,9 @@ import UserSettingsModal from '../components/admin/UserSettingsModal'
 import BulkSettingsModal from '../components/admin/BulkSettingsModal'
 import AgentInfoModal from '../components/admin/AgentInfoModal'
 import { adminStatus, adminNotifications } from '../services/adminApi'
+import ChangelogModal from '../components/ChangelogModal'
 
-const APP_VERSION = '2.0.0'
+const APP_VERSION = import.meta.env.VITE_APP_VERSION || '2.0.1'
 
 const LOGO_SVG = (
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="1em" height="1em" fill="none" aria-hidden="true">
@@ -53,10 +54,18 @@ function AdminNav({ onLogout }) {
   )
 }
 
-function VersionStrip({ updateAvailable, latestVersion }) {
+function VersionStrip({ updateAvailable, latestVersion, onOpenChangelog }) {
   return (
     <div className="version-strip">
-      <span className="version-badge">v{APP_VERSION}</span>
+      <button
+        type="button"
+        className="version-badge"
+        onClick={onOpenChangelog}
+        style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit', color: 'inherit' }}
+        aria-label="View changelog"
+      >
+        v{APP_VERSION}
+      </button>
       {updateAvailable && latestVersion && (
         <a
           className="version-update-badge"
@@ -148,6 +157,7 @@ export default function Admin() {
   const [selectedUserIds, setSelectedUserIds] = useState([])
   const [updateAvailable, setUpdateAvailable] = useState(false)
   const [latestVersion, setLatestVersion] = useState(null)
+  const [changelogOpen, setChangelogOpen] = useState(false)
 
   const showToast = useCallback((message, type = 'success') => {
     setToast({ message, type, visible: true })
@@ -282,7 +292,13 @@ export default function Admin() {
           <p className="hero-sub">Connections, users, requests, and system settings</p>
         </div>
 
-        <VersionStrip updateAvailable={updateAvailable} latestVersion={latestVersion} />
+        <VersionStrip
+          updateAvailable={updateAvailable}
+          latestVersion={latestVersion}
+          onOpenChangelog={() => setChangelogOpen(true)}
+        />
+
+        <ChangelogModal open={changelogOpen} onClose={() => setChangelogOpen(false)} />
 
         {/* Tab navigation */}
         <div className="admin-tabs">
