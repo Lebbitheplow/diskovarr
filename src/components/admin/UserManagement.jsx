@@ -457,6 +457,7 @@ export default function UserManagement({ onToast, connections, onOpenUserSetting
   }, [])
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
     loadUsers()
     loadServerOwner()
     loadAllUsersList()

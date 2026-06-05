@@ -2,6 +2,7 @@ import React, { Suspense, lazy } from 'react'
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from './context/AuthContext'
 import NavigationBar from './components/NavigationBar'
+import Footer from './components/Footer'
 
 // Lazy-loaded pages
 const Home = lazy(() => import('./pages/Home'))
@@ -9,6 +10,7 @@ const Discover = lazy(() => import('./pages/Discover'))
 const Explore = lazy(() => import('./pages/Explore'))
 const Search = lazy(() => import('./pages/Search'))
 const Watchlist = lazy(() => import('./pages/Watchlist'))
+const Blacklist = lazy(() => import('./pages/Blacklist'))
 const Queue = lazy(() => import('./pages/Queue'))
 const Issues = lazy(() => import('./pages/Issues'))
 const Settings = lazy(() => import('./pages/Settings'))
@@ -84,6 +86,11 @@ export default function App() {
               <Watchlist />
             </ProtectedRoute>
           } />
+          <Route path="/blacklist" element={
+            <ProtectedRoute>
+              <Blacklist />
+            </ProtectedRoute>
+          } />
           <Route path="/queue" element={
             <ProtectedRoute>
               <Queue />
@@ -104,6 +111,7 @@ export default function App() {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </Suspense>
+      {user && !isAdminRoute && <Footer />}
     </>
   )
 }

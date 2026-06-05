@@ -35,6 +35,11 @@ export const adminStatus = {
   get: () => adminApi.get('/status'),
 }
 
+/** Update Check (current vs latest GitHub release) */
+export const adminUpdate = {
+  getStatus: () => adminApi.get('/update-status'),
+}
+
 /** Library Sync */
 export const adminSync = {
   start: () => adminApi.post('/sync/library'),

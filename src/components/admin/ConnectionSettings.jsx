@@ -44,7 +44,9 @@ function PlexSection({ plexUrl, plexToken, onUpdate, onSave, onToast }) {
   const pollRef = useRef(null)
   const realToken = token === MASKED ? '' : token
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
   useEffect(() => { setHost(parseHost(plexUrl)); setPort(parsePort(plexUrl)) }, [plexUrl])
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
   useEffect(() => { setToken(plexToken ? MASKED : '') }, [plexToken])
   useEffect(() => () => { clearTimeout(pollRef.current) }, [])
 
@@ -168,7 +170,9 @@ function TautulliSection({ tautulliUrl, tautulliApiKey, onUpdate, onSave, onToas
   const [toast] = useState(null)
   const realKey = apiKey === MASKED ? '' : apiKey
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
   useEffect(() => { setHost(parseHost(tautulliUrl)); setPort(parsePort(tautulliUrl)) }, [tautulliUrl])
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
   useEffect(() => { setApiKey(tautulliApiKey ? MASKED : '') }, [tautulliApiKey])
 
   const handleBlur = () => {
@@ -252,7 +256,9 @@ function TmdbSection({ tmdbApiKey, discoverEnabled, onUpdate, onSave, onToast })
   const realKey = apiKey === MASKED ? '' : apiKey
   const hasKey = apiKey === MASKED || !!apiKey
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
   useEffect(() => { setApiKey(tmdbApiKey ? MASKED : '') }, [tmdbApiKey])
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
   useEffect(() => { setDiscover(!!discoverEnabled) }, [discoverEnabled])
 
   const handleToggle = async (checked) => {
@@ -339,7 +345,9 @@ function DefaultServiceSection({
   const [service, setService] = useState(defaultService)
   const [adminOnly, setAdminOnly] = useState(directRequestAccess === '1')
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
   useEffect(() => { setService(defaultService) }, [defaultService])
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
   useEffect(() => { setAdminOnly(directRequestAccess === '1') }, [directRequestAccess])
 
   const activeCount = [hasOverseerrSide, hasRivenSide, hasDirectSide].filter(Boolean).length
@@ -420,10 +428,13 @@ function OverseerrSection({ overseerrUrl, overseerrApiKey, overseerrEnabled, onU
   const realKey = apiKey === MASKED ? '' : apiKey
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
     setHost(parseHost(overseerrUrl))
     setPort(parsePort(overseerrUrl))
   }, [overseerrUrl])
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
   useEffect(() => { setApiKey(overseerrApiKey ? MASKED : '') }, [overseerrApiKey])
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
   useEffect(() => { setEnabled(overseerrEnabled) }, [overseerrEnabled])
 
   const hasBothFields = !!host && (apiKey === MASKED || !!apiKey)
@@ -517,12 +528,16 @@ function RadarrSection({ radarrUrl, radarrApiKey, radarrEnabled, radarrQualityPr
   const realKey = apiKey === MASKED ? '' : apiKey
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
     setHost(parseHost(radarrUrl))
     setPort(parsePort(radarrUrl))
     setApiKey(radarrApiKey ? MASKED : '')
   }, [radarrUrl, radarrApiKey])
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
   useEffect(() => { setEnabled(radarrEnabled) }, [radarrEnabled])
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
   useEffect(() => { setProfileId(radarrQualityProfileId || '') }, [radarrQualityProfileId])
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
   useEffect(() => { setProfilesList(profiles || []) }, [profiles])
 
   const hasBothFields = !!host && (apiKey === MASKED || !!apiKey)
@@ -660,12 +675,16 @@ function SonarrSection({ sonarrUrl, sonarrApiKey, sonarrEnabled, sonarrQualityPr
   const realKey = apiKey === MASKED ? '' : apiKey
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
     setHost(parseHost(sonarrUrl))
     setPort(parsePort(sonarrUrl))
     setApiKey(sonarrApiKey ? MASKED : '')
   }, [sonarrUrl, sonarrApiKey])
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
   useEffect(() => { setEnabled(sonarrEnabled) }, [sonarrEnabled])
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
   useEffect(() => { setProfileId(sonarrQualityProfileId || '') }, [sonarrQualityProfileId])
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
   useEffect(() => { setProfilesList(profiles || []) }, [profiles])
 
   const hasBothFields = !!host && (apiKey === MASKED || !!apiKey)
@@ -801,9 +820,13 @@ function RivenSection({ rivenEnabled, rivenUrl, rivenApiKey, dumbRequestMode, co
   const [mode, setMode] = useState(dumbRequestMode || 'pull')
   const realKey = apiKey === MASKED ? '' : apiKey
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
   useEffect(() => { setUrl(parseHost(rivenUrl)) }, [rivenUrl])
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
   useEffect(() => { setApiKey(rivenApiKey ? MASKED : '') }, [rivenApiKey])
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
   useEffect(() => { setEnabled(!!rivenEnabled) }, [rivenEnabled])
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
   useEffect(() => { setMode(dumbRequestMode || 'pull') }, [dumbRequestMode])
 
   const handleToggle = async (checked) => {
@@ -1009,6 +1032,7 @@ export default function ConnectionSettings({ onDataLoaded, onToast }) {
     }
   }, [onDataLoaded, onToast])
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
   useEffect(() => { loadInitialData() }, [loadInitialData])
 
   // ── Auto-save handler for field changes ──

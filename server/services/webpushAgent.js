@@ -178,7 +178,7 @@ class WebPushAgent extends BaseAgent {
     return sent > 0;
   }
 
-  async sendTest(payload) {
+  async sendTest(_payload) {
     const message = {
       notificationType: 'TEST_NOTIFICATION',
       subject: 'Diskovarr Test Notification',

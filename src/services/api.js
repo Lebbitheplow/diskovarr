@@ -89,6 +89,13 @@ export const watchlistApi = {
   removeFromWatchlist: (ratingKey) => api.post('/watchlist/remove', { ratingKey }),
 }
 
+/** Blacklist (dismissed / not-interested items) */
+export const blacklistApi = {
+  getBlacklist: () => api.get('/blacklist'),
+  removeFromBlacklist: (ratingKey) => api.delete(`/blacklist/library/${ratingKey}`),
+  removeExploreFromBlacklist: (tmdbId, mediaType) => api.delete(`/blacklist/explore/${tmdbId}/${mediaType}`),
+}
+
 /** Queue / Requests */
 export const queueApi = {
   getQueue: (params = {}) => api.get('/queue', { params }),

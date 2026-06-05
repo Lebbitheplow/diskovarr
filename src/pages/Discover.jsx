@@ -115,6 +115,7 @@ export default function Discover() {
   }, [type, decade, minScore, sort, genres, filterContentRatings, search, page, toastError])
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
     loadGenres()
     loadWatchlist()
   }, [loadGenres, loadWatchlist])
@@ -125,10 +126,13 @@ export default function Discover() {
     debounceRef.current = setTimeout(() => fetchResults(reset), 120)
   }, [fetchResults])
 
-  // Re-fetch when non-search filters change (immediate)
+  // Re-fetch when non-search filters change (immediate). fetchResults is intentionally excluded
+  // from deps — it changes identity on every search/page change, which would cause double-fetches.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
     fetchResults(true)
-  }, [type, decade, minScore, sort, genres, filterContentRatings]) // eslint-disable-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [type, decade, minScore, sort, genres, filterContentRatings])
 
   const togglePanel = useCallback((key) => {
     setPanel(p => p === key ? null : key)

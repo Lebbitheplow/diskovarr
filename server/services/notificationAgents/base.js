@@ -1,5 +1,4 @@
 const db = require('../../db/database');
-const logger = require('../logger');
 const { hasNotificationType } = require('./types');
 
 // Base class for all notification agents.
@@ -40,7 +39,7 @@ class BaseAgent {
   }
 
   // Main send method — subclasses implement this
-  async send(type, payload) {
+  async send(_type, _payload) {
     throw new Error(`${this.constructor.name}.send() not implemented`);
   }
 

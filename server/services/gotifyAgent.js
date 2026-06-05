@@ -1,4 +1,3 @@
-const db = require('../db/database');
 const logger = require('./logger');
 const BaseAgent = require('./notificationAgents/base');
 const { hasNotificationType } = require('./notificationAgents/types');

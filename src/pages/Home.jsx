@@ -83,10 +83,12 @@ export default function Home() {
   }, [toastError])
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
     fetchRecommendations(matureEnabled)
   }, [matureEnabled, fetchRecommendations])
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
     loadWatchlist()
   }, [loadWatchlist])
 

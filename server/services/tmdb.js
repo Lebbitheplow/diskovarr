@@ -383,7 +383,7 @@ async function batchGetDetails(candidates) {
 // Test that the current API key is valid
 async function testApiKey() {
   try {
-    const json = await tmdbFetch('/configuration');
+    await tmdbFetch('/configuration');
     return { ok: true, message: 'TMDB API key is valid' };
   } catch (err) {
     return { ok: false, message: err.message };

@@ -4,6 +4,7 @@ import {
   queueApi,
   searchApi,
 } from '../services/api'
+import DetailModal from '../components/DetailModal'
 import Modal from '../components/Modal'
 import SearchableDropdown from '../components/SearchableDropdown'
 import DateRangeFilter from '../components/DateRangeFilter'
@@ -76,6 +77,7 @@ export default function Queue() {
   const [selectedIds, setSelectedIds] = useState(() => new Set())
   const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false)
   const [bulkDeleteLoading, setBulkDeleteLoading] = useState(false)
+  const [selectedItem, setSelectedItem] = useState(null)
 
   const toggleSelect = useCallback((id) => {
     setSelectedIds(prev => {
@@ -117,6 +119,7 @@ export default function Queue() {
   }, [perPage, sortCol, sortDir, debouncedSearchQuery, selectedUser, dateFrom, dateTo, toastError])
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
     loadQueue(currentFilter, 1)
     setSelectedIds(new Set())
   }, [currentFilter, debouncedSearchQuery, selectedUser, dateFrom, dateTo, loadQueue])
@@ -254,6 +257,22 @@ export default function Queue() {
       toastError(e.message || 'Save failed')
     }
   }, [editRequest, editService, editAllSeasons, editSeasons, currentFilter, page, loadQueue, toastSuccess, toastError])
+
+  const handleOpenDetail = useCallback(async (request) => {
+    try {
+      const { data } = await searchApi.getDetails(request.tmdb_id, request.media_type)
+      setSelectedItem({
+        ...data,
+        type: request.media_type === 'tv' ? 'show' : 'movie',
+        thumb: data.posterUrl || request.posterUrl,
+        art: data.backdropUrl,
+        mediaType: request.media_type,
+        isRequested: true,
+      })
+    } catch {
+      toastError('Failed to load details')
+    }
+  }, [toastError])
 
   const handleSort = useCallback((col) => {
     const dbCol = COL_TO_SORT[col] || col
@@ -412,11 +431,11 @@ export default function Queue() {
                     <td>
                       <div className="queue-title-cell">
                         {r.posterUrl ? (
-                          <img className="queue-poster" src={posterUrl(r.posterUrl)} alt="" loading="lazy" />
+                          <img className="queue-poster" src={posterUrl(r.posterUrl)} alt="" loading="lazy" onClick={() => handleOpenDetail(r)} style={{ cursor: 'pointer' }} />
                         ) : (
-                          <div className="queue-poster-placeholder">?</div>
+                          <div className="queue-poster-placeholder" onClick={() => handleOpenDetail(r)} style={{ cursor: 'pointer' }}>?</div>
                         )}
-                        <div className="queue-title-info">
+                        <div className="queue-title-info" onClick={() => handleOpenDetail(r)} style={{ cursor: 'pointer' }}>
                           <div className="queue-title">{r.title || 'Untitled'}</div>
                           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                             {r.year && <span className="queue-year">{r.year}</span>}
@@ -463,10 +482,12 @@ export default function Queue() {
                         <>
                           <button className="btn-queue-approve" onClick={() => handleApprove(r.id)}>Approve</button>
                           <button className="btn-queue-deny" onClick={() => handleDeny(r.id)}>Deny</button>
-                          <button className="btn-queue-edit" onClick={() => handleEdit(r)}>Edit</button>
                         </>
                       )}
-                      {!isAdmin && isPending && (
+                      {isAdmin && (isPending || ds === 'requested') && (
+                        <button className="btn-queue-edit" onClick={() => handleEdit(r)}>Edit</button>
+                      )}
+                      {!isAdmin && (isPending || ds === 'requested') && String(user?.id) === String(r.user_id) && (
                         <button className="btn-queue-edit" onClick={() => handleEdit(r)}>Edit</button>
                       )}
                       {(isAdmin || (isPending && String(user?.id) === String(r.user_id))) && (
@@ -498,6 +519,13 @@ export default function Queue() {
             <option value="100">100 / page</option>
           </select>
         </div>
+      )}
+
+      {selectedItem && (
+        <DetailModal
+          item={selectedItem}
+          onClose={() => setSelectedItem(null)}
+        />
       )}
 
       <Modal isOpen={!!editRequest} onClose={() => setEditRequest(null)}>

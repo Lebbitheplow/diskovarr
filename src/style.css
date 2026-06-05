@@ -419,6 +419,20 @@ img {
   text-overflow: ellipsis;
   max-width: 260px;
 }
+.nav-bell-body mark {
+  background: var(--accent-dim2);
+  color: var(--accent);
+  padding: 0 2px;
+  border-radius: 2px;
+}
+.nav-bell-body code {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.9em;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  padding: 0 2px;
+  border-radius: 2px;
+}
 .nav-bell-time {
   font-size: 0.72rem;
   color: var(--text-secondary);
@@ -2040,6 +2054,46 @@ img {
 .wl-confirm-ok {
   background: var(--accent);
   color: #000;
+}
+
+/* ── Blacklist page ───────────────────────────────────────────────────────── */
+.blacklist-empty {
+  text-align: center;
+  padding: 4rem 1rem;
+}
+.blacklist-empty-msg {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 0.5rem;
+}
+.blacklist-empty-sub {
+  color: var(--text-muted);
+  font-size: 0.95rem;
+}
+.bl-remove-btn {
+  margin-top: 0.5rem;
+  width: 100%;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.78rem;
+  background: #c0392b;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.bl-remove-btn:hover {
+  background: #e74c3c;
+}
+.bl-remove-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.bl-date {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin-top: 0.25rem;
 }
 
 /* ── Watchlist page ───────────────────────────────────────────────────────── */
@@ -4227,4 +4281,71 @@ img {
     margin-left: 0;
     align-self: flex-start;
   }
+}
+
+/* ── App footer ───────────────────────────────────────────────────────────── */
+.app-footer {
+  border-top: 1px solid var(--border);
+  margin-top: 56px;
+  padding: 26px 24px calc(26px + env(safe-area-inset-bottom, 0px));
+  background: var(--bg-secondary);
+}
+
+.app-footer-inner {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px 14px;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+.app-footer-inner a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+
+.app-footer-inner a:hover {
+  color: var(--accent);
+}
+
+.app-footer-brand {
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.app-footer-sep {
+  opacity: 0.4;
+  user-select: none;
+}
+
+.app-footer-heart {
+  color: var(--accent);
+}
+
+.app-footer-fineprint {
+  flex-basis: 100%;
+  margin: 6px 0 0;
+  text-align: center;
+  font-size: 0.72rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.app-footer-fineprint a {
+  display: inline;
+  color: var(--text-muted);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.app-footer-fineprint a:hover {
+  color: var(--text-secondary);
 }

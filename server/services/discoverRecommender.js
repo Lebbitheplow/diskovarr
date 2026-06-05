@@ -349,7 +349,7 @@ async function buildDiscoverPools(userId, userToken) {
     includeAdult: !!prefs.show_mature,
   };
 
-  const [movies, tv, watchedKeys] = await Promise.all([
+  const [movies, tv] = await Promise.all([
     plexService.getLibraryItems(db.getSetting('plex_movies_section', null) || process.env.PLEX_MOVIES_SECTION_ID || '1'),
     plexService.getLibraryItems(db.getSetting('plex_tv_section', null) || process.env.PLEX_TV_SECTION_ID || '2'),
     plexService.getWatchedKeys(userId, userToken),
@@ -365,8 +365,6 @@ async function buildDiscoverPools(userId, userToken) {
   const libraryTmdbIds = db.getLibraryTmdbIds();
   // Title+year fallback for when TMDB IDs aren't populated yet
   const libraryTitleYears = db.getLibraryTitleYearSet();
-  // Previously requested items (global — any user requesting marks it for all)
-  const requestedIds = db.getAllRequestedTmdbIds();
 
   function normTitle(t) {
     return (t || '').toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim();

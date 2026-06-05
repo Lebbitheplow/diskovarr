@@ -84,6 +84,7 @@ export default function DateRangeFilter({
   useEffect(() => {
     if (!open) return
     const anchor = fromDate || new Date()
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
     setViewYear(anchor.getFullYear())
     setViewMonth(anchor.getMonth())
     // Auto-detect mode based on existing value: distinct days = range, same day = single
@@ -123,19 +124,18 @@ export default function DateRangeFilter({
     }
   }, [mode, fromDate, toDate, value.from, onChange])
 
-  const handlePrev = useCallback(() => {
-    setViewMonth(m => {
-      if (m === 0) { setViewYear(y => y - 1); return 11 }
-      return m - 1
-    })
-  }, [])
+  // Plain functions (not useCallback): the prev/next handlers read viewMonth to roll the year
+  // over at the Dec/Jan boundary, which the React Compiler can't preserve as a manual memo.
+  // Leaving them unmemoized lets the compiler optimize the whole component instead.
+  const handlePrev = () => {
+    if (viewMonth === 0) setViewYear(y => y - 1)
+    setViewMonth(m => (m === 0 ? 11 : m - 1))
+  }
 
-  const handleNext = useCallback(() => {
-    setViewMonth(m => {
-      if (m === 11) { setViewYear(y => y + 1); return 0 }
-      return m + 1
-    })
-  }, [])
+  const handleNext = () => {
+    if (viewMonth === 11) setViewYear(y => y + 1)
+    setViewMonth(m => (m === 11 ? 0 : m + 1))
+  }
 
   const handleClearTrigger = useCallback((e) => {
     e.stopPropagation()

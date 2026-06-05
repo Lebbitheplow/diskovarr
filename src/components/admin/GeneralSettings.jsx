@@ -6,7 +6,10 @@ import {
   adminSync,
   adminConnections,
   adminCompat,
+  adminUpdate,
 } from '../../services/adminApi'
+
+const RELEASES_URL = 'https://github.com/Lebbitheplow/diskovarr/releases'
 import { useTheme } from '../../context/ThemeContext'
 
 const PRESET_COLORS = [
@@ -33,6 +36,59 @@ function formatTimestamp(ts) {
   if (diffHrs < 24) return `${diffHrs}h ago`
   if (diffDays < 7) return `${diffDays}d ago`
   return d.toLocaleDateString()
+}
+
+// ── Update Status Section ──────────────────────────────────────
+function UpdateStatusSection() {
+  const [info, setInfo] = useState(null)
+  const [checking, setChecking] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    adminUpdate.getStatus()
+      .then((res) => { if (!cancelled) setInfo(res.data) })
+      .catch(() => { if (!cancelled) setInfo(null) })
+      .finally(() => { if (!cancelled) setChecking(false) })
+    return () => { cancelled = true }
+  }, [])
+
+  const { current, latest, updateAvailable } = info || {}
+
+  const desc = checking
+    ? 'Checking for updates…'
+    : updateAvailable
+      ? 'A new release is available.'
+      : latest
+        ? 'You are running the latest version.'
+        : 'Could not check for updates right now.'
+
+  return (
+    <div className="admin-section">
+      <div className="admin-section-header">
+        <div>
+          <h2 className="section-title">Version</h2>
+          <p className="section-desc" style={{ marginTop: 4 }}>{desc}</p>
+        </div>
+        {!checking && current && (
+          <div className={`status-badge ${updateAvailable ? 'status-syncing' : 'status-idle'}`}>
+            <span>v{current}{updateAvailable && latest ? ` → v${latest}` : ''}</span>
+          </div>
+        )}
+      </div>
+      {updateAvailable && latest && (
+        <div className="admin-actions">
+          <a
+            className="btn-admin btn-primary"
+            href={`${RELEASES_URL}/tag/v${latest}`}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            View release notes →
+          </a>
+        </div>
+      )}
+    </div>
+  )
 }
 
 // ── App Options Section ────────────────────────────────────────
@@ -123,6 +179,7 @@ function ThemeColorSection({ themeColor, onThemeColorChange }) {
   const [applying, setApplying] = useState(false)
   const { setThemeColor: applyTheme } = useTheme()
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
   useEffect(() => { setColor(themeColor) }, [themeColor])
 
   const handleApply = async () => {
@@ -270,6 +327,7 @@ function ApiKeySection({ hasKey, onRegenerate, resetToken }) {
   const [regenerating, setRegenerating] = useState(false)
 
   // Clear fetched key whenever a regeneration completes (token bumped by parent)
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
   useEffect(() => { setFetchedKey(''); setVisible(false) }, [resetToken])
 
   const handleToggleVisible = async () => {
@@ -618,6 +676,7 @@ export default function GeneralSettings({ onDataLoaded, onToast }) {
 
   return (
     <>
+      <UpdateStatusSection />
       <AppOptionsSection
         appPublicUrl={appPublicUrl}
         onAppPublicUrlChange={setAppPublicUrl}

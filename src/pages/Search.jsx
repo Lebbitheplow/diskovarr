@@ -66,6 +66,7 @@ export default function Search() {
 
   // Sync input box when URL changes externally (e.g. navbar search)
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
     setInputValue(urlQuery)
   }, [urlQuery])
 
@@ -74,6 +75,7 @@ export default function Search() {
   // the next render (one extra fetch on query change, but always with the
   // correct filter snapshot).
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
     setActiveTab('all')
     setHideLibrary(!!urlGenre)
     setFilterGenres([])
@@ -118,6 +120,7 @@ export default function Search() {
 
   // Refetch when query, genre, or any filter changes — reset to page 1
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
     setPage(1)
     fetchSearchResults(urlQuery, urlGenre, 1, false, {
       filterGenres,
@@ -129,6 +132,7 @@ export default function Search() {
   }, [urlQuery, urlGenre, filterGenres, filterContentRatings, filterYearFrom, filterYearTo, filterMinScore]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
     loadWatchlist()
     exploreApi.getServices().then(({ data }) => setServices(data || {})).catch(() => {})
   }, [loadWatchlist])
@@ -136,6 +140,7 @@ export default function Search() {
   // Fetch "More Like This" when a specific item was selected via autocomplete
   useEffect(() => {
     if (!selectedTmdbId || !selectedType) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
       setSimilarItems([])
       setSimilarSourceTitle('')
       return
@@ -165,6 +170,7 @@ export default function Search() {
   useEffect(() => {
     if (!selectedTmdbId || !selectedType) return
     let cancelled = false
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
     setSimilarLoading(true)
     searchApi.getSimilar(selectedTmdbId, selectedType, hideLibrary)
       .then(({ data }) => {
@@ -329,6 +335,7 @@ export default function Search() {
 
   useEffect(() => {
     if (requestItem) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
       handleSeasonsFetch(requestItem.tmdbId)
     }
   }, [requestItem, handleSeasonsFetch])

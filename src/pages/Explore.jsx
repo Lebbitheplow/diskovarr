@@ -136,11 +136,13 @@ export default function Explore() {
   }, [matureEnabled, hideRequested, toastError])
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
     loadServices()
     loadWatchlist()
   }, [loadServices, loadWatchlist])
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
     fetchRecommendations(false)
   }, [fetchRecommendations])
 
@@ -151,6 +153,7 @@ export default function Explore() {
 
   // Animate progress bar while building — asymptotic curve toward 95%
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
     if (!building) { setBuildProgress(0); return }
     const tick = setInterval(() => {
       const elapsed = buildStartRef.current ? (Date.now() - buildStartRef.current) / 1000 : 0
@@ -317,6 +320,7 @@ export default function Explore() {
 
   useEffect(() => {
     if (requestItem) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
       handleSeasonsFetch(requestItem.tmdbId)
     }
   }, [requestItem, handleSeasonsFetch])

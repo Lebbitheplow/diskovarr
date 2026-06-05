@@ -115,6 +115,11 @@ function removeDismissal(userId, ratingKey) {
   stmtRemove.run(String(userId), String(ratingKey));
 }
 
+function getUserDismissalRows(userId) {
+  return db.prepare('SELECT rating_key, dismissed_at FROM dismissals WHERE plex_user_id = ? ORDER BY dismissed_at DESC')
+    .all(String(userId));
+}
+
 // ── Explore dismissals (by TMDB ID) ──────────────────────────────────────────
 
 function addExploreDismissal(userId, tmdbId, mediaType) {
@@ -125,6 +130,16 @@ function addExploreDismissal(userId, tmdbId, mediaType) {
 function getExploreDismissedIds(userId) {
   const rows = db.prepare('SELECT tmdb_id, media_type FROM explore_dismissals WHERE plex_user_id = ?').all(String(userId));
   return new Set(rows.map(r => `${r.tmdb_id}:${r.media_type}`));
+}
+
+function getUserExploreDismissalRows(userId) {
+  return db.prepare('SELECT tmdb_id, media_type, dismissed_at FROM explore_dismissals WHERE plex_user_id = ? ORDER BY dismissed_at DESC')
+    .all(String(userId));
+}
+
+function removeExploreDismissal(userId, tmdbId, mediaType) {
+  db.prepare('DELETE FROM explore_dismissals WHERE plex_user_id = ? AND tmdb_id = ? AND media_type = ?')
+    .run(String(userId), String(tmdbId), String(mediaType));
 }
 
 // ── Request limits ────────────────────────────────────────────────────────────
@@ -592,6 +607,12 @@ function removeFromWatchlistDb(userId, ratingKey) {
 function getWatchlistFromDb(userId) {
   return db.prepare('SELECT rating_key FROM watchlist WHERE user_id = ? ORDER BY added_at DESC')
     .all(String(userId)).map(r => r.rating_key);
+}
+
+// Rows with timestamps — used by the plex.tv watchlist reconciler to honor a grace window.
+function getWatchlistRows(userId) {
+  return db.prepare('SELECT rating_key, added_at FROM watchlist WHERE user_id = ?')
+    .all(String(userId));
 }
 
 function updateWatchlistPlexIds(userId, ratingKey, plexPlaylistId, plexItemId) {
@@ -1703,8 +1724,8 @@ function deleteServiceUser(id) {
 }
 
 module.exports = {
-  addDismissal, getDismissals, removeDismissal,
-  addToWatchlistDb, removeFromWatchlistDb, getWatchlistFromDb,
+  addDismissal, getDismissals, removeDismissal, getUserDismissalRows,
+  addToWatchlistDb, removeFromWatchlistDb, getWatchlistFromDb, getWatchlistRows,
   updateWatchlistPlexIds, getWatchlistPlexIds, updateWatchlistPlexGuid,
   upsertKnownUser, seedKnownUser, touchKnownUser, getKnownUsers, getAllKnownUsersWithTokens, getLibraryItemByTmdbId,
   upsertManyItems, getLibraryItemsFromDb, getLibraryItemByKey,
@@ -1720,7 +1741,7 @@ module.exports = {
   getTmdbCache, setTmdbCache, deleteTmdbCache, getAllTmdbCacheItems, getItemsByGenre,
   getLibraryTmdbIds, getLibraryTitleYearSet,
   addDiscoverRequest, getRequestedTmdbIds, getAllRequestedTmdbIds, getRecentRequests,
-  addExploreDismissal, getExploreDismissedIds,
+  addExploreDismissal, getExploreDismissedIds, getUserExploreDismissalRows, removeExploreDismissal,
   getDiscoverPool, setDiscoverPool, getKnownUserIds,
   getDiscoverCandidates, setDiscoverCandidates, getAllUserPrefsForDiscover,
   isIndividualSeasonsEnabled,

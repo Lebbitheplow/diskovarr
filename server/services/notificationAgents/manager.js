@@ -1,6 +1,6 @@
 const db = require('../../db/database');
 const logger = require('../logger');
-const { hasNotificationType, AgentKey } = require('./types');
+const { AgentKey } = require('./types');
 
 // NotificationManager registers agents and dispatches notifications to all active agents.
 // Two delivery modes:

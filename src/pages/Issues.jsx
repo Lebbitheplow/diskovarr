@@ -129,6 +129,7 @@ export default function Issues() {
   }, [perPage, debouncedSearchQuery, selectedUser, dateFrom, dateTo, toastError])
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
     loadIssues(currentFilter, 1)
     setSelectedIds(new Set())
   }, [currentFilter, debouncedSearchQuery, selectedUser, dateFrom, dateTo, loadIssues])
@@ -165,6 +166,7 @@ export default function Issues() {
   }, [])
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
     loadOpenCount()
   }, [loadOpenCount])
 

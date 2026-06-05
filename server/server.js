@@ -115,6 +115,7 @@ app.use((req, res, next) => {
 });
 
 const APP_VERSION = require('./package.json').version
+// eslint-disable-next-line no-unused-vars -- theme CSS helper retained for SSR shell use
 function bgGradientCss() {
   const color = db.getThemeColor()
   const r = parseInt(color.slice(1, 3), 16)
@@ -122,6 +123,7 @@ function bgGradientCss() {
   const b = parseInt(color.slice(5, 7), 16)
   return `body{background-image:radial-gradient(ellipse 50% 50% at 50% 0%,rgba(${r},${g},${b},0.28) 0%,transparent 100%),radial-gradient(ellipse 60% 40% at 50% 100%,rgba(${r},${g},${b},0.12) 0%,transparent 100%);background-attachment:fixed;}`
 }
+// eslint-disable-next-line no-unused-vars -- theme helper retained for SSR shell use
 function themeParam() {
   return encodeURIComponent(db.getThemeColor())
 }

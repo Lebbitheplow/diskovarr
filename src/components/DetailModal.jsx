@@ -82,6 +82,7 @@ function CastPicker({ item, onClose }) {
     }
   }, [item.ratingKey, onClose, success, toastError])
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
   useEffect(() => { fetchClients() }, [fetchClients])
 
   if (loading) return <div className="modal-cast-picker"><span>…</span></div>
@@ -219,7 +220,7 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
     } catch (e) {
       toastError(e.message || 'Watchlist action failed')
     }
-  }, [item?.ratingKey, inWatchlist, onRefresh, success, toastError])
+  }, [item, inWatchlist, onRefresh, success, toastError])
 
   const handleDismiss = useCallback(async () => {
     try {
@@ -233,7 +234,7 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
     } catch (e) {
       toastError(e.message || 'Dismiss failed')
     }
-  }, [item?.ratingKey, item?.tmdbId, item?.mediaType, inLibrary, onClose, onRefresh, toastError])
+  }, [item, inLibrary, onClose, onRefresh, toastError])
 
   const handleNotify = useCallback(async () => {
     try {
@@ -243,7 +244,7 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
     } catch (e) {
       toastError(e.message || 'Notify failed')
     }
-  }, [item?.tmdbId, item?.mediaType, item?.title, success, toastError, onClose])
+  }, [item, success, toastError, onClose])
 
   const handleRequest = useCallback(() => {
     if (onRequest) {
@@ -277,10 +278,11 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
     } catch (e) {
       toastError(e.message || 'Cast failed')
     }
-  }, [item?.ratingKey, success, toastError])
+  }, [item, success, toastError])
 
   useEffect(() => {
     if (!item?.tmdbId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
       setTrailerKey(null)
       return
     }

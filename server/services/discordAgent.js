@@ -1,6 +1,5 @@
 const db = require('../db/database');
 const logger = require('./logger');
-const { hasNotificationType } = require('./notificationAgents/types');
 const { forDiscord } = require('./messageFormat');
 
 function getConfig() {

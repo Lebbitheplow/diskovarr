@@ -593,18 +593,32 @@ async function removeFromPlexTvWatchlist(userToken, plexGuid) {
   return true;
 }
 
+// Don't reconcile away items added within this window — gives the async plex.tv push
+// (api.js POST /watchlist/add) time to land before we treat plex.tv as the source of truth.
+const WATCHLIST_GRACE_SECONDS = 5 * 60;
+
 async function syncPlexTvWatchlist(userId, userToken) {
-  // 1. Collect all watchlist ratingKeys from discover.provider.plex.tv
+  // 1. Collect all watchlist ratingKeys from discover.provider.plex.tv.
+  //    Track fetchFailed so a network/HTTP error never looks like an empty watchlist —
+  //    that distinction is what keeps the remove pass from wiping the DB on a transient error.
   const plexKeys = [];
   let offset = 0;
   const size = 100;
+  let fetchFailed = false;
 
   while (true) {
-    const res = await fetch(
-      `https://discover.provider.plex.tv/library/sections/watchlist/all?X-Plex-Token=${userToken}&X-Plex-Container-Start=${offset}&X-Plex-Container-Size=${size}`,
-      { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(15000) }
-    );
-    if (!res.ok) break;
+    let res;
+    try {
+      res = await fetch(
+        `https://discover.provider.plex.tv/library/sections/watchlist/all?X-Plex-Token=${userToken}&X-Plex-Container-Start=${offset}&X-Plex-Container-Size=${size}`,
+        { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(15000) }
+      );
+    } catch (err) {
+      console.warn(`[watchlist] Watchlist fetch failed for user ${userId}:`, err.message);
+      fetchFailed = true;
+      break;
+    }
+    if (!res.ok) { fetchFailed = true; break; }
     const data = await res.json();
     const items = data?.MediaContainer?.Metadata || [];
     if (!items.length) break;
@@ -615,14 +629,18 @@ async function syncPlexTvWatchlist(userId, userToken) {
     if (items.length < size) break;
   }
 
-  if (!plexKeys.length) {
-    console.log(`[watchlist] No Plex.tv watchlist items found for user ${userId}`);
+  // Couldn't reliably read the watchlist — do nothing rather than risk false removals.
+  if (fetchFailed) {
+    console.warn(`[watchlist] Skipping sync for user ${userId} (incomplete watchlist fetch)`);
     return 0;
   }
 
-  // 2. Batch-fetch full metadata from metadata.provider.plex.tv to get TMDB IDs
+  // 2. Batch-fetch full metadata from metadata.provider.plex.tv to resolve TMDB IDs, then
+  //    map each to a local-library rating_key. keepKeys is the set we mirror the DB against.
+  //    metaFailed guards the remove pass: an incomplete map must not delete real entries.
   const BATCH = 50;
-  let synced = 0;
+  const keepKeys = new Set();
+  let metaFailed = false;
 
   for (let i = 0; i < plexKeys.length; i += BATCH) {
     const batch = plexKeys.slice(i, i + BATCH);
@@ -631,7 +649,7 @@ async function syncPlexTvWatchlist(userId, userToken) {
         `https://metadata.provider.plex.tv/library/metadata/${batch.join(',')}?X-Plex-Token=${userToken}`,
         { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(15000) }
       );
-      if (!metaRes.ok) continue;
+      if (!metaRes.ok) { metaFailed = true; continue; }
       const metaData = await metaRes.json();
       const metaItems = metaData?.MediaContainer?.Metadata || [];
 
@@ -641,18 +659,42 @@ async function syncPlexTvWatchlist(userId, userToken) {
         if (!tmdbGuid) continue;
         const tmdbId = tmdbGuid.id.replace('tmdb://', '');
         const libItem = db.getLibraryItemByTmdbId(tmdbId);
-        if (libItem) {
-          db.addToWatchlistDb(userId, libItem.rating_key);
-          synced++;
-        }
+        if (libItem) keepKeys.add(String(libItem.rating_key));
       }
     } catch (err) {
+      metaFailed = true;
       console.warn(`[watchlist] Metadata batch fetch failed:`, err.message);
     }
   }
 
-  console.log(`[watchlist] Synced ${synced}/${plexKeys.length} Plex.tv watchlist items to DB for user ${userId}`);
-  return synced;
+  // 3. ADD pass — ensure everything currently on the plex.tv watchlist is in the DB.
+  for (const key of keepKeys) {
+    db.addToWatchlistDb(userId, key);
+  }
+
+  // 4. REMOVE pass — mirror plex.tv: drop local rows no longer on the watchlist.
+  //    Skipped when the metadata map is incomplete (could under-count keepKeys), or for the
+  //    owner in playlist mode (their manual adds live in a local playlist, not plex.tv).
+  const playlistMode = userId === db.getOwnerUserId() && db.getAdminWatchlistMode() === 'playlist';
+  let removed = 0;
+  let removeSkipped = false;
+  if (metaFailed || playlistMode) {
+    removeSkipped = true;
+  } else {
+    const cutoff = Math.floor(Date.now() / 1000) - WATCHLIST_GRACE_SECONDS;
+    for (const row of db.getWatchlistRows(userId)) {
+      if (keepKeys.has(String(row.rating_key))) continue;
+      if ((row.added_at || 0) > cutoff) continue; // within grace window — leave it alone
+      db.removeFromWatchlistDb(userId, row.rating_key);
+      removed++;
+    }
+  }
+
+  console.log(
+    `[watchlist] User ${userId}: ${keepKeys.size} in plex.tv watchlist, -${removed} removed` +
+    (removeSkipped ? ' (removal skipped)' : '')
+  );
+  return keepKeys.size;
 }
 
 async function syncAllUserWatchlists() {

@@ -202,6 +202,7 @@ export default function UserSettingsModal({ userId, username, onClose, onToast, 
   }, [userId, onToast])
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
     if (userId) loadSettings()
   }, [userId, loadSettings])
 

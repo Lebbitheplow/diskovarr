@@ -125,6 +125,7 @@ function toOverseerrStatus(diskoStatus) {
   return 1; // pending
 }
 
+// eslint-disable-next-line no-unused-vars -- kept for Overseerr status-mapping reference
 function fromOverseerrStatus(status) {
   if (status === 2) return 'approved';
   if (status === 3) return 'denied';
@@ -232,7 +233,7 @@ function notifyRequestAvailable(request) {
         const nData = typeof n.data === 'string' ? JSON.parse(n.data) : n.data;
         if (nData && nData.tmdbId === request.tmdb_id) {
           db.prepare('DELETE FROM notifications WHERE id = ?').run(n.id);
-          logger.info(`[shim] removed stale request_process_failed notification #${n.id} for "${title}"`);
+          logger.info(`[shim] removed stale request_process_failed notification #${n.id} for "${request.title || 'Unknown'}"`);
         }
       }
     } catch (e) {
@@ -443,7 +444,7 @@ router.get('/user/:id/settings', (req, res) => {
 
 // POST /api/v1/request — Agregarr submits a media request
 router.post('/request', async (req, res) => {
-  const { mediaId, mediaType, seasons, is4k } = req.body || {};
+  const { mediaId, mediaType, seasons } = req.body || {};
   if (!mediaId || !mediaType) {
     return res.status(400).json({ message: 'mediaId and mediaType required' });
   }
@@ -902,8 +903,9 @@ router.get('/status/appdata', (req, res) => {
 // ── Media lookup ──────────────────────────────────────────────────────────────
 
 // GET /api/v1/media — list media items from requests
+// (Overseerr clients may pass a `sort` query param; not applied here.)
 router.get('/media', (req, res) => {
-  const { take = '20', skip = '0', filter, sort = 'added' } = req.query;
+  const { take = '20', skip = '0', filter } = req.query;
   const limit = Math.min(200, Math.max(1, parseInt(take) || 20));
   const offset = Math.max(0, parseInt(skip) || 0);
   const statusFilter = filter === 'pending' ? 'pending'
@@ -1256,7 +1258,7 @@ router.get('/issue/count', (req, res) => {
 
 // GET /api/v1/issue — paginated issue list
 router.get('/issue', (req, res) => {
-  const { take = '20', skip = '0', filter, sort = 'added' } = req.query;
+  const { take = '20', skip = '0', filter } = req.query;
   const limit = Math.min(200, Math.max(1, parseInt(take) || 20));
   const offset = Math.max(0, parseInt(skip) || 0);
   const statusFilter = filter === 'open' ? 'open' : filter === 'resolved' ? 'resolved' : filter === 'closed' ? 'closed' : null;

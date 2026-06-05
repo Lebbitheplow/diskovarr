@@ -218,7 +218,7 @@ router.post('/watchlist/remove', (req, res) => {
 // Query: type (movie|show|anime|all), genres (comma list), decade, minRating, sort, page
 router.get('/discover', async (req, res) => {
   try {
-    const { id: userId, token: userToken } = req.session.plexUser;
+    const { id: userId } = req.session.plexUser;
     const {
       type = 'all',
       genres = '',
@@ -534,6 +534,118 @@ router.delete('/dismiss', (req, res) => {
 
   const { id: userId } = req.session.plexUser;
   db.removeDismissal(userId, ratingKey);
+  res.json({ success: true });
+});
+
+// ── Blacklist (unified dismissals view) ───────────────────────────────────────
+
+// GET /api/blacklist — current user's blacklisted items enriched with metadata
+router.get('/blacklist', async (req, res) => {
+  const { id: userId } = req.session.plexUser;
+  const items = [];
+
+  try {
+    // Library dismissals — join with library_items for metadata
+    const libRows = db.getUserDismissalRows(userId);
+    for (const row of libRows) {
+      const lib = db.getLibraryItemByKey(row.rating_key);
+      if (lib) {
+        const thumbPath = lib.thumb || lib.art;
+        let posterUrl = null;
+        if (thumbPath) {
+          posterUrl = thumbPath.startsWith('http') ? thumbPath : `/api/poster?path=${encodeURIComponent(thumbPath)}`;
+        }
+        items.push({
+          ratingKey: row.rating_key,
+          title: lib.title || 'Unknown',
+          year: lib.year || null,
+          posterUrl,
+          type: lib.type === 'show' ? 'show' : 'movie',
+          source: 'library',
+          dismissed_at: row.dismissed_at,
+        });
+      }
+    }
+
+    // Explore dismissals — enrich via TMDB cache, fallback to live fetch
+    const exploreRows = db.getUserExploreDismissalRows(userId);
+    for (const row of exploreRows) {
+      const tmdbId = row.tmdb_id;
+      const mediaType = row.media_type;
+      let title = null;
+      let year = null;
+      let posterUrl = null;
+
+      // Try cache first
+      const cached = db.getTmdbCache(tmdbId, mediaType);
+      if (cached) {
+        try {
+          const data = JSON.parse(cached);
+          title = data.title || data.name;
+          const dateStr = data.release_date || data.first_air_date || '';
+          year = dateStr ? parseInt(dateStr.slice(0, 4)) : null;
+          if (data.poster_path) posterUrl = `https://image.tmdb.org/t/p/w200${data.poster_path}`;
+        } catch { /* ignore parse error */ }
+      }
+
+      // Fallback to live TMDB fetch
+      if (!title && db.hasTmdbKey()) {
+        try {
+          const json = await tmdbService.tmdbFetchPublic(`/${mediaType}/${tmdbId}`);
+          title = json.title || json.name;
+          const dateStr = json.release_date || json.first_air_date || '';
+          year = dateStr ? parseInt(dateStr.slice(0, 4)) : null;
+          if (json.poster_path) posterUrl = `https://image.tmdb.org/t/p/w200${json.poster_path}`;
+          // Cache it
+          db.setTmdbCache(tmdbId, mediaType, JSON.stringify(json));
+        } catch { /* ignore fetch error */ }
+      }
+
+      items.push({
+        tmdbId,
+        mediaType,
+        title: title || `TMDB ${tmdbId}`,
+        year,
+        posterUrl,
+        type: mediaType === 'tv' ? 'show' : 'movie',
+        source: 'explore',
+        dismissed_at: row.dismissed_at,
+      });
+    }
+  } catch (err) {
+    logger.error('blacklist fetch error:', err.message);
+    return res.status(500).json({ error: 'Failed to fetch blacklist' });
+  }
+
+  res.json({ items });
+});
+
+// DELETE /api/blacklist/library/:ratingKey — remove library dismissal
+router.delete('/blacklist/library/:ratingKey', (req, res) => {
+  const { ratingKey } = req.params;
+  if (!/^\d+$/.test(String(ratingKey))) {
+    return res.status(400).json({ error: 'Invalid ratingKey' });
+  }
+
+  const { id: userId } = req.session.plexUser;
+  db.removeDismissal(userId, ratingKey);
+  recommender.invalidateUserCache(userId);
+  try { require('../services/discoverRecommender').invalidateUserCache(userId); } catch {}
+  res.json({ success: true });
+});
+
+// DELETE /api/blacklist/explore/:tmdbId/:mediaType — remove explore dismissal
+router.delete('/blacklist/explore/:tmdbId/:mediaType', (req, res) => {
+  const { tmdbId, mediaType } = req.params;
+  if (!/^\d+$/.test(String(tmdbId))) {
+    return res.status(400).json({ error: 'Invalid tmdbId' });
+  }
+  if (!['movie', 'tv'].includes(mediaType)) {
+    return res.status(400).json({ error: 'Invalid mediaType' });
+  }
+
+  const { id: userId } = req.session.plexUser;
+  db.removeExploreDismissal(userId, tmdbId, mediaType);
   res.json({ success: true });
 });
 
@@ -930,7 +1042,6 @@ router.get('/search/similar', async (req, res) => {
     for (const item of [...movies, ...tv]) {
       if (item.tmdbId) libraryByTmdb.set(String(item.tmdbId), item);
     }
-    const libraryTmdbSet = new Set(libraryByTmdb.keys());
     const watchedKeys = db.getWatchedKeysFromDb(String(userId));
     const watchlistKeys = new Set(db.getWatchlistFromDb(userId));
 
@@ -1544,6 +1655,7 @@ router.post('/request', async (req, res) => {
 
 // ── Queue management endpoints (Plex admin users) ─────────────────────────────
 
+// eslint-disable-next-line no-unused-vars -- spare admin guard; queue routes currently check inline
 function requirePlexAdmin(req, res, next) {
   if (req.session && (req.session.isAdmin || req.session.isPlexAdminUser)) return next();
   res.status(403).json({ error: 'Admin access required' });
@@ -1671,15 +1783,23 @@ router.get('/queue/:id', (req, res) => {
   res.json(request);
 });
 
-// PUT /api/queue/:id — edit a pending request
-router.put('/queue/:id', (req, res) => {
+// PUT /api/queue/:id — edit a pending request, or an approved request not yet in library
+router.put('/queue/:id', async (req, res) => {
   if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
   const isAdmin = !!(req.session.isAdmin || req.session.isPlexAdminUser)
     || db.getPrivilegedUserIds().includes(String(req.session.plexUser.id));
   const request = db.getRequestById(req.params.id);
   if (!request) return res.status(404).json({ error: 'Request not found' });
   if (!isAdmin && request.user_id !== req.session.plexUser.id) return res.status(403).json({ error: 'Forbidden' });
-  if (request.status !== 'pending') return res.status(400).json({ error: 'Request is not pending' });
+  if (request.status !== 'pending' && request.status !== 'approved') {
+    return res.status(400).json({ error: 'Request is not editable' });
+  }
+  if (request.status === 'approved') {
+    const libraryTmdbIds = db.getLibraryTmdbIds();
+    if (libraryTmdbIds.has(String(request.tmdb_id))) {
+      return res.status(400).json({ error: 'Content is already available in the library' });
+    }
+  }
 
   const { service, seasons } = req.body;
   const seasonsJson = Array.isArray(seasons) && seasons.length > 0 ? JSON.stringify(seasons.map(Number)) : null;
@@ -1689,6 +1809,32 @@ router.put('/queue/:id', (req, res) => {
     seasonsJson,
     seasonsCount,
   });
+
+  // For approved requests, re-submit to the service with updated configuration
+  if (request.status === 'approved') {
+    const dumbPullActive = db.getSetting('dumb_request_mode', 'pull') === 'pull' && ['1', 'true'].includes(db.getSetting('riven_enabled', '0'));
+    const effectiveService = (service && service !== 'none')
+      ? service
+      : (dumbPullActive ? 'riven'
+        : (request.media_type === 'movie'
+            ? (db.getConnectionSettings().radarrEnabled ? 'radarr' : db.getConnectionSettings().overseerrEnabled ? 'overseerr' : 'riven')
+            : (db.getConnectionSettings().sonarrEnabled ? 'sonarr' : db.getConnectionSettings().overseerrEnabled ? 'overseerr' : 'riven')));
+    const storedSeasons = request.seasons_json ? JSON.parse(request.seasons_json) : null;
+    const effectiveSeasons = (Array.isArray(seasons) && seasons.length > 0) ? seasons : storedSeasons;
+    try {
+      await submitRequestToService({
+        tmdbId: request.tmdb_id,
+        mediaType: request.media_type,
+        title: request.title,
+        service: effectiveService,
+        seasons: effectiveSeasons,
+      });
+      logger.info(`Request re-submitted after edit: id=${request.id} tmdbId=${request.tmdb_id}`);
+    } catch (e) {
+      logger.warn(`Re-submission after edit failed (edit still saved): id=${request.id} error=${e.message}`);
+    }
+  }
+
   res.json({ success: true, request: db.getRequestById(request.id) });
 });
 

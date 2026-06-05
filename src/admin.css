@@ -829,6 +829,17 @@
   transform: translateY(1px);
 }
 
+.broadcast-fmt-btn.active {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
+.broadcast-fmt-btn.active .broadcast-fmt-swatch {
+  background: #fff;
+  border-color: rgba(255, 255, 255, 0.5);
+}
+
 .broadcast-fmt-swatch {
   display: inline-block;
   width: 14px;

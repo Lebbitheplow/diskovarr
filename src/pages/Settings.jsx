@@ -59,6 +59,7 @@ export default function Settings() {
     }
   }, [toastError])
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
   useEffect(() => { loadSettings() }, [loadSettings])
 
   const handleSavePreferences = useCallback(async (e) => {

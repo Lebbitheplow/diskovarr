@@ -4,12 +4,12 @@ const express = require('express');
 const router = express.Router();
 const fs = require('fs');
 const db = require('../db/database');
-const logger = require('../services/logger');
 
 // ── Config helpers ────────────────────────────────────────────────────────────
 
 const RIVEN_SETTINGS_PATH = process.env.RIVEN_SETTINGS_PATH || '/opt/riven/settings.json';
 
+// eslint-disable-next-line no-unused-vars -- config accessor kept for reference; getRdApiKey is used
 function getRivenConfig() {
   return {
     url: db.getSetting('riven_url', 'http://127.0.0.1:8082'),
@@ -173,7 +173,7 @@ router.post('/dumb/regenerate-key', (req, res) => {
 // POST /admin/riven/config/test
 router.post('/config/test', async (req, res) => {
   try {
-    const data = await rivenFetch('GET', '/items', { query: { limit: 1 } });
+    await rivenFetch('GET', '/items', { query: { limit: 1 } });
     res.json({ ok: true, message: 'Connected to Riven successfully' });
   } catch (err) {
     res.status(400).json({ ok: false, error: err.message });

@@ -58,10 +58,70 @@ function wrapSelectionInTag(tagName, datasetKey) {
   sel.addRange(r)
 }
 
+// Check whether the current selection is fully inside an element of the given tag name.
+function selectionInsideTag(tagName) {
+  const sel = window.getSelection()
+  if (!sel || sel.rangeCount === 0) return false
+  const range = sel.getRangeAt(0)
+  const node = range.collapsed ? range.startContainer : range.commonAncestorContainer
+  const el = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement
+  return el ? el.closest(tagName) !== null : false
+}
+
+// Remove a <mark> wrapper from the current selection or cursor position.
+function removeHighlight() {
+  const sel = window.getSelection()
+  if (!sel || sel.rangeCount === 0) return
+  const range = sel.getRangeAt(0)
+
+  if (range.collapsed) {
+    // Cursor is inside a <mark> — unwrap it
+    const node = range.startContainer
+    const el = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement
+    const mark = el ? el.closest('mark') : null
+    if (!mark) return
+    unwrapElement(mark)
+  } else {
+    // Selection spans some content — find and unwrap any <mark> ancestors
+    const ancestor = range.commonAncestorContainer
+    const el = ancestor.nodeType === Node.ELEMENT_NODE ? ancestor : ancestor.parentElement
+    const mark = el ? el.closest('mark') : null
+    if (!mark) return
+    unwrapElement(mark)
+  }
+}
+
+function unwrapElement(el) {
+  const frag = document.createDocumentFragment()
+  while (el.firstChild) frag.appendChild(el.firstChild)
+  el.parentNode.replaceChild(frag, el)
+}
+
+function getFormatState() {
+  const state = {}
+  try {
+    state.bold = document.queryCommandState('bold')
+    state.italic = document.queryCommandState('italic')
+    state.underline = document.queryCommandState('underline')
+    state.strike = document.queryCommandState('strikeThrough')
+  } catch {
+    // queryCommandState may throw in some contexts
+    state.bold = false
+    state.italic = false
+    state.underline = false
+    state.strike = false
+  }
+  // queryCommandState doesn't work for custom-wrapped tags; use DOM traversal
+  state.code = selectionInsideTag('code')
+  state.highlight = selectionInsideTag('mark')
+  return state
+}
+
 export default function BroadcastMessage({ onToast }) {
   const [result, setResult] = useState('')
   const [sending, setSending] = useState(false)
   const [empty, setEmpty] = useState(true)
+  const [formatState, setFormatState] = useState(getFormatState)
   const editorRef = useRef(null)
 
   const checkEmpty = () => {
@@ -71,15 +131,39 @@ export default function BroadcastMessage({ onToast }) {
     return el.innerText.replace(/\u200B/g, '').trim() === ''
   }
 
+  const updateState = () => setFormatState(getFormatState())
+
   const applyFormat = (key) => {
     const el = editorRef.current
     if (!el) return
     el.focus()
-    if (key === 'highlight') wrapSelectionInTag('mark', 'mark')
-    else if (key === 'code') wrapSelectionInTag('code')
-    else if (key === 'strike') document.execCommand('strikeThrough', false)
-    else document.execCommand(key, false)
+    if (key === 'highlight') {
+      if (selectionInsideTag('mark')) {
+        removeHighlight()
+      } else {
+        wrapSelectionInTag('mark', 'mark')
+      }
+    } else if (key === 'code') {
+      if (selectionInsideTag('code')) {
+        // Toggle off: unwrap the <code> element
+        const sel = window.getSelection()
+        if (sel && sel.rangeCount > 0) {
+          const range = sel.getRangeAt(0)
+          const node = range.collapsed ? range.startContainer : range.commonAncestorContainer
+          const el2 = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement
+          const code = el2 ? el2.closest('code') : null
+          if (code) unwrapElement(code)
+        }
+      } else {
+        wrapSelectionInTag('code')
+      }
+    } else if (key === 'strike') {
+      document.execCommand('strikeThrough', false)
+    } else {
+      document.execCommand(key, false)
+    }
     setEmpty(checkEmpty())
+    updateState()
   }
 
   const handleKeyDown = (e) => {
@@ -100,7 +184,10 @@ export default function BroadcastMessage({ onToast }) {
     document.execCommand('insertText', false, text)
   }
 
-  const handleInput = () => setEmpty(checkEmpty())
+  const handleInput = () => {
+    setEmpty(checkEmpty())
+    updateState()
+  }
 
   const handleBroadcast = async () => {
     const md = nodeToMarkdown(editorRef.current || document.createElement('div')).trim()
@@ -116,6 +203,7 @@ export default function BroadcastMessage({ onToast }) {
       if (onToast) onToast('Broadcast sent', 'success')
       if (editorRef.current) editorRef.current.innerHTML = ''
       setEmpty(true)
+      updateState()
     } catch (err) {
       setResult(err.message || 'Failed to send broadcast')
       if (onToast) onToast(err.message || 'Failed to send broadcast', 'error')
@@ -137,7 +225,7 @@ export default function BroadcastMessage({ onToast }) {
           <button
             key={f.key}
             type="button"
-            className="broadcast-fmt-btn"
+            className={`broadcast-fmt-btn${formatState[f.key] ? ' active' : ''}`}
             title={f.title}
             onMouseDown={(e) => e.preventDefault() /* keep editor selection */}
             onClick={() => applyFormat(f.key)}
@@ -159,6 +247,9 @@ export default function BroadcastMessage({ onToast }) {
         onKeyDown={handleKeyDown}
         onInput={handleInput}
         onPaste={handlePaste}
+        onSelect={updateState}
+        onMouseUp={updateState}
+        onKeyUp={updateState}
         spellCheck
       />
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 10 }}>

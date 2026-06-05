@@ -61,6 +61,7 @@ let autoSyncEnabled = db.getSetting('auto_sync_enabled', '1') === '1';
 let syncInProgress = false;
 let lastSyncError = null;
 
+// eslint-disable-next-line no-unused-vars -- companion to shouldAutoSync, kept for symmetry
 function getAutoSyncEnabled() { return autoSyncEnabled; }
 
 // Called by server.js before each scheduled sync
@@ -143,6 +144,17 @@ router.get('/status', requireAdmin, (req, res) => {
     compatApiKey: compatApp?.api_key || null,
     themeColor: db.getThemeColor(),
     defaultLandingPage: db.getLandingPage(),
+  });
+});
+
+// ── Update check ──────────────────────────────────────────────────────────────
+
+router.get('/update-status', requireAdmin, async (req, res) => {
+  const latest = await getLatestVersion();
+  res.json({
+    current: APP_VERSION,
+    latest,
+    updateAvailable: isNewerVersion(latest, APP_VERSION),
   });
 });
 

@@ -4,66 +4,9 @@ import { useAuth } from '../context/AuthContext'
 import { notificationsApi, searchApi } from '../services/api'
 import Modal from './Modal'
 import ChangelogModal from './ChangelogModal'
+import { renderTextWithLinks } from '../utils/renderRichText'
 
 const LOGO_SVG = 'M7.5 17.5h13M3 8.5h2.5v9M7 11h3v6.5M11 10h2.5v7.5M15 9a5 5 0 1 0 0 0 5 5 0 1 0 0 0M18.5 12.5l3.5 3.5'
-
-const URL_RE = /(https?:\/\/[^\s<]+)/g
-const URL_TEST = /^https?:\/\/[^\s<]+$/
-
-// Matches **bold**, __underline__, ~~strike~~, ==highlight==, `code`, *italic* (non-greedy, single-line).
-// Order matters: double-marker variants must be tried before single-asterisk italic.
-const MD_RE = /(\*\*([^*\n]+?)\*\*)|(__([^_\n]+?)__)|(~~([^~\n]+?)~~)|(==([^=\n]+?)==)|(`([^`\n]+?)`)|(\*([^*\n]+?)\*)/g
-const HIGHLIGHT_STYLE = { background: 'var(--accent-dim2)', color: 'var(--accent)', padding: '0 4px', borderRadius: '3px' }
-const CODE_STYLE = { fontFamily: 'var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace)', fontSize: '0.9em', background: 'var(--bg-elevated)', border: '1px solid var(--border)', padding: '0 4px', borderRadius: '3px' }
-
-function renderInlineMarkdown(text, keyPrefix) {
-  // Returns an array of React nodes with all six inline formats applied. No URL handling here.
-  const out = []
-  let lastIndex = 0
-  let m
-  let idx = 0
-  MD_RE.lastIndex = 0
-  while ((m = MD_RE.exec(text)) !== null) {
-    if (m.index > lastIndex) out.push(text.slice(lastIndex, m.index))
-    const key = `${keyPrefix}-md-${idx++}`
-    if (m[1])      out.push(React.createElement('strong', { key }, m[2]))
-    else if (m[3]) out.push(React.createElement('u', { key }, m[4]))
-    else if (m[5]) out.push(React.createElement('s', { key }, m[6]))
-    else if (m[7]) out.push(React.createElement('mark', { key, style: HIGHLIGHT_STYLE }, m[8]))
-    else if (m[9]) out.push(React.createElement('code', { key, style: CODE_STYLE }, m[10]))
-    else if (m[11]) out.push(React.createElement('em', { key }, m[12]))
-    lastIndex = m.index + m[0].length
-  }
-  if (lastIndex < text.length) out.push(text.slice(lastIndex))
-  return out
-}
-
-function renderTextWithLinks(text) {
-  if (!text) return null
-  const parts = text.split(URL_RE)
-  const elements = []
-  parts.forEach((part, i) => {
-    if (URL_TEST.test(part)) {
-      elements.push(
-        React.createElement('a', {
-          key: i,
-          href: part,
-          target: '_blank',
-          rel: 'noopener noreferrer',
-          style: { color: 'var(--accent)', textDecoration: 'underline' },
-        }, part)
-      )
-    } else if (part) {
-      part.split('\n').forEach((line, j) => {
-        if (j > 0) elements.push(React.createElement('br', { key: `${i}-${j}-br` }))
-        if (!line) { elements.push('\u00A0'); return }
-        const rendered = renderInlineMarkdown(line, `${i}-${j}`)
-        rendered.forEach((node) => elements.push(node))
-      })
-    }
-  })
-  return elements
-}
 
 function LogoIcon() {
   return (
@@ -128,6 +71,7 @@ export default function NavigationBar() {
   ]
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
     setFabOpen(false)
     setInfoOpen(false)
     setBellOpen(false)
@@ -211,6 +155,7 @@ export default function NavigationBar() {
 
   useEffect(() => {
     if (searchQuery.length < 2) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
       setSearchResults([])
       return
     }
@@ -418,7 +363,7 @@ export default function NavigationBar() {
                           onClick={() => handleBellItemClick(n)}
                         >
                           <div className="nav-bell-title">{n.title}</div>
-                          {n.body && <div className="nav-bell-body">{n.body}</div>}
+                          {n.body && <div className="nav-bell-body">{renderTextWithLinks(n.body)}</div>}
                           <div className="nav-bell-time">{agoString(n.created_at)}{n.read ? ' · read' : ''}</div>
                         </div>
                       ))}
@@ -472,6 +417,7 @@ export default function NavigationBar() {
             <a href="/settings" className="nav-fab-menu-link" onClick={() => setFabOpen(false)}>⚙ Settings</a>
             <a href="/watchlist" className="nav-fab-menu-link" onClick={() => setFabOpen(false)}>◈ Watchlist</a>
             <a href="/queue" className="nav-fab-menu-link" onClick={() => setFabOpen(false)}>☑ Queue</a>
+            <a href="/blacklist" className="nav-fab-menu-link" onClick={() => setFabOpen(false)}>✕ Blacklist</a>
             <a href="/issues" className="nav-fab-menu-link" onClick={() => setFabOpen(false)}>⚠ Issues</a>
             <a href="/admin" className="nav-fab-menu-link" onClick={() => setFabOpen(false)}>⚙ Admin</a>
             <button className="nav-fab-menu-link nav-fab-menu-info" onClick={() => { setInfoOpen(true); setFabOpen(false) }}>ℹ About</button>
@@ -489,7 +435,7 @@ export default function NavigationBar() {
             <div className="info-modal-logo">
               <span className="logo-icon"><LogoIcon /></span>
               <span className="logo-text">Diskovarr</span>
-              <button className="info-modal-version" onClick={() => { setInfoOpen(false); setChangelogOpen(true) }}>v{import.meta.env.VITE_APP_VERSION || '2.0.1'}</button>
+              <button className="info-modal-version" onClick={() => { setInfoOpen(false); setChangelogOpen(true) }}>v{import.meta.env.VITE_APP_VERSION || '2.1.0'}</button>
             </div>
             <p className="info-modal-tagline">Personalized Plex recommendations based on your watch history.</p>
             <div className="info-modal-sections">
