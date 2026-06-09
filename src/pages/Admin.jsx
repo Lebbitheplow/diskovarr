@@ -6,10 +6,10 @@ import AdminNotifications from '../components/admin/notifications/AdminNotificat
 import UserSettingsModal from '../components/admin/UserSettingsModal'
 import BulkSettingsModal from '../components/admin/BulkSettingsModal'
 import AgentInfoModal from '../components/admin/AgentInfoModal'
-import { adminStatus, adminNotifications } from '../services/adminApi'
+import { adminStatus, adminNotifications, adminUpdate } from '../services/adminApi'
 import ChangelogModal from '../components/ChangelogModal'
 
-const APP_VERSION = import.meta.env.VITE_APP_VERSION || '2.1.0'
+const APP_VERSION = import.meta.env.VITE_APP_VERSION || '2.2.0'
 
 const LOGO_SVG = (
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="1em" height="1em" fill="none" aria-hidden="true">
@@ -269,13 +269,12 @@ export default function Admin() {
   useEffect(() => {
     const checkVersion = async () => {
       try {
-        const res = await fetch('/admin/status', { credentials: 'include' })
-        const data = await res.json()
+        const { data } = await adminUpdate.getStatus()
         if (data.updateAvailable) {
           setUpdateAvailable(true)
         }
-        if (data.latestVersion) {
-          setLatestVersion(data.latestVersion)
+        if (data.latest) {
+          setLatestVersion(data.latest)
         }
       } catch { /* ignore */ }
     }

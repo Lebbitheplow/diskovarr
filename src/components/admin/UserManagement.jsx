@@ -457,15 +457,18 @@ export default function UserManagement({ onToast, connections, onOpenUserSetting
   }, [])
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
-    loadUsers()
-    loadServerOwner()
-    loadAllUsersList()
-    loadWatchlistMode()
-    loadIndividualSeasons()
-    loadGlobalLimits()
-    loadAutoApprove()
-    loadAutoRequest()
+    ;(async () => {
+      await Promise.all([
+        loadUsers(),
+        loadServerOwner(),
+        loadAllUsersList(),
+        loadWatchlistMode(),
+        loadIndividualSeasons(),
+        loadGlobalLimits(),
+        loadAutoApprove(),
+        loadAutoRequest(),
+      ])
+    })()
   }, [loadUsers, loadServerOwner, loadAllUsersList, loadWatchlistMode, loadIndividualSeasons, loadGlobalLimits, loadAutoApprove, loadAutoRequest])
 
   const handlePageChange = useCallback((newPage) => {

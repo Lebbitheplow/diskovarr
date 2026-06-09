@@ -127,8 +127,10 @@ router.get('/', requireAdmin, (req, res) => {
 router.get('/status', requireAdmin, (req, res) => {
   const stats = db.getAdminStats();
   const compatApp = db.listApiApps().find(a => a.type === 'compat');
+  const syncSections = db.getSyncEnabledSections();
   res.json({
     stats, autoSyncEnabled, syncInProgress, lastSyncError,
+    syncSections,
     watchlistMode: db.getAdminWatchlistMode(),
     discoverEnabled: db.isDiscoverEnabled(),
     individualSeasonsEnabled: db.isIndividualSeasonsEnabled(),
@@ -172,7 +174,8 @@ router.post('/sync/library', requireAdmin, async (req, res) => {
 
   try {
     plexService.invalidateCache();
-    await plexService.warmCache();
+    const enabledIds = db.getEnabledSectionIds();
+    await plexService.warmCache(enabledIds);
     recommender.invalidateAllCaches();
     discoverRecommender.invalidateAllCaches();
 
@@ -242,6 +245,92 @@ router.post('/sync/auto/disable', requireAdmin, (req, res) => {
   autoSyncEnabled = false;
   db.setSetting('auto_sync_enabled', '0');
   res.json({ success: true, autoSyncEnabled });
+});
+
+// ── Library section management ────────────────────────────────────────────────
+
+router.get('/sync/libraries', requireAdmin, async (req, res) => {
+  try {
+    const plexSections = await plexService.getPlexSections();
+    const enabledSections = db.getSyncEnabledSections();
+    const enabledIds = new Set(enabledSections.filter(s => s.enabled).map(s => s.id));
+
+    const result = plexSections.map(section => {
+      const enabled = enabledIds.has(section.id);
+      const itemCount = enabled ? db.getLibraryItemCount(section.id) : 0;
+      const syncTimeKey = `library_${section.id}`;
+      const lastSync = db.getSyncTime(syncTimeKey) > 0 ? db.getSyncTime(syncTimeKey) : 0;
+      return {
+        id: section.id,
+        title: section.title,
+        type: section.type,
+        enabled,
+        itemCount,
+        lastSync: lastSync > 0 ? new Date(lastSync * 1000).toISOString() : null,
+      };
+    });
+
+    res.json({ sections: result });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch library sections', message: err.message });
+  }
+});
+
+router.post('/sync/libraries', requireAdmin, async (req, res) => {
+  try {
+    const { sections } = req.body;
+    if (!Array.isArray(sections)) {
+      return res.status(400).json({ error: 'Invalid request body. Expected { sections: [{ id, enabled }] }' });
+    }
+
+    const currentEnabled = new Set(db.getSyncEnabledSections().filter(s => s.enabled).map(s => String(s.id)));
+
+    // Process changes: delete data for sections being disabled, track newly-enabled ones
+    let removedAny = false;
+    const newlyEnabledIds = [];
+    for (const section of sections) {
+      const sid = String(section.id);
+      if (!section.enabled && currentEnabled.has(sid)) {
+        // Section was enabled but is now being disabled — delete its data
+        db.deleteLibraryItems(sid);
+        removedAny = true;
+      } else if (section.enabled && !currentEnabled.has(sid)) {
+        newlyEnabledIds.push(sid);
+      }
+    }
+
+    db.setSyncEnabledSections(sections.map(s => ({ id: String(s.id), enabled: !!s.enabled })));
+
+    // Removing a library invalidates recommendation caches so its items drop out immediately
+    if (removedAny) {
+      recommender.invalidateAllCaches();
+      discoverRecommender.invalidateAllCaches();
+    }
+
+    res.json({ success: true });
+
+    // Sync newly-enabled libraries in the background so their items populate right away
+    if (newlyEnabledIds.length > 0 && !syncInProgress) {
+      syncInProgress = true;
+      lastSyncError = null;
+      (async () => {
+        try {
+          await plexService.warmCache(newlyEnabledIds);
+          recommender.invalidateAllCaches();
+          discoverRecommender.invalidateAllCaches();
+          console.log(`[Admin] Auto-synced newly-enabled libraries: ${newlyEnabledIds.join(', ')}`);
+        } catch (err) {
+          lastSyncError = err.message;
+          console.error('[Admin] Auto-sync of newly-enabled libraries failed:', err.message);
+        } finally {
+          syncInProgress = false;
+        }
+      })();
+    }
+    return;
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to save library settings', message: err.message });
+  }
 });
 
 // ── Per-user watched sync ─────────────────────────────────────────────────────

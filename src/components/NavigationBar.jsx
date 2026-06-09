@@ -68,15 +68,19 @@ export default function NavigationBar() {
     { path: '/', label: 'Diskovarr' },
     ...(discoverAvailable ? [{ path: '/explore', label: 'Diskovarr Requests' }] : []),
     { path: '/discover', label: 'Filter', icon: true },
+    { path: '/reviews', label: 'Reviews' },
   ]
 
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
+  // Close all menus when the route changes. Render-phase adjustment (React's
+  // recommended alternative to a state-resetting effect).
+  const [prevPath, setPrevPath] = useState(location.pathname)
+  if (location.pathname !== prevPath) {
+    setPrevPath(location.pathname)
     setFabOpen(false)
     setInfoOpen(false)
     setBellOpen(false)
     setSearchOpen(false)
-  }, [location.pathname])
+  }
 
   // Notification bell
   useEffect(() => {
@@ -141,11 +145,22 @@ export default function NavigationBar() {
       }
     } else if (notification.type.startsWith('issue_')) {
       navigate('/issues')
+    } else if (notification.type === 'monitor_match') {
+      const data = typeof notification.data === 'string' ? JSON.parse(notification.data) : notification.data
+      if (data?.tmdbId && data?.mediaType) {
+        navigate(`/search?q=${encodeURIComponent(data.title || '')}&selectedTmdbId=${encodeURIComponent(data.tmdbId)}&selectedType=${encodeURIComponent(data.mediaType)}`)
+      } else {
+        navigate('/search')
+      }
     }
   }
 
   // Search
   const fetchSuggestions = useCallback(async (q) => {
+    if (q.length < 2) {
+      setSearchResults([])
+      return
+    }
     try {
       const { data } = await searchApi.getSuggestions(q)
       setSearchResults(data?.results || [])
@@ -154,12 +169,9 @@ export default function NavigationBar() {
   }, [])
 
   useEffect(() => {
-    if (searchQuery.length < 2) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
-      setSearchResults([])
-      return
-    }
     clearTimeout(suggestTimerRef.current)
+    // fetchSuggestions clears results for queries < 2 chars; routing both paths
+    // through the debounce keeps any setState out of the synchronous effect body.
     suggestTimerRef.current = setTimeout(() => fetchSuggestions(searchQuery), 280)
     return () => clearTimeout(suggestTimerRef.current)
   }, [searchQuery, fetchSuggestions])
@@ -405,7 +417,7 @@ export default function NavigationBar() {
       {fabOpen && (
         <>
           <div className="nav-fab-menu open" style={menuRight !== null ? { right: menuRight } : undefined}>
-            <div className="nav-fab-menu-user">
+            <a href={`/user/${user?.id}`} className="nav-fab-menu-user nav-fab-menu-user-link" onClick={() => setFabOpen(false)}>
               {user?.thumb ? (
                 <img className="nav-fab-menu-avatar" src={user.thumb} alt={user.username}
                   onError={(e) => { e.currentTarget.style.display = 'none' }} />
@@ -413,11 +425,10 @@ export default function NavigationBar() {
                 <div className="nav-fab-menu-avatar-placeholder">{user?.username?.charAt(0).toUpperCase() || '?'}</div>
               )}
               <span className="nav-fab-menu-username">{user?.username || 'User'}</span>
-            </div>
+            </a>
             <a href="/settings" className="nav-fab-menu-link" onClick={() => setFabOpen(false)}>⚙ Settings</a>
-            <a href="/watchlist" className="nav-fab-menu-link" onClick={() => setFabOpen(false)}>◈ Watchlist</a>
             <a href="/queue" className="nav-fab-menu-link" onClick={() => setFabOpen(false)}>☑ Queue</a>
-            <a href="/blacklist" className="nav-fab-menu-link" onClick={() => setFabOpen(false)}>✕ Blacklist</a>
+            <a href="/history" className="nav-fab-menu-link" onClick={() => setFabOpen(false)}>◷ Watch History</a>
             <a href="/issues" className="nav-fab-menu-link" onClick={() => setFabOpen(false)}>⚠ Issues</a>
             <a href="/admin" className="nav-fab-menu-link" onClick={() => setFabOpen(false)}>⚙ Admin</a>
             <button className="nav-fab-menu-link nav-fab-menu-info" onClick={() => { setInfoOpen(true); setFabOpen(false) }}>ℹ About</button>
@@ -435,35 +446,39 @@ export default function NavigationBar() {
             <div className="info-modal-logo">
               <span className="logo-icon"><LogoIcon /></span>
               <span className="logo-text">Diskovarr</span>
-              <button className="info-modal-version" onClick={() => { setInfoOpen(false); setChangelogOpen(true) }}>v{import.meta.env.VITE_APP_VERSION || '2.1.0'}</button>
+              <button className="info-modal-version" onClick={() => { setInfoOpen(false); setChangelogOpen(true) }}>v{import.meta.env.VITE_APP_VERSION || '2.2.0'}</button>
             </div>
-            <p className="info-modal-tagline">Personalized Plex recommendations based on your watch history.</p>
+            <p className="info-modal-tagline">Your personalized Plex discovery and content management platform. Diskovarr combines recommendations, requests, watch history, reviews, and community features into a single experience. It learns from your viewing habits to help you discover new content, track what you've watched, and share your thoughts with other users.</p>
             <div className="info-modal-sections">
               <div className="info-modal-section">
                 <div className="info-modal-section-title">Diskovarr</div>
-                <p>Your personalized recommendation feed. Diskovarr analyzes your Plex watch history — directors, actors, studios, and genres you enjoy — to surface content you haven't seen yet. Dismiss anything you're not interested in and it won't appear again.</p>
+                <p>Your personalized recommendation feed. Diskovarr analyzes your Plex watch history, ratings, genres, actors, directors, and studios to surface movies and shows you're likely to enjoy. Dismiss anything you're not interested in and it won't be recommended again.</p>
               </div>
               {discoverAvailable && (
                 <div className="info-modal-section">
                   <div className="info-modal-section-title">Diskovarr Requests</div>
-                  <p>Recommendations for content <strong>not yet in the library</strong>, picked based on your watch history. Use the search bar to find any specific title and request it directly. Click <em>Request</em> on any title to send it to Overseerr (or Radarr/Sonarr) for download. Requested items are tracked so you won't be prompted to request them again.</p>
+                  <p>Recommendations for content not currently available in the library. Browse suggested titles based on your interests or search for any movie or show and request it directly. Requested items are tracked automatically so you won't be prompted to request the same title twice.</p>
                 </div>
               )}
               <div className="info-modal-section">
                 <div className="info-modal-section-title">Filter</div>
-                <p>Browse the full library with filters for type (movies, TV, anime), genre, decade, and minimum rating. Sort by recommendation score, rating, year, or recently added.</p>
+                <p>Browse the entire library with powerful filters for media type, genre, decade, rating, and more. Sort results by recommendation score, release date, rating, recently added content, and other criteria to quickly find something to watch.</p>
               </div>
               <div className="info-modal-section">
-                <div className="info-modal-section-title">Watchlist</div>
-                <p>Save anything you want to watch later. Items sync to your <strong>Plex Watchlist</strong> and appear in the Plex app under Discover → Watchlist. Remove items here and they'll be removed from Plex too.</p>
+                <div className="info-modal-section-title">Profile</div>
+                <p>Your personal profile within Diskovarr. Showcase your favorite movies, shows, and genres, write a short bio, and share your reviews with the community. Your profile also includes your watch history, where you can review previously watched content and share reviews with the community, along with your watchlist and blacklist for viewing and managing saved or excluded titles.</p>
+              </div>
+              <div className="info-modal-section">
+                <div className="info-modal-section-title">Reviews</div>
+                <p>A social-media-style feed of community reviews. Reviews are created from the Watch History section after a user has watched a movie or show in Plex, allowing them to share their thoughts and ratings with the community. Discover what other users are watching, comment on reviews, discuss content, and find new recommendations through other users' experiences. Reviews marked as spoilers are hidden by default and can be revealed when desired.</p>
               </div>
               <div className="info-modal-section">
                 <div className="info-modal-section-title">Queue</div>
-                <p>Track and manage your media requests. View the status of everything you've requested — pending, approved, or denied. Admins can review all users' requests, approve or deny them with an optional note, and edit the target service or seasons for TV shows.</p>
+                <p>Track the status of your requests from submission to availability. View pending, approved, downloaded, and denied requests in one place. Administrators can also review requests, leave notes, and manage request settings.</p>
               </div>
               <div className="info-modal-section">
                 <div className="info-modal-section-title">Issues</div>
-                <p>Report problems with content in the library — wrong file, bad audio/subtitles, missing episodes, or anything else. Each issue can be commented on by both the reporter and admins. Admins can resolve or close issues and leave a note. You'll be notified when an admin responds to your issue.</p>
+                <p>Report problems with content in the library, including missing episodes, subtitle issues, incorrect files, metadata problems, or other concerns. Users and administrators can discuss issues, track progress, and receive updates when problems are resolved.</p>
               </div>
             </div>
             <div className="info-modal-footer">

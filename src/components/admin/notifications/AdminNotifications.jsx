@@ -55,8 +55,9 @@ export default function AdminNotifications({ onDataLoaded, onToast, onOpenAgentI
     }
   }, [onDataLoaded, onToast])
 
-  // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
-  useEffect(() => { loadAll() }, [loadAll])
+  useEffect(() => {
+    ;(async () => { await loadAll() })()
+  }, [loadAll])
 
   // Derive enabled state map for sidebar dots
   const providerEnabled = {

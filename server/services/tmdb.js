@@ -87,6 +87,35 @@ function posterUrl(path, size = 'w342') {
   return path ? `${IMAGE_BASE}/${size}${path}` : null;
 }
 
+const IMPORTANT_CREW_ROLES = [
+  'Director',
+  'Writer', 'Screenplay', 'Story', 'Creator',
+  'Executive Producer', 'Producer',
+  'Composer', 'Original Music Composer',
+  'Editor', 'Cinematographer', 'Production Design',
+];
+
+function filterImportantCrew(crew) {
+  if (!Array.isArray(crew) || !crew.length) return [];
+  const seen = new Set();
+  const result = [];
+  for (const member of crew) {
+    if (!IMPORTANT_CREW_ROLES.includes(member.job)) continue;
+    const key = `${member.id}:${member.job}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push({
+      id: member.id,
+      name: member.name,
+      job: member.job,
+      department: member.department || null,
+      profilePath: member.profile_path || null,
+    });
+    if (result.length >= 15) break;
+  }
+  return result;
+}
+
 function normalizeMovie(details, credits) {
   // Check US certification for R / NC-17
   const usRelease = (details.release_dates?.results || []).find(r => r.iso_3166_1 === 'US');
@@ -107,6 +136,14 @@ function normalizeMovie(details, credits) {
     voteCount: details.vote_count || 0,
     directors: (credits?.crew || []).filter(c => c.job === 'Director').map(c => c.name).slice(0, 3),
     cast: (credits?.cast || []).slice(0, 10).map(c => c.name),
+    structuredCast: (credits?.cast || []).slice(0, 30).map(c => ({
+      id: c.id,
+      name: c.name,
+      character: c.character || null,
+      profilePath: c.profile_path || null,
+      order: c.order,
+    })),
+    structuredCrew: filterImportantCrew(credits?.crew || []),
     studio: (details.production_companies || []).map(c => c.name).slice(0, 2).join(', ') || '',
     originCountry: (details.production_countries || []).map(c => c.iso_3166_1),
     isAnime: false,
@@ -148,6 +185,14 @@ function normalizeTV(details, credits) {
     voteCount: details.vote_count || 0,
     directors: (details.created_by || []).map(c => c.name).slice(0, 3),
     cast: (credits?.cast || []).slice(0, 10).map(c => c.name),
+    structuredCast: (credits?.cast || []).slice(0, 30).map(c => ({
+      id: c.id,
+      name: c.name,
+      character: c.character || null,
+      profilePath: c.profile_path || null,
+      order: c.order,
+    })),
+    structuredCrew: filterImportantCrew(credits?.crew || []),
     studio: (details.networks || []).map(n => n.name).slice(0, 2).join(', ') || '',
     originCountry: originCountries,
     isAnime,
@@ -257,6 +302,43 @@ async function getPersonCandidates(name, mediaType) {
     return results;
   } catch {
     _personCreditsCache.set(cacheKey, []);
+    return [];
+  }
+}
+
+// All movie + TV titles a person is credited on (cast or crew), keyed by TMDB
+// person id. Used by the "More with X" browse on the search page. Returns
+// self-contained card candidates (poster/year/score) so callers don't need a
+// per-title details fetch — only library cross-referencing is layered on top.
+async function getPersonCombinedCredits(personId) {
+  try {
+    const json = await tmdbFetch(`/person/${personId}/combined_credits`);
+    if (!json) return [];
+    const byKey = new Map(); // `${id}:${mediaType}` → candidate (dedupe cast+crew)
+    const add = (r, role) => {
+      const mediaType = r.media_type === 'movie' ? 'movie' : r.media_type === 'tv' ? 'tv' : null;
+      if (!mediaType) return;
+      const key = `${r.id}:${mediaType}`;
+      // Prefer a cast credit over a crew one for the same title (more recognizable).
+      if (byKey.has(key) && !(byKey.get(key)._role === 'crew' && role === 'cast')) return;
+      byKey.set(key, {
+        tmdbId: r.id,
+        mediaType,
+        title: r.title || r.name,
+        year: parseInt((r.release_date || r.first_air_date || '').slice(0, 4)) || 0,
+        releaseDate: r.release_date || r.first_air_date || null,
+        overview: r.overview || '',
+        posterUrl: posterUrl(r.poster_path),
+        voteAverage: r.vote_average || 0,
+        genreIds: r.genre_ids || [],
+        popularity: r.popularity || 0,
+        _role: role,
+      });
+    };
+    for (const r of (json.cast || [])) add(r, 'cast');
+    for (const r of (json.crew || [])) add(r, 'crew');
+    return [...byKey.values()].sort((a, b) => (b.popularity || 0) - (a.popularity || 0));
+  } catch {
     return [];
   }
 }
@@ -422,7 +504,7 @@ async function discoverByGenreName(genreName, mediaType, page = 1, opts = {}) {
 }
 
 module.exports = {
-  getItemDetails, getRecommendations, getSimilar, getPersonCandidates,
+  getItemDetails, getRecommendations, getSimilar, getPersonCandidates, getPersonCombinedCredits,
   discoverByGenreIds, discoverByKeywordId, discoverAnime, getTrending, getUpcoming,
   discoverByGenreName, batchGetDetails, testApiKey, posterUrl,
   tmdbFetchPublic: tmdbFetch,

@@ -2,6 +2,7 @@ import React, { useState, useCallback, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import {
   recommendationsApi,
+  popularApi,
   plexApi,
   watchlistApi,
   searchApi,
@@ -36,6 +37,8 @@ export default function Home() {
 
   const [recommendations, setRecommendations] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [popular, setPopular] = useState(null)
+  const [popularLoading, setPopularLoading] = useState(true)
   const [matureEnabled, setMatureEnabledState] = useState(isMatureEnabled())
   const [shuffling, setShuffling] = useState(false)
   const [selectedItem, setSelectedItem] = useState(null)
@@ -83,14 +86,28 @@ export default function Home() {
   }, [toastError])
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
-    fetchRecommendations(matureEnabled)
+    ;(async () => { await fetchRecommendations(matureEnabled) })()
   }, [matureEnabled, fetchRecommendations])
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
-    loadWatchlist()
+    ;(async () => { await loadWatchlist() })()
   }, [loadWatchlist])
+
+  const fetchPopular = useCallback(async () => {
+    setPopularLoading(true)
+    try {
+      const { data } = await popularApi.getPopular()
+      setPopular(data || { movies: [], tvShows: [] })
+    } catch {
+      setPopular({ movies: [], tvShows: [] })
+    } finally {
+      setPopularLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    ;(async () => { await fetchPopular() })()
+  }, [fetchPopular])
 
   useEffect(() => {
     if (!openModalParam || !mediaTypeParam) return
@@ -210,6 +227,14 @@ export default function Home() {
   const showAnime = (recommendations?.anime || []).filter(item =>
     !item.contentRating || !MATURE_RATINGS.has(item.contentRating.toLowerCase())
   )
+  // Popular = server-wide "what's trending" stats. Respect the mature toggle (show mature when
+  // enabled) so the lists stay populated rather than always stripping R / TV-MA content.
+  const showPopularMovies = (popular?.movies || []).filter(item =>
+    matureEnabled || !item.contentRating || !MATURE_RATINGS.has(item.contentRating.toLowerCase())
+  )
+  const showPopularTvShows = (popular?.tvShows || []).filter(item =>
+    matureEnabled || !item.contentRating || !MATURE_RATINGS.has(item.contentRating.toLowerCase())
+  )
 
   return (
     <>
@@ -266,6 +291,24 @@ export default function Home() {
               </div>
               <SkeletonLoader count={12} rows={2} />
             </section>
+            {popularLoading && (
+              <>
+                <section className="section" id="section-popular-movies">
+                  <div className="section-header">
+                    <h2 className="section-title">Most Popular Movies on the Server</h2>
+                    <span className="section-badge">Last 90 Days</span>
+                  </div>
+                  <SkeletonLoader count={12} rows={2} />
+                </section>
+                <section className="section" id="section-popular-tv">
+                  <div className="section-header">
+                    <h2 className="section-title">Most Popular TV Shows on the Server</h2>
+                    <span className="section-badge">Last 90 Days</span>
+                  </div>
+                  <SkeletonLoader count={12} rows={2} />
+                </section>
+              </>
+            )}
           </>
         ) : (
           <>
@@ -348,6 +391,52 @@ export default function Home() {
                       onToggleWatchlist={handleToggleWatchlist}
                       onDismiss={handleDismiss}
                       isInWatchlist={!!watchlistCache[item.ratingKey]}
+                    />
+                  ))}
+                </Carousel>
+              </section>
+            )}
+
+            {showPopularMovies.length > 0 && (
+              <section className="section" id="section-popular-movies">
+                <div className="section-header">
+                  <h2 className="section-title">Most Popular Movies on the Server</h2>
+                  <span className="section-badge">Last 90 Days</span>
+                </div>
+                <Carousel>
+                  {showPopularMovies.map(item => (
+                    <MediaCard
+                      key={item.ratingKey}
+                      item={{ ...item, mediaType: 'movie' }}
+                      variant="home"
+                      onOpenModal={handleOpenModal}
+                      onToggleWatchlist={handleToggleWatchlist}
+                      onDismiss={handleDismiss}
+                      isInWatchlist={!!watchlistCache[item.ratingKey]}
+                      isWatched={item.isWatched}
+                    />
+                  ))}
+                </Carousel>
+              </section>
+            )}
+
+            {showPopularTvShows.length > 0 && (
+              <section className="section" id="section-popular-tv">
+                <div className="section-header">
+                  <h2 className="section-title">Most Popular TV Shows on the Server</h2>
+                  <span className="section-badge">Last 90 Days</span>
+                </div>
+                <Carousel>
+                  {showPopularTvShows.map(item => (
+                    <MediaCard
+                      key={item.ratingKey}
+                      item={{ ...item, mediaType: 'tv' }}
+                      variant="home"
+                      onOpenModal={handleOpenModal}
+                      onToggleWatchlist={handleToggleWatchlist}
+                      onDismiss={handleDismiss}
+                      isInWatchlist={!!watchlistCache[item.ratingKey]}
+                      isWatched={item.isWatched}
                     />
                   ))}
                 </Carousel>

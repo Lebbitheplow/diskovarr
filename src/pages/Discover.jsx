@@ -7,26 +7,10 @@ import {
 import MediaCard from '../components/MediaCard'
 import DetailModal from '../components/DetailModal'
 import { useToast } from '../context/ToastContext'
-import { CONTENT_RATING_ORDER, buildDecadeOptions } from '../components/filterConstants'
+import FilterControls from '../components/FilterControls'
+import { SCORE_VALUES, FACET_FIELDS } from '../components/filterConstants'
 
-const DECADES = buildDecadeOptions()
-
-const SCORE_VALUES = [0, 5, 6, 7, 7.5, 8, 8.5, 9, 9.5, 10]
-
-const SORT_OPTIONS = [
-  { value: 'rating', label: 'Highest Rated' },
-  { value: 'added', label: 'Recently Added' },
-  { value: 'year_desc', label: 'Newest First' },
-  { value: 'year_asc', label: 'Oldest First' },
-  { value: 'title', label: 'A–Z' },
-]
-
-const TYPE_OPTIONS = [
-  { value: 'all', label: 'All' },
-  { value: 'movie', label: 'Movies' },
-  { value: 'show', label: 'TV Shows' },
-  { value: 'anime', label: 'Anime' },
-]
+const emptyTags = () => Object.fromEntries(FACET_FIELDS.map(f => [f.field, new Set()]))
 
 export default function Discover() {
   const { error: toastError, success: toastSuccess } = useToast()
@@ -35,11 +19,15 @@ export default function Discover() {
   const [decade, setDecade] = useState('')
   const [minScore, setMinScore] = useState(0)
   const [sort, setSort] = useState('rating')
-  const [genres, setGenres] = useState(new Set())
   const [filterContentRatings, setFilterContentRatings] = useState([])
   const [availableContentRatings, setAvailableContentRatings] = useState([])
+  const [tags, setTags] = useState(emptyTags)
+  const [year, setYear] = useState('')
+  const [releaseFrom, setReleaseFrom] = useState('')
+  const [releaseTo, setReleaseTo] = useState('')
+  const [durationMin, setDurationMin] = useState('')
+  const [durationMax, setDurationMax] = useState('')
   const [search, setSearch] = useState('')
-  const [genresList, setGenresList] = useState([])
   const [results, setResults] = useState([])
   const [loading, setLoading] = useState(false)
   const [page, setPage] = useState(1)
@@ -48,8 +36,6 @@ export default function Discover() {
   const [watchlistCache, setWatchlistCache] = useState({})
   const [initialLoad, setInitialLoad] = useState(true)
   const [selectedItem, setSelectedItem] = useState(null)
-  const [loadingGenres, setLoadingGenres] = useState(true)
-  const [panel, setPanel] = useState(null)
   const debounceRef = useRef(null)
   const loadingRef = useRef(false)
 
@@ -57,24 +43,10 @@ export default function Discover() {
     try {
       const { data } = await watchlistApi.getWatchlist()
       const cache = {}
-      ;(data.items || []).forEach(item => {
-        cache[item.ratingKey] = true
-      })
+      ;(data.items || []).forEach(item => { cache[item.ratingKey] = true })
       setWatchlistCache(cache)
     } catch { /* ignore */ }
   }, [])
-
-  const loadGenres = useCallback(async () => {
-    setLoadingGenres(true)
-    try {
-      const { data } = await discoverApi.getGenres()
-      setGenresList(data.genres || [])
-    } catch (e) {
-      toastError('Failed to load genres')
-    } finally {
-      setLoadingGenres(false)
-    }
-  }, [toastError])
 
   const fetchResults = useCallback(async (reset = true, overridePage, searchOverride) => {
     if (loadingRef.current) return
@@ -90,8 +62,22 @@ export default function Discover() {
       decade,
       minScore,
       sort,
-      genres: [...genres].join(','),
+      genres: [...tags.genre].join(','),
+      directors: [...tags.director].join(','),
+      actors: [...tags.actor].join(','),
+      writers: [...tags.writer].join(','),
+      producers: [...tags.producer].join(','),
+      countries: [...tags.country].join(','),
+      collections: [...tags.collection].join(','),
+      studios: [...tags.studio].join(','),
+      editions: [...tags.edition].join(','),
+      labels: [...tags.label].join(','),
       contentRatings: filterContentRatings.join(','),
+      year,
+      releaseFrom,
+      releaseTo,
+      durationMin,
+      durationMax,
       page: reset ? 1 : (overridePage || page),
       q: searchOverride !== undefined ? searchOverride : search,
     })
@@ -112,13 +98,11 @@ export default function Discover() {
       loadingRef.current = false
       setLoading(false)
     }
-  }, [type, decade, minScore, sort, genres, filterContentRatings, search, page, toastError])
+  }, [type, decade, minScore, sort, tags, filterContentRatings, year, releaseFrom, releaseTo, durationMin, durationMax, search, page, toastError])
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
-    loadGenres()
-    loadWatchlist()
-  }, [loadGenres, loadWatchlist])
+    ;(async () => { await loadWatchlist() })()
+  }, [loadWatchlist])
 
   // Debounced fetch for search input — fires 120ms after user stops typing
   const debouncedFetch = useCallback((reset) => {
@@ -126,17 +110,12 @@ export default function Discover() {
     debounceRef.current = setTimeout(() => fetchResults(reset), 120)
   }, [fetchResults])
 
-  // Re-fetch when non-search filters change (immediate). fetchResults is intentionally excluded
-  // from deps — it changes identity on every search/page change, which would cause double-fetches.
+  // Re-fetch when non-text filters change (immediate). Range/value inputs (year, release,
+  // duration) commit via onRangeCommit on blur instead, so they're excluded here.
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
-    fetchResults(true)
+    ;(async () => { await fetchResults(true) })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [type, decade, minScore, sort, genres, filterContentRatings])
-
-  const togglePanel = useCallback((key) => {
-    setPanel(p => p === key ? null : key)
-  }, [])
+  }, [type, decade, minScore, sort, tags, filterContentRatings])
 
   const handleSearchChange = useCallback((e) => {
     setSearch(e.target.value)
@@ -148,41 +127,26 @@ export default function Discover() {
     fetchResults(true, undefined, '')
   }, [fetchResults])
 
-  const handleTypeChange = useCallback((newType) => {
-    setType(newType)
-  }, [])
-
-  const handleDecadeChange = useCallback((newDecade) => {
-    setDecade(newDecade)
-  }, [])
-
   const handleScoreChange = useCallback((e) => {
-    const idx = parseInt(e.target.value)
-    setMinScore(SCORE_VALUES[idx])
-  }, [])
-
-  const handleScoreCommit = useCallback(() => {
-    fetchResults(true)
-  }, [fetchResults])
-
-  const handleSortChange = useCallback((value) => {
-    setSort(value)
+    setMinScore(SCORE_VALUES[parseInt(e.target.value)])
   }, [])
 
   const handleToggleContentRating = useCallback((r) => {
     setFilterContentRatings(prev => prev.includes(r) ? prev.filter(x => x !== r) : [...prev, r])
   }, [])
 
-  const handleGenreToggle = useCallback((genre) => {
-    setGenres(prev => {
-      const next = new Set(prev)
-      if (next.has(genre.toLowerCase())) {
-        next.delete(genre.toLowerCase())
-      } else {
-        next.add(genre.toLowerCase())
-      }
+  const handleToggleTag = useCallback((field, value) => {
+    setTags(prev => {
+      const next = { ...prev, [field]: new Set(prev[field]) }
+      const existing = [...next[field]].find(v => v.toLowerCase() === value.toLowerCase())
+      if (existing) next[field].delete(existing)
+      else next[field].add(value)
       return next
     })
+  }, [])
+
+  const handleClearTag = useCallback((field) => {
+    setTags(prev => ({ ...prev, [field]: new Set() }))
   }, [])
 
   const handleClearAll = useCallback(() => {
@@ -190,10 +154,14 @@ export default function Discover() {
     setDecade('')
     setMinScore(0)
     setSort('rating')
-    setGenres(new Set())
     setFilterContentRatings([])
+    setTags(emptyTags())
+    setYear('')
+    setReleaseFrom('')
+    setReleaseTo('')
+    setDurationMin('')
+    setDurationMax('')
     setSearch('')
-    setPanel(null)
   }, [])
 
   const handleLoadMore = useCallback(() => {
@@ -232,11 +200,7 @@ export default function Discover() {
     }
   }, [toastSuccess, toastError])
 
-  const handleOpenModal = useCallback((item) => {
-    setSelectedItem(item)
-  }, [])
-
-  const scoreLabel = minScore === 0 ? 'Any' : minScore
+  const handleOpenModal = useCallback((item) => setSelectedItem(item), [])
 
   return (
     <>
@@ -253,197 +217,27 @@ export default function Discover() {
         <p className="hero-sub">Browse and filter your entire library</p>
       </div>
 
-      <div className="filter-bar" id="filter-bar">
-        {/* Search input — always visible at the top */}
-        <div className="search-input-wrap">
-          <svg className="search-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-            <circle cx="8.5" cy="8.5" r="5.5" stroke="currentColor" strokeWidth="1.8" />
-            <line x1="12.5" y1="12.5" x2="17" y2="17" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-          </svg>
-          <input
-            type="search"
-            id="filter-search"
-            className="filter-search"
-            placeholder="Search titles in library…"
-            autoComplete="off"
-            spellCheck="false"
-            value={search}
-            onChange={handleSearchChange}
-          />
-          <button className={'search-clear' + (search ? ' visible' : '')} id="search-clear" aria-label="Clear search" onClick={handleSearchClear}>✕</button>
-        </div>
-
-        {/* Horizontal filter chip row */}
-        <div className="filter-chips-row">
-          {/* Type */}
-          <button
-            className={`filter-chip${type !== 'all' ? ' active' : ''}${panel === 'type' ? ' open' : ''}`}
-            onClick={() => togglePanel('type')}
-          >
-            {type !== 'all' ? TYPE_OPTIONS.find(t => t.value === type)?.label : 'Type'}
-            <span className="filter-chip-caret" />
-          </button>
-
-          {/* Decade — native select dropdown */}
-          <label className={`filter-chip filter-chip-select${decade ? ' active' : ''}`}>
-            <span>{decade ? DECADES.find(d => d.value === decade)?.label : 'Decade'}</span>
-            <select
-              value={decade}
-              onChange={e => handleDecadeChange(e.target.value)}
-              aria-label="Decade"
-            >
-              {DECADES.map(d => (
-                <option key={d.value} value={d.value}>{d.label}</option>
-              ))}
-            </select>
-            <span className="filter-chip-caret" />
-          </label>
-
-          {/* Score */}
-          <button
-            className={`filter-chip${minScore > 0 ? ' active' : ''}${panel === 'score' ? ' open' : ''}`}
-            onClick={() => togglePanel('score')}
-          >
-            {minScore > 0 ? `★ ${scoreLabel}+` : 'Score'}
-            <span className="filter-chip-caret" />
-          </button>
-
-          {/* Rated — only when ratings are present in current pool */}
-          {availableContentRatings.length > 0 && (
-            <button
-              className={`filter-chip${filterContentRatings.length > 0 ? ' active' : ''}${panel === 'rated' ? ' open' : ''}`}
-              onClick={() => togglePanel('rated')}
-            >
-              {filterContentRatings.length > 0 ? `Rated · ${filterContentRatings.join(', ')}` : 'Rated'}
-              <span className="filter-chip-caret" />
-            </button>
-          )}
-
-          {/* Genre */}
-          <button
-            className={`filter-chip${genres.size > 0 ? ' active' : ''}${panel === 'genre' ? ' open' : ''}`}
-            onClick={() => togglePanel('genre')}
-          >
-            {genres.size > 0 ? `Genre · ${genres.size}` : 'Genre'}
-            <span className="filter-chip-caret" />
-          </button>
-
-          {/* Sort */}
-          <button
-            className={`filter-chip${sort !== 'rating' ? ' active' : ''}${panel === 'sort' ? ' open' : ''}`}
-            onClick={() => togglePanel('sort')}
-          >
-            {SORT_OPTIONS.find(s => s.value === sort)?.label || 'Sort'}
-            <span className="filter-chip-caret" />
-          </button>
-        </div>
-
-        {/* Type panel */}
-        {panel === 'type' && (
-          <div className="filter-panel">
-            {TYPE_OPTIONS.map(t => (
-              <button
-                key={t.value}
-                className={`filter-pill${type === t.value ? ' active' : ''}`}
-                onClick={() => handleTypeChange(t.value)}
-              >
-                {type === t.value && <span className="filter-pill-check">✓</span>}
-                {t.label}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {/* Score panel */}
-        {panel === 'score' && (
-          <div className="filter-panel" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '6px' }}>
-            <input
-              type="range"
-              id="filter-score"
-              min="0"
-              max="9"
-              step="1"
-              value={SCORE_VALUES.indexOf(minScore)}
-              className="rating-slider"
-              onChange={handleScoreChange}
-              onBlur={handleScoreCommit}
-            />
-            <div className="rating-ticks">
-              {SCORE_VALUES.map((v, i) => (
-                <span key={i}>{v === 0 ? 'Any' : v}</span>
-              ))}
-            </div>
-            {minScore > 0 && (
-              <button className="filter-panel-clear" onClick={() => { setMinScore(0); fetchResults(true) }}>Clear</button>
-            )}
-          </div>
-        )}
-
-        {/* Rated panel */}
-        {panel === 'rated' && (
-          <div className="filter-panel">
-            {CONTENT_RATING_ORDER.filter(r => availableContentRatings.includes(r)).map(r => (
-              <button
-                key={r}
-                className={`filter-pill filter-pill-rating${filterContentRatings.includes(r) ? ' active' : ''}`}
-                onClick={() => handleToggleContentRating(r)}
-              >
-                {filterContentRatings.includes(r) && <span className="filter-pill-check">✓</span>}
-                {r}
-              </button>
-            ))}
-            {filterContentRatings.length > 0 && (
-              <button className="filter-panel-clear" onClick={() => setFilterContentRatings([])}>Clear</button>
-            )}
-          </div>
-        )}
-
-        {/* Genre panel */}
-        {panel === 'genre' && (
-          <div className="filter-panel">
-            {loadingGenres ? (
-              <span className="filter-panel-empty">Loading genres…</span>
-            ) : (
-              genresList.map(genre => (
-                <button
-                  key={genre}
-                  className={`filter-pill${genres.has(genre.toLowerCase()) ? ' active' : ''}`}
-                  onClick={() => handleGenreToggle(genre)}
-                >
-                  {genres.has(genre.toLowerCase()) && <span className="filter-pill-check">✓</span>}
-                  {genre}
-                </button>
-              ))
-            )}
-            {genres.size > 0 && (
-              <button className="filter-panel-clear" onClick={() => setGenres(new Set())}>Clear</button>
-            )}
-          </div>
-        )}
-
-        {/* Sort panel */}
-        {panel === 'sort' && (
-          <div className="filter-panel">
-            {SORT_OPTIONS.map(s => (
-              <button
-                key={s.value}
-                className={`filter-pill${sort === s.value ? ' active' : ''}`}
-                onClick={() => handleSortChange(s.value)}
-              >
-                {sort === s.value && <span className="filter-pill-check">✓</span>}
-                {s.label}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
+      <FilterControls
+        search={search} onSearchChange={handleSearchChange} onSearchClear={handleSearchClear}
+        type={type} onType={setType}
+        decade={decade} onDecade={setDecade}
+        minScore={minScore} onScoreChange={handleScoreChange} onScoreCommit={() => fetchResults(true)} onScoreClear={() => { setMinScore(0); fetchResults(true) }}
+        sort={sort} onSort={setSort}
+        contentRatings={filterContentRatings} availableContentRatings={availableContentRatings}
+        onToggleContentRating={handleToggleContentRating} onClearContentRatings={() => setFilterContentRatings([])}
+        tags={tags} onToggleTag={handleToggleTag} onClearTag={handleClearTag}
+        year={year} onYear={setYear}
+        releaseFrom={releaseFrom} releaseTo={releaseTo} onReleaseFrom={setReleaseFrom} onReleaseTo={setReleaseTo}
+        durationMin={durationMin} durationMax={durationMax} onDurationMin={setDurationMin} onDurationMax={setDurationMax}
+        onRangeCommit={() => fetchResults(true)}
+        onClearAll={handleClearAll}
+      />
 
       {totalResults > 0 && (
         <div className="discover-results-header" id="results-header">
           <span id="results-count" className="results-count">
             {totalResults.toLocaleString()} result{totalResults !== 1 ? 's' : ''}
           </span>
-          <button className="chip-sm" id="btn-clear-filters" onClick={handleClearAll}>Clear all filters</button>
         </div>
       )}
 

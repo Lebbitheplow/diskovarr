@@ -92,9 +92,14 @@ app.use('/api/login', require('./routes/login'))
 // API routes
 app.use('/auth', require('./routes/auth'))
 app.use('/api/v1', require('./routes/overseerrShim'))
+// Public review reads — must precede the authenticated /api router
+app.use('/api/public', require('./routes/public'))
 app.use('/api', require('./routes/api'))
 app.use('/admin', require('./routes/admin'))
 app.use('/admin/riven', require('./routes/riven'))
+
+// Public Open Graph card images for shared reviews (no auth — crawlers have no session)
+app.use('/og', require('./routes/og'))
 
 // Dynamic theme/icon routes (need Express)
 const db = require('./db/database')
@@ -247,6 +252,34 @@ app.get('/callback', (req, res) => {
   res.sendFile(path.join(__dirname, '../dist/index.html'))
 })
 
+// Inject per-review Open Graph / Twitter meta tags into the SPA shell so shared
+// review links preview richly on social platforms (crawlers don't run JS, so the
+// SPA's client-side tags are invisible to them). Privacy/spoiler-safe via reviewShare.
+// Matches /review/:id and /u/:username/review/:id; canonical id is the last segment.
+const { getShareData, buildOgTags, getConfiguredPublicUrl } = require('./services/reviewShare')
+let _indexHtml = null
+function getIndexHtml() {
+  if (_indexHtml == null) _indexHtml = fs.readFileSync(path.join(__dirname, '../dist/index.html'), 'utf8')
+  return _indexHtml
+}
+const REVIEW_PATH = /^\/(?:u\/[^/]+\/)?review\/(\d+)\/?$/
+app.get(REVIEW_PATH, (req, res, next) => {
+  try {
+    const id = req.params[0]
+    const data = getShareData(id)
+    // Prefer the configured public URL so previews resolve even when the request
+    // arrived over a LAN host; fall back to the request's own origin.
+    const base = getConfiguredPublicUrl() || req.appUrl
+    const tags = buildOgTags(data, base, id)
+    const html = getIndexHtml().replace('</head>', `  ${tags}\n</head>`)
+    res.setHeader('Content-Type', 'text/html; charset=utf-8')
+    res.setHeader('Cache-Control', 'no-cache')
+    return res.send(html)
+  } catch {
+    return next()
+  }
+})
+
 // SPA fallback — serve index.html for all non-API routes
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '../dist/index.html'))
@@ -258,7 +291,18 @@ app.listen(PORT, '0.0.0.0', () => {
   const discoverRecommender = require('./services/discoverRecommender')
   const recommender = require('./services/recommender')
   const plexService = require('./services/plex')
+  const tautulliService = require('./services/tautulli')
+  const reviewFeed = require('./services/reviewFeed')
+  const reviewCardCache = require('./services/reviewCardCache')
   const logger = require('./services/logger')
+
+  // Drain the external notification queue (Discord/Pushover) on a 30s loop.
+  // Without this, enqueued notifications are never dispatched.
+  require('./services/notificationService').start()
+
+  // Sweep stale generated share cards on boot, then daily
+  setTimeout(() => reviewCardCache.sweepJob(), 60_000)
+  setInterval(() => reviewCardCache.sweepJob(), 24 * 60 * 60 * 1000)
 
   // Seed user tokens from active sessions (covers first run after migration)
   const { DatabaseSync } = require('node:sqlite')
@@ -349,6 +393,32 @@ app.listen(PORT, '0.0.0.0', () => {
       .catch(err => logger.warn('Initial discover pool build failed:', err.message)),
       90_000
     )
+
+    // Cache Tautulli watch history 20s after start so the page serves from the DB
+    setTimeout(() => tautulliService.syncWatchHistory()
+      .then(n => logger.info(`Watch history synced: ${n} records`))
+      .catch(err => logger.warn('Startup watch-history sync failed:', err.message)),
+      20_000
+    )
+
+    // Warm the public review feed cache 15s after start so the first feed load is instant
+    setTimeout(() => reviewFeed.warmFeedCacheJob(), 15_000)
+
+    // Force a full library re-sync ~45s after boot. warmCache above serves the cached
+    // library fast but won't re-fetch while it's still fresh, so deletions / rating-key
+    // changes wouldn't be pruned until the 6h interval. This reconciles them each boot.
+    // The recommendation caches were warmed (~30s) from the pre-prune library, so rebuild
+    // them afterwards or Home keeps surfacing pruned (deleted) items.
+    setTimeout(() => plexService.resyncAllSections()
+      .then(() => {
+        logger.info('Startup library re-sync complete')
+        recommender.invalidateAllCaches()
+        discoverRecommender.invalidateAllCaches()
+        return recommender.warmAllUserCaches()
+      })
+      .catch(err => logger.warn('Startup library re-sync failed:', err.message)),
+      45_000
+    )
   }, 2000)
 
   // Refresh shared TMDB candidates every 6 hours
@@ -374,14 +444,68 @@ app.listen(PORT, '0.0.0.0', () => {
     30 * 60 * 1000
   )
 
+  // Full library re-sync every 6h — reconciles deletions and rating-key changes by
+  // pruning cached items Plex no longer has (the per-item WebSocket only adds/updates).
+  // Invalidate the recommendation caches afterwards so pruned items stop being served.
+  setInterval(() => plexService.resyncAllSections()
+    .then(() => {
+      recommender.invalidateAllCaches()
+      discoverRecommender.invalidateAllCaches()
+      // Evaluate monitors against library after sync
+      try {
+        const monitorMatcher = require('./services/monitorMatcher');
+        const monitorNotifier = require('./services/monitorNotifier');
+        const { MOVIES_SECTION, TV_SECTION } = require('./services/plex');
+        plexService.getLibraryItems(MOVIES_SECTION).then(movies => {
+          plexService.getLibraryItems(TV_SECTION).then(tv => {
+            const contents = [...movies, ...tv].map(monitorMatcher.buildContentFromLibrary);
+            monitorMatcher.evaluateBatch(contents, 'plex').then(matches => {
+              if (matches.length > 0) monitorNotifier.sendMatches(matches, 'plex');
+            }).catch(() => {});
+          }).catch(() => {});
+        }).catch(() => {});
+      } catch {}
+    })
+    .catch(err => logger.warn('Periodic library re-sync failed:', err.message)),
+    6 * 60 * 60 * 1000
+  )
+
+  // Refresh cached watch history every 15 min (picks up new plays + in-progress updates)
+  setInterval(() => tautulliService.syncWatchHistory()
+    .catch(err => logger.warn('Periodic watch-history sync failed:', err.message)),
+    15 * 60 * 1000
+  )
+
+  // Keep the public review feed cache warm (matches its 5-min TTL)
+  setInterval(() => reviewFeed.warmFeedCacheJob(), reviewFeed.FEED_CACHE_TTL)
+
+  // Drain the producer/label detail backfill in small throttled batches. Starts ~60s after
+  // boot (lets the library warm first) and repeats every 3 min until the backlog is empty.
+  setTimeout(() => plexService.backfillItemDetails()
+    .catch(err => logger.warn('Detail backfill failed:', err.message)), 60_000)
+  setInterval(() => plexService.backfillItemDetails()
+    .catch(err => logger.warn('Detail backfill failed:', err.message)),
+    3 * 60 * 1000
+  )
+
   // Connect to Plex WebSocket for real-time new-content detection.
   // Mimics how Tautulli receives library.new flags directly from PMS.
   plexService.startWebSocket((ratingKey, sectionId) => {
     plexService.fetchAndUpsertItem(ratingKey, sectionId)
-      .then(() => {
+      .then((item) => {
         recommender.invalidateAllCaches();
         discoverRecommender.invalidateAllCaches();
         process.emit('diskovarr:checkFulfilled');
+        if (item) {
+          try {
+            const monitorMatcher = require('./services/monitorMatcher');
+            const monitorNotifier = require('./services/monitorNotifier');
+            const content = monitorMatcher.buildContentFromLibrary(item);
+            monitorMatcher.evaluateContent(content, 'plex').then(matches => {
+              if (matches.length > 0) monitorNotifier.sendMatches(matches, 'plex');
+            }).catch(() => {});
+          } catch {}
+        }
       })
       .catch(err => logger.warn('[plex ws] fetchAndUpsertItem error:', err.message));
   });

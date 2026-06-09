@@ -6,10 +6,8 @@ import {
   adminSync,
   adminConnections,
   adminCompat,
-  adminUpdate,
 } from '../../services/adminApi'
 
-const RELEASES_URL = 'https://github.com/Lebbitheplow/diskovarr/releases'
 import { useTheme } from '../../context/ThemeContext'
 
 const PRESET_COLORS = [
@@ -36,59 +34,6 @@ function formatTimestamp(ts) {
   if (diffHrs < 24) return `${diffHrs}h ago`
   if (diffDays < 7) return `${diffDays}d ago`
   return d.toLocaleDateString()
-}
-
-// ── Update Status Section ──────────────────────────────────────
-function UpdateStatusSection() {
-  const [info, setInfo] = useState(null)
-  const [checking, setChecking] = useState(true)
-
-  useEffect(() => {
-    let cancelled = false
-    adminUpdate.getStatus()
-      .then((res) => { if (!cancelled) setInfo(res.data) })
-      .catch(() => { if (!cancelled) setInfo(null) })
-      .finally(() => { if (!cancelled) setChecking(false) })
-    return () => { cancelled = true }
-  }, [])
-
-  const { current, latest, updateAvailable } = info || {}
-
-  const desc = checking
-    ? 'Checking for updates…'
-    : updateAvailable
-      ? 'A new release is available.'
-      : latest
-        ? 'You are running the latest version.'
-        : 'Could not check for updates right now.'
-
-  return (
-    <div className="admin-section">
-      <div className="admin-section-header">
-        <div>
-          <h2 className="section-title">Version</h2>
-          <p className="section-desc" style={{ marginTop: 4 }}>{desc}</p>
-        </div>
-        {!checking && current && (
-          <div className={`status-badge ${updateAvailable ? 'status-syncing' : 'status-idle'}`}>
-            <span>v{current}{updateAvailable && latest ? ` → v${latest}` : ''}</span>
-          </div>
-        )}
-      </div>
-      {updateAvailable && latest && (
-        <div className="admin-actions">
-          <a
-            className="btn-admin btn-primary"
-            href={`${RELEASES_URL}/tag/v${latest}`}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            View release notes →
-          </a>
-        </div>
-      )}
-    </div>
-  )
 }
 
 // ── App Options Section ────────────────────────────────────────
@@ -179,8 +124,12 @@ function ThemeColorSection({ themeColor, onThemeColorChange }) {
   const [applying, setApplying] = useState(false)
   const { setThemeColor: applyTheme } = useTheme()
 
-  // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
-  useEffect(() => { setColor(themeColor) }, [themeColor])
+  // Sync local color when the prop changes (render-phase adjustment).
+  const [prevThemeColor, setPrevThemeColor] = useState(themeColor)
+  if (themeColor !== prevThemeColor) {
+    setPrevThemeColor(themeColor)
+    setColor(themeColor)
+  }
 
   const handleApply = async () => {
     setApplying(true)
@@ -238,7 +187,7 @@ function ThemeColorSection({ themeColor, onThemeColorChange }) {
 }
 
 // ── Library Sync Section ───────────────────────────────────────
-function LibrarySyncSection({ stats, syncStatus, autoSync, onSyncNow, onAutoSyncChange }) {
+function LibrarySyncSection({ stats, syncStatus, autoSync, onSyncNow, onAutoSyncChange, onToast }) {
   return (
     <div className="admin-section">
       <div className="admin-section-header">
@@ -292,6 +241,191 @@ function LibrarySyncSection({ stats, syncStatus, autoSync, onSyncNow, onAutoSync
       {stats.lastSyncError && (
         <div className="error-banner" style={{ marginTop: 16 }}>Last sync error: {stats.lastSyncError}</div>
       )}
+      <LibrarySelectionSection onToast={onToast} />
+    </div>
+  )
+}
+
+// ── Library Selection Section ──────────────────────────────────
+function LibrarySelectionSection({ onToast }) {
+  const [libraries, setLibraries] = useState([])
+  const [localSections, setLocalSections] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
+  const [hasChanges, setHasChanges] = useState(false)
+  const [modalOpen, setModalOpen] = useState(false)
+
+  const loadLibraries = useCallback(async () => {
+    try {
+      setRefreshing(true)
+      const res = await adminSync.getLibraries()
+      const sections = res.data.sections || []
+      setLibraries(sections)
+      setLocalSections(sections.map(s => ({ id: s.id, enabled: s.enabled })))
+      setHasChanges(false)
+    } catch (err) {
+      onToast?.(err.message || 'Failed to load library sections', 'error')
+    } finally {
+      setLoading(false)
+      setRefreshing(false)
+    }
+  }, [onToast])
+
+  useEffect(() => {
+    ;(async () => { await loadLibraries() })()
+  }, [loadLibraries])
+
+  const openModal = useCallback(() => {
+    // Reset pending edits to the last saved state before opening
+    setLocalSections(libraries.map(s => ({ id: s.id, enabled: s.enabled })))
+    setHasChanges(false)
+    setModalOpen(true)
+  }, [libraries])
+
+  const handleToggle = useCallback((id) => {
+    setLocalSections(prev =>
+      prev.map(s => s.id === id ? { ...s, enabled: !s.enabled } : s)
+    )
+    setHasChanges(true)
+  }, [])
+
+  const handleSave = useCallback(async () => {
+    setSaving(true)
+    try {
+      await adminSync.setLibraries(localSections)
+      const res = await adminSync.getLibraries()
+      setLibraries(res.data.sections || [])
+      setLocalSections((res.data.sections || []).map(s => ({ id: s.id, enabled: s.enabled })))
+      setHasChanges(false)
+      setModalOpen(false)
+      onToast?.('Library sync settings saved')
+    } catch (err) {
+      onToast?.(err.message || 'Failed to save library settings', 'error')
+    } finally {
+      setSaving(false)
+    }
+  }, [localSections, onToast])
+
+  const handleRefresh = useCallback(async () => {
+    await loadLibraries()
+    onToast?.('Library list refreshed')
+  }, [loadLibraries, onToast])
+
+  if (loading) return null
+
+  const enabledCount = libraries.filter(l => l.enabled).length
+
+  return (
+    <div style={{ marginTop: 24, paddingTop: 20, borderTop: '1px solid var(--border)' }}>
+      <div className="admin-section-header">
+        <div>
+          <h3 className="section-title" style={{ fontSize: '1rem' }}>Synced Libraries</h3>
+          <p className="section-desc">
+            Choose which Plex libraries to sync. Only enabled libraries are included in sync operations. Removing a library deletes its synced data.
+          </p>
+        </div>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <button
+            className="btn-admin btn-primary"
+            onClick={openModal}
+            style={{ fontSize: '0.8rem', padding: '6px 12px' }}
+          >
+            Add/Edit Libraries
+          </button>
+        </div>
+      </div>
+      <div style={{ padding: '4px 0 0', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+        {libraries.length === 0
+          ? 'No Movie or TV libraries found from Plex. Ensure your Plex connection is configured in the Connections tab.'
+          : `${enabledCount} of ${libraries.length} ${libraries.length === 1 ? 'library' : 'libraries'} synced.`}
+      </div>
+
+      {modalOpen && (
+        <div
+          style={{ position: 'fixed', inset: 0, zIndex: 1100, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          onClick={() => !saving && setModalOpen(false)}
+        >
+          <div
+            style={{ background: 'var(--bg-secondary)', borderRadius: 14, padding: 28, width: 'min(560px, 92vw)', border: '1px solid var(--border)', position: 'relative', maxHeight: '88vh', overflowY: 'auto' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={() => !saving && setModalOpen(false)}
+              style={{ position: 'absolute', top: 14, right: 16, background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 20, cursor: 'pointer', lineHeight: 1 }}
+              title="Close"
+            >
+              &times;
+            </button>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, margin: '0 0 16px', paddingRight: 24 }}>
+              <h3 style={{ margin: 0, fontSize: '1.05rem' }}>Add/Edit Libraries</h3>
+              <button
+                className="btn-admin"
+                onClick={handleRefresh}
+                disabled={refreshing}
+                style={{ fontSize: '0.8rem', padding: '4px 10px' }}
+              >
+                {refreshing ? 'Refreshing...' : '↻ Refresh'}
+              </button>
+            </div>
+            {libraries.length === 0 ? (
+              <div style={{ padding: '12px 0', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                No Movie or TV libraries found from Plex. Ensure your Plex connection is configured in the Connections tab.
+              </div>
+            ) : (
+              <div className="library-list">
+                {libraries.map(lib => {
+                  const local = localSections.find(s => s.id === lib.id) || { enabled: false }
+                  return (
+                    <div className="library-item" key={lib.id}>
+                      <div className="library-item-info">
+                        <span className={`library-type-badge ${lib.type === 'movie' ? 'type-movie' : 'type-tv'}`}>
+                          {lib.type === 'movie' ? 'Movie' : 'TV'}
+                        </span>
+                        <span className="library-item-name">{lib.title}</span>
+                        {lib.enabled && lib.itemCount > 0 && (
+                          <span className="library-item-count">{lib.itemCount.toLocaleString()} items</span>
+                        )}
+                        {!local.enabled && (
+                          <span className="library-item-disabled">Not synced</span>
+                        )}
+                      </div>
+                      <div className="library-item-controls">
+                        <label className="slide-toggle">
+                          <input
+                            type="checkbox"
+                            checked={local.enabled}
+                            onChange={() => handleToggle(lib.id)}
+                          />
+                          <span className="slide-track" />
+                        </label>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+            <div className="admin-actions" style={{ marginTop: 20 }}>
+              <button
+                className="btn-admin"
+                onClick={() => setModalOpen(false)}
+                disabled={saving}
+              >
+                Cancel
+              </button>
+              {libraries.length > 0 && (
+                <button
+                  className="btn-admin btn-primary"
+                  onClick={handleSave}
+                  disabled={!hasChanges || saving}
+                >
+                  {saving ? 'Saving...' : 'Save Changes'}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -326,9 +460,14 @@ function ApiKeySection({ hasKey, onRegenerate, resetToken }) {
   const [fetchedKey, setFetchedKey] = useState('')
   const [regenerating, setRegenerating] = useState(false)
 
-  // Clear fetched key whenever a regeneration completes (token bumped by parent)
-  // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
-  useEffect(() => { setFetchedKey(''); setVisible(false) }, [resetToken])
+  // Clear fetched key whenever a regeneration completes (token bumped by parent).
+  // Render-phase adjustment (React's alternative to a state-resetting effect).
+  const [prevResetToken, setPrevResetToken] = useState(resetToken)
+  if (resetToken !== prevResetToken) {
+    setPrevResetToken(resetToken)
+    setFetchedKey('')
+    setVisible(false)
+  }
 
   const handleToggleVisible = async () => {
     if (!visible && !fetchedKey) {
@@ -676,7 +815,6 @@ export default function GeneralSettings({ onDataLoaded, onToast }) {
 
   return (
     <>
-      <UpdateStatusSection />
       <AppOptionsSection
         appPublicUrl={appPublicUrl}
         onAppPublicUrlChange={setAppPublicUrl}
@@ -695,6 +833,7 @@ export default function GeneralSettings({ onDataLoaded, onToast }) {
         autoSync={autoSync}
         onSyncNow={handleSyncNow}
         onAutoSyncChange={handleAutoSyncChange}
+        onToast={onToast}
       />
       <VerboseLoggingSection
         enabled={verboseLogging}

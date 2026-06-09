@@ -33,6 +33,8 @@ export default function Search() {
   const urlGenre = searchParams.get('genre') || ''
   const selectedTmdbId = searchParams.get('selectedTmdbId') || ''
   const selectedType = searchParams.get('selectedType') || ''
+  const personId = searchParams.get('personId') || ''
+  const personName = searchParams.get('personName') || ''
 
   const [inputValue, setInputValue] = useState(urlQuery)
   const [activeTab, setActiveTab] = useState('all')
@@ -61,21 +63,25 @@ export default function Search() {
   const [similarItems, setSimilarItems] = useState([])
   const [similarSourceTitle, setSimilarSourceTitle] = useState('')
   const [similarLoading, setSimilarLoading] = useState(false)
+  const [personCredits, setPersonCredits] = useState([])
+  const [personLoading, setPersonLoading] = useState(false)
   const suggestTimerRef = useRef(null)
   const searchInputRef = useRef(null)
 
-  // Sync input box when URL changes externally (e.g. navbar search)
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
+  // Sync input box when URL changes externally (e.g. navbar search). Render-phase
+  // adjustment, React's recommended alternative to a state-syncing effect.
+  const [prevUrlQueryInput, setPrevUrlQueryInput] = useState(urlQuery)
+  if (urlQuery !== prevUrlQueryInput) {
+    setPrevUrlQueryInput(urlQuery)
     setInputValue(urlQuery)
-  }, [urlQuery])
+  }
 
-  // Reset filters, tab, and similar section when search changes. Filter resets
-  // are applied via state setters — the refetch effect below picks them up on
-  // the next render (one extra fetch on query change, but always with the
-  // correct filter snapshot).
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
+  // Reset filters, tab, and similar section when the search query/genre changes.
+  // The refetch effect below picks up the reset filter snapshot on the next render.
+  const searchResetKey = `${urlQuery}\u0000${urlGenre}`
+  const [prevSearchResetKey, setPrevSearchResetKey] = useState(searchResetKey)
+  if (searchResetKey !== prevSearchResetKey) {
+    setPrevSearchResetKey(searchResetKey)
     setActiveTab('all')
     setHideLibrary(!!urlGenre)
     setFilterGenres([])
@@ -85,7 +91,8 @@ export default function Search() {
     setFilterMinScore(null)
     setSimilarItems([])
     setSimilarSourceTitle('')
-  }, [urlQuery, urlGenre])
+    setPersonCredits([])
+  }
 
   const loadWatchlist = useCallback(async () => {
     try {
@@ -120,49 +127,49 @@ export default function Search() {
 
   // Refetch when query, genre, or any filter changes — reset to page 1
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
-    setPage(1)
-    fetchSearchResults(urlQuery, urlGenre, 1, false, {
-      filterGenres,
-      contentRatings: filterContentRatings,
-      yearFrom: filterYearFrom,
-      yearTo: filterYearTo,
-      minScore: filterMinScore,
-    })
+    ;(async () => {
+      setPage(1)
+      await fetchSearchResults(urlQuery, urlGenre, 1, false, {
+        filterGenres,
+        contentRatings: filterContentRatings,
+        yearFrom: filterYearFrom,
+        yearTo: filterYearTo,
+        minScore: filterMinScore,
+      })
+    })()
   }, [urlQuery, urlGenre, filterGenres, filterContentRatings, filterYearFrom, filterYearTo, filterMinScore]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
-    loadWatchlist()
-    exploreApi.getServices().then(({ data }) => setServices(data || {})).catch(() => {})
+    ;(async () => {
+      await loadWatchlist()
+      exploreApi.getServices().then(({ data }) => setServices(data || {})).catch(() => {})
+    })()
   }, [loadWatchlist])
 
   // Fetch "More Like This" when a specific item was selected via autocomplete
   useEffect(() => {
-    if (!selectedTmdbId || !selectedType) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
-      setSimilarItems([])
-      setSimilarSourceTitle('')
-      return
-    }
     let cancelled = false
-    setSimilarLoading(true)
-    setSimilarSourceTitle('')
-    searchApi.getSimilar(selectedTmdbId, selectedType, hideLibrary)
-      .then(({ data }) => {
+    ;(async () => {
+      if (!selectedTmdbId || !selectedType) {
+        setSimilarItems([])
+        setSimilarSourceTitle('')
+        return
+      }
+      setSimilarLoading(true)
+      setSimilarSourceTitle('')
+      try {
+        const { data } = await searchApi.getSimilar(selectedTmdbId, selectedType, hideLibrary)
         if (cancelled) return
         setSimilarSourceTitle(data.sourceTitle || '')
         setSimilarItems(data.similar || [])
-      })
-      .catch(() => {
+      } catch {
         if (cancelled) return
         setSimilarItems([])
         setSimilarSourceTitle('')
-      })
-      .finally(() => {
-        if (cancelled) return
-        setSimilarLoading(false)
-      })
+      } finally {
+        if (!cancelled) setSimilarLoading(false)
+      }
+    })()
     return () => { cancelled = true }
   }, [selectedTmdbId, selectedType, hideLibrary])
 
@@ -170,21 +177,40 @@ export default function Search() {
   useEffect(() => {
     if (!selectedTmdbId || !selectedType) return
     let cancelled = false
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
-    setSimilarLoading(true)
-    searchApi.getSimilar(selectedTmdbId, selectedType, hideLibrary)
-      .then(({ data }) => {
-        if (cancelled) return
-        setSimilarItems(data.similar || [])
-      })
-      .catch(() => {
+    ;(async () => {
+      setSimilarLoading(true)
+      try {
+        const { data } = await searchApi.getSimilar(selectedTmdbId, selectedType, hideLibrary)
+        if (!cancelled) setSimilarItems(data.similar || [])
+      } catch {
         if (!cancelled) setSimilarItems([])
-      })
-      .finally(() => {
+      } finally {
         if (!cancelled) setSimilarLoading(false)
-      })
+      }
+    })()
     return () => { cancelled = true }
   }, [hideLibrary, selectedTmdbId, selectedType])
+
+  // Fetch "More with X" when a cast/crew member was opened from a detail modal.
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      if (!personId) {
+        setPersonCredits([])
+        return
+      }
+      setPersonLoading(true)
+      try {
+        const { data } = await searchApi.getPersonCredits(personId, hideLibrary)
+        if (!cancelled) setPersonCredits(data.credits || [])
+      } catch {
+        if (!cancelled) setPersonCredits([])
+      } finally {
+        if (!cancelled) setPersonLoading(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [personId, hideLibrary])
 
   const debouncedSuggestions = useCallback((q) => {
     clearTimeout(suggestTimerRef.current)
@@ -292,6 +318,9 @@ export default function Search() {
   const displaySimilar = useMemo(() => {
     return hideLibrary ? similarItems.filter(i => !i.inLibrary) : similarItems
   }, [similarItems, hideLibrary])
+  const displayPersonCredits = useMemo(() => {
+    return hideLibrary ? personCredits.filter(i => !i.inLibrary) : personCredits
+  }, [personCredits, hideLibrary])
 
   const handleSeasonToggle = useCallback((season) => {
     setSelectedSeasons(prev => {
@@ -334,10 +363,8 @@ export default function Search() {
   }, [requestItem, selectedSeasons, toastSuccess, toastError, services])
 
   useEffect(() => {
-    if (requestItem) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
-      handleSeasonsFetch(requestItem.tmdbId)
-    }
+    if (!requestItem) return
+    ;(async () => { await handleSeasonsFetch(requestItem.tmdbId) })()
   }, [requestItem, handleSeasonsFetch])
 
   return (
@@ -380,6 +407,7 @@ export default function Search() {
                   setInputValue(''); setSuggestions([]); setShowSuggestions(false)
                   const params = new URLSearchParams(searchParams)
                   params.delete('q'); params.delete('selectedTmdbId'); params.delete('selectedType')
+                  params.delete('personId'); params.delete('personName')
                   navigate('/search' + (params.toString() ? '?' + params.toString() : ''))
                 }} aria-label="Clear">✕</button>
               )}
@@ -598,10 +626,89 @@ export default function Search() {
             ))}
           </div>
         )
-      ) : (
+      ) : personId ? null : (
         <div className="search-empty" style={{ gridColumn: '1/-1' }}>
           <p>No results found for "{urlGenre ? urlGenre : urlQuery}".</p>
         </div>
+      )}
+
+      {personId && (
+        <section className="section" id="section-more-with-person">
+          <div className="section-header">
+            <h2 className="section-title">More with {personName || 'this person'}</h2>
+            {!personLoading && (
+              <span className="section-badge">
+                {displayPersonCredits.length} title{displayPersonCredits.length !== 1 ? 's' : ''}
+              </span>
+            )}
+          </div>
+          {personLoading ? (
+            <SkeletonLoader count={8} rows={1} />
+          ) : displayPersonCredits.length > 0 ? (
+            <Carousel>
+              {displayPersonCredits.map(item => (
+                <div key={item.tmdbId + item.mediaType} className="card search-card">
+                  <button className="card-poster-link" onClick={() => handleOpenModal(item)} type="button">
+                    {item.posterUrl && (
+                      <img className="card-poster" src={posterUrl(item.posterUrl)} alt={item.title} loading="lazy" />
+                    )}
+                    <div className="card-poster-placeholder">{item.title?.charAt(0) || '?'}</div>
+                    {item.inLibrary ? (
+                      <span className="badge-in-library">In Library</span>
+                    ) : item.releaseDate && item.releaseDate > new Date().toISOString().slice(0, 10) ? (
+                      <span className={'badge-upcoming-card' + (item.isRequested ? ' badge-requested' : '')}>
+                        {item.isRequested ? 'Requested' : 'Coming Soon'}
+                      </span>
+                    ) : (
+                      <span className={'badge-not-in-library' + (item.isRequested ? ' badge-requested' : '')}>
+                        {item.isRequested ? 'Requested' : 'Not in Library'}
+                      </span>
+                    )}
+                    {item.isWatched && (
+                      <div className="card-watched-badge" title="Watched">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" width="12" height="12">
+                          <polyline points="20 6 9 17 4 12" />
+                        </svg>
+                      </div>
+                    )}
+                    <div className="card-overlay">
+                      <div className="card-overlay-actions">
+                        {item.inLibrary && item.ratingKey ? (
+                          <button
+                            className={'btn-icon btn-watchlist' + (watchlistCache[item.ratingKey] ? ' in-watchlist' : '')}
+                            onClick={(e) => { e.stopPropagation(); handleToggleWatchlist(item) }}
+                          >
+                            {watchlistCache[item.ratingKey] ? '✓ In Watchlist' : '+ Watchlist'}
+                          </button>
+                        ) : null}
+                        {!item.inLibrary && (
+                          <button
+                            className={'btn-icon btn-request' + (item.isRequested ? ' btn-request-sent' : '')}
+                            onClick={(e) => { e.stopPropagation(); setRequestItem(item) }}
+                            disabled={item.isRequested}
+                          >
+                            {item.isRequested ? 'Requested ✓' : 'Request'}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </button>
+                  <div className="card-info">
+                    <div className="card-title">{item.title}</div>
+                    <div className="card-meta">
+                      {item.year && <span className="card-year">{item.year}</span>}
+                      {item.voteAverage ? <span className="card-rating">★ {item.voteAverage.toFixed(1)}</span> : null}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </Carousel>
+          ) : (
+            <div className="search-empty">
+              <p>No titles found for {personName || 'this person'}.</p>
+            </div>
+          )}
+        </section>
       )}
 
       {similarSourceTitle && (

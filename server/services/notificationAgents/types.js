@@ -16,6 +16,7 @@ const NotificationType = {
   ISSUE_RESOLVED:        1024,
   ISSUE_REOPENED:        2048,
   MEDIA_AUTO_REQUESTED:  4096,
+  MONITOR_MATCH:         8192,
 };
 
 // All notification types combined (for "select all")
@@ -36,6 +37,7 @@ const TYPE_MAP = {
   issue_comment_added_admin:   NotificationType.ISSUE_COMMENT,
   issue_comment_added_user:    NotificationType.ISSUE_COMMENT,
   test:                        NotificationType.TEST_NOTIFICATION,
+  monitor_match:               NotificationType.MONITOR_MATCH,
 };
 
 // Human-readable labels for each type
@@ -50,6 +52,7 @@ const TYPE_LABELS = {
   issue_updated:               'Issue resolved',
   issue_comment_added_admin:   'Issue comment (admin)',
   issue_comment_added_user:    'Issue comment (user)',
+  monitor_match:               'Monitor match',
 };
 
 // Who receives each type: 'admin', 'user', or 'both'
@@ -64,6 +67,7 @@ const TYPE_TARGET = {
   issue_updated:               'both',
   issue_comment_added_admin:   'admin',
   issue_comment_added_user:    'both',
+  monitor_match:               'user',
 };
 
 // Color map for Discord embeds
@@ -78,6 +82,7 @@ const TYPE_COLORS = {
   issue_updated:               0x00b4d8,
   issue_comment_added_admin:   0xff8c00,
   issue_comment_added_user:    0x00b4d8,
+  monitor_match:               0x9c27b0,
 };
 
 // ── Helper functions ──────────────────────────────────────────────────────────

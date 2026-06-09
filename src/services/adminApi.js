@@ -46,6 +46,8 @@ export const adminSync = {
   autoEnable: () => adminApi.post('/sync/auto/enable'),
   autoDisable: () => adminApi.post('/sync/auto/disable'),
   watchedSync: (userId) => adminApi.post(`/sync/watched/${userId}`),
+  getLibraries: () => adminApi.get('/sync/libraries'),
+  setLibraries: (sections) => adminApi.post('/sync/libraries', { sections }),
 }
 
 /** Theme Color */

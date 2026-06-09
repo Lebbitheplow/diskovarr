@@ -337,6 +337,16 @@ async function fetchSharedCandidates(opts = {}) {
 
   console.log(`[discoverRec] Shared candidates enriched: ${enriched.length} items for key "${poolKey}"`);
   db.setDiscoverCandidates(poolKey, enriched);
+
+  // Evaluate monitors against newly cached TMDB items (requestable content)
+  try {
+    const monitorMatcher = require('./monitorMatcher');
+    const monitorNotifier = require('./monitorNotifier');
+    const contents = enriched.map(monitorMatcher.buildContentFromTmdb);
+    const matches = await monitorMatcher.evaluateBatch(contents, 'tmdb');
+    if (matches.length > 0) monitorNotifier.sendMatches(matches, 'tmdb');
+  } catch {}
+
   return enriched;
 }
 

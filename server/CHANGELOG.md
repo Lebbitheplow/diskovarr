@@ -4,6 +4,31 @@ All notable changes are documented here. Versioning follows [Semantic Versioning
 
 ---
 
+## v2.2.0 — 2026-06-09
+
+A major, feature-focused release centered on social discovery — user profiles, community reviews, shareable review images, ratings that sync with Plex, and personal content monitors.
+
+### Added
+
+- **User profiles** — each user now has a profile with a customizable bio, their reviews, and a personal watch history page.
+- **Reviews & community** — a dedicated Reviews page with social interaction, plus reviews displayed on user profiles.
+- **Shareable review images** — generate beautifully formatted review images and share them to popular social media and messaging platforms.
+- **Most Popular on Server** — new sections on the Diskovarr page surface trending content within your own Plex ecosystem.
+- **Cast & Crew tab** — the item details modal now has a Cast & Crew tab for exploring actors, directors, and production staff.
+- **Ratings integration** — TMDB and Plex rating integration; ratings submitted in Diskovarr now sync back to Plex. New Connected Apps settings let users link their TMDB account.
+- **User monitors** — create personalized monitors based on content criteria and get notified when newly available content matches your rules, using the existing notification infrastructure.
+- **Synced library selection** — admins can choose which Plex libraries are synchronized into Diskovarr.
+- **Expanded Filter page** — enhanced filtering capabilities and search refinement options.
+
+### Changed
+
+- **Watchlist & Blacklist** — moved from the user menu into user profiles for better organization.
+- **Stale-content pruning** — improved cleanup so deleted or changed media is automatically removed and kept in sync.
+- **About modal** — updated to highlight and explain recently added platform features.
+- Various UI, usability, and quality-of-life improvements throughout the app.
+
+---
+
 ## v2.0.0 — 2026-05-18
 
 The React rewrite. The server-rendered EJS UI from v1.x is replaced with a modern React SPA served by the same Express backend. **Existing Docker users can upgrade with `docker compose pull && docker compose up -d` — all SQLite data, sessions, watch history, and admin settings are preserved.**

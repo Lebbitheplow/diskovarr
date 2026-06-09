@@ -112,6 +112,7 @@ export const USER_NOTIF_TYPES = [
   { key: 'notify_available', label: 'Request available', desc: 'Get notified when requested media is available in the library' },
   { key: 'notify_issue_update', label: 'Issue status updated', desc: 'Get notified when an issue you reported changes status' },
   { key: 'notify_issue_comment', label: 'Issue comment', desc: 'Get notified when a comment is added to an issue' },
+  { key: 'notify_monitor', label: 'Monitor match', desc: 'Get notified when content matches your monitors' },
 ]
 
 export const ELEVATED_NOTIF_TYPES = [

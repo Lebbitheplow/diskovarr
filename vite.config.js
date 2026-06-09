@@ -5,7 +5,7 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
   const backend = env.VITE_BACKEND_URL || 'http://localhost:3233'
 
-  const proxyRoutes = ['/auth', '/api', '/admin', '/theme.css', '/icons', '/manifest.json', '/discord-avatar.png']
+  const proxyRoutes = ['/auth', '/api', '/admin', '/og', '/theme.css', '/icons', '/manifest.json', '/discord-avatar.png']
   const proxy = Object.fromEntries(
     proxyRoutes.map(route => [route, { target: backend, changeOrigin: true, secure: false }])
   )

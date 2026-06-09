@@ -99,11 +99,18 @@ function normalizeMap(map) {
  * "Because you loved [title]" when that item was highly rated.
  */
 async function buildPreferenceProfile(userId, libraryMap) {
-  const [history, userRatings] = await Promise.all([
+  const [history, userRatings, userReviews] = await Promise.all([
     tautulliService.getFullHistory(userId),
     db.getUserRatingsFromDb(userId),
+    Promise.resolve(db.getReviewsForRecommendation(userId)),
   ]);
   if (!history.length) return null;
+
+  // Build review rating map: tmdbId -> rating (0.5-5 scale)
+  const reviewRatings = new Map(); // tmdbId -> rating
+  for (const r of userReviews) {
+    reviewRatings.set(String(r.tmdb_id), r.rating);
+  }
 
   // Count how many times each item was watched (re-watch detection)
   const watchCounts = new Map();
@@ -127,6 +134,14 @@ async function buildPreferenceProfile(userId, libraryMap) {
   const directorTriggers = new Map(); // director -> { title, weight, isHighlyRated }
   const actorTriggers    = new Map();
   const studioTriggers   = new Map();
+
+  // Review-based preference signals (positive and negative)
+  const reviewPositiveGenres = new Map();
+  const reviewPositiveDirectors = new Map();
+  const reviewPositiveActors = new Map();
+  const reviewNegativeGenres = new Map();
+  const reviewNegativeDirectors = new Map();
+  const reviewNegativeActors = new Map();
 
   // Pre-fetch TMDB keywords for top 60 watched items (all cached after first run)
   const seenForKeywords = new Set();
@@ -303,7 +318,7 @@ async function buildPreferenceProfile(userId, libraryMap) {
     })),
   ]);
 
-  for (const entry of history) {
+ for (const entry of history) {
     const item = libraryMap.get(entry.rating_key);
     if (!item) continue;
 
@@ -312,25 +327,58 @@ async function buildPreferenceProfile(userId, libraryMap) {
     const completion = entry.percent_complete >= 95 ? 1.3 : 1.0;
     const count      = watchCounts.get(entry.rating_key) || 1;
     const rewatch    = Math.min(1 + (count - 1) * 0.4, 2.5);
-    const starRating = userRatings.get(entry.rating_key) || 0;
-    const starMult   = starRating >= 9 ? 2.5
-                     : starRating >= 7 ? 2.0
-                     : starRating >= 5 ? 1.5
-                     : starRating > 0  ? 0.4  // rated poorly → down-weight
-                     : 1.0;
-    const epMult     = entry.media_type === 'show'
-                     ? (() => {
-                         const watched = entry.episodeCount || 1;
-                         const total   = item.leafCount || null;
-                         // If we know the total and user watched ≥90% → full signal
-                         if (total && watched / total >= 0.9) return 2.0;
-                         return Math.min(2.0, 1 + Math.log10(watched));
-                       })()
-                     : 1.0;
 
-    const weight = recency * completion * rewatch * starMult * epMult;
-    const isHighlyRated = starRating >= 8;
+    // Review rating multiplier (0.5-5 scale, separate from Plex ratings)
+    const reviewRating = item.tmdbId ? reviewRatings.get(String(item.tmdbId)) : null;
+
+    // Plex star rating (0–10). A Diskovarr review is synced into the user's Plex
+    // rating, so when an item is reviewed we neutralize starMult and let reviewMult
+    // be the single authority — otherwise the same rating would be counted twice.
+    const starRating = userRatings.get(entry.rating_key) || 0;
+    const starMult   = reviewRating != null ? 1.0
+                      : starRating >= 9 ? 2.5
+                      : starRating >= 7 ? 2.0
+                      : starRating >= 5 ? 1.5
+                      : starRating > 0  ? 0.4  // rated poorly → down-weight
+                      : 1.0;
+
+    const reviewMult = reviewRating == null ? 1.0
+      : reviewRating >= 5.0 ? 3.0
+      : reviewRating >= 4.5 ? 2.5
+      : reviewRating >= 4.0 ? 2.0
+      : reviewRating >= 3.5 ? 1.5
+      : reviewRating >= 3.0 ? 1.2
+      : reviewRating >= 2.5 ? 1.0
+      : reviewRating >= 2.0 ? 0.8
+      : reviewRating >= 1.5 ? 0.6
+      : reviewRating >= 1.0 ? 0.4
+      : 0.3; // 0.5
+
+    const epMult     = entry.media_type === 'show'
+                      ? (() => {
+                          const watched = entry.episodeCount || 1;
+                          const total   = item.leafCount || null;
+                          // If we know the total and user watched ≥90% → full signal
+                          if (total && watched / total >= 0.9) return 2.0;
+                          return Math.min(2.0, 1 + Math.log10(watched));
+                        })()
+                      : 1.0;
+
+    const weight = recency * completion * rewatch * starMult * reviewMult * epMult;
+    const isHighlyRated = starRating >= 8 || (reviewRating != null && reviewRating >= 4.0);
     const trigger = { title: item.title, weight, isHighlyRated };
+
+    // Build review-based preference signals
+    if (reviewRating != null) {
+      const reviewSignal = reviewRating >= 2.5 ? 'positive' : 'negative';
+      const absWeight = Math.abs(reviewRating - 2.5) * 2; // 0 to 5 scale
+      const targetGenres = reviewSignal === 'positive' ? reviewPositiveGenres : reviewNegativeGenres;
+      const targetDirectors = reviewSignal === 'positive' ? reviewPositiveDirectors : reviewNegativeDirectors;
+      const targetActors = reviewSignal === 'positive' ? reviewPositiveActors : reviewNegativeActors;
+      for (const g of item.genres) targetGenres.set(g, (targetGenres.get(g) || 0) + absWeight);
+      for (const d of item.directors) targetDirectors.set(d, (targetDirectors.get(d) || 0) + absWeight * 2);
+      for (const a of item.cast) targetActors.set(a, (targetActors.get(a) || 0) + absWeight);
+    }
 
     // Genre — spread across all matching genres
     for (const g of item.genres) {
@@ -401,6 +449,14 @@ async function buildPreferenceProfile(userId, libraryMap) {
     directorTriggers,
     actorTriggers,
     studioTriggers,
+    reviewProfile: reviewRatings.size > 0 ? {
+      positiveGenres: normalizeMap(reviewPositiveGenres),
+      positiveDirectors: normalizeMap(reviewPositiveDirectors),
+      positiveActors: normalizeMap(reviewPositiveActors),
+      negativeGenres: normalizeMap(reviewNegativeGenres),
+      negativeDirectors: normalizeMap(reviewNegativeDirectors),
+      negativeActors: normalizeMap(reviewNegativeActors),
+    } : null,
   };
 }
 
@@ -430,7 +486,7 @@ function scoreItem(item, profile, dismissedKeys, watchedKeys, tmdbEnrich) {
 
   const { genreWeights, directorWeights, actorWeights, studioWeights, decadeWeights,
           keywordWeights, collectionWeights, tmdbSimilarMap, plexRelatedMap,
-          interestSimilarMap, interestPlexRelatedMap, dismissalProfile,
+          interestSimilarMap, interestPlexRelatedMap, dismissalProfile, reviewProfile,
           directorTriggers, actorTriggers, studioTriggers } = profile;
 
   const signals = []; // { pts, reason, type }
@@ -638,9 +694,31 @@ function scoreItem(item, profile, dismissedKeys, watchedKeys, tmdbEnrich) {
     dismissPenalty = Math.min(dismissPenalty, 8);
   }
 
+  // ── Review penalty/bonus (max -5 / +5) ───────────────────────────────────
+  // Content matching patterns from poorly-rated reviews gets penalized.
+  // Content matching patterns from highly-rated reviews gets a small bonus.
+  let reviewPenalty = 0;
+  let reviewBonus = 0;
+  if (reviewProfile) {
+    for (const g of item.genres) {
+      reviewPenalty += (reviewProfile.negativeGenres.get(g) || 0) * 1.5;
+      reviewBonus += (reviewProfile.positiveGenres.get(g) || 0) * 1.5;
+    }
+    for (const d of item.directors) {
+      reviewPenalty += (reviewProfile.negativeDirectors.get(d) || 0) * 2;
+      reviewBonus += (reviewProfile.positiveDirectors.get(d) || 0) * 2;
+    }
+    for (const a of item.cast.slice(0, 5)) {
+      reviewPenalty += (reviewProfile.negativeActors.get(a) || 0) * 1;
+      reviewBonus += (reviewProfile.positiveActors.get(a) || 0) * 1;
+    }
+    reviewPenalty = Math.min(reviewPenalty, 5);
+    reviewBonus = Math.min(reviewBonus, 5);
+  }
+
   const score = similarPts + plexRelatedPts + interestSimilarPts + interestPlexRelatedPts +
                 dirPts + actPts + kwPts + collectionPts + genrePts + studioPts + decadePts +
-                ratingBonus + newBonus - dismissPenalty;
+                ratingBonus + newBonus + reviewBonus - dismissPenalty - reviewPenalty;
 
   // Sort signals: specific signals (director/actor/studio/rating) always before genre,
   // so "Because you like Comedy" never crowds out "Directed by X" or "Starring Y"

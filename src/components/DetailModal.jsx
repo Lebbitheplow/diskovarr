@@ -1,11 +1,16 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   plexApi,
   watchlistApi,
   issuesApi,
   exploreApi,
+  searchApi,
 } from '../services/api'
 import { useToast } from '../context/ToastContext'
+import CastCrewTab from './CastCrewTab'
+import RatingBadges from './RatingBadges'
+import MonitorDropdown from './MonitorManager/MonitorDropdown'
 
 const CAST_ICON = (
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="15" height="15" fill="currentColor" style={{ verticalAlign: '-2px', marginRight: '6px' }}>
@@ -20,57 +25,11 @@ function posterUrl(path) {
   return '/api/poster?path=' + encodeURIComponent(path)
 }
 
-function getRatings(item) {
-  const criticScore = item.rating ? Math.round(item.rating * 10) : null
-  const audienceScore = item.audienceRating ? Math.round(item.audienceRating * 10) : null
-  const isFresh = item.ratingImage && item.ratingImage.includes('.ripe')
-  const isUpright = item.audienceRatingImage && item.audienceRatingImage.includes('.upright')
-  const isRT = item.ratingImage && item.ratingImage.includes('rottentomatoes')
-  return { criticScore, audienceScore, isFresh, isUpright, isRT }
-}
-
-function MetaBadges({ item }) {
-  const { criticScore, audienceScore, isFresh, isUpright, isRT } = getRatings(item)
-  if (!criticScore && !audienceScore) return null
-
-  return (
-    <div className="detail-modal-ratings" style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '8px' }}>
-      {criticScore && isRT && (
-        <div className={'rating-badge rating-critic' + (isFresh ? ' fresh' : ' rotten')}>
-          <span className="rating-icon">🍅</span>
-          <span className="rating-label">Tomatometer</span>
-          <span className="rating-score">{criticScore}%</span>
-        </div>
-      )}
-      {audienceScore && (
-        <div className={'rating-badge rating-audience' + (isUpright ? ' upright' : ' spilled')}>
-          <span className="rating-icon">🍿</span>
-          <span className="rating-label">Audience</span>
-          <span className="rating-score">{audienceScore}%</span>
-        </div>
-      )}
-    </div>
-  )
-}
-
 function CastPicker({ item, onClose }) {
   const [clients, setClients] = useState([])
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const { success, error: toastError } = useToast()
-
-  const fetchClients = useCallback(async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      const { data } = await plexApi.getClients()
-      setClients(data.clients || [])
-    } catch (e) {
-      setError('Could not fetch clients')
-    } finally {
-      setLoading(false)
-    }
-  }, [])
 
   const handleCast = useCallback(async (client) => {
     try {
@@ -82,8 +41,20 @@ function CastPicker({ item, onClose }) {
     }
   }, [item.ratingKey, onClose, success, toastError])
 
-  // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
-  useEffect(() => { fetchClients() }, [fetchClients])
+  useEffect(() => {
+    let active = true
+    ;(async () => {
+      try {
+        const { data } = await plexApi.getClients()
+        if (active) setClients(data.clients || [])
+      } catch (e) {
+        if (active) setError('Could not fetch clients')
+      } finally {
+        if (active) setLoading(false)
+      }
+    })()
+    return () => { active = false }
+  }, [])
 
   if (loading) return <div className="modal-cast-picker"><span>…</span></div>
   if (error) return <div className="modal-cast-picker"><span className="cast-no-clients">{error}</span></div>
@@ -194,12 +165,37 @@ function ReportIssueForm({ item }) {
 }
 
 export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
+  const navigate = useNavigate()
   const [trailerKey, setTrailerKey] = useState(null)
-  const [trailerLoading, setTrailerLoading] = useState(false)
+  const [trailerLoading, setTrailerLoading] = useState(!!item?.tmdbId)
+  // Reset trailer state when the viewed item changes. This render-phase
+  // adjustment is React's recommended alternative to a state-resetting effect.
+  const [prevTrailerTmdbId, setPrevTrailerTmdbId] = useState(item?.tmdbId)
+  if (item?.tmdbId !== prevTrailerTmdbId) {
+    setPrevTrailerTmdbId(item?.tmdbId)
+    setTrailerKey(null)
+    setTrailerLoading(!!item?.tmdbId)
+  }
   const [inWatchlist, setInWatchlist] = useState(item?.isInWatchlist || false)
   const [castOpen, setCastOpen] = useState(false)
   const [castLoading, setCastLoading] = useState(false)
   const [clients, setClients] = useState([])
+  const [activeTab, setActiveTab] = useState('overview')
+  const [credits, setCredits] = useState(
+    item?.structuredCast ? { cast: item.structuredCast, crew: item.structuredCrew } : null
+  )
+  const [creditsLoading, setCreditsLoading] = useState(!item?.structuredCast && !!item?.tmdbId)
+  // RT scores live on the Plex library item. Pages that build modal items without
+  // them (Reviews, profiles…) can still get them via a lazy getDetails fetch below.
+  const [fetchedRatings, setFetchedRatings] = useState(null)
+  const [prevCreditsTmdbId, setPrevCreditsTmdbId] = useState(item?.tmdbId)
+  if (item?.tmdbId !== prevCreditsTmdbId) {
+    setPrevCreditsTmdbId(item?.tmdbId)
+    setActiveTab('overview')
+    setCredits(item?.structuredCast ? { cast: item.structuredCast, crew: item.structuredCrew } : null)
+    setCreditsLoading(!item?.structuredCast && !!item?.tmdbId)
+    setFetchedRatings(null)
+  }
   const trailerRef = useRef(null)
   const { success, error: toastError } = useToast()
 
@@ -270,6 +266,30 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
     }
   }, [castOpen, toastError])
 
+  // Jump to the search page's "More with X" browse for a cast/crew member.
+  const handlePersonClick = useCallback((person) => {
+    if (!person?.id) return
+    const params = new URLSearchParams()
+    params.set('personId', person.id)
+    if (person.name) params.set('personName', person.name)
+    onClose()
+    navigate('/search?' + params.toString())
+  }, [navigate, onClose])
+
+  const handleMonitorCast = useCallback(async (person) => {
+    if (!person?.name) return
+    const { monitorsApi } = await import('../services/monitorsApi')
+    try {
+      await monitorsApi.quickCreate({
+        name: `All content with ${person.name}`,
+        criteria: [{ type: 'cast', entityName: person.name }],
+      })
+      success(`Monitoring "${person.name}"`)
+    } catch (err) {
+      toastError('Failed to create monitor')
+    }
+  }, [success, toastError])
+
   const handleCastMedia = useCallback(async (client) => {
     try {
       await plexApi.castMedia({ ratingKey: item.ratingKey, clientId: client.machineIdentifier })
@@ -281,28 +301,59 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
   }, [item, success, toastError])
 
   useEffect(() => {
-    if (!item?.tmdbId) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
-      setTrailerKey(null)
-      return
-    }
+    if (!item?.tmdbId) return
     const mt = item.type === 'movie' || item.mediaType === 'movie' ? 'movie' : 'tv'
-    setTrailerLoading(true)
+    let active = true
     plexApi.getTrailer(item.tmdbId, mt)
       .then(({ data }) => {
-        if (data.trailerKey) setTrailerKey(data.trailerKey)
+        if (active && data.trailerKey) setTrailerKey(data.trailerKey)
       })
       .catch(() => {})
-      .finally(() => setTrailerLoading(false))
+      .finally(() => { if (active) setTrailerLoading(false) })
 
     const trailerEl = trailerRef.current
     return () => {
+      active = false
       if (trailerEl) {
         trailerEl.innerHTML = ''
         trailerEl.classList.remove('active')
       }
     }
   }, [item?.tmdbId, item?.type, item?.mediaType])
+
+  // Lazy fetch structured credits and/or RT scores when the parent didn't provide
+  // them. Both come from getDetails, so a single fetch covers either gap.
+  const hasItemRatings = !!(item?.ratingImage || item?.audienceRatingImage || item?.rating || item?.audienceRating)
+  useEffect(() => {
+    if (!item?.tmdbId) return
+    const needCredits = !credits && creditsLoading
+    const needRatings = !hasItemRatings && !fetchedRatings
+    if (!needCredits && !needRatings) return
+    const mediaType = item.mediaType || (item.type === 'show' ? 'tv' : 'movie')
+    let active = true
+    searchApi.getDetails(item.tmdbId, mediaType)
+      .then(({ data }) => {
+        if (!active) return
+        if (needCredits) {
+          setCredits({ cast: data.structuredCast || [], crew: data.structuredCrew || [] })
+        }
+        if (needRatings) {
+          setFetchedRatings({
+            rating: data.rating || null,
+            ratingImage: data.ratingImage || null,
+            audienceRating: data.audienceRating || null,
+            audienceRatingImage: data.audienceRatingImage || null,
+          })
+        }
+      })
+      .catch(() => {
+        if (!active) return
+        if (needCredits) setCredits({ cast: [], crew: [] })
+        if (needRatings) setFetchedRatings({})
+      })
+      .finally(() => { if (active) setCreditsLoading(false) })
+    return () => { active = false }
+  }, [item?.tmdbId, item?.mediaType, item?.type, credits, creditsLoading, hasItemRatings, fetchedRatings])
 
   const handleClose = useCallback(() => {
     if (trailerRef.current) {
@@ -348,7 +399,7 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
                 </>
               )}
             </div>
-            <MetaBadges item={item} />
+            <RatingBadges item={hasItemRatings ? item : { ...item, ...(fetchedRatings || {}) }} />
             <div className="detail-modal-reasons">
               {(item.reasons || []).filter(r => r && r.trim()).slice(0, 3).map((r, i) => (
                 <span key={i} className="reason-tag"><span className="reason-tag-text">{r}</span></span>
@@ -359,24 +410,51 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
                 <span key={i} className="genre-tag">{g}</span>
               ))}
             </div>
-            <p className="detail-modal-overview">{item.summary || item.overview || ''}</p>
-            <div className="detail-modal-credits">
-              {item.directors && item.directors.length > 0 && (
-                <div className="detail-credit-row">
-                  <span className="detail-credit-label">{item.type === 'show' ? 'Created by' : 'Director'}:</span> {item.directors.join(', ')}
-                </div>
-              )}
-              {item.cast && item.cast.length > 0 && (
-                <div className="detail-credit-row">
-                  <span className="detail-credit-label">Cast:</span> {item.cast.slice(0, 6).join(', ')}
-                </div>
-              )}
-              {item.studio && (
-                <div className="detail-credit-row">
-                  <span className="detail-credit-label">{item.type === 'show' ? 'Network' : 'Studio'}:</span> {item.studio}
-                </div>
-              )}
+            <div className="detail-modal-tabs">
+              <button
+                className={'detail-modal-tab' + (activeTab === 'overview' ? ' active' : '')}
+                onClick={() => setActiveTab('overview')}
+              >
+                Overview
+              </button>
+              <button
+                className={'detail-modal-tab' + (activeTab === 'castcrew' ? ' active' : '')}
+                onClick={() => setActiveTab('castcrew')}
+              >
+                Cast & Crew
+              </button>
             </div>
+            {activeTab === 'overview' ? (
+              <>
+                <p className="detail-modal-overview">{item.summary || item.overview || ''}</p>
+                <div className="detail-modal-credits">
+                  {item.directors && item.directors.length > 0 && (
+                    <div className="detail-credit-row">
+                      <span className="detail-credit-label">{item.type === 'show' ? 'Created by' : 'Director'}:</span> {item.directors.join(', ')}
+                    </div>
+                  )}
+                  {item.cast && item.cast.length > 0 && (
+                    <div className="detail-credit-row">
+                      <span className="detail-credit-label">Cast:</span> {item.cast.slice(0, 6).join(', ')}
+                    </div>
+                  )}
+                  {item.studio && (
+                    <div className="detail-credit-row">
+                      <span className="detail-credit-label">{item.type === 'show' ? 'Network' : 'Studio'}:</span> {item.studio}
+                    </div>
+                  )}
+                </div>
+              </>
+            ) : (
+              <CastCrewTab
+                cast={credits?.cast}
+                crew={credits?.crew}
+                loading={creditsLoading}
+                mediaType={item.mediaType || (item.type === 'show' ? 'tv' : 'movie')}
+                onPersonClick={handlePersonClick}
+                onMonitorCast={handleMonitorCast}
+              />
+            )}
             <div className="detail-modal-actions">
               {inLibrary ? (
                 <>
@@ -400,6 +478,7 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
                       )}
                     </div>
                   )}
+                  <MonitorDropdown item={item} />
                   <button className="modal-btn modal-btn-dismiss" onClick={handleDismiss}>✕ Not Interested</button>
                   <ReportIssueForm item={item} />
                 </>
@@ -412,6 +491,7 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
                   >
                     {item.isRequested ? 'Notify Me' : 'Request'}
                   </button>
+                  <MonitorDropdown item={item} />
                   <button className="modal-btn modal-btn-dismiss" onClick={handleDismiss}>✕ Not Interested</button>
                   {item.tmdbId && (
                     <a className="modal-btn modal-btn-dismiss" href={`https://www.themoviedb.org/${item.mediaType === 'tv' ? 'tv' : 'movie'}/${item.tmdbId}`} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none', cursor: 'pointer' }}>

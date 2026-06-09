@@ -136,14 +136,13 @@ export default function Explore() {
   }, [matureEnabled, hideRequested, toastError])
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
-    loadServices()
-    loadWatchlist()
+    ;(async () => {
+      await Promise.all([loadServices(), loadWatchlist()])
+    })()
   }, [loadServices, loadWatchlist])
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
-    fetchRecommendations(false)
+    ;(async () => { await fetchRecommendations(false) })()
   }, [fetchRecommendations])
 
   // Clear polling interval on unmount to prevent state updates on dead component
@@ -151,10 +150,17 @@ export default function Explore() {
     return () => { if (intervalRef.current) clearInterval(intervalRef.current) }
   }, [])
 
+  // Reset progress when a build finishes (render-phase adjustment, React's
+  // recommended alternative to a state-resetting effect).
+  const [prevBuilding, setPrevBuilding] = useState(building)
+  if (building !== prevBuilding) {
+    setPrevBuilding(building)
+    if (!building) setBuildProgress(0)
+  }
+
   // Animate progress bar while building — asymptotic curve toward 95%
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
-    if (!building) { setBuildProgress(0); return }
+    if (!building) return
     const tick = setInterval(() => {
       const elapsed = buildStartRef.current ? (Date.now() - buildStartRef.current) / 1000 : 0
       setBuildProgress(95 * (1 - Math.exp(-elapsed / 150)))
@@ -319,10 +325,8 @@ export default function Explore() {
   }, [])
 
   useEffect(() => {
-    if (requestItem) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
-      handleSeasonsFetch(requestItem.tmdbId)
-    }
+    if (!requestItem) return
+    ;(async () => { await handleSeasonsFetch(requestItem.tmdbId) })()
   }, [requestItem, handleSeasonsFetch])
 
   const filteredRecommendations = useCallback(() => {

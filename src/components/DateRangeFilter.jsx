@@ -80,17 +80,19 @@ export default function DateRangeFilter({
     }
   }, [open])
 
-  // When opening, jump to the month of `from` if set, else today
-  useEffect(() => {
-    if (!open) return
-    const anchor = fromDate || new Date()
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
-    setViewYear(anchor.getFullYear())
-    setViewMonth(anchor.getMonth())
-    // Auto-detect mode based on existing value: distinct days = range, same day = single
-    if (fromDate && toDate && !sameDay(fromDate, toDate)) setMode('range')
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open])
+  // When opening, jump to the month of `from` if set, else today. Render-phase
+  // adjustment (React's recommended alternative to a state-syncing effect).
+  const [prevOpen, setPrevOpen] = useState(open)
+  if (open !== prevOpen) {
+    setPrevOpen(open)
+    if (open) {
+      const anchor = fromDate || new Date()
+      setViewYear(anchor.getFullYear())
+      setViewMonth(anchor.getMonth())
+      // Auto-detect mode based on existing value: distinct days = range, same day = single
+      if (fromDate && toDate && !sameDay(fromDate, toDate)) setMode('range')
+    }
+  }
 
   const cells = useMemo(() => buildGrid(viewYear, viewMonth), [viewYear, viewMonth])
   const today = useMemo(() => new Date(), [])

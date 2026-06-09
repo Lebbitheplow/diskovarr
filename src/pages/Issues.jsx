@@ -129,9 +129,10 @@ export default function Issues() {
   }, [perPage, debouncedSearchQuery, selectedUser, dateFrom, dateTo, toastError])
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
-    loadIssues(currentFilter, 1)
-    setSelectedIds(new Set())
+    ;(async () => {
+      setSelectedIds(new Set())
+      await loadIssues(currentFilter, 1)
+    })()
   }, [currentFilter, debouncedSearchQuery, selectedUser, dateFrom, dateTo, loadIssues])
 
   const handleBulkDelete = useCallback(async () => {
@@ -166,8 +167,7 @@ export default function Issues() {
   }, [])
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
-    loadOpenCount()
+    ;(async () => { await loadOpenCount() })()
   }, [loadOpenCount])
 
   useEffect(() => {

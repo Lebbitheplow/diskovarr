@@ -36,10 +36,12 @@ async function plexFetch(path, token) {
   return res.json();
 }
 
+const tags = arr => (arr || []).map(t => t.tag).filter(t => t && String(t).trim());
+
 function parseMediaItem(video) {
-  const genres = (video.Genre || []).map(g => g.tag).filter(g => g && g.trim());
-  const directors = (video.Director || []).map(d => d.tag);
-  const cast = (video.Role || []).slice(0, 10).map(r => r.tag);
+  const genres = tags(video.Genre);
+  const directors = tags(video.Director);
+  const cast = (video.Role || []).slice(0, 10).map(r => r.tag).filter(Boolean);
   const year = video.year || parseInt((video.originallyAvailableAt || '').slice(0, 4)) || 0;
   // Extract TMDB ID from Guid array (present when includeGuids=1 is passed)
   const guids = video.Guid || [];
@@ -65,6 +67,16 @@ function parseMediaItem(video) {
     studio: video.studio || '',
     tmdbId,
     leafCount: video.type === 'show' ? (parseInt(video.leafCount) || null) : null,
+    // Expanded filter/sort fields. Writers/Country/Collection are in the bulk listing;
+    // Producer/Label only appear on /library/metadata detail payloads (empty on bulk).
+    writers: tags(video.Writer),
+    producers: tags(video.Producer),
+    countries: tags(video.Country),
+    collections: tags(video.Collection),
+    labels: tags(video.Label),
+    edition: video.editionTitle || '',
+    releaseDate: video.originallyAvailableAt || '',
+    duration: parseInt(video.duration) || 0,
   };
 }
 
@@ -125,12 +137,50 @@ async function syncLibrarySection(sectionId) {
 
   // Write to DB
   db.upsertManyItems(items);
+  // This fetch is the full section (Container-Size=99999), so it's the authoritative
+  // set — prune cached rows for items Plex no longer has (deleted / re-keyed), which
+  // otherwise linger and serve dead poster paths + phantom recommendations.
+  const pruned = db.pruneLibrarySectionItems(sectionId, items.map(i => i.ratingKey));
   db.setSyncTime(`library_${sectionId}`);
 
   // Update in-memory cache
   libraryCache.set(sectionId, { data: items, fetchedAt: Date.now() });
-  console.log(`Synced ${items.length} items for section ${sectionId} to DB`);
+  console.log(`Synced ${items.length} items for section ${sectionId} to DB${pruned ? ` (pruned ${pruned} stale)` : ''}`);
+
+  // For the TV section, compute each show's most-recent-episode-added date with one
+  // bounded episode query (not per-show). Best-effort — never fails the library sync.
+  if (String(sectionId) === String(getTvSection())) {
+    syncLastEpisodeAdded(sectionId).catch(err =>
+      console.warn(`Last-episode-added sync failed for section ${sectionId}: ${err.message}`));
+  }
   return items;
+}
+
+// One bounded query for the newest episodes; first occurrence per show (sorted desc) is its
+// last-episode-added timestamp. Patches both the DB and the in-memory cache.
+async function syncLastEpisodeAdded(sectionId) {
+  const json = await plexFetch(
+    `/library/sections/${sectionId}/all?type=4&sort=addedAt:desc&X-Plex-Container-Size=5000&X-Plex-Token=${getPlexToken()}`
+  );
+  const episodes = json.MediaContainer?.Metadata || [];
+  const latestByShow = new Map();
+  for (const ep of episodes) {
+    const showKey = ep.grandparentRatingKey;
+    if (!showKey) continue;
+    const key = String(showKey);
+    const added = ep.addedAt || 0;
+    if (!latestByShow.has(key) || added > latestByShow.get(key)) latestByShow.set(key, added);
+  }
+  for (const [showKey, added] of latestByShow) db.updateLastEpisodeAdded(showKey, added);
+
+  const cached = libraryCache.get(String(sectionId));
+  if (cached) {
+    for (const item of cached.data) {
+      const added = latestByShow.get(String(item.ratingKey));
+      if (added) item.lastEpisodeAddedAt = added;
+    }
+  }
+  console.log(`Synced last-episode-added for ${latestByShow.size} shows in section ${sectionId}`);
 }
 
 async function getLibraryItems(sectionId) {
@@ -146,11 +196,22 @@ async function fetchAndUpsertItem(ratingKey, sectionId) {
   const item = data?.MediaContainer?.Metadata?.[0];
   if (!item) return null;
 
-  // Episode → fetch the parent show instead
+  // Episode → fetch the parent show instead, and bump the show's last-episode-added date
   if (item.type === 'episode') {
     const showKey = item.grandparentRatingKey;
     if (!showKey) return null;
-    return fetchAndUpsertItem(String(showKey), sectionId);
+    const result = await fetchAndUpsertItem(String(showKey), sectionId);
+    const epAdded = item.addedAt || 0;
+    if (epAdded) {
+      const existing = db.getLibraryItemByKey(String(showKey));
+      if (!existing || epAdded > (existing.lastEpisodeAddedAt || 0)) {
+        db.updateLastEpisodeAdded(String(showKey), epAdded);
+        const cached = libraryCache.get(String(sectionId || item.librarySectionID));
+        const cachedItem = cached?.data.find(i => i.ratingKey === String(showKey));
+        if (cachedItem) cachedItem.lastEpisodeAddedAt = epAdded;
+      }
+    }
+    return result;
   }
 
   // Season → fetch the parent show
@@ -166,6 +227,9 @@ async function fetchAndUpsertItem(ratingKey, sectionId) {
   const parsed = { ...parseMediaItem(item), sectionId: sid };
 
   db.upsertManyItems([parsed]);
+  // This is a detail payload (/library/metadata), so it carries producers/labels — persist
+  // them and stamp detail_synced_at so the background backfill skips this item.
+  db.updateItemDetailFields(parsed.ratingKey, { producers: parsed.producers, labels: parsed.labels });
 
   // Update in-memory cache in place so getLibraryItems returns the latest data
   const cached = libraryCache.get(sid);
@@ -226,8 +290,93 @@ async function fetchAndUpsertItem(ratingKey, sectionId) {
   return parsed;
 }
 
-async function warmCache() {
-  await Promise.all([fetchSection(getMoviesSection()), fetchSection(getTvSection())]);
+async function warmCache(sectionIds = null) {
+  if (sectionIds && sectionIds.length > 0) {
+    await Promise.all(sectionIds.map(id => fetchSection(String(id))));
+  } else {
+    await Promise.all([fetchSection(getMoviesSection()), fetchSection(getTvSection())]);
+  }
+}
+
+// Force a full re-sync of every library section straight from Plex (bypassing the
+// cache/DB shortcut in fetchSection). syncLibrarySection prunes items Plex no longer
+// has, so this reconciles deletions and rating-key changes without a restart. Sections
+// run sequentially to avoid two large Plex fetches at once; each is guarded against
+// overlapping with an in-flight sync.
+async function resyncAllSections() {
+  for (const id of [getMoviesSection(), getTvSection()]) {
+    const sid = String(id);
+    if (libSyncInProgress.has(sid)) continue;
+    const p = syncLibrarySection(sid)
+      .catch(err => console.warn(`Periodic library re-sync failed for section ${sid}: ${err.message}`))
+      .finally(() => libSyncInProgress.delete(sid));
+    libSyncInProgress.set(sid, p);
+    await p;
+  }
+}
+
+/**
+ * Fetch all Plex library sections, filtered to Movie and Show types only.
+ * Returns array of { id, title, type, MediaType } objects.
+ */
+async function getPlexSections() {
+  const json = await plexFetch('/library/sections');
+  const all = json.MediaContainer?.Directory || [];
+  return all
+    .filter(s => s.type === 'movie' || s.type === 'show')
+    .map(s => ({
+      id: String(s.key),
+      title: s.title,
+      type: s.type,
+      MediaType: s.MediaType || s.type,
+    }));
+}
+
+// ── Producer/Label backfill ──────────────────────────────────────────────────
+// Producer and Label are not in the bulk /sections/all listing — only in the per-item
+// /library/metadata detail. New items get them free via the websocket handler
+// (fetchAndUpsertItem); this drains the existing backlog gradually in small throttled
+// batches so it never pins Plex. Restart-safe via library_items.detail_synced_at.
+let _detailBackfillRunning = false;
+
+async function backfillItemDetails(batchSize = 50, concurrency = 3) {
+  if (_detailBackfillRunning) return { processed: 0, remaining: -1 };
+  _detailBackfillRunning = true;
+  let processed = 0;
+  try {
+    const batch = db.getItemsNeedingDetailSync(batchSize);
+    if (batch.length === 0) return { processed: 0, remaining: 0 };
+
+    for (let i = 0; i < batch.length; i += concurrency) {
+      const slice = batch.slice(i, i + concurrency);
+      await Promise.all(slice.map(async ({ ratingKey, sectionId }) => {
+        try {
+          const data = await plexFetch(`/library/metadata/${ratingKey}?includeGuids=1`);
+          const item = data?.MediaContainer?.Metadata?.[0];
+          if (!item) {
+            // Item gone from Plex — stamp it so we don't retry forever.
+            db.updateItemDetailFields(ratingKey, { producers: [], labels: [] });
+            return;
+          }
+          const parsed = parseMediaItem(item);
+          db.updateItemDetailFields(ratingKey, { producers: parsed.producers, labels: parsed.labels });
+          const cached = libraryCache.get(String(sectionId));
+          const cachedItem = cached?.data.find(it => it.ratingKey === String(ratingKey));
+          if (cachedItem) { cachedItem.producers = parsed.producers; cachedItem.labels = parsed.labels; }
+          processed++;
+        } catch (err) {
+          console.warn(`[plex] detail backfill failed for ${ratingKey}: ${err.message}`);
+        }
+      }));
+      // Small breather between sub-batches to stay gentle on Plex.
+      await new Promise(r => setTimeout(r, 250));
+    }
+    const remaining = db.getItemsNeedingDetailSync(1).length;
+    if (processed > 0) console.log(`[plex] detail backfill: enriched ${processed} items (${remaining ? 'more remaining' : 'backlog drained'})`);
+    return { processed, remaining };
+  } finally {
+    _detailBackfillRunning = false;
+  }
 }
 
 function invalidateCache(sectionId) {
@@ -334,6 +483,35 @@ async function syncUserWatched(userId, userToken) {
     console.warn(`syncUserWatched(${userId}) error:`, err.message);
   } finally {
     watchedSyncInProgress.delete(userId);
+  }
+}
+
+/**
+ * Set (or clear) a user's personal Plex rating for an item.
+ * Plex uses a 0–10 scale (10 = 5 stars); pass -1 to clear the rating.
+ * Uses the user's own Plex token (falls back to their stored token, then the admin
+ * token) so the rating is attributed to that user. Best-effort: logs and returns
+ * false on failure rather than throwing.
+ */
+async function setUserRating(userId, ratingKey, rating, userToken = null) {
+  try {
+    if (!ratingKey) return false;
+    let token = userToken;
+    if (!token) {
+      const stored = db.prepare('SELECT plex_token FROM known_users WHERE user_id = ?').get(String(userId));
+      token = (stored && stored.plex_token) || getPlexToken();
+    }
+    if (!token) return false;
+    const url = `${getPlexUrl()}/:/rate?key=${encodeURIComponent(ratingKey)}&identifier=com.plexapp.plugins.library&rating=${rating}&X-Plex-Token=${token}`;
+    const res = await fetch(url, { method: 'PUT', headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(10000) });
+    if (!res.ok) {
+      console.warn(`setUserRating(${userId}, ${ratingKey}, ${rating}) failed: HTTP ${res.status}`);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.warn(`setUserRating(${userId}, ${ratingKey}) error:`, err.message);
+    return false;
   }
 }
 
@@ -715,8 +893,12 @@ module.exports = {
   getLibraryMap,
   getWatchedKeys,
   syncUserWatched,
+  setUserRating,
   syncLibrarySection,
+  backfillItemDetails,
   warmCache,
+  resyncAllSections,
+  getPlexSections,
   invalidateCache,
   fetchAndUpsertItem,
   getWatchlist,

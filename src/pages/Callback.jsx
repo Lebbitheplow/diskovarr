@@ -60,8 +60,7 @@ export default function Callback() {
   }, [searchParams, navigate, toastError, checkAuth])
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
-    handleAuth()
+    ;(async () => { await handleAuth() })()
   }, [handleAuth])
 
   return (

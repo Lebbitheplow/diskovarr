@@ -119,9 +119,10 @@ export default function Queue() {
   }, [perPage, sortCol, sortDir, debouncedSearchQuery, selectedUser, dateFrom, dateTo, toastError])
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
-    loadQueue(currentFilter, 1)
-    setSelectedIds(new Set())
+    ;(async () => {
+      setSelectedIds(new Set())
+      await loadQueue(currentFilter, 1)
+    })()
   }, [currentFilter, debouncedSearchQuery, selectedUser, dateFrom, dateTo, loadQueue])
 
   const toggleSelectAll = useCallback(() => {

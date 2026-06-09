@@ -55,10 +55,16 @@ export const recommendationsApi = {
   getRecommendations: () => api.get('/recommendations'),
 }
 
+/** Popular content (Tautulli home stats) */
+export const popularApi = {
+  getPopular: () => api.get('/popular'),
+}
+
 /** Discover / Library Browse */
 export const discoverApi = {
   getDiscover: (params) => api.get('/discover', { params }),
   getGenres: () => api.get('/discover/genres'),
+  getFacets: (field, q = '', limit) => api.get('/discover/facets', { params: { field, q, limit } }),
 }
 
 /** Search */
@@ -80,6 +86,7 @@ export const searchApi = {
   getDetails: (tmdbId, type) => api.get('/search/details', { params: { tmdbId, type } }),
   getSeasons: (tmdbId) => api.get('/search/seasons', { params: { tmdbId } }),
   getSimilar: (tmdbId, type, hideLibrary) => api.get('/search/similar', { params: { tmdbId, type, hideLibrary } }),
+  getPersonCredits: (personId, hideLibrary) => api.get('/search/person', { params: { personId, hideLibrary } }),
 }
 
 /** Watchlist */
@@ -177,6 +184,65 @@ export const adminApi = {
   setBroadcast: (message) => adminApiInstance.post('/broadcast', { message }),
   deleteBroadcast: () => adminApiInstance.delete('/broadcast'),
   rebuildPool: () => adminApiInstance.post('/admin/rebuild-pool'),
+}
+
+/** Watch History */
+export const historyApi = {
+  getHistory: (params) => api.get('/history', { params }),
+  getUsers: () => api.get('/history/users'),
+}
+
+/** Reviews */
+export const reviewsApi = {
+  getReviews: (params) => api.get('/reviews', { params }),
+  getReview: (mediaType, tmdbId) => api.get(`/reviews/${mediaType}/${tmdbId}`),
+  createReview: (data) => api.post('/reviews', data),
+  updateReview: (id, data) => api.put(`/reviews/${id}`, data),
+  deleteReview: (id) => api.delete(`/reviews/${id}`),
+}
+
+/** Social Reviews Feed */
+export const socialReviewsApi = {
+  getFeed: (params) => api.get('/reviews/feed', { params }),
+  getReview: (id) => api.get(`/reviews/${id}`),
+  toggleReaction: (id) => api.post(`/reviews/${id}/react`),
+  getComments: (id) => api.get(`/reviews/${id}/comments`),
+  createComment: (id, data) => api.post(`/reviews/${id}/comments`, data),
+  updateComment: (commentId, data) => api.put(`/reviews/comments/${commentId}`, data),
+  deleteComment: (commentId) => api.delete(`/reviews/comments/${commentId}`),
+}
+
+/** Public (unauthenticated) review read — for shared links opened logged-out */
+export const publicReviewsApi = {
+  getReview: (id) => api.get(`/public/review/${id}`),
+  getShareConfig: () => api.get('/public/share-config'),
+}
+
+/** Follow System */
+export const followApi = {
+  initFollows: () => api.post('/users/init-follows'),
+  follow: (userId) => api.post(`/users/${userId}/follow`),
+  unfollow: (userId) => api.delete(`/users/${userId}/follow`),
+  isFollowing: (userId) => api.get(`/users/${userId}/following`),
+  getFollowers: (userId, params) => api.get(`/users/${userId}/followers`, { params }),
+  getFollowing: (userId, params) => api.get(`/users/${userId}/following-list`, { params }),
+}
+
+/** User Profile */
+export const profileApi = {
+  getProfile: (userId) => api.get(`/users/${userId}/profile`),
+  updateProfile: (data) => api.put('/users/profile', data),
+  getUserReviews: (userId, params) => api.get(`/users/${userId}/reviews`, { params }),
+}
+
+/** TMDB Per-User Integration */
+export const tmdbApi = {
+  getConnection: () => api.get('/tmdb/connection'),
+  initiateConnect: () => api.post('/tmdb/connect/initiate'),
+  disconnect: () => api.post('/tmdb/disconnect'),
+  verifySession: () => api.post('/tmdb/verify'),
+  syncRating: (reviewId) => api.post('/tmdb/sync-rating', { reviewId }),
+  removeRating: (reviewId) => api.delete('/tmdb/sync-rating', { data: { reviewId } }),
 }
 
 /** Error helpers */

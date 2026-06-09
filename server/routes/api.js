@@ -7,9 +7,17 @@ const discordAgent = require('../services/discordAgent');
 const pushoverAgent = require('../services/pushoverAgent');
 const discoverRecommender = require('../services/discoverRecommender');
 const tmdbService = require('../services/tmdb');
+const tmdbIntegration = require('../services/tmdbIntegration');
+const tautulliService = require('../services/tautulli');
 const overseerrService = require('../services/overseerr');
+const reviewFeed = require('../services/reviewFeed');
+const reviewCardCache = require('../services/reviewCardCache');
 const db = require('../db/database');
 const logger = require('../services/logger');
+const cryptoUtil = require('../utils/crypto');
+const { mapReviewToTmdb } = require('../services/integrationCapabilities');
+const monitorMatcher = require('../services/monitorMatcher');
+const monitorNotifier = require('../services/monitorNotifier');
 
 // Reverse maps: TMDB genre ID → genre name (built once at startup)
 const MOVIE_ID_TO_GENRE = {};
@@ -89,6 +97,61 @@ router.get('/recommendations', async (req, res) => {
   } catch (err) {
     logger.error('recommendations error:', err.message);
     res.status(500).json({ error: 'Failed to fetch recommendations' });
+  }
+});
+
+// GET /api/popular
+// Returns most popular movies and TV shows from Tautulli (last 90 days),
+// enriched with library metadata and TMDB cache.
+router.get('/popular', async (req, res) => {
+  try {
+    const { id: userId } = req.session.plexUser;
+    const tautulliData = await tautulliService.getPopularItems();
+
+    const POPULAR_LIMIT = 20; // display up to this many genuine library items per section
+    const enrichItems = async (items, mediaType) => {
+      const result = [];
+      for (const entry of items) {
+        if (result.length >= POPULAR_LIMIT) break;
+        const libItem = db.getLibraryItemByKey(entry.ratingKey);
+        if (!libItem) continue;
+
+        const tmdbCached = libItem.tmdbId ? db.getTmdbCache(libItem.tmdbId, mediaType) : null;
+
+        result.push({
+          ...libItem,
+          posterUrl: tmdbCached?.posterUrl || libItem.thumb || null,
+          backdropUrl: tmdbCached?.backdropUrl || libItem.art || null,
+          audienceRating: tmdbCached?.voteAverage || libItem.audienceRating || 0,
+          contentRating: tmdbCached?.contentRating || libItem.contentRating || '',
+          deepLink: libItem.ratingKey ? plexService.getDeepLink(libItem.ratingKey) : null,
+          plexAppLink: libItem.ratingKey ? plexService.getAppLink(libItem.ratingKey) : null,
+        });
+      }
+      return result;
+    };
+
+    const watchlistKeys = new Set(db.getWatchlistFromDb(userId)); // array -> Set of ratingKey strings
+    const watchedKeys = db.getWatchedKeysFromDb(userId);          // already a Set
+
+    const [movies, tvShows] = await Promise.all([
+      enrichItems(tautulliData.movies, 'movie'),
+      enrichItems(tautulliData.tvShows, 'tv'),
+    ]);
+
+    const markStatus = (items) => items.map(item => ({
+      ...item,
+      isInWatchlist: watchlistKeys.has(item.ratingKey),
+      isWatched: watchedKeys.has(item.ratingKey),
+    }));
+
+    res.json({
+      movies: markStatus(movies),
+      tvShows: markStatus(tvShows),
+    });
+  } catch (err) {
+    logger.error('popular error:', err.message);
+    res.json({ movies: [], tvShows: [] });
   }
 });
 
@@ -228,14 +291,53 @@ router.get('/discover', async (req, res) => {
       page = '1',
       q = '',
       contentRatings = '',
+      directors = '',
+      actors = '',
+      writers = '',
+      producers = '',
+      countries = '',
+      collections = '',
+      studios = '',
+      editions = '',
+      labels = '',
+      year = '',
+      releaseFrom = '',
+      releaseTo = '',
+      durationMin = '',
+      durationMax = '',
     } = req.query;
 
     const PAGE_SIZE = 40;
     const pageNum = Math.max(1, parseInt(page) || 1);
     const minScoreNum = parseFloat(minScore) || 0;
-    const genreList = genres ? genres.split(',').map(g => g.trim().toLowerCase()).filter(Boolean) : [];
-    const contentRatingList = contentRatings ? contentRatings.split(',').map(s => s.trim()).filter(Boolean) : [];
     const searchQuery = q.trim().toLowerCase();
+    // Comma-separated multi-value filters → lowercase lists for case-insensitive matching.
+    const csv = s => (s ? s.split(',').map(x => x.trim()).filter(Boolean) : []);
+    const csvLower = s => csv(s).map(x => x.toLowerCase());
+    const genreList = csvLower(genres);
+    const contentRatingList = csv(contentRatings);
+    const directorList = csvLower(directors);
+    const actorList = csvLower(actors);
+    const writerList = csvLower(writers);
+    const producerList = csvLower(producers);
+    const countryList = csvLower(countries);
+    const collectionList = csvLower(collections);
+    const studioList = csvLower(studios);
+    const editionList = csvLower(editions);
+    const labelList = csvLower(labels);
+    const yearNum = parseInt(year) || 0;
+    // Release date range (YYYY-MM-DD strings, lexicographically comparable).
+    const relFrom = releaseFrom.trim();
+    const relTo = releaseTo.trim();
+    // Duration range in minutes (UI) → milliseconds (stored).
+    const durMinMs = durationMin ? parseInt(durationMin) * 60000 : 0;
+    const durMaxMs = durationMax ? parseInt(durationMax) * 60000 : 0;
+    // Match a lowercased filter list against an item's multi-value array (any-of).
+    const someMatch = (list, arr) => {
+      if (list.length === 0) return true;
+      const lower = (arr || []).map(v => String(v).toLowerCase());
+      return list.some(v => lower.includes(v));
+    };
 
     const [movies, tv, dismissedKeys] = await Promise.all([
       plexService.getLibraryItems(plexService.MOVIES_SECTION),
@@ -261,29 +363,74 @@ router.get('/discover', async (req, res) => {
     let filtered = visiblePool.filter(item => {
       if (searchQuery && !item.title.toLowerCase().includes(searchQuery)) return false;
       if (item.audienceRating < minScoreNum) return false;
-      if (genreList.length > 0) {
-        const itemGenres = item.genres.map(g => g.toLowerCase());
-        if (!genreList.some(g => itemGenres.includes(g))) return false;
-      }
+      if (!someMatch(genreList, item.genres)) return false;
       if (decade) {
         const d = parseInt(decade);
         if (!item.year || Math.floor(item.year / 10) * 10 !== d) return false;
       }
-      if (contentRatingList.length > 0) {
-        if (!contentRatingList.includes(item.contentRating)) return false;
-      }
+      if (yearNum && item.year !== yearNum) return false;
+      if (contentRatingList.length > 0 && !contentRatingList.includes(item.contentRating)) return false;
+      if (!someMatch(directorList, item.directors)) return false;
+      if (!someMatch(actorList, item.cast)) return false;
+      if (!someMatch(writerList, item.writers)) return false;
+      if (!someMatch(producerList, item.producers)) return false;
+      if (!someMatch(countryList, item.countries)) return false;
+      if (!someMatch(collectionList, item.collections)) return false;
+      if (!someMatch(labelList, item.labels)) return false;
+      if (studioList.length > 0 && !studioList.includes(String(item.studio || '').toLowerCase())) return false;
+      if (editionList.length > 0 && !editionList.includes(String(item.edition || '').toLowerCase())) return false;
+      if (relFrom && (!item.releaseDate || item.releaseDate < relFrom)) return false;
+      if (relTo && (!item.releaseDate || item.releaseDate > relTo)) return false;
+      if (durMinMs && (item.duration || 0) < durMinMs) return false;
+      if (durMaxMs && (item.duration || 0) > durMaxMs) return false;
       return true;
     });
 
-    // Sort
+    // Sort — fetch the extra per-user data sources only for the sorts that need them.
+    let userRatings = null;
+    let viewStats = null;
+    if (sort === 'user_rating') {
+      userRatings = db.getUserRatingsFromDb(String(userId)); // Map<ratingKey, rating>
+    } else if (sort === 'date_viewed' || sort === 'plays') {
+      viewStats = await tautulliService.getViewStats(userId); // { ratingKey: {lastViewedAt, plays} }
+    }
+
     if (sort === 'rating') {
       filtered.sort((a, b) => b.audienceRating - a.audienceRating);
+    } else if (sort === 'critic_rating') {
+      filtered.sort((a, b) => (b.rating || 0) - (a.rating || 0));
+    } else if (sort === 'content_rating') {
+      const idx = r => { const i = CONTENT_RATING_ORDER_SERVER.indexOf(r); return i === -1 ? 999 : i; };
+      filtered.sort((a, b) => idx(a.contentRating) - idx(b.contentRating));
     } else if (sort === 'year_desc') {
       filtered.sort((a, b) => (b.year || 0) - (a.year || 0));
     } else if (sort === 'year_asc') {
       filtered.sort((a, b) => (a.year || 0) - (b.year || 0));
+    } else if (sort === 'release_desc') {
+      filtered.sort((a, b) => (b.releaseDate || '').localeCompare(a.releaseDate || ''));
+    } else if (sort === 'release_asc') {
+      filtered.sort((a, b) => (a.releaseDate || '').localeCompare(b.releaseDate || ''));
     } else if (sort === 'added') {
       filtered.sort((a, b) => (b.addedAt || 0) - (a.addedAt || 0));
+    } else if (sort === 'last_episode') {
+      filtered.sort((a, b) => (b.lastEpisodeAddedAt || 0) - (a.lastEpisodeAddedAt || 0));
+    } else if (sort === 'duration_desc') {
+      filtered.sort((a, b) => (b.duration || 0) - (a.duration || 0));
+    } else if (sort === 'duration_asc') {
+      filtered.sort((a, b) => (a.duration || 0) - (b.duration || 0));
+    } else if (sort === 'unwatched') {
+      // Unwatched first, then by audience rating within each group.
+      filtered.sort((a, b) => {
+        const aw = watchedKeys.has(a.ratingKey) ? 1 : 0;
+        const bw = watchedKeys.has(b.ratingKey) ? 1 : 0;
+        return aw - bw || b.audienceRating - a.audienceRating;
+      });
+    } else if (sort === 'user_rating') {
+      filtered.sort((a, b) => (userRatings.get(b.ratingKey) || 0) - (userRatings.get(a.ratingKey) || 0));
+    } else if (sort === 'date_viewed') {
+      filtered.sort((a, b) => (viewStats[b.ratingKey]?.lastViewedAt || 0) - (viewStats[a.ratingKey]?.lastViewedAt || 0));
+    } else if (sort === 'plays') {
+      filtered.sort((a, b) => (viewStats[b.ratingKey]?.plays || 0) - (viewStats[a.ratingKey]?.plays || 0));
     } else if (sort === 'title') {
       filtered.sort((a, b) => a.title.localeCompare(b.title));
     } else {
@@ -335,6 +482,69 @@ router.get('/discover/genres', async (req, res) => {
     res.json({ genres });
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch genres' });
+  }
+});
+
+// GET /api/discover/facets?field=<f>&q=<text>&limit=<n>
+// Distinct filter values computed in-memory from the cached library (no Plex call).
+// Small fields return the full (optionally q-filtered) list; high-cardinality person fields
+// (actor/director/writer/producer) require q and return the top matches for type-ahead.
+const FACET_MULTI = {
+  genre: 'genres', country: 'countries', collection: 'collections',
+  label: 'labels', actor: 'cast', director: 'directors',
+  writer: 'writers', producer: 'producers',
+};
+const FACET_SCALAR = { studio: 'studio', edition: 'edition', contentRating: 'contentRating' };
+const FACET_HIGH_CARDINALITY = new Set(['actor', 'director', 'writer', 'producer']);
+
+router.get('/discover/facets', async (req, res) => {
+  try {
+    const field = String(req.query.field || '');
+    const q = String(req.query.q || '').trim().toLowerCase();
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 30));
+
+    if (field === 'decade') {
+      const [movies, tv] = await Promise.all([
+        plexService.getLibraryItems(plexService.MOVIES_SECTION),
+        plexService.getLibraryItems(plexService.TV_SECTION),
+      ]);
+      const decades = [...new Set([...movies, ...tv]
+        .map(i => i.year ? Math.floor(i.year / 10) * 10 : null).filter(Boolean))]
+        .sort((a, b) => b - a).map(d => String(d));
+      return res.json({ values: decades });
+    }
+
+    const multiKey = FACET_MULTI[field];
+    const scalarKey = FACET_SCALAR[field];
+    if (!multiKey && !scalarKey) return res.status(400).json({ error: 'Unknown facet field' });
+
+    // High-cardinality person fields need a query to avoid returning tens of thousands of names.
+    if (FACET_HIGH_CARDINALITY.has(field) && !q) return res.json({ values: [] });
+
+    const [movies, tv] = await Promise.all([
+      plexService.getLibraryItems(plexService.MOVIES_SECTION),
+      plexService.getLibraryItems(plexService.TV_SECTION),
+    ]);
+    const pool = [...movies, ...tv];
+
+    const set = new Set();
+    for (const item of pool) {
+      if (multiKey) {
+        for (const v of (item[multiKey] || [])) { if (v && String(v).trim()) set.add(String(v)); }
+      } else {
+        const v = item[scalarKey];
+        if (v && String(v).trim()) set.add(String(v));
+      }
+    }
+
+    let values = [...set];
+    if (q) values = values.filter(v => v.toLowerCase().includes(q));
+    values.sort((a, b) => a.localeCompare(b));
+    if (FACET_HIGH_CARDINALITY.has(field)) values = values.slice(0, limit);
+
+    res.json({ values });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch facet values' });
   }
 });
 
@@ -705,6 +915,14 @@ router.get('/search/details', async (req, res) => {
       ...item,
       inLibrary: !!libItem,
       ratingKey: libItem?.ratingKey || null,
+      // Rotten Tomatoes critic/audience scores live only on the Plex library item
+      // (not TMDB), so surface them from the cross-referenced match. Lets the detail
+      // modal show the Tomatometer/Audience badges on any page that builds items
+      // from this endpoint (Reviews, profiles, deep links…), matching the library grid.
+      rating: libItem?.rating || null,
+      ratingImage: libItem?.ratingImage || null,
+      audienceRating: libItem?.audienceRating || null,
+      audienceRatingImage: libItem?.audienceRatingImage || null,
       deepLink: libItem ? plexService.getDeepLink(libItem.ratingKey) : null,
       plexAppLink: libItem ? plexService.getAppLink(libItem.ratingKey) : null,
       isInWatchlist: libItem ? watchlistKeys.has(libItem.ratingKey) : false,
@@ -1251,6 +1469,74 @@ router.get('/search/similar', async (req, res) => {
   } catch (err) {
     logger.error('search/similar error:', err.message);
     res.status(500).json({ error: 'Failed to fetch similar items' });
+  }
+});
+
+// GET /api/search/person?personId=X&hideLibrary=false
+// Returns movies/TV a person is credited on (cast or crew), enriched with local
+// library/watchlist/request status — powers the "More with X" search browse.
+router.get('/search/person', async (req, res) => {
+  const { personId, hideLibrary } = req.query;
+  if (!personId || !/^\d+$/.test(String(personId))) {
+    return res.status(400).json({ error: 'Valid personId is required' });
+  }
+  if (!db.hasTmdbKey()) return res.json({ credits: [] });
+
+  const hideLib = hideLibrary === 'true';
+  const { id: userId } = req.session.plexUser;
+  const discoverEnabled = db.isDiscoverEnabled();
+  const requestedIds = db.getAllRequestedTmdbIds();
+  const dismissedKeys = db.getDismissals(userId);
+
+  try {
+    const [movies, tv] = await Promise.all([
+      plexService.getLibraryItems(plexService.MOVIES_SECTION),
+      plexService.getLibraryItems(plexService.TV_SECTION),
+    ]);
+    const libraryByTmdb = new Map();
+    for (const item of [...movies, ...tv]) {
+      if (item.tmdbId) libraryByTmdb.set(String(item.tmdbId), item);
+    }
+    const watchedKeys = db.getWatchedKeysFromDb(String(userId));
+    const watchlistKeys = new Set(db.getWatchlistFromDb(userId));
+
+    // Same shape as /search/similar so the cards render identically client-side.
+    function buildResult(candidate) {
+      const libItem = libraryByTmdb.get(String(candidate.tmdbId));
+      if (hideLib && libItem) return null;
+      if (!discoverEnabled && !libItem) return null;
+      return {
+        tmdbId: candidate.tmdbId,
+        mediaType: candidate.mediaType,
+        title: candidate.title,
+        year: candidate.year || null,
+        releaseDate: candidate.releaseDate || null,
+        overview: candidate.overview || '',
+        posterUrl: candidate.posterUrl,
+        voteAverage: candidate.voteAverage || 0,
+        genres: candidate.genres || [],
+        contentRating: candidate.contentRating || null,
+        inLibrary: !!libItem,
+        ratingKey: libItem?.ratingKey || null,
+        deepLink: libItem ? plexService.getDeepLink(libItem.ratingKey) : null,
+        plexAppLink: libItem ? plexService.getAppLink(libItem.ratingKey) : null,
+        isInWatchlist: libItem ? watchlistKeys.has(libItem.ratingKey) : false,
+        isWatched: libItem ? watchedKeys.has(libItem.ratingKey) : false,
+        isRequested: !libItem && requestedIds.has(`${candidate.tmdbId}:${candidate.mediaType}`),
+      };
+    }
+
+    const candidates = await tmdbService.getPersonCombinedCredits(Number(personId));
+    const credits = candidates
+      .map(buildResult)
+      .filter(Boolean)
+      .filter(item => !item.ratingKey || !dismissedKeys.has(item.ratingKey))
+      .slice(0, 40);
+
+    return res.json({ credits });
+  } catch (err) {
+    logger.error('search/person error:', err.message);
+    res.status(500).json({ error: 'Failed to fetch person credits' });
   }
 });
 
@@ -2202,6 +2488,7 @@ router.get('/user/settings', (req, res) => {
     language: prefs.language,
     landing_page: prefs.landing_page,
     show_mature: prefs.show_mature,
+    review_privacy: prefs.review_privacy || 'public',
     is_admin: isAdmin,
     is_elevated: isElevated,
     discover_enabled: db.getSetting('discover_enabled', '1') === '1',
@@ -2216,11 +2503,11 @@ router.get('/user/settings', (req, res) => {
 // POST /api/user/settings — save user's own content preferences + notification prefs
 router.post('/user/settings', (req, res) => {
   const userId = req.session.plexUser.id;
-  const { region, language, landing_page, show_mature,
+  const { region, language, landing_page, show_mature, review_privacy,
           notify_approved, notify_denied, notify_available,
           discord_webhook, discord_enabled, discord_user_id, pushover_user_key, pushover_enabled,
           notify_pending, notify_auto_approved, notify_process_failed,
-          notify_issue_new, notify_issue_update, notify_issue_comment } = req.body;
+          notify_issue_new, notify_issue_update, notify_issue_comment, notify_monitor } = req.body;
   // Read current prefs so partial updates (e.g. only show_mature) don't reset other fields
   const oldPrefs = db.getUserPreferences(userId);
   const oldNotif = db.getUserNotificationPrefs(userId);
@@ -2230,8 +2517,9 @@ router.post('/user/settings', (req, res) => {
   const newShowMature  = show_mature !== undefined
     ? (show_mature === true || show_mature === 'true' || show_mature === 1)
     : oldPrefs.show_mature;
+  const newReviewPrivacy = review_privacy !== undefined ? review_privacy : oldPrefs.review_privacy;
   db.setUserPreferences(userId, {
-    region: newRegion, language: newLanguage, landing_page: newLandingPage, show_mature: newShowMature,
+    region: newRegion, language: newLanguage, landing_page: newLandingPage, show_mature: newShowMature, review_privacy: newReviewPrivacy,
   });
   // Invalidate discover pool cache if any pref that affects pool selection changed
   const poolChanged = oldPrefs.show_mature !== newShowMature
@@ -2239,6 +2527,10 @@ router.post('/user/settings', (req, res) => {
     || oldPrefs.language !== newLanguage;
   if (poolChanged) {
     try { require('../services/discoverRecommender').invalidateUserCache(userId); } catch {}
+  }
+  // Toggling review privacy changes which reviews belong in the public feed.
+  if (oldPrefs.review_privacy !== newReviewPrivacy) {
+    reviewFeed.invalidateFeedCache();
   }
   // Helper: preserve existing value when field is absent from request body
   const _b = (val, fallback) => val === undefined ? fallback : (val !== false && val !== 'false');
@@ -2259,6 +2551,7 @@ router.post('/user/settings', (req, res) => {
     notify_issue_new:      _b(notify_issue_new,      oldNotif.notify_issue_new),
     notify_issue_update:   _b(notify_issue_update,   oldNotif.notify_issue_update),
     notify_issue_comment:  _b(notify_issue_comment,  oldNotif.notify_issue_comment),
+    notify_monitor:        _b(notify_monitor,        oldNotif.notify_monitor),
   });
   res.json({ ok: true });
 });
@@ -2322,6 +2615,284 @@ router.post('/user/discord/test', async (req, res) => {
   }
 });
 
+// ── Monitors ──────────────────────────────────────────────────────────────────
+
+// GET /api/monitors — list user's monitors
+router.get('/monitors', requireAuth, (req, res) => {
+  const userId = req.session.plexUser.id;
+  const monitors = db.getMonitors(userId);
+  const result = monitors.map(m => ({
+    ...m,
+    criteria: db.getCriteria(m.id),
+  }));
+  res.json(result);
+});
+
+// POST /api/monitors — create monitor
+router.post('/monitors', requireAuth, (req, res) => {
+  const userId = req.session.plexUser.id;
+  const { name, enabled, matchMode, notifyPlex, notifyRequestable, criteria } = req.body;
+  if (!name || !name.trim()) return res.status(400).json({ error: 'Monitor name is required' });
+
+  const monitorId = db.createMonitor({
+    userId,
+    name: name.trim(),
+    enabled: enabled !== false,
+    matchMode: matchMode || 'ALL',
+    notifyPlex: notifyPlex !== false,
+    notifyRequestable: notifyRequestable !== false,
+  });
+
+  if (Array.isArray(criteria)) {
+    for (const c of criteria) {
+      if (c.type && c.entityName && monitorMatcher.VALID_CRITERION_TYPES.has(c.type)) {
+        db.createCriteria({
+          monitorId,
+          type: c.type,
+          entityId: c.entityId || null,
+          entityName: c.entityName,
+          metadata: c.metadata || null,
+        });
+      }
+    }
+  }
+
+  const monitor = db.getMonitor(monitorId, userId);
+  monitor.criteria = db.getCriteria(monitorId);
+  res.json(monitor);
+});
+
+// GET /api/monitors/:id — get monitor detail
+router.get('/monitors/:id', requireAuth, (req, res) => {
+  const userId = req.session.plexUser.id;
+  const monitor = db.getMonitor(req.params.id, userId);
+  if (!monitor) return res.status(404).json({ error: 'Monitor not found' });
+  monitor.criteria = db.getCriteria(monitor.id);
+  res.json(monitor);
+});
+
+// PUT /api/monitors/:id — update monitor
+router.put('/monitors/:id', requireAuth, (req, res) => {
+  const userId = req.session.plexUser.id;
+  const monitor = db.getMonitor(req.params.id, userId);
+  if (!monitor) return res.status(404).json({ error: 'Monitor not found' });
+
+  const { name, enabled, matchMode, notifyPlex, notifyRequestable } = req.body;
+  db.updateMonitor(monitor.id, userId, { name, enabled, matchMode, notifyPlex, notifyRequestable });
+
+  const updated = db.getMonitor(monitor.id, userId);
+  updated.criteria = db.getCriteria(monitor.id);
+  res.json(updated);
+});
+
+// DELETE /api/monitors/:id — delete monitor
+router.delete('/monitors/:id', requireAuth, (req, res) => {
+  const userId = req.session.plexUser.id;
+  const monitor = db.getMonitor(req.params.id, userId);
+  if (!monitor) return res.status(404).json({ error: 'Monitor not found' });
+  db.deleteMonitor(monitor.id, userId);
+  res.json({ ok: true });
+});
+
+// POST /api/monitors/:id/toggle — enable/disable monitor
+router.post('/monitors/:id/toggle', requireAuth, (req, res) => {
+  const userId = req.session.plexUser.id;
+  const { enabled } = req.body;
+  const monitor = db.getMonitor(req.params.id, userId);
+  if (!monitor) return res.status(404).json({ error: 'Monitor not found' });
+  db.toggleMonitor(monitor.id, userId, enabled);
+  const updated = db.getMonitor(monitor.id, userId);
+  res.json(updated);
+});
+
+// POST /api/monitors/:id/criteria — add criterion
+router.post('/monitors/:id/criteria', requireAuth, (req, res) => {
+  const userId = req.session.plexUser.id;
+  const monitor = db.getMonitor(req.params.id, userId);
+  if (!monitor) return res.status(404).json({ error: 'Monitor not found' });
+  const { type, entityId, entityName, metadata } = req.body;
+  if (!type || !entityName) return res.status(400).json({ error: 'type and entityName are required' });
+  if (!monitorMatcher.VALID_CRITERION_TYPES.has(type)) return res.status(400).json({ error: `Invalid criterion type: ${type}` });
+
+  const criteriaId = db.createCriteria({
+    monitorId: monitor.id,
+    type,
+    entityId: entityId || null,
+    entityName,
+    metadata: metadata || null,
+  });
+  const criterion = db.getCriteria(monitor.id).find(c => c.id === criteriaId);
+  res.json(criterion);
+});
+
+// DELETE /api/monitors/:id/criteria/:criteriaId — remove criterion
+router.delete('/monitors/:id/criteria/:criteriaId', requireAuth, (req, res) => {
+  const userId = req.session.plexUser.id;
+  const monitor = db.getMonitor(req.params.id, userId);
+  if (!monitor) return res.status(404).json({ error: 'Monitor not found' });
+  db.deleteCriteria(req.params.criteriaId, monitor.id);
+  res.json({ ok: true });
+});
+
+// POST /api/monitors/quick — quick-create monitor from content context
+router.post('/monitors/quick', requireAuth, (req, res) => {
+  const userId = req.session.plexUser.id;
+  const { name, criteria } = req.body;
+  if (!name || !name.trim()) return res.status(400).json({ error: 'Monitor name is required' });
+  if (!Array.isArray(criteria) || criteria.length === 0) return res.status(400).json({ error: 'At least one criterion is required' });
+
+  const monitorId = db.createMonitor({
+    userId,
+    name: name.trim(),
+    enabled: true,
+    matchMode: 'ALL',
+    notifyPlex: true,
+    notifyRequestable: true,
+  });
+
+  for (const c of criteria) {
+    if (c.type && c.entityName && monitorMatcher.VALID_CRITERION_TYPES.has(c.type)) {
+      db.createCriteria({
+        monitorId,
+        type: c.type,
+        entityId: c.entityId || null,
+        entityName: c.entityName,
+        metadata: c.metadata || null,
+      });
+    }
+  }
+
+  const monitor = db.getMonitor(monitorId, userId);
+  monitor.criteria = db.getCriteria(monitorId);
+  res.json(monitor);
+});
+
+// GET /api/monitors/criteria/suggest — autocomplete for criterion values
+router.get('/monitors/criteria/suggest', requireAuth, async (req, res) => {
+  try {
+    const { type, q, limit } = req.query;
+    const query = (q || '').trim();
+    const maxLimit = Math.min(100, Math.max(1, parseInt(limit) || 20));
+
+    if (type === 'genre') {
+      const allGenres = new Set();
+      const tmdbMovieGenres = Object.keys(tmdbService.MOVIE_GENRE_MAP || {});
+      const tmdbTvGenres = Object.keys(tmdbService.TV_GENRE_MAP || {});
+      tmdbMovieGenres.forEach(g => allGenres.add(g));
+      tmdbTvGenres.forEach(g => allGenres.add(g));
+      let results = [...allGenres].sort();
+      if (query) results = results.filter(g => g.toLowerCase().includes(query.toLowerCase()));
+      return res.json({ values: results.slice(0, maxLimit) });
+    }
+
+    if (type === 'media_type') {
+      const types = ['movie', 'tv'];
+      let results = types;
+      if (query) results = results.filter(t => t.toLowerCase().includes(query.toLowerCase()));
+      return res.json({ values: results });
+    }
+
+    if (type === 'language') {
+      const languages = ['English', 'Spanish', 'French', 'German', 'Japanese', 'Korean', 'Chinese', 'Italian', 'Portuguese', 'Russian'];
+      let results = languages.sort();
+      if (query) results = results.filter(l => l.toLowerCase().includes(query.toLowerCase()));
+      return res.json({ values: results.slice(0, maxLimit) });
+    }
+
+    if (type === 'country') {
+      const [movies, tv] = await Promise.all([
+        plexService.getLibraryItems(plexService.MOVIES_SECTION),
+        plexService.getLibraryItems(plexService.TV_SECTION),
+      ]);
+      const pool = [...movies, ...tv];
+      const set = new Set();
+      for (const item of pool) {
+        for (const c of (item.countries || [])) { if (c) set.add(c); }
+      }
+      let results = [...set].sort();
+      if (query) results = results.filter(c => c.toLowerCase().includes(query.toLowerCase()));
+      return res.json({ values: results.slice(0, maxLimit) });
+    }
+
+    // For cast, director, writer, studio, network, collection, keyword, producer
+    // Reuse the facets endpoint logic
+    const FACET_MAP = {
+      cast: 'cast', director: 'directors', writer: 'writers',
+      producer: 'producers', studio: 'studio', collection: 'collections',
+    };
+    const facetKey = FACET_MAP[type];
+    if (facetKey) {
+      const [movies, tv] = await Promise.all([
+        plexService.getLibraryItems(plexService.MOVIES_SECTION),
+        plexService.getLibraryItems(plexService.TV_SECTION),
+      ]);
+      const pool = [...movies, ...tv];
+      const set = new Set();
+      for (const item of pool) {
+        const val = item[facetKey];
+        if (Array.isArray(val)) {
+          for (const v of val) { if (v) set.add(String(v)); }
+        } else if (val) {
+          set.add(String(val));
+        }
+      }
+      let results = [...set].sort();
+      if (query) results = results.filter(v => v.toLowerCase().includes(query.toLowerCase()));
+      return res.json({ values: results.slice(0, maxLimit) });
+    }
+
+    // Network: use studio field from library
+    if (type === 'network') {
+      const tv = await plexService.getLibraryItems(plexService.TV_SECTION);
+      const set = new Set();
+      for (const item of tv) {
+        if (item.studio) set.add(item.studio);
+      }
+      let results = [...set].sort();
+      if (query) results = results.filter(v => v.toLowerCase().includes(query.toLowerCase()));
+      return res.json({ values: results.slice(0, maxLimit) });
+    }
+
+    // Keyword: search TMDB cache
+    if (type === 'keyword' && query) {
+      const items = db.getAllTmdbCacheItems();
+      const set = new Set();
+      for (const item of items) {
+        if (item.keywords && Array.isArray(item.keywords)) {
+          for (const kw of item.keywords) {
+            if (kw && kw.toLowerCase().includes(query.toLowerCase())) set.add(kw);
+          }
+        }
+      }
+      return res.json({ values: [...set].sort().slice(0, maxLimit) });
+    }
+
+    res.json({ values: [] });
+  } catch (err) {
+    res.json({ values: [] });
+  }
+});
+
+// POST /api/monitors/evaluate — manual evaluation trigger (admin only)
+router.post('/monitors/evaluate', requireAuth, async (req, res) => {
+  const userId = req.session.plexUser.id;
+  const isAdmin = db.isAdminUser(userId);
+  if (!isAdmin) return res.status(403).json({ error: 'Admin only' });
+
+  try {
+    const [movies, tv] = await Promise.all([
+      plexService.getLibraryItems(plexService.MOVIES_SECTION),
+      plexService.getLibraryItems(plexService.TV_SECTION),
+    ]);
+    const contents = [...movies, ...tv].map(monitorMatcher.buildContentFromLibrary);
+    const matches = await monitorMatcher.evaluateBatch(contents, 'plex');
+    await monitorNotifier.sendMatches(matches, 'plex');
+    res.json({ ok: true, matches: matches.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/admin/rebuild-pool — force rebuild discover candidate pools + tmdb_cache
 router.post('/admin/rebuild-pool', requireAuth, async (req, res) => {
   if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
@@ -2336,6 +2907,959 @@ router.post('/admin/rebuild-pool', requireAuth, async (req, res) => {
   } catch (err) {
     console.error('[admin] Pool rebuild failed:', err);
     res.status(500).json({ error: 'Rebuild failed: ' + err.message });
+  }
+});
+
+// ── Watch History ─────────────────────────────────────────────────────────────
+
+// GET /api/history — user's watch history from Tautulli
+router.get('/history', async (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  const userId = String(req.session.plexUser.id);
+  const isAdmin = !!(req.session.isAdmin || req.session.isPlexAdminUser)
+    || db.getPrivilegedUserIds().includes(userId);
+
+  const {
+    mediaType = 'all',
+    startDate = '',
+    endDate = '',
+    watchedStatus = 'all',
+    search = '',
+    sortBy = 'date',
+    sortDir = 'desc',
+    page = '1',
+    perPage = '25',
+    userIds = '',
+    reviewedOnly = '',
+  } = req.query;
+
+  // "Reviewed only" filters to rows the requester has personally reviewed (reviews
+  // are always own-only, even for admins viewing the aggregate).
+  const reviewedByUserId = (reviewedOnly === '1' || reviewedOnly === 'true') ? userId : null;
+
+  // Admins see an aggregate of all users by default; an explicit `userIds`
+  // whitelist (comma-separated) narrows it down. Standard users only ever see
+  // their own history regardless of the params they send.
+  const includeUserIds = isAdmin && userIds
+    ? String(userIds).split(',').map(s => s.trim()).filter(Boolean)
+    : null;
+  // Non-admins are locked to their own rows; admins query the aggregate.
+  const ownUserId = isAdmin ? null : userId;
+
+  const pageNum = Math.max(1, parseInt(page) || 1);
+  const perPageNum = Math.min(100, Math.max(1, parseInt(perPage) || 25));
+
+  // History is served from the local cache (populated by a background sync). On a
+  // cold start with nothing cached yet, prime it once so the first load isn't empty.
+  if (db.getWatchHistoryCount() === 0 && db.getSyncTime('watch_history') === 0) {
+    try { await tautulliService.syncWatchHistory(); } catch { /* fall through to empty */ }
+  }
+
+  const result = db.queryWatchHistory({
+    ownUserId,
+    includeUserIds,
+    mediaType,
+    // Frontend sends date filters in ms; the cache stores watched_at in seconds.
+    startDate: startDate ? Math.floor(parseInt(startDate) / 1000) : null,
+    endDate: endDate ? Math.floor(parseInt(endDate) / 1000) : null,
+    watchedStatus,
+    search: search.trim(),
+    sortBy,
+    sortDir,
+    page: pageNum,
+    perPage: perPageNum,
+    reviewedByUserId,
+  });
+
+  // Enrich each item (and, for grouped shows, each child episode) with TMDB ids,
+  // the requester's own review, avatar, and a proxied poster.
+  const enrich = (item) => {
+    const libItem = db.getLibraryItemByKey(item.ratingKey);
+    const parentLib = item.grandparentRatingKey ? db.getLibraryItemByKey(item.grandparentRatingKey) : null;
+    const effectiveLib = libItem || parentLib;
+    const tmdbId = effectiveLib?.tmdbId || null;
+    // Reviews apply to any matched library item. Items with a TMDB id are keyed by
+    // it; items without one (e.g. YouTube/abridged content) fall back to the Plex
+    // rating_key so they can still be reviewed.
+    const mediaTypeForReview = effectiveLib
+      ? (effectiveLib.type === 'show' ? 'tv' : 'movie')
+      : null;
+    const reviewTmdbId = tmdbId ? Number(tmdbId) : null;
+    const reviewRatingKey = effectiveLib?.ratingKey || null;
+
+    // A row is "own" when it belongs to the requesting user. Reviews and review
+    // controls only ever apply to your own watched content — admins never see or
+    // touch other users' reviews.
+    const isOwnWatch = item.userId == null || String(item.userId) === userId;
+
+    let review = null;
+    if (isOwnWatch && mediaTypeForReview) {
+      if (reviewTmdbId) review = db.getReview(userId, mediaTypeForReview, reviewTmdbId);
+      else if (reviewRatingKey) review = db.getReviewByRatingKey(userId, reviewRatingKey);
+    }
+
+    // Tautulli user_thumb is typically an absolute avatar URL; only Plex
+    // /library/ paths need to be proxied (the poster proxy rejects everything else).
+    let userAvatarUrl = null;
+    if (item.userThumb) {
+      if (/^https?:\/\//i.test(item.userThumb)) userAvatarUrl = item.userThumb;
+      else if (item.userThumb.startsWith('/library/')) userAvatarUrl = `/api/poster?path=${encodeURIComponent(item.userThumb)}`;
+    }
+
+    return {
+      ...item,
+      // duration stays in seconds (actual time watched); no runtime fallback.
+      duration: item.duration || 0,
+      tmdbId: reviewTmdbId,
+      reviewMediaType: mediaTypeForReview,
+      reviewRatingKey,
+      contentRating: effectiveLib?.contentRating || null,
+      isOwnWatch,
+      userAvatarUrl,
+      review: review ? {
+        id: review.id,
+        rating: review.rating,
+        reviewText: review.review_text,
+        spoiler: !!review.spoiler,
+        rewatch: !!review.rewatch,
+      } : null,
+      posterUrl: item.thumb ? `/api/poster?path=${encodeURIComponent(item.thumb)}` : null,
+      children: Array.isArray(item.children) ? item.children.map(enrich) : undefined,
+    };
+  };
+
+  const items = result.items.map(enrich);
+
+  res.json({ ...result, items });
+});
+
+// GET /api/history/users — users present in cached history (admin only)
+router.get('/history/users', (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  const isAdmin = !!(req.session.isAdmin || req.session.isPlexAdminUser)
+    || db.getPrivilegedUserIds().includes(String(req.session.plexUser.id));
+  if (!isAdmin) return res.status(403).json({ error: 'Forbidden' });
+
+  try {
+    res.json({ users: db.getWatchHistoryUsers() });
+  } catch (err) {
+    res.json({ users: [] });
+  }
+});
+
+// ── Reviews ───────────────────────────────────────────────────────────────────
+
+// GET /api/reviews — current user's reviews
+router.get('/reviews', (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  const userId = String(req.session.plexUser.id);
+  const { page = '1', perPage = '50' } = req.query;
+  const pageNum = Math.max(1, parseInt(page) || 1);
+  const perPageNum = Math.min(100, Math.max(1, parseInt(perPage) || 50));
+  const reviews = db.getUserReviews(userId, perPageNum, (pageNum - 1) * perPageNum);
+  const total = db.getUserReviewsCount(userId);
+  res.json({
+    reviews: reviews.map(r => ({
+      id: r.id,
+      mediaType: r.media_type,
+      tmdbId: r.tmdb_id,
+      title: r.title,
+      year: r.year,
+      rating: r.rating,
+      reviewText: r.review_text,
+      spoiler: !!r.spoiler,
+      rewatch: !!r.rewatch,
+      watchedDate: r.watched_date,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+    })),
+    total,
+    page: pageNum,
+    totalPages: Math.ceil(total / perPageNum) || 1,
+  });
+});
+
+// GET /api/reviews/:mediaType/:tmdbId — check for existing review
+router.get('/reviews/:mediaType/:tmdbId', (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  const { mediaType, tmdbId } = req.params;
+  if (!['movie', 'tv'].includes(mediaType)) return res.status(400).json({ error: 'Invalid mediaType' });
+  const review = db.getReview(String(req.session.plexUser.id), mediaType, Number(tmdbId));
+  if (!review) return res.status(404).json({ error: 'Review not found' });
+  res.json({
+    id: review.id,
+    mediaType: review.media_type,
+    tmdbId: review.tmdb_id,
+    title: review.title,
+    year: review.year,
+    rating: review.rating,
+    reviewText: review.review_text,
+    spoiler: !!review.spoiler,
+    rewatch: !!review.rewatch,
+    watchedDate: review.watched_date,
+    tmdbSyncedRating: review.tmdb_synced_rating ?? null,
+    createdAt: review.created_at,
+    updatedAt: review.updated_at,
+  });
+});
+
+// POST /api/reviews — create or update review
+router.post('/reviews', async (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  const userId = String(req.session.plexUser.id);
+  const { mediaType, tmdbId, ratingKey, title, year, rating, reviewText, spoiler, rewatch, watchedDate } = req.body;
+
+  if (!mediaType || (tmdbId == null && !ratingKey) || rating == null || !watchedDate) {
+    return res.status(400).json({ error: 'mediaType, (tmdbId or ratingKey), rating, and watchedDate are required' });
+  }
+  if (!['movie', 'tv'].includes(mediaType)) return res.status(400).json({ error: 'Invalid mediaType' });
+  const ratingNum = Number(rating);
+  if (ratingNum < 0.5 || ratingNum > 5.0 || ratingNum % 0.5 !== 0) {
+    return res.status(400).json({ error: 'Rating must be between 0.5 and 5.0 in 0.5 increments' });
+  }
+
+  // You may only review content you have actually watched. Resolve the library
+  // item — by TMDB id, or by Plex rating_key for items with no TMDB match — then
+  // confirm it appears in the user's own Tautulli history (movie rating_key / show
+  // grandparent_rating_key). Enforced here so it can't be bypassed via the API.
+  const lib = tmdbId != null
+    ? db.getLibraryItemByTmdbId(Number(tmdbId))
+    : db.getLibraryItemByKey(String(ratingKey));
+  if (!lib) {
+    return res.status(403).json({ error: 'You can only review content you have watched' });
+  }
+  // getLibraryItemByTmdbId returns a raw row (rating_key); getLibraryItemByKey
+  // returns a mapped item (ratingKey).
+  const libRatingKey = String(lib.rating_key ?? lib.ratingKey);
+  const watchedKeys = mediaType === 'movie'
+    ? await tautulliService.getWatchedMovieKeys(userId)
+    : await tautulliService.getWatchedShowKeys(userId);
+  if (!watchedKeys.has(libRatingKey)) {
+    return res.status(403).json({ error: 'You can only review content you have watched' });
+  }
+
+  db.createReview({
+    userId,
+    mediaType,
+    tmdbId: tmdbId != null ? Number(tmdbId) : null,
+    ratingKey: tmdbId != null ? null : libRatingKey,
+    title: title || '',
+    year: year != null ? Number(year) : null,
+    rating: ratingNum,
+    reviewText: reviewText || '',
+    spoiler: !!spoiler,
+    rewatch: !!rewatch,
+    watchedDate: Number(watchedDate),
+  });
+
+  recommender.invalidateUserCache(userId);
+  reviewFeed.invalidateFeedCache();
+
+  // Mirror the rating into the user's personal Plex rating (0.5–5 → 0–10 scale).
+  // Best-effort; never blocks the response.
+  plexService.setUserRating(userId, libRatingKey, ratingNum * 2).catch(() => {});
+
+  const review = tmdbId != null
+    ? db.getReview(userId, mediaType, Number(tmdbId))
+    : db.getReviewByRatingKey(userId, libRatingKey);
+  reviewCardCache.invalidate(review.id);
+  res.json({
+    id: review.id,
+    mediaType: review.media_type,
+    tmdbId: review.tmdb_id,
+    ratingKey: review.rating_key,
+    title: review.title,
+    year: review.year,
+    rating: review.rating,
+    reviewText: review.review_text,
+    spoiler: !!review.spoiler,
+    rewatch: !!review.rewatch,
+    watchedDate: review.watched_date,
+    tmdbSyncedRating: review.tmdb_synced_rating ?? null,
+  });
+});
+
+// PUT /api/reviews/:id — update review
+router.put('/reviews/:id', (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  const userId = String(req.session.plexUser.id);
+  const review = db.getReviewById(Number(req.params.id));
+  if (!review) return res.status(404).json({ error: 'Review not found' });
+  if (review.user_id !== userId) return res.status(403).json({ error: 'Forbidden' });
+
+  const { title, year, rating, reviewText, spoiler, rewatch } = req.body;
+  if (rating != null) {
+    const ratingNum = Number(rating);
+    if (ratingNum < 0.5 || ratingNum > 5.0 || ratingNum % 0.5 !== 0) {
+      return res.status(400).json({ error: 'Rating must be between 0.5 and 5.0 in 0.5 increments' });
+    }
+  }
+
+  db.updateReview(review.id, userId, { title, year, rating, reviewText, spoiler, rewatch });
+  recommender.invalidateUserCache(userId);
+  reviewFeed.invalidateFeedCache();
+  reviewCardCache.invalidate(review.id);
+  const updated = db.getReviewById(review.id);
+
+  // Push the (possibly changed) rating to the user's personal Plex rating.
+  if (rating != null) {
+    const pushKey = updated.rating_key || db.getLibraryItemByTmdbId(updated.tmdb_id)?.rating_key;
+    if (pushKey) plexService.setUserRating(userId, String(pushKey), Number(updated.rating) * 2).catch(() => {});
+  }
+
+  res.json({
+    id: updated.id,
+    mediaType: updated.media_type,
+    tmdbId: updated.tmdb_id,
+    ratingKey: updated.rating_key,
+    title: updated.title,
+    year: updated.year,
+    rating: updated.rating,
+    reviewText: updated.review_text,
+    spoiler: !!updated.spoiler,
+    rewatch: !!updated.rewatch,
+    watchedDate: updated.watched_date,
+    tmdbSyncedRating: updated.tmdb_synced_rating ?? null,
+  });
+});
+
+// DELETE /api/reviews/:id
+router.delete('/reviews/:id', (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  const userId = String(req.session.plexUser.id);
+  const review = db.getReviewById(Number(req.params.id));
+  if (!review) return res.status(404).json({ error: 'Review not found' });
+  if (review.user_id !== userId) return res.status(403).json({ error: 'Forbidden' });
+
+  // Clear the user's personal Plex rating (the review was the source of truth).
+  const pushKey = review.rating_key || db.getLibraryItemByTmdbId(review.tmdb_id)?.rating_key;
+  if (pushKey) plexService.setUserRating(userId, String(pushKey), -1).catch(() => {});
+
+  db.deleteReview(review.id, userId);
+  recommender.invalidateUserCache(userId);
+  reviewFeed.invalidateFeedCache();
+  reviewCardCache.invalidate(review.id);
+  res.json({ success: true });
+});
+
+// ── Social Review Feed ────────────────────────────────────────────────────────
+
+// GET /api/reviews/feed — public review feed
+router.get('/reviews/feed', (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  const currentUserId = String(req.session.plexUser.id);
+  const { page = '1', perPage = '20', followedOnly = 'false' } = req.query;
+  const pageNum = Math.max(1, parseInt(page) || 1);
+  const perPageNum = Math.min(100, Math.max(1, parseInt(perPage) || 20));
+  const offset = (pageNum - 1) * perPageNum;
+  const followedSet = new Set(db.getFollowedUserIds(currentUserId));
+
+  // The global feed is a shared, user-independent dataset (counts are denormalized
+  // columns) so it's served from the in-memory cache. The followed-only feed is
+  // per-user, so it stays a live query.
+  let reviews;
+  let total;
+  if (followedOnly === 'true') {
+    const followedUserIds = Array.from(followedSet);
+    reviews = db.getPublicReviews(perPageNum, offset, followedUserIds);
+    total = db.getPublicReviewsCount(followedUserIds);
+  } else {
+    const cached = reviewFeed.getGlobalFeedPage(perPageNum, offset);
+    if (cached) {
+      reviews = cached.rows;
+      total = cached.total;
+    } else {
+      // Deep pagination past the cached window — fall back to the DB.
+      reviews = db.getPublicReviews(perPageNum, offset, null);
+      total = db.getPublicReviewsCount(null);
+    }
+  }
+
+  // Overlay the per-user flag that can't be cached: did *this* viewer react?
+  const reactedSet = new Set(db.getUserReactedReviewIds(currentUserId, reviews.map(r => r.id)));
+
+  res.json({
+    reviews: reviews.map(r => ({
+      id: r.id,
+      userId: r.user_id,
+      username: r.username || r.user_id,
+      userAvatar: r.thumb || null,
+      mediaType: r.media_type,
+      tmdbId: r.tmdb_id,
+      title: r.title,
+      year: r.year,
+      posterUrl: r.poster_url || null,
+      contentRating: r.content_rating || '',
+      rating: r.rating,
+      reviewText: r.review_text,
+      spoiler: !!r.spoiler,
+      rewatch: !!r.rewatch,
+      watchedDate: r.watched_date,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+      reactionCount: r.reaction_count || 0,
+      commentCount: r.comment_count || 0,
+      hasReacted: reactedSet.has(r.id),
+      isOwn: r.user_id === currentUserId,
+      isFollowing: followedSet.has(r.user_id),
+    })),
+    total,
+    page: pageNum,
+    totalPages: Math.ceil(total / perPageNum) || 1,
+  });
+});
+
+// GET /api/reviews/:id — single review by ID (for feed detail / share link)
+router.get('/reviews/:id', (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  const currentUserId = String(req.session.plexUser.id);
+  const review = db.getReviewById(Number(req.params.id));
+  if (!review) return res.status(404).json({ error: 'Review not found' });
+  // Check privacy
+  const prefs = db.getUserPreferences(review.user_id);
+  if (prefs.review_privacy === 'private' && review.user_id !== currentUserId) {
+    return res.status(404).json({ error: 'Review not found' });
+  }
+  const ku = db.prepare('SELECT username, thumb FROM known_users WHERE user_id = ?').get(review.user_id);
+  const reactionCount = db.getReviewReactionCount(review.id);
+  const commentCount = db.getReviewCommentCount(review.id);
+  const hasReacted = db.hasUserReacted(review.id, currentUserId);
+  const followedSet = new Set(db.getFollowedUserIds(currentUserId));
+  // Resolve poster + content rating from the matching library item
+  const lib = review.tmdb_id != null ? db.getLibraryItemByTmdbId(review.tmdb_id) : null;
+  const thumbPath = lib?.thumb || lib?.art || null;
+  const posterUrl = thumbPath
+    ? (thumbPath.startsWith('http') ? thumbPath : `/api/poster?path=${encodeURIComponent(thumbPath)}`)
+    : null;
+  res.json({
+    id: review.id,
+    userId: review.user_id,
+    username: ku?.username || review.user_id,
+    userAvatar: ku?.thumb || null,
+    mediaType: review.media_type,
+    tmdbId: review.tmdb_id,
+    title: review.title,
+    year: review.year,
+    posterUrl,
+    contentRating: lib?.content_rating || '',
+    rating: review.rating,
+    reviewText: review.review_text,
+    spoiler: !!review.spoiler,
+    rewatch: !!review.rewatch,
+    watchedDate: review.watched_date,
+    createdAt: review.created_at,
+    updatedAt: review.updated_at,
+    reactionCount,
+    commentCount,
+    hasReacted,
+    isOwn: review.user_id === currentUserId,
+    isFollowing: followedSet.has(review.user_id),
+  });
+});
+
+// POST /api/reviews/:id/react — toggle reaction
+router.post('/reviews/:id/react', (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  const currentUserId = String(req.session.plexUser.id);
+  const review = db.getReviewById(Number(req.params.id));
+  if (!review) return res.status(404).json({ error: 'Review not found' });
+  // Check privacy
+  const prefs = db.getUserPreferences(review.user_id);
+  if (prefs.review_privacy === 'private') {
+    return res.status(403).json({ error: 'Cannot react to private reviews' });
+  }
+  const reacted = db.toggleReaction(review.id, currentUserId);
+  const count = db.getReviewReactionCount(review.id);
+  reviewFeed.invalidateFeedCache();
+  res.json({ reacted, count });
+});
+
+// GET /api/reviews/:id/reactions — reaction info
+router.get('/reviews/:id/reactions', (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  const currentUserId = String(req.session.plexUser.id);
+  const review = db.getReviewById(Number(req.params.id));
+  if (!review) return res.status(404).json({ error: 'Review not found' });
+  // Don't leak reaction info for private reviews (parity with /comments and /react).
+  const prefs = db.getUserPreferences(review.user_id);
+  if (prefs.review_privacy === 'private' && review.user_id !== currentUserId) {
+    return res.status(404).json({ error: 'Review not found' });
+  }
+  res.json({
+    count: db.getReviewReactionCount(review.id),
+    hasReacted: db.hasUserReacted(review.id, currentUserId),
+  });
+});
+
+// ── Review Comments ───────────────────────────────────────────────────────────
+
+// GET /api/reviews/:id/comments
+router.get('/reviews/:id/comments', (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  const currentUserId = String(req.session.plexUser.id);
+  const review = db.getReviewById(Number(req.params.id));
+  if (!review) return res.status(404).json({ error: 'Review not found' });
+  const prefs = db.getUserPreferences(review.user_id);
+  if (prefs.review_privacy === 'private' && review.user_id !== currentUserId) {
+    return res.status(404).json({ error: 'Review not found' });
+  }
+  const comments = db.getReviewComments(review.id);
+  const authorIds = [...new Set(comments.map(c => c.user_id))];
+  const kuRows = authorIds.length
+    ? db.prepare('SELECT user_id, username, thumb FROM known_users WHERE user_id IN (' + authorIds.map(() => '?').join(',') + ')').all(...authorIds)
+    : [];
+  const kuMap = {};
+  for (const ku of kuRows) kuMap[ku.user_id] = ku;
+  res.json({
+    comments: comments.map(c => ({
+      id: c.id,
+      userId: c.user_id,
+      username: kuMap[c.user_id]?.username || c.user_id,
+      userAvatar: kuMap[c.user_id]?.thumb || null,
+      body: c.body,
+      parentId: c.parent_id,
+      createdAt: c.created_at,
+      updatedAt: c.updated_at,
+      isOwn: c.user_id === currentUserId,
+    })),
+  });
+});
+
+// POST /api/reviews/:id/comments
+router.post('/reviews/:id/comments', (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  const currentUserId = String(req.session.plexUser.id);
+  const review = db.getReviewById(Number(req.params.id));
+  if (!review) return res.status(404).json({ error: 'Review not found' });
+  const prefs = db.getUserPreferences(review.user_id);
+  if (prefs.review_privacy === 'private') {
+    return res.status(403).json({ error: 'Cannot comment on private reviews' });
+  }
+  const { body, parentId } = req.body;
+  if (!body || !String(body).trim()) {
+    return res.status(400).json({ error: 'Comment body is required' });
+  }
+  if (String(body).length > 1000) {
+    return res.status(400).json({ error: 'Comment must be 1000 characters or less' });
+  }
+  // Validate parentId if provided
+  let validParentId = null;
+  if (parentId) {
+    const parent = db.getReviewComment(Number(parentId));
+    if (!parent || parent.review_id !== review.id) {
+      return res.status(400).json({ error: 'Invalid parent comment' });
+    }
+    validParentId = Number(parentId);
+  }
+  const result = db.createReviewComment(review.id, currentUserId, body, validParentId);
+  reviewFeed.invalidateFeedCache();
+  const comment = db.getReviewComment(result.lastInsertRowid);
+  const ku = db.prepare('SELECT username, thumb FROM known_users WHERE user_id = ?').get(currentUserId);
+  res.status(201).json({
+    id: comment.id,
+    userId: comment.user_id,
+    username: ku?.username || currentUserId,
+    userAvatar: ku?.thumb || null,
+    body: comment.body,
+    parentId: comment.parent_id,
+    createdAt: comment.created_at,
+    isOwn: true,
+  });
+});
+
+// PUT /api/reviews/comments/:commentId
+router.put('/reviews/comments/:commentId', (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  const currentUserId = String(req.session.plexUser.id);
+  const comment = db.getReviewComment(Number(req.params.commentId));
+  if (!comment) return res.status(404).json({ error: 'Comment not found' });
+  if (comment.user_id !== currentUserId) return res.status(403).json({ error: 'Forbidden' });
+  const { body } = req.body;
+  if (!body || !String(body).trim()) {
+    return res.status(400).json({ error: 'Comment body is required' });
+  }
+  if (String(body).length > 1000) {
+    return res.status(400).json({ error: 'Comment must be 1000 characters or less' });
+  }
+  db.updateReviewComment(comment.id, currentUserId, body);
+  const updated = db.getReviewComment(comment.id);
+  res.json({
+    id: updated.id,
+    body: updated.body,
+    updatedAt: updated.updated_at,
+  });
+});
+
+// DELETE /api/reviews/comments/:commentId
+router.delete('/reviews/comments/:commentId', (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  const currentUserId = String(req.session.plexUser.id);
+  const comment = db.getReviewComment(Number(req.params.commentId));
+  if (!comment) return res.status(404).json({ error: 'Comment not found' });
+  if (comment.user_id !== currentUserId) return res.status(403).json({ error: 'Forbidden' });
+  db.deleteReviewComment(comment.id, currentUserId);
+  reviewFeed.invalidateFeedCache();
+  res.json({ success: true });
+});
+
+// ── Follow System ─────────────────────────────────────────────────────────────
+
+// POST /api/users/init-follows — seed default follows on first visit
+router.post('/users/init-follows', (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  const userId = String(req.session.plexUser.id);
+  db.seedDefaultFollows(userId);
+  res.json({ ok: true });
+});
+
+// POST /api/users/:userId/follow
+router.post('/users/:userId/follow', (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  const followerId = String(req.session.plexUser.id);
+  const followeeId = String(req.params.userId);
+  if (followerId === followeeId) return res.status(400).json({ error: 'Cannot follow yourself' });
+  const target = db.prepare('SELECT 1 FROM known_users WHERE user_id = ?').get(followeeId);
+  if (!target) return res.status(404).json({ error: 'User not found' });
+  db.followUser(followerId, followeeId);
+  res.json({ following: true });
+});
+
+// DELETE /api/users/:userId/follow
+router.delete('/users/:userId/follow', (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  const followerId = String(req.session.plexUser.id);
+  const followeeId = String(req.params.userId);
+  if (followerId === followeeId) return res.status(400).json({ error: 'Cannot unfollow yourself' });
+  db.unfollowUser(followerId, followeeId);
+  res.json({ following: false });
+});
+
+// GET /api/users/:userId/following — check if current user follows target
+router.get('/users/:userId/following', (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  const followerId = String(req.session.plexUser.id);
+  const followeeId = String(req.params.userId);
+  res.json({ following: db.isFollowing(followerId, followeeId) });
+});
+
+// GET /api/users/:userId/followers — list followers
+router.get('/users/:userId/followers', (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  const userId = String(req.params.userId);
+  const followerIds = db.getFollowers(userId);
+  const kuRows = db.prepare('SELECT user_id, username, thumb FROM known_users WHERE user_id IN (' + followerIds.map(() => '?').join(',') + ')').all(...followerIds);
+  const kuMap = {};
+  for (const ku of kuRows) kuMap[ku.user_id] = ku;
+  res.json({
+    followers: followerIds.map(fid => ({
+      userId: fid,
+      username: kuMap[fid]?.username || fid,
+      thumb: kuMap[fid]?.thumb || null,
+    })),
+    count: followerIds.length,
+  });
+});
+
+// GET /api/users/:userId/following-list — list who user follows
+router.get('/users/:userId/following-list', (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  const userId = String(req.params.userId);
+  const followingIds = db.getFollowing(userId);
+  const kuRows = db.prepare('SELECT user_id, username, thumb FROM known_users WHERE user_id IN (' + followingIds.map(() => '?').join(',') + ')').all(...followingIds);
+  const kuMap = {};
+  for (const ku of kuRows) kuMap[ku.user_id] = ku;
+  res.json({
+    following: followingIds.map(fid => ({
+      userId: fid,
+      username: kuMap[fid]?.username || fid,
+      thumb: kuMap[fid]?.thumb || null,
+    })),
+    count: followingIds.length,
+  });
+});
+
+// GET /api/users/follow-stats — batch follow stats for multiple users
+router.get('/users/follow-stats', (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  const { userIds } = req.query;
+  if (!userIds) return res.json({});
+  const ids = Array.isArray(userIds) ? userIds : String(userIds).split(',');
+  res.json(db.getFollowStats(ids));
+});
+
+// GET /api/users/:userId/profile — get a user's profile
+router.get('/users/:userId/profile', (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  const targetId = String(req.params.userId);
+  const profile = db.getUserProfile(targetId);
+  if (!profile) return res.status(404).json({ error: 'User not found' });
+  const currentUserId = String(req.session.plexUser.id);
+  const isOwn = targetId === currentUserId;
+  const isFollowing = isOwn ? false : db.isFollowing(currentUserId, targetId);
+  res.json({ ...profile, isOwn, isFollowing });
+});
+
+// PUT /api/users/profile — update current user's profile
+router.put('/users/profile', (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  const userId = String(req.session.plexUser.id);
+  const { bio, favoriteGenres, favoriteMedia } = req.body || {};
+  if (bio !== undefined && typeof bio !== 'string') return res.status(400).json({ error: 'bio must be a string' });
+  if (favoriteGenres !== undefined && !Array.isArray(favoriteGenres)) return res.status(400).json({ error: 'favoriteGenres must be an array' });
+  if (favoriteMedia !== undefined && !Array.isArray(favoriteMedia)) return res.status(400).json({ error: 'favoriteMedia must be an array' });
+  if (favoriteGenres && favoriteGenres.length > 5) return res.status(400).json({ error: 'Maximum 5 favorite genres allowed' });
+  if (favoriteMedia && favoriteMedia.length > 5) return res.status(400).json({ error: 'Maximum 5 favorite media items allowed' });
+  db.updateUserProfile(userId, { bio, favoriteGenres, favoriteMedia });
+  res.json(db.getUserProfile(userId));
+});
+
+// GET /api/users/:userId/reviews — get a user's public reviews (paginated)
+router.get('/users/:userId/reviews', (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  const targetId = String(req.params.userId);
+  const currentUserId = String(req.session.plexUser.id);
+  const { page = '1', perPage = '20' } = req.query;
+  const pageNum = Math.max(1, parseInt(page) || 1);
+  const perPageNum = Math.min(100, Math.max(1, parseInt(perPage) || 20));
+  const offset = (pageNum - 1) * perPageNum;
+  const isOwn = targetId === currentUserId;
+  if (!isOwn) {
+    const prefs = db.getUserPreferences(targetId);
+    if (prefs.review_privacy === 'private') {
+      return res.json({ reviews: [], total: 0, page: pageNum, totalPages: 1 });
+    }
+  }
+  const reviews = db.getUserPublicReviews(targetId, perPageNum, offset);
+  const total = db.getUserPublicReviewsCount(targetId);
+  const followedSet = new Set(db.getFollowedUserIds(currentUserId));
+  const reactedSet = new Set(db.getUserReactedReviewIds(currentUserId, reviews.map(r => r.id)));
+  res.json({
+    reviews: reviews.map(r => ({
+      id: r.id,
+      userId: r.user_id,
+      username: r.username || r.user_id,
+      userAvatar: r.thumb || null,
+      mediaType: r.media_type,
+      tmdbId: r.tmdb_id,
+      title: r.title,
+      year: r.year,
+      posterUrl: r.poster_url || null,
+      contentRating: r.content_rating || '',
+      rating: r.rating,
+      reviewText: r.review_text,
+      spoiler: !!r.spoiler,
+      rewatch: !!r.rewatch,
+      watchedDate: r.watched_date,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+      reactionCount: r.reaction_count || 0,
+      commentCount: r.comment_count || 0,
+      hasReacted: reactedSet.has(r.id),
+      isOwn: r.user_id === currentUserId,
+      isFollowing: followedSet.has(r.user_id),
+    })),
+    total,
+    page: pageNum,
+    totalPages: Math.ceil(total / perPageNum) || 1,
+  });
+});
+
+// ── TMDB Per-User Integration ─────────────────────────────────────────────────
+
+function getAppUrl(req) {
+  return process.env.APP_URL || req.appUrl || `${req.protocol}://${req.get('host')}`;
+}
+
+function isInternalUrl(url) {
+  try {
+    const u = new URL(url);
+    const h = u.hostname.toLowerCase();
+    return h === 'localhost' || h === '127.0.0.1' || h.startsWith('192.168.') ||
+      h.startsWith('10.') || h.startsWith('172.16.') || h.endsWith('.local') ||
+      h.includes('internal');
+  } catch {
+    return true;
+  }
+}
+
+// GET /api/tmdb/connection — get current user's TMDB connection status (no secrets)
+router.get('/tmdb/connection', (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  const userId = String(req.session.plexUser.id);
+  const conn = db.getTmdbConnection(userId);
+  if (!conn) {
+    return res.json({ connected: false });
+  }
+  res.json({
+    connected: true,
+    accountId: conn.account_id,
+    status: conn.status,
+    connectedAt: new Date(conn.connected_at * 1000).toISOString(),
+    lastVerifiedAt: conn.last_verified_at ? new Date(conn.last_verified_at * 1000).toISOString() : null,
+  });
+});
+
+// POST /api/tmdb/connect/initiate — start OAuth flow, return auth URL
+router.post('/tmdb/connect/initiate', async (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  try {
+    const { requestToken, expiresAt } = await tmdbIntegration.createRequestToken();
+    const callbackUrl = `${getAppUrl(req)}/api/tmdb/connect/callback`;
+    const authUrl = `https://www.themoviedb.org/authenticate/${requestToken}?redirect_to=${encodeURIComponent(callbackUrl)}`;
+
+    if (isInternalUrl(callbackUrl)) {
+      console.warn(`[tmdb] Callback URL appears to be internal: ${callbackUrl}. TMDB won't be able to reach it.`);
+    }
+
+    req.session._tmdbRequestToken = requestToken;
+    res.json({ authUrl, expiresAt });
+  } catch (err) {
+    if (err.message === 'TMDB API key not configured') {
+      return res.status(503).json({ error: 'TMDB API key not configured by admin' });
+    }
+    console.error('[tmdb] Failed to create request token:', err);
+    res.status(500).json({ error: 'Failed to initiate TMDB connection: ' + err.message });
+  }
+});
+
+// GET /api/tmdb/connect/callback?request_token=xxx&approved=true — exchange request token for session
+router.get('/tmdb/connect/callback', async (req, res) => {
+  // TMDB redirects back with ?request_token=XXX&approved=true; fall back to the
+  // token we stashed in the session at initiate time.
+  const token = req.query.request_token || req.session._tmdbRequestToken;
+  const approved = req.query.approved;
+  if (approved === 'false' || approved === 'denied') {
+    return res.send('<html><body><p>TMDB connection was cancelled. You can close this window.</p><script>window.close()</script></body></html>');
+  }
+  if (!token) {
+    return res.status(400).send('<html><body><h1>Error</h1><p>No token provided.</p></body></html>');
+  }
+
+  try {
+    const { sessionId, accountId } = await tmdbIntegration.requestTokenToSession(token);
+    const encrypted = cryptoUtil.encrypt(sessionId);
+
+    // If the user is authenticated in this session, store the connection
+    if (req.session?.plexUser) {
+      const userId = String(req.session.plexUser.id);
+      db.createTmdbConnection(userId, encrypted, accountId);
+      req.session.cookietmdbConnected = 1;
+      delete req.session._tmdbRequestToken;
+      res.send('<html><body><p>Connected to TMDB. You can close this window.</p><script>window.close()</script></body></html>');
+    } else {
+      // Store token in a short-lived cookie so the user can log in first
+      res.cookie('tmdb_pending_token', token, { maxAge: 600000, httpOnly: true, sameSite: 'lax' });
+      res.redirect(`${getAppUrl(req)}/`);
+    }
+  } catch (err) {
+    console.error('[tmdb] Callback failed:', err);
+    res.status(500).send('<html><body><h1>Connection Failed</h1><p>Could not connect to TMDB. Please try again.</p></body></html>');
+  }
+});
+
+// POST /api/tmdb/disconnect — remove TMDB connection
+router.post('/tmdb/disconnect', async (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  const userId = String(req.session.plexUser.id);
+  const conn = db.getTmdbConnection(userId);
+  if (!conn) return res.status(400).json({ error: 'No TMDB connection to remove' });
+
+  try {
+    const sessionId = cryptoUtil.decrypt(conn.session_id);
+    await tmdbIntegration.deleteSession(sessionId).catch(() => {});
+  } catch (err) {
+    console.warn('[tmdb] Failed to delete remote session:', err.message);
+  }
+
+  db.deleteTmdbConnection(userId);
+  res.json({ success: true });
+});
+
+// POST /api/tmdb/verify — verify session is still valid
+router.post('/tmdb/verify', async (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  const userId = String(req.session.plexUser.id);
+  const conn = db.getTmdbConnection(userId);
+  if (!conn) return res.status(400).json({ error: 'No TMDB connection' });
+
+  try {
+    const sessionId = cryptoUtil.decrypt(conn.session_id);
+    await tmdbIntegration.getAccountInfo(conn.account_id, sessionId);
+    db.updateTmdbConnectionVerified(userId);
+    res.json({ verified: true, status: 'connected' });
+  } catch (err) {
+    if (err instanceof tmdbIntegration.ExpiredSessionError) {
+      db.updateTmdbConnectionStatus(userId, 'needs_reconnect');
+      return res.status(401).json({ error: 'TMDB session expired. Please reconnect.', status: 'needs_reconnect' });
+    }
+    console.warn('[tmdb] Verify failed:', err.message);
+    res.status(500).json({ error: 'Verification failed: ' + err.message });
+  }
+});
+
+// POST /api/tmdb/sync-rating — push review rating to TMDB
+router.post('/tmdb/sync-rating', async (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  const userId = String(req.session.plexUser.id);
+  const { reviewId } = req.body;
+
+  const review = db.getReviewById(Number(reviewId));
+  if (!review || review.user_id !== userId) {
+    return res.status(404).json({ error: 'Review not found' });
+  }
+
+  const conn = db.getTmdbConnection(userId);
+  if (!conn) return res.status(400).json({ error: 'No TMDB connection' });
+  if (conn.status === 'needs_reconnect') {
+    return res.status(401).json({ error: 'TMDB session expired. Please reconnect.', status: 'needs_reconnect' });
+  }
+
+  try {
+    const sessionId = cryptoUtil.decrypt(conn.session_id);
+    const mapped = mapReviewToTmdb(review);
+    await tmdbIntegration.setRating(sessionId, mapped.mediaType, mapped.tmdbId, mapped.value);
+    db.setReviewTmdbSyncedRating(review.id, userId, review.rating);
+    db.updateTmdbConnectionVerified(userId);
+    res.json({ success: true, tmdbRating: mapped.value });
+  } catch (err) {
+    if (err instanceof tmdbIntegration.ExpiredSessionError) {
+      db.updateTmdbConnectionStatus(userId, 'needs_reconnect');
+      return res.status(401).json({ error: 'TMDB session expired. Please reconnect.', status: 'needs_reconnect' });
+    }
+    if (err instanceof tmdbIntegration.RateLimitError) {
+      return res.status(429).json({ error: 'TMDB rate limited. Rating saved locally.', retryAfter: err.retryAfter });
+    }
+    console.warn('[tmdb] Sync rating failed:', err.message);
+    res.status(502).json({ error: 'Failed to push rating to TMDB. Rating saved locally.' });
+  }
+});
+
+// DELETE /api/tmdb/sync-rating — remove TMDB rating
+router.delete('/tmdb/sync-rating', async (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  const userId = String(req.session.plexUser.id);
+  const { reviewId } = req.body;
+
+  const review = db.getReviewById(Number(reviewId));
+  if (!review || review.user_id !== userId) {
+    return res.status(404).json({ error: 'Review not found' });
+  }
+
+  const conn = db.getTmdbConnection(userId);
+  if (!conn) return res.status(400).json({ error: 'No TMDB connection' });
+
+  try {
+    const sessionId = cryptoUtil.decrypt(conn.session_id);
+    await tmdbIntegration.deleteRating(sessionId, review.media_type, review.tmdb_id);
+    db.setReviewTmdbSyncedRating(review.id, userId, null);
+    res.json({ success: true });
+  } catch (err) {
+    if (err instanceof tmdbIntegration.ExpiredSessionError) {
+      db.updateTmdbConnectionStatus(userId, 'needs_reconnect');
+      return res.status(401).json({ error: 'TMDB session expired. Please reconnect.', status: 'needs_reconnect' });
+    }
+    console.warn('[tmdb] Delete rating failed:', err.message);
+    res.status(502).json({ error: 'Failed to remove TMDB rating.' });
   }
 });
 

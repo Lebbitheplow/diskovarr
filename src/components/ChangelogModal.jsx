@@ -16,7 +16,7 @@ const DATE_STYLE = { fontWeight: '400', color: 'var(--text-secondary)', fontSize
 
 export default function ChangelogModal({ open, onClose }) {
   if (!open) return null
-  const currentVersion = import.meta.env.VITE_APP_VERSION || '2.1.0'
+  const currentVersion = import.meta.env.VITE_APP_VERSION || '2.2.0'
 
   return (
     <div className="info-modal-backdrop open" onClick={onClose}>
@@ -29,6 +29,32 @@ export default function ChangelogModal({ open, onClose }) {
           <div className="info-modal-section">
             <div className="info-modal-section-title">
               v{currentVersion}{' '}
+              <span style={DATE_STYLE}>2026-06-09</span>
+            </div>
+            <p style={SECTION_LABEL_STYLE}>Additions</p>
+            <ul style={LIST_STYLE}>
+              <li style={ITEM_STYLE}>Added user profiles with a customizable bio, your reviews, and a personal watch history</li>
+              <li style={ITEM_STYLE}>Added a Reviews page with social features — see what the community is watching and join the conversation</li>
+              <li style={ITEM_STYLE}>You can now generate and share beautifully formatted review images to your favorite social and messaging apps</li>
+              <li style={ITEM_STYLE}>Added "Most Popular on Server" sections to the Diskovarr page to surface what's trending in your own Plex library</li>
+              <li style={ITEM_STYLE}>Added a Cast & Crew tab to the item details modal for exploring actors, directors, and production staff</li>
+              <li style={ITEM_STYLE}>Added TMDB and Plex rating integration — ratings you give in Diskovarr now sync back to Plex</li>
+              <li style={ITEM_STYLE}>Added Connected Apps settings for linking your TMDB account</li>
+              <li style={ITEM_STYLE}>Added personal content monitors that notify you when newly available media matches the criteria you care about</li>
+              <li style={ITEM_STYLE}>Expanded the Filter page with more powerful filtering and search refinement options</li>
+              <li style={ITEM_STYLE}>Admins can now choose which Plex libraries are synced into Diskovarr</li>
+            </ul>
+            <p style={SECTION_LABEL_STYLE}>Fixes & Improvements</p>
+            <ul style={LIST_STYLE_LAST}>
+              <li style={ITEM_STYLE}>Watchlist and Blacklist management moved from the user menu to your profile for easier access</li>
+              <li style={ITEM_STYLE}>Smarter stale-content pruning keeps your library in sync as media is changed or removed</li>
+              <li style={ITEM_STYLE}>The About modal now highlights and explains recently added features</li>
+              <li style={ITEM_STYLE}>Various UI, usability, and quality-of-life improvements throughout the app</li>
+            </ul>
+          </div>
+          <div className="info-modal-section">
+            <div className="info-modal-section-title">
+              v2.1.0{' '}
               <span style={DATE_STYLE}>2026-06-05</span>
             </div>
             <p style={SECTION_LABEL_STYLE}>Additions</p>
@@ -55,37 +81,6 @@ export default function ChangelogModal({ open, onClose }) {
             <ul style={LIST_STYLE_LAST}>
               <li style={ITEM_STYLE}>Fixed search failures on certain titles (e.g. "Napoleon Dynamite") caused by double-gzipped TMDB responses from CloudFront</li>
               <li style={ITEM_STYLE}>Hardened the TMDB client to resiliently decompress nested gzip payloads, fixing intermittent failures across Search, autocomplete, item details, and Discover</li>
-            </ul>
-          </div>
-          <div className="info-modal-section">
-            <div className="info-modal-section-title">
-              v2.0.0{' '}
-              <span style={DATE_STYLE}>2026-05-18</span>
-            </div>
-            <p style={SECTION_LABEL_STYLE}>Additions</p>
-            <ul style={LIST_STYLE}>
-              <li style={ITEM_STYLE}>Added genre lists to the Requests page</li>
-              <li style={ITEM_STYLE}>Added "Coming Soon" items to the Requests page</li>
-              <li style={ITEM_STYLE}>Added toggle to hide library items on the Search page</li>
-              <li style={ITEM_STYLE}>Introduced new filter section for the Search and Filter pages</li>
-              <li style={ITEM_STYLE}>Added server-side search and filter API calls for the Queue and Issues pages (user filter, date-range filter)</li>
-              <li style={ITEM_STYLE}>Added "More Like This" recommendations on the Search page</li>
-              <li style={ITEM_STYLE}>Added 8 notification agents: Webhook, Slack, Gotify, ntfy, Pushbullet, Telegram, Email, WebPush</li>
-              <li style={ITEM_STYLE}>Added font-style options (bold, italic, strikethrough, inline code) to the broadcast message editor</li>
-              <li style={ITEM_STYLE}>Added Plex SSE integration for detecting recently added media</li>
-              <li style={ITEM_STYLE}>Added scrolling poster tiles to the login page</li>
-              <li style={ITEM_STYLE}>Notifications now include clickable hyperlinks</li>
-            </ul>
-            <p style={SECTION_LABEL_STYLE}>Removals</p>
-            <ul style={LIST_STYLE}>
-              <li style={ITEM_STYLE}>Removed torrent browser</li>
-              <li style={ITEM_STYLE}>Removed Real-Debrid key field from the admin page</li>
-            </ul>
-            <p style={SECTION_LABEL_STYLE}>Fixes & Improvements</p>
-            <ul style={LIST_STYLE_LAST}>
-              <li style={ITEM_STYLE}>Watchlist now properly imports items from user watchlists</li>
-              <li style={ITEM_STYLE}>Admin user selector now supports scrolling and search</li>
-              <li style={ITEM_STYLE}>Improved functionality in the Seerr compatibility shim</li>
             </ul>
           </div>
         </div>

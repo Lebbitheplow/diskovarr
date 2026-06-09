@@ -1,7 +1,10 @@
 import React, { useState, useCallback, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { userApi } from '../services/api'
 import { useToast } from '../context/ToastContext'
 import UserNotifications from '../components/UserNotifications/UserNotifications'
+import ConnectedAccounts from '../components/ConnectedAccounts'
+import MonitorManager from '../components/MonitorManager/MonitorManager'
 
 const REGIONS = [
   { value: '', label: 'All Regions' }, { value: 'US', label: 'United States' },
@@ -38,11 +41,23 @@ const LANGUAGES = [
 
 export default function Settings() {
   const { error: toastError, success: toastSuccess } = useToast()
+  const [searchParams] = useSearchParams()
   const [settings, setSettings] = useState(null)
   const [featureFlags, setFeatureFlags] = useState(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [activeTab, setActiveTab] = useState('content')
+
+  // Sync the active tab from the URL ?tab= param. Render-phase adjustment
+  // (React's recommended alternative to a state-syncing effect).
+  const tabParam = searchParams.get('tab')
+  const [prevTabParam, setPrevTabParam] = useState(null)
+  if (tabParam !== prevTabParam) {
+    setPrevTabParam(tabParam)
+    if (tabParam === 'accounts' || tabParam === 'notifications' || tabParam === 'privacy' || tabParam === 'monitors') {
+      setActiveTab(tabParam)
+    }
+  }
 
   const loadSettings = useCallback(async () => {
     setLoading(true)
@@ -59,8 +74,9 @@ export default function Settings() {
     }
   }, [toastError])
 
-  // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional external/async state sync, not a synchronous cascading render
-  useEffect(() => { loadSettings() }, [loadSettings])
+  useEffect(() => {
+    ;(async () => { await loadSettings() })()
+  }, [loadSettings])
 
   const handleSavePreferences = useCallback(async (e) => {
     e.preventDefault()
@@ -130,15 +146,15 @@ export default function Settings() {
         </div>
 
         {/* Internal tabs */}
-        <div className="settings-tabs" style={{ display: 'flex', gap: 4, marginBottom: 24, borderBottom: '1px solid var(--border)' }}>
+        <div className="settings-tabs" style={{ display: 'flex', gap: 4, marginBottom: 24 }}>
           <button
             className={`settings-tab ${activeTab === 'content' ? 'active' : ''}`}
             style={{
               padding: '10px 22px', background: 'none', border: 'none',
-              borderBottom: '2px solid transparent', color: activeTab === 'content' ? 'var(--accent)' : 'var(--text-secondary)',
+              borderBottom: activeTab === 'content' ? '2px solid var(--accent)' : '2px solid transparent',
+              color: activeTab === 'content' ? 'var(--accent)' : 'var(--text-secondary)',
               fontSize: '0.9rem', fontWeight: 500, fontFamily: 'inherit', cursor: 'pointer',
               marginBottom: '-1px', transition: 'color 0.15s, border-color 0.15s',
-              ...(activeTab === 'content' ? { borderBottomColor: 'var(--accent)' } : {}),
             }}
             onClick={() => setActiveTab('content')}
           >
@@ -148,14 +164,53 @@ export default function Settings() {
             className={`settings-tab ${activeTab === 'notifications' ? 'active' : ''}`}
             style={{
               padding: '10px 22px', background: 'none', border: 'none',
-              borderBottom: '2px solid transparent', color: activeTab === 'notifications' ? 'var(--accent)' : 'var(--text-secondary)',
+              borderBottom: activeTab === 'notifications' ? '2px solid var(--accent)' : '2px solid transparent',
+              color: activeTab === 'notifications' ? 'var(--accent)' : 'var(--text-secondary)',
               fontSize: '0.9rem', fontWeight: 500, fontFamily: 'inherit', cursor: 'pointer',
               marginBottom: '-1px', transition: 'color 0.15s, border-color 0.15s',
-              ...(activeTab === 'notifications' ? { borderBottomColor: 'var(--accent)' } : {}),
             }}
             onClick={() => setActiveTab('notifications')}
           >
             Notifications
+          </button>
+          <button
+            className={`settings-tab ${activeTab === 'accounts' ? 'active' : ''}`}
+            style={{
+              padding: '10px 22px', background: 'none', border: 'none',
+              borderBottom: activeTab === 'accounts' ? '2px solid var(--accent)' : '2px solid transparent',
+              color: activeTab === 'accounts' ? 'var(--accent)' : 'var(--text-secondary)',
+              fontSize: '0.9rem', fontWeight: 500, fontFamily: 'inherit', cursor: 'pointer',
+              marginBottom: '-1px', transition: 'color 0.15s, border-color 0.15s',
+            }}
+            onClick={() => setActiveTab('accounts')}
+          >
+            Connected Accounts
+          </button>
+          <button
+            className={`settings-tab ${activeTab === 'privacy' ? 'active' : ''}`}
+            style={{
+              padding: '10px 22px', background: 'none', border: 'none',
+              borderBottom: activeTab === 'privacy' ? '2px solid var(--accent)' : '2px solid transparent',
+              color: activeTab === 'privacy' ? 'var(--accent)' : 'var(--text-secondary)',
+              fontSize: '0.9rem', fontWeight: 500, fontFamily: 'inherit', cursor: 'pointer',
+              marginBottom: '-1px', transition: 'color 0.15s, border-color 0.15s',
+            }}
+            onClick={() => setActiveTab('privacy')}
+          >
+            Privacy
+          </button>
+          <button
+            className={`settings-tab ${activeTab === 'monitors' ? 'active' : ''}`}
+            style={{
+              padding: '10px 22px', background: 'none', border: 'none',
+              borderBottom: activeTab === 'monitors' ? '2px solid var(--accent)' : '2px solid transparent',
+              color: activeTab === 'monitors' ? 'var(--accent)' : 'var(--text-secondary)',
+              fontSize: '0.9rem', fontWeight: 500, fontFamily: 'inherit', cursor: 'pointer',
+              marginBottom: '-1px', transition: 'color 0.15s, border-color 0.15s',
+            }}
+            onClick={() => setActiveTab('monitors')}
+          >
+            Monitors
           </button>
         </div>
 
@@ -203,6 +258,93 @@ export default function Settings() {
 
         {activeTab === 'notifications' && (
           <UserNotifications settings={s} onToast={toastError} onUpdateSettings={handleUpdateSettings} />
+        )}
+
+        {activeTab === 'accounts' && (
+          <ConnectedAccounts />
+        )}
+
+        {activeTab === 'monitors' && (
+          <MonitorManager />
+        )}
+
+        {activeTab === 'privacy' && (
+          <div className="settings-section">
+            <p className="settings-section-title">Review Privacy</p>
+            <p className="settings-desc" style={{ marginBottom: '20px' }}>
+              Control who can see your reviews on the public Reviews feed.
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <label
+                style={{
+                  display: 'flex', alignItems: 'flex-start', gap: '12px', padding: '16px',
+                  background: 'var(--bg-secondary)', borderRadius: 'var(--radius)', border: '1px solid var(--border)',
+                  cursor: 'pointer', transition: 'border-color 0.15s',
+                  ...(s.review_privacy !== 'private' ? { borderColor: 'var(--accent-border)' } : {}),
+                }}
+              >
+                <input
+                  type="radio"
+                  name="review_privacy"
+                  value="public"
+                  checked={s.review_privacy !== 'private'}
+                  onChange={async () => {
+                    try {
+                      await userApi.updateSettings({ review_privacy: 'public' })
+                      const { data } = await userApi.getSettings()
+                      setSettings(data)
+                      toastSuccess('Review privacy updated')
+                    } catch (e) {
+                      toastError(e?.message || 'Failed to update privacy')
+                    }
+                  }}
+                  style={{ marginTop: '2px', accentColor: 'var(--accent)' }}
+                />
+                <div>
+                  <div style={{ fontWeight: '600', fontSize: '0.95rem', color: 'var(--text-primary)', marginBottom: '4px' }}>
+                    Public
+                  </div>
+                  <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: '1.5' }}>
+                    Your reviews appear in the public Reviews feed and can receive likes and comments from other users. (Default)
+                  </div>
+                </div>
+              </label>
+              <label
+                style={{
+                  display: 'flex', alignItems: 'flex-start', gap: '12px', padding: '16px',
+                  background: 'var(--bg-secondary)', borderRadius: 'var(--radius)', border: '1px solid var(--border)',
+                  cursor: 'pointer', transition: 'border-color 0.15s',
+                  ...(s.review_privacy === 'private' ? { borderColor: 'var(--accent-border)' } : {}),
+                }}
+              >
+                <input
+                  type="radio"
+                  name="review_privacy"
+                  value="private"
+                  checked={s.review_privacy === 'private'}
+                  onChange={async () => {
+                    try {
+                      await userApi.updateSettings({ review_privacy: 'private' })
+                      const { data } = await userApi.getSettings()
+                      setSettings(data)
+                      toastSuccess('Review privacy updated')
+                    } catch (e) {
+                      toastError(e?.message || 'Failed to update privacy')
+                    }
+                  }}
+                  style={{ marginTop: '2px', accentColor: 'var(--accent)' }}
+                />
+                <div>
+                  <div style={{ fontWeight: '600', fontSize: '0.95rem', color: 'var(--text-primary)', marginBottom: '4px' }}>
+                    Private
+                  </div>
+                  <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: '1.5' }}>
+                    Your reviews are only visible to you. They won't appear in the public feed and can't receive reactions or comments.
+                  </div>
+                </div>
+              </label>
+            </div>
+          </div>
         )}
       </div>
     </main>

@@ -9,11 +9,13 @@ const Home = lazy(() => import('./pages/Home'))
 const Discover = lazy(() => import('./pages/Discover'))
 const Explore = lazy(() => import('./pages/Explore'))
 const Search = lazy(() => import('./pages/Search'))
-const Watchlist = lazy(() => import('./pages/Watchlist'))
-const Blacklist = lazy(() => import('./pages/Blacklist'))
 const Queue = lazy(() => import('./pages/Queue'))
 const Issues = lazy(() => import('./pages/Issues'))
+const WatchHistory = lazy(() => import('./pages/WatchHistory'))
+const Reviews = lazy(() => import('./pages/Reviews'))
+const ReviewDetail = lazy(() => import('./pages/ReviewDetail'))
 const Settings = lazy(() => import('./pages/Settings'))
+const UserProfile = lazy(() => import('./pages/UserProfile'))
 const Login = lazy(() => import('./pages/Login'))
 const Callback = lazy(() => import('./pages/Callback'))
 const Admin = lazy(() => import('./pages/Admin'))
@@ -81,16 +83,6 @@ export default function App() {
               <Search />
             </ProtectedRoute>
           } />
-          <Route path="/watchlist" element={
-            <ProtectedRoute>
-              <Watchlist />
-            </ProtectedRoute>
-          } />
-          <Route path="/blacklist" element={
-            <ProtectedRoute>
-              <Blacklist />
-            </ProtectedRoute>
-          } />
           <Route path="/queue" element={
             <ProtectedRoute>
               <Queue />
@@ -101,9 +93,28 @@ export default function App() {
               <Issues />
             </ProtectedRoute>
           } />
+          <Route path="/history" element={
+            <ProtectedRoute>
+              <WatchHistory />
+            </ProtectedRoute>
+          } />
+          <Route path="/reviews" element={
+            <ProtectedRoute>
+              <Reviews />
+            </ProtectedRoute>
+          } />
+          {/* Public so shared links work logged-out; ReviewDetail adapts to auth state */}
+          <Route path="/review/:id" element={<ReviewDetail />} />
+          {/* Cosmetic vanity alias — resolves by :id; username is decorative */}
+          <Route path="/u/:username/review/:id" element={<ReviewDetail />} />
           <Route path="/settings" element={
             <ProtectedRoute>
               <Settings />
+            </ProtectedRoute>
+          } />
+          <Route path="/user/:userId" element={
+            <ProtectedRoute>
+              <UserProfile />
             </ProtectedRoute>
           } />
           <Route path="/admin/login" element={<AdminLogin />} />
