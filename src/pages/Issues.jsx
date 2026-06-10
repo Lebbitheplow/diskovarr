@@ -54,7 +54,7 @@ export default function Issues() {
     dateFrom, dateTo, setDateRange,
     users, setUsers,
     hasActiveFilters, clearAllFilters,
-  } = useListFilters({ initialFilter: searchParams.get('filter') || 'all' })
+  } = useListFilters({ initialFilter: 'all' })
 
   const [issues, setIssues] = useState([])
   const [loading, setLoading] = useState(true)

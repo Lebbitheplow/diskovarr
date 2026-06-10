@@ -4,6 +4,18 @@ All notable changes are documented here. Versioning follows [Semantic Versioning
 
 ---
 
+## v2.2.1 — 2026-06-09
+
+A patch release fixing three issues discovered after v2.2.0.
+
+### Fixed
+
+- **Queue page filters** — removed broken URL-based filter state that was causing the filter dropdown to reset unexpectedly.
+- **Bulk delete requests** — fixed the transaction handling in `deleteRequestsByIds` and `deleteIssuesByIds` so bulk deletion of multiple requests/issues works correctly.
+- **Plex SSE integration** — fixed Server-Sent Event message parsing to handle both the SSE eventsource endpoint and the WebSocket endpoint message shapes, restoring reliable real-time new-content detection.
+
+---
+
 ## v2.2.0 — 2026-06-09
 
 A major, feature-focused release centered on social discovery — user profiles, community reviews, shareable review images, ratings that sync with Plex, and personal content monitors.

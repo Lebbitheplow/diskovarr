@@ -1,5 +1,44 @@
 [
   {
+    "version": "2.2.1",
+    "date": "2026-06-09",
+    "changes": [
+      "Fixed queue page filters that were resetting unexpectedly due to broken URL-based filter state.",
+      "Fixed bulk delete of multiple requests and issues — transaction handling was preventing deletes from completing.",
+      "Fixed Plex SSE integration — message parsing now handles both SSE eventsource and WebSocket endpoint shapes, restoring real-time new-content detection."
+    ]
+  },
+  {
+    "version": "2.2.0",
+    "date": "2026-06-09",
+    "changes": [
+      "User profiles — each user now has a profile with a customizable bio, their reviews, and a personal watch history page.",
+      "Reviews and community — a dedicated Reviews page with social interaction, plus reviews displayed on user profiles.",
+      "Shareable review images — generate beautifully formatted review images and share them to popular social media and messaging platforms.",
+      "Most Popular on Server — new sections on the Diskovarr page surface trending content within your own Plex ecosystem.",
+      "Cast and Crew tab — the item details modal now has a Cast and Crew tab for exploring actors, directors, and production staff.",
+      "Ratings integration — TMDB and Plex rating integration; ratings submitted in Diskovarr now sync back to Plex.",
+      "User monitors — create personalized monitors based on content criteria and get notified when newly available content matches your rules.",
+      "Synced library selection — admins can choose which Plex libraries are synchronized into Diskovarr.",
+      "Expanded Filter page — enhanced filtering capabilities and search refinement options.",
+      "Watchlist and Blacklist moved from the user menu into user profiles for better organization.",
+      "Improved stale-content pruning so deleted or changed media is automatically removed and kept in sync."
+    ]
+  },
+  {
+    "version": "2.1.0",
+    "date": "2026-06-05",
+    "changes": [
+      "Added a Blacklist page where users can see and manage blacklisted items.",
+      "Added a site footer with GitHub and other links.",
+      "Broadcast notification font styles are now applied correctly in the notification bell and modal.",
+      "Broadcast font-style buttons now highlight to reflect their enabled state.",
+      "Admins can now edit approved requests to change the request app or season selection.",
+      "Item info modals now open when selecting an item from the Queue page.",
+      "Watchlist now correctly syncs and removes watched and deleted items."
+    ]
+  },
+  {
     "version": "2.0.0",
     "date": "2026-05-18",
     "changes": [

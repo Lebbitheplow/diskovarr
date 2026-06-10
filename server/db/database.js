@@ -1596,15 +1596,11 @@ function deleteRequest(id) {
 function deleteRequestsByIds(ids) {
   if (!Array.isArray(ids) || ids.length === 0) return 0;
   const stmt = db.prepare('DELETE FROM discover_requests WHERE id = ?');
-  const tx = db.transaction((rows) => {
+  return withTransaction(() => {
     let count = 0;
-    for (const id of rows) {
-      const r = stmt.run(Number(id));
-      count += r.changes;
-    }
+    for (const id of ids) count += stmt.run(Number(id)).changes;
     return count;
   });
-  return tx(ids);
 }
 
 function deleteRequestsByUser(userId) {
@@ -2245,15 +2241,11 @@ function deleteIssue(id) {
 function deleteIssuesByIds(ids) {
   if (!Array.isArray(ids) || ids.length === 0) return 0;
   const stmt = db.prepare('DELETE FROM issues WHERE id = ?');
-  const tx = db.transaction((rows) => {
+  return withTransaction(() => {
     let count = 0;
-    for (const id of rows) {
-      const r = stmt.run(Number(id));
-      count += r.changes;
-    }
+    for (const id of ids) count += stmt.run(Number(id)).changes;
     return count;
   });
-  return tx(ids);
 }
 
 // ── Issue comments ─────────────────────────────────────────────────────────────

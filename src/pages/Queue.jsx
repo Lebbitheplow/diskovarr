@@ -57,7 +57,7 @@ export default function Queue() {
     dateFrom, dateTo, setDateRange,
     users, setUsers,
     hasActiveFilters, clearAllFilters,
-  } = useListFilters({ initialFilter: searchParams.get('filter') || 'all' })
+  } = useListFilters({ initialFilter: 'all' })
 
   const [requests, setRequests] = useState([])
   const [loading, setLoading] = useState(true)

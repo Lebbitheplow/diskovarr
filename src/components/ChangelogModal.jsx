@@ -16,7 +16,7 @@ const DATE_STYLE = { fontWeight: '400', color: 'var(--text-secondary)', fontSize
 
 export default function ChangelogModal({ open, onClose }) {
   if (!open) return null
-  const currentVersion = import.meta.env.VITE_APP_VERSION || '2.2.0'
+  const currentVersion = import.meta.env.VITE_APP_VERSION || '2.2.1'
 
   return (
     <div className="info-modal-backdrop open" onClick={onClose}>
@@ -29,6 +29,18 @@ export default function ChangelogModal({ open, onClose }) {
           <div className="info-modal-section">
             <div className="info-modal-section-title">
               v{currentVersion}{' '}
+              <span style={DATE_STYLE}>2026-06-09</span>
+            </div>
+            <p style={SECTION_LABEL_STYLE}>Fixes</p>
+            <ul style={LIST_STYLE_LAST}>
+              <li style={ITEM_STYLE}>Fixed queue page filters that were resetting unexpectedly due to broken URL-based filter state</li>
+              <li style={ITEM_STYLE}>Fixed bulk delete of multiple requests and issues — transaction handling was preventing deletes from completing</li>
+              <li style={ITEM_STYLE}>Fixed Plex SSE integration — message parsing now handles both SSE eventsource and WebSocket endpoint shapes, restoring real-time new-content detection</li>
+            </ul>
+          </div>
+          <div className="info-modal-section">
+            <div className="info-modal-section-title">
+              v2.2.0{' '}
               <span style={DATE_STYLE}>2026-06-09</span>
             </div>
             <p style={SECTION_LABEL_STYLE}>Additions</p>

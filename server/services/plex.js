@@ -953,12 +953,17 @@ function startWebSocket(onNewItem) {
         const lines = buf.split('\n');
         buf = lines.pop(); // keep incomplete last line
         for (const line of lines) {
+          // The eventsource endpoint carries the notification type in the SSE
+          // `event:` line and a bare container object in `data:` — unlike the
+          // websocket endpoint (Tautulli), which wraps it in NotificationContainer.
+          if (line.startsWith('event:')) continue;
           if (!line.startsWith('data:')) continue;
           try {
             const msg = JSON.parse(line.slice(5).trim());
-            const container = msg.NotificationContainer;
-            if (!container || container.type !== 'timeline') continue;
-            for (const entry of (container.TimelineEntry || [])) {
+            const container = msg.NotificationContainer || msg; // handle both shapes
+            const entries = container.TimelineEntry;
+            if (!Array.isArray(entries)) continue;              // not a timeline event
+            for (const entry of entries) {
               if (entry.identifier !== 'com.plexapp.plugins.library') continue;
               if (entry.state !== 5) continue;
               const ratingKey = String(entry.itemID || '');
