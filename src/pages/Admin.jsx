@@ -9,7 +9,7 @@ import AgentInfoModal from '../components/admin/AgentInfoModal'
 import { adminStatus, adminNotifications, adminUpdate } from '../services/adminApi'
 import ChangelogModal from '../components/ChangelogModal'
 
-const APP_VERSION = import.meta.env.VITE_APP_VERSION || '2.2.1'
+const APP_VERSION = import.meta.env.VITE_APP_VERSION || '2.2.2'
 
 const LOGO_SVG = (
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="1em" height="1em" fill="none" aria-hidden="true">

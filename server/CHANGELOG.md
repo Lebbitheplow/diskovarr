@@ -4,6 +4,28 @@ All notable changes are documented here. Versioning follows [Semantic Versioning
 
 ---
 
+## v2.2.2 — 2026-06-11
+
+A patch release with security hardening and internal code improvements.
+
+### Security
+
+- **Session cookies** — now marked `Secure` automatically when served over HTTPS (behind a reverse proxy), and API-key requests no longer create persistent admin sessions.
+- **Poster proxy** — rejects path-traversal segments so only Plex `/library/` art paths can be fetched.
+- **Rate limiting** — compute-heavy endpoints (recommendations, search, trailers, posters) are now rate limited, and a startup warning flags weak admin passwords.
+
+### Fixed
+
+- **Search and Requests races** — out-of-order responses can no longer overwrite newer results when changing filters mid-search or while recommendations are still building; also removed a duplicated similar-items fetch.
+- **Legacy service worker** — v1-era clients still running the old service worker now automatically unregister it and clear stale caches.
+
+### Improved
+
+- **Performance** — Requests page rendering is significantly lighter (memoized carousel sections), new compound database indexes, and Plex device lookups are cached.
+- **Code health** — duplicated helpers consolidated into shared utilities, dead files removed, and a Vitest test suite added (`npm test`).
+
+---
+
 ## v2.2.1 — 2026-06-09
 
 A patch release fixing three issues discovered after v2.2.0.

@@ -11,6 +11,7 @@ import { useToast } from '../context/ToastContext'
 import CastCrewTab from './CastCrewTab'
 import RatingBadges from './RatingBadges'
 import MonitorDropdown from './MonitorManager/MonitorDropdown'
+import { posterUrl } from '../utils/media'
 
 const CAST_ICON = (
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="15" height="15" fill="currentColor" style={{ verticalAlign: '-2px', marginRight: '6px' }}>
@@ -18,12 +19,6 @@ const CAST_ICON = (
   </svg>
 )
 
-
-function posterUrl(path) {
-  if (!path) return null
-  if (path.startsWith('http://') || path.startsWith('https://')) return path
-  return '/api/poster?path=' + encodeURIComponent(path)
-}
 
 function CastPicker({ item, onClose }) {
   const [clients, setClients] = useState([])

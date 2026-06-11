@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const rateLimit = require('express-rate-limit');
 const requireAuth = require('../middleware/requireAuth');
 const plexService = require('../services/plex');
 const recommender = require('../services/recommender');
@@ -30,6 +31,29 @@ for (const [name, ids] of Object.entries(tmdbService.TV_GENRE_MAP || {})) {
 }
 
 router.use(requireAuth);
+
+// Abuse guards for compute/TMDB-heavy endpoints. Limits are far above normal
+// browsing rates — they only stop a user or leaked key from hammering routes
+// that fan out to TMDB/Tautulli or rebuild recommendations.
+const heavyLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests, slow down' },
+});
+// Posters load per-card (a page can request 100+ at once), so this ceiling is high.
+const posterLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 600,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests, slow down' },
+});
+router.use('/recommendations', heavyLimiter);
+router.use('/search', heavyLimiter);
+router.use('/trailer', heavyLimiter);
+router.use('/poster', posterLimiter);
 
 // Resolve a publicly-accessible TMDB poster URL from a Plex rating key.
 // Plex thumb paths (/library/metadata/.../thumb) require auth and can't be used
@@ -160,8 +184,10 @@ router.get('/popular', async (req, res) => {
 router.get('/poster', async (req, res) => {
   const { path: posterPath } = req.query;
 
-  // Security: only allow /library/ paths to prevent SSRF
-  if (!posterPath || !posterPath.startsWith('/library/')) {
+  // Security: only Plex /library/ paths with no traversal segments — blocks
+  // SSRF to other hosts and stops '..' from reaching non-library Plex
+  // endpoints (e.g. /library/../status/sessions) with the server token.
+  if (!posterPath || !posterPath.startsWith('/library/') || posterPath.split('/').includes('..')) {
     return res.status(400).json({ error: 'Invalid poster path' });
   }
 
@@ -552,9 +578,18 @@ router.get('/discover/facets', async (req, res) => {
 // Uses plex.tv cloud sources only (user's own token) so each user sees their own devices.
 // Server-side sources (PMS /clients, GDM UDP) are intentionally excluded — they discover
 // devices on the server's LAN and would expose the admin's devices to all users.
+// Both plex.tv calls below are slow (~1-2s); device lists change rarely, so a
+// short per-user cache makes reopening the cast picker instant.
+const _clientsCache = new Map(); // userId -> { clients, at }
+const CLIENTS_CACHE_TTL = 5 * 60 * 1000;
+
 router.get('/clients', async (req, res) => {
   try {
-    const { token: userToken } = req.session.plexUser;
+    const { token: userToken, id: clientsUserId } = req.session.plexUser;
+    const cachedClients = _clientsCache.get(String(clientsUserId));
+    if (cachedClients && Date.now() - cachedClients.at < CLIENTS_CACHE_TTL) {
+      return res.json({ clients: cachedClients.clients });
+    }
     const clients = [];
     const seenIds = new Set();
 
@@ -614,6 +649,7 @@ router.get('/clients', async (req, res) => {
     }
 
     logger.debug(`/api/clients: user=${req.session.plexUser.id} total=${clients.length}`);
+    _clientsCache.set(String(req.session.plexUser.id), { clients, at: Date.now() });
     res.json({ clients });
   } catch (err) {
     logger.error('/api/clients error:', err.message);

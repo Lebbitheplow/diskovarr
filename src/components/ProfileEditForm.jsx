@@ -1,12 +1,7 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react'
 import { profileApi, discoverApi, searchApi } from '../services/api'
 import { useToast } from '../context/ToastContext'
-
-function posterUrl(path) {
-  if (!path) return null
-  if (path.startsWith('http://') || path.startsWith('https://')) return path
-  return '/api/poster?path=' + encodeURIComponent(path)
-}
+import { posterUrl } from '../utils/media'
 
 export default function ProfileEditForm({ profile, onCancel, onUpdated }) {
   const { error: toastError } = useToast()

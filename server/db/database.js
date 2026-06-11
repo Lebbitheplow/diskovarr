@@ -2,7 +2,8 @@ const { DatabaseSync } = require('node:sqlite');
 const path = require('path');
 const fs = require('fs');
 
-const dataDir = path.join(__dirname, '..', 'data');
+// Overridable for tests and non-Docker installs that keep data elsewhere
+const dataDir = process.env.DISKOVARR_DATA_DIR || path.join(__dirname, '..', 'data');
 if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
 
 const db = new DatabaseSync(path.join(dataDir, 'diskovarr.db'));
@@ -616,6 +617,20 @@ db.exec(`CREATE TABLE IF NOT EXISTS migrations (name TEXT PRIMARY KEY, ran_at IN
           CREATE INDEX IF NOT EXISTS idx_monitor_notif_monitor ON monitor_notifications(monitor_id);
         `);
         try { db.exec('ALTER TABLE user_notification_prefs ADD COLUMN notify_monitor INTEGER DEFAULT 1'); } catch {}
+      },
+    },
+    {
+      // Compound indexes for the hottest filter+sort patterns: per-user watch
+      // history ordered by recency, request lists filtered by user+status, and
+      // comment threads ordered within a review. The existing single-column
+      // indexes cover the filter but still left sorts as table scans.
+      name: 'perf_compound_indexes_v1',
+      sql: () => {
+        db.exec(`
+          CREATE INDEX IF NOT EXISTS idx_wh_user_date ON watch_history(user_id, watched_at DESC);
+          CREATE INDEX IF NOT EXISTS idx_discover_requests_user_status ON discover_requests(user_id, status);
+          CREATE INDEX IF NOT EXISTS idx_comments_review_date ON review_comments(review_id, created_at);
+        `);
       },
     },
   ].forEach(({ name, sql }) => {

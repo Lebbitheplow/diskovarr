@@ -11,12 +11,8 @@ import DateRangeFilter from '../components/DateRangeFilter'
 import useListFilters from '../hooks/useListFilters'
 import { useToast } from '../context/ToastContext'
 import { useAuth } from '../context/AuthContext'
-
-function posterUrl(path) {
-  if (!path) return null
-  if (path.startsWith('http://') || path.startsWith('https://')) return path
-  return '/api/poster?path=' + encodeURIComponent(path)
-}
+import { posterUrl } from '../utils/media'
+import { timeAgo as fmtDate } from '../utils/format'
 
 const STATUS_LABELS = {
   pending: 'Pending Approval',
@@ -28,20 +24,6 @@ const STATUS_LABELS = {
 
 const COL_TO_SORT = { title: 'title', user: 'username', type: 'media_type', age: 'requested_at', status: 'status' }
 
-function fmtDate(ts) {
-  if (!ts) return ''
-  const diff = Math.floor(Date.now() / 1000) - ts
-  if (diff < 3600) {
-    const m = Math.max(1, Math.floor(diff / 60))
-    return m + ' min' + (m === 1 ? '' : 's') + ' ago'
-  }
-  if (diff < 86400) {
-    const h = Math.floor(diff / 3600)
-    return h + ' hour' + (h === 1 ? '' : 's') + ' ago'
-  }
-  const d = Math.floor(diff / 86400)
-  return d + ' day' + (d === 1 ? '' : 's') + ' ago'
-}
 
 export default function Queue() {
   const [searchParams] = useSearchParams()

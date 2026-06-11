@@ -11,8 +11,15 @@ function requireAuth(req, res, next) {
   if (apiKey) {
     const storedKey = db.getSetting('diskovarr_api_key', '');
     if (storedKey && apiKey === storedKey) {
-      // Inject a synthetic admin user for this request only (not saved to session)
-      req.session.plexUser = { username: 'api-key', isAdmin: true, userId: 'api-key', thumb: null };
+      // Inject a synthetic admin user for this request only. Non-enumerable so
+      // express-session's JSON-based change detection never sees it — a plain
+      // assignment would mark the session modified and persist a 30-day admin
+      // session (with Set-Cookie) for every API-key request.
+      Object.defineProperty(req.session, 'plexUser', {
+        value: { username: 'api-key', isAdmin: true, userId: 'api-key', thumb: null },
+        enumerable: false,
+        configurable: true,
+      });
       return next();
     }
   }

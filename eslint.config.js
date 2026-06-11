@@ -55,17 +55,17 @@ export default defineConfig([
     },
   },
   {
-    files: ['vite.config.js', 'proxy.js', 'proxy-server.js', 'start-vite.js'],
+    files: ['vite.config.js'],
     languageOptions: {
       globals: { ...globals.node },
       sourceType: 'module',
     },
   },
   {
-    files: ['proxy.cjs'],
+    files: ['tests/**/*.js'],
     languageOptions: {
       globals: { ...globals.node },
-      sourceType: 'commonjs',
+      sourceType: 'module',
     },
   },
 ])

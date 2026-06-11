@@ -1,44 +1,24 @@
-const CACHE = 'diskovarr-shell-v2';
-const SHELL = [
-  '/css/style.css',
-  '/css/discover.css',
-];
+// Kill-switch service worker.
+//
+// Diskovarr no longer uses a service worker (the v1 SW cached /css/* paths
+// that don't exist in the Vite build, and the React app never registers one).
+// v1-era clients may still have the old SW controlling pages and serving
+// stale cached responses. Browsers re-fetch the registered SW script on
+// navigation, so shipping this file at the same path makes those clients
+// install it, wipe all caches, unregister, and reload — after which pages
+// are served directly from the network. This file can be deleted once no
+// v1 clients remain, but keeping it is harmless.
 
-self.addEventListener('install', e => {
+self.addEventListener('install', () => {
   self.skipWaiting();
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL).catch(() => {})));
 });
 
-self.addEventListener('activate', e => {
-  e.waitUntil(
-    caches.keys().then(keys =>
-      Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))
-    )
-  );
-  self.clients.claim();
-});
-
-self.addEventListener('fetch', e => {
-  const url = new URL(e.request.url);
-  // Always network-first for API, HTML pages, and theme CSS
-  if (
-    url.pathname.startsWith('/api/') ||
-    url.pathname === '/theme.css' ||
-    url.pathname === '/manifest.json' ||
-    url.pathname.startsWith('/icons/') ||
-    e.request.mode === 'navigate'
-  ) {
-    e.respondWith(fetch(e.request).catch(() => caches.match('/')));
-    return;
-  }
-  // Cache-first for static assets (CSS, JS, fonts)
-  e.respondWith(
-    caches.match(e.request).then(cached => cached || fetch(e.request).then(res => {
-      if (res.ok && (url.pathname.startsWith('/css/') || url.pathname.startsWith('/js/'))) {
-        const clone = res.clone();
-        caches.open(CACHE).then(c => c.put(e.request, clone));
-      }
-      return res;
-    }))
-  );
+self.addEventListener('activate', (e) => {
+  e.waitUntil((async () => {
+    const keys = await caches.keys();
+    await Promise.all(keys.map((k) => caches.delete(k)));
+    await self.registration.unregister();
+    const clients = await self.clients.matchAll({ type: 'window' });
+    clients.forEach((client) => client.navigate(client.url));
+  })());
 });

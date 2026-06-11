@@ -2,6 +2,7 @@ import React, { useState, useCallback, useEffect } from 'react'
 import { socialReviewsApi } from '../services/api'
 import { useToast } from '../context/ToastContext'
 import { useAuth } from '../context/AuthContext'
+import { posterUrl } from '../utils/media'
 
 function fmtTime(ts) {
   if (!ts) return ''
@@ -11,12 +12,6 @@ function fmtTime(ts) {
   if (diff < 86400) { const h = Math.floor(diff / 3600); return h + 'h ago' }
   if (diff < 604800) { const d = Math.floor(diff / 86400); return d + 'd ago' }
   return new Date(ts * 1000).toLocaleDateString()
-}
-
-function posterUrl(path) {
-  if (!path) return null
-  if (path.startsWith('http://') || path.startsWith('https://')) return path
-  return '/api/poster?path=' + encodeURIComponent(path)
 }
 
 function Avatar({ src, name, size = '28px' }) {

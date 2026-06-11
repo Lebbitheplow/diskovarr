@@ -16,7 +16,7 @@ const DATE_STYLE = { fontWeight: '400', color: 'var(--text-secondary)', fontSize
 
 export default function ChangelogModal({ open, onClose }) {
   if (!open) return null
-  const currentVersion = import.meta.env.VITE_APP_VERSION || '2.2.1'
+  const currentVersion = import.meta.env.VITE_APP_VERSION || '2.2.2'
 
   return (
     <div className="info-modal-backdrop open" onClick={onClose}>
@@ -29,6 +29,23 @@ export default function ChangelogModal({ open, onClose }) {
           <div className="info-modal-section">
             <div className="info-modal-section-title">
               v{currentVersion}{' '}
+              <span style={DATE_STYLE}>2026-06-11</span>
+            </div>
+            <p style={SECTION_LABEL_STYLE}>Security</p>
+            <ul style={LIST_STYLE}>
+              <li style={ITEM_STYLE}>Session cookies are now marked Secure over HTTPS, and API keys no longer create persistent sessions</li>
+              <li style={ITEM_STYLE}>Hardened the poster proxy against path traversal and added rate limiting to compute-heavy endpoints</li>
+            </ul>
+            <p style={SECTION_LABEL_STYLE}>Fixes & Improvements</p>
+            <ul style={LIST_STYLE_LAST}>
+              <li style={ITEM_STYLE}>Fixed stale results when changing filters mid-search or while recommendations were still building</li>
+              <li style={ITEM_STYLE}>Faster Requests page rendering, new database indexes, and cached Plex device lookups</li>
+              <li style={ITEM_STYLE}>Internal code health improvements — shared utilities, removed dead code, and a new automated test suite</li>
+            </ul>
+          </div>
+          <div className="info-modal-section">
+            <div className="info-modal-section-title">
+              v2.2.1{' '}
               <span style={DATE_STYLE}>2026-06-09</span>
             </div>
             <p style={SECTION_LABEL_STYLE}>Fixes</p>

@@ -7,14 +7,9 @@ import ReviewPost from '../components/ReviewPost'
 import ProfileEditForm from '../components/ProfileEditForm'
 import SkeletonLoader from '../components/SkeletonLoader'
 import DetailModal from '../components/DetailModal'
+import { posterUrl } from '../utils/media'
 
 const PER_PAGE = 20
-
-function posterUrl(path) {
-  if (!path) return null
-  if (path.startsWith('http://') || path.startsWith('https://')) return path
-  return '/api/poster?path=' + encodeURIComponent(path)
-}
 
 function Avatar({ src, name, size }) {
   const s = size || '80px'

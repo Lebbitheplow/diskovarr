@@ -5,7 +5,8 @@ const path = require('path')
 const fs = require('fs')
 
 const PORT = process.env.PORT || 3232
-const dataDir = path.join(__dirname, 'data')
+// Overridable for tests and non-Docker installs that keep data elsewhere
+const dataDir = process.env.DISKOVARR_DATA_DIR || path.join(__dirname, 'data')
 if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true })
 
 const { DatabaseSync } = require('node:sqlite')
@@ -60,12 +61,15 @@ class SQLiteStore extends session.Store {
 }
 
 const app = express()
+// Behind Cloudflare → NPM; trust the first proxy hop so req.protocol/req.ip
+// reflect the original request (needed for secure:'auto' cookies & rate limits)
+app.set('trust proxy', 1)
 app.use(express.static(path.join(__dirname, 'public')))
 
 app.use((req, res, next) => {
   req.appUrl = req.protocol + '://' + req.get('host')
   if (req.path.startsWith('/auth/') || req.path === '/callback') {
-    console.log(`[${req.method} ${req.path}] Cookie: ${req.headers.cookie || 'NONE'}`)
+    console.log(`[${req.method} ${req.path}] Cookie: ${req.headers.cookie ? 'present' : 'NONE'}`)
   }
   next()
 })
@@ -80,8 +84,12 @@ app.use(session({
   resave: false,
   saveUninitialized: false,
   cookie: {
-    secure: false,
+    // 'auto': Secure flag on HTTPS (via trust proxy), plain over LAN HTTP.
+    // 'lax' (not 'strict') because the Plex OAuth callback is a cross-site
+    // top-level navigation and must carry the session cookie.
+    secure: 'auto',
     sameSite: 'lax',
+    httpOnly: true,
     maxAge: 30 * 24 * 60 * 60 * 1000,
   },
 }))
@@ -296,6 +304,10 @@ app.listen(PORT, '0.0.0.0', () => {
   const reviewCardCache = require('./services/reviewCardCache')
   const logger = require('./services/logger')
 
+  if (process.env.ADMIN_PASSWORD && process.env.ADMIN_PASSWORD.length < 8) {
+    logger.warn('ADMIN_PASSWORD is shorter than 8 characters — short passwords are brute-forceable even with login rate limiting.')
+  }
+
   // Drain the external notification queue (Discord/Pushover) on a 30s loop.
   // Without this, enqueued notifications are never dispatched.
   require('./services/notificationService').start()
@@ -317,9 +329,11 @@ app.listen(PORT, '0.0.0.0', () => {
           const db = require('./db/database')
           db.seedKnownUser(s.plexUser.id, s.plexUser.username, s.plexUser.thumb, s.plexUser.token)
         }
-      } catch {}
+      } catch { /* malformed session JSON — skip */ }
     }
-  } catch {}
+  } catch (err) {
+    logger.warn('Session-token seeding failed:', err.message)
+  }
 
   // On startup: sync library from DB/Plex, then pre-warm caches
   setTimeout(async () => {
@@ -456,15 +470,21 @@ app.listen(PORT, '0.0.0.0', () => {
         const monitorMatcher = require('./services/monitorMatcher');
         const monitorNotifier = require('./services/monitorNotifier');
         const { MOVIES_SECTION, TV_SECTION } = require('./services/plex');
-        plexService.getLibraryItems(MOVIES_SECTION).then(movies => {
-          plexService.getLibraryItems(TV_SECTION).then(tv => {
+        Promise.all([
+          plexService.getLibraryItems(MOVIES_SECTION),
+          plexService.getLibraryItems(TV_SECTION),
+        ])
+          .then(([movies, tv]) => {
             const contents = [...movies, ...tv].map(monitorMatcher.buildContentFromLibrary);
-            monitorMatcher.evaluateBatch(contents, 'plex').then(matches => {
-              if (matches.length > 0) monitorNotifier.sendMatches(matches, 'plex');
-            }).catch(() => {});
-          }).catch(() => {});
-        }).catch(() => {});
-      } catch {}
+            return monitorMatcher.evaluateBatch(contents, 'plex');
+          })
+          .then(matches => {
+            if (matches.length > 0) monitorNotifier.sendMatches(matches, 'plex');
+          })
+          .catch(err => logger.warn('Post-sync monitor evaluation failed:', err.message));
+      } catch (err) {
+        logger.warn('Post-sync monitor evaluation failed:', err.message);
+      }
     })
     .catch(err => logger.warn('Periodic library re-sync failed:', err.message)),
     6 * 60 * 60 * 1000
@@ -503,8 +523,10 @@ app.listen(PORT, '0.0.0.0', () => {
             const content = monitorMatcher.buildContentFromLibrary(item);
             monitorMatcher.evaluateContent(content, 'plex').then(matches => {
               if (matches.length > 0) monitorNotifier.sendMatches(matches, 'plex');
-            }).catch(() => {});
-          } catch {}
+            }).catch(err => logger.warn('[plex ws] monitor evaluation failed:', err.message));
+          } catch (err) {
+            logger.warn('[plex ws] monitor evaluation failed:', err.message);
+          }
         }
       })
       .catch(err => logger.warn('[plex ws] fetchAndUpsertItem error:', err.message));

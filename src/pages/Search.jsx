@@ -14,12 +14,7 @@ import DetailModal from '../components/DetailModal'
 import Modal from '../components/Modal'
 import { useToast } from '../context/ToastContext'
 import { useAuth } from '../context/AuthContext'
-
-function posterUrl(path) {
-  if (!path) return null
-  if (path.startsWith('http://') || path.startsWith('https://')) return path
-  return '/api/poster?path=' + encodeURIComponent(path)
-}
+import { posterUrl } from '../utils/media'
 
 export default function Search() {
   const [searchParams] = useSearchParams()
@@ -67,6 +62,9 @@ export default function Search() {
   const [personLoading, setPersonLoading] = useState(false)
   const suggestTimerRef = useRef(null)
   const searchInputRef = useRef(null)
+  // Guards against out-of-order responses when searches overlap (typing fast,
+  // load-more racing a filter change): only the latest request may write state.
+  const searchSeqRef = useRef(0)
 
   // Sync input box when URL changes externally (e.g. navbar search). Render-phase
   // adjustment, React's recommended alternative to a state-syncing effect.
@@ -106,9 +104,11 @@ export default function Search() {
   // fetchSearchResults takes args explicitly so it doesn't close over stale state
   const fetchSearchResults = useCallback(async (q, g, pg = 1, append = false, filters = {}) => {
     if (!q && !g) { setResults([]); return }
+    const seq = ++searchSeqRef.current
     if (!append) setLoading(true)
     try {
       const { data } = await searchApi.search(q, pg, g || undefined, undefined, filters)
+      if (seq !== searchSeqRef.current) return
       if (append) {
         setResults(prev => [...prev, ...(data.results || [])])
       } else {
@@ -119,9 +119,10 @@ export default function Search() {
       setAvailableContentRatings(data.availableContentRatings || [])
       setAvailableGenres(data.availableGenres || [])
     } catch {
+      if (seq !== searchSeqRef.current) return
       toastError('Search failed. Please try again.')
     } finally {
-      setLoading(false)
+      if (seq === searchSeqRef.current) setLoading(false)
     }
   }, [toastError])
 
@@ -172,24 +173,6 @@ export default function Search() {
     })()
     return () => { cancelled = true }
   }, [selectedTmdbId, selectedType, hideLibrary])
-
-  // Refetch similar items when hideLibrary changes (server may filter differently)
-  useEffect(() => {
-    if (!selectedTmdbId || !selectedType) return
-    let cancelled = false
-    ;(async () => {
-      setSimilarLoading(true)
-      try {
-        const { data } = await searchApi.getSimilar(selectedTmdbId, selectedType, hideLibrary)
-        if (!cancelled) setSimilarItems(data.similar || [])
-      } catch {
-        if (!cancelled) setSimilarItems([])
-      } finally {
-        if (!cancelled) setSimilarLoading(false)
-      }
-    })()
-    return () => { cancelled = true }
-  }, [hideLibrary, selectedTmdbId, selectedType])
 
   // Fetch "More with X" when a cast/crew member was opened from a detail modal.
   useEffect(() => {
@@ -313,8 +296,8 @@ export default function Search() {
     return hideLibrary ? results.filter(i => !i.inLibrary) : results
   }, [results, hideLibrary])
 
-  const movieResults = displayResults.filter(item => item.mediaType === 'movie')
-  const tvResults = displayResults.filter(item => item.mediaType === 'tv')
+  const movieResults = useMemo(() => displayResults.filter(item => item.mediaType === 'movie'), [displayResults])
+  const tvResults = useMemo(() => displayResults.filter(item => item.mediaType === 'tv'), [displayResults])
   const displaySimilar = useMemo(() => {
     return hideLibrary ? similarItems.filter(i => !i.inLibrary) : similarItems
   }, [similarItems, hideLibrary])

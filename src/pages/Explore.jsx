@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react'
+import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import {
   exploreApi,
@@ -6,8 +6,8 @@ import {
   searchApi,
   queueApi,
 } from '../services/api'
-import MediaCard from '../components/MediaCard'
 import Carousel from '../components/Carousel'
+import ExploreSection from '../components/ExploreSection'
 import DetailModal from '../components/DetailModal'
 import SkeletonLoader from '../components/SkeletonLoader'
 import ToggleSwitch from '../components/ToggleSwitch'
@@ -39,19 +39,6 @@ const GENRES = Object.keys(GENRE_META)
 
 const MATURE_RATINGS = new Set(['r', 'tv-ma', 'nc-17', 'x', 'nr'])
 
-function posterUrl(path) {
-  if (!path) return null
-  if (path.startsWith('http://') || path.startsWith('https://')) return path
-  return '/api/poster?path=' + encodeURIComponent(path)
-}
-
-function formatReleaseDate(dateStr) {
-  if (!dateStr) return null
-  const d = new Date(dateStr + 'T00:00:00')
-  if (isNaN(d)) return null
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-}
-
 export default function Explore() {
   const { error: toastError, success: toastSuccess } = useToast()
   const { user } = useAuth()
@@ -73,6 +60,9 @@ export default function Explore() {
   const intervalRef = useRef(null)
   const pollingRef = useRef(false)
   const buildStartRef = useRef(null)
+  // Invalidates older fetches/polls when filters change so a poll started with
+  // old params can't overwrite results from the current ones.
+  const fetchSeqRef = useRef(0)
 
   const loadWatchlist = useCallback(async () => {
     try {
@@ -98,8 +88,14 @@ export default function Explore() {
     if (matureEnabled) params.set('mature', 'true')
     if (hideRequested) params.set('hideRequested', 'true')
 
+    // A poll started under previous params must not survive a refetch
+    const seq = ++fetchSeqRef.current
+    if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null }
+    pollingRef.current = false
+
     try {
       const { data } = await exploreApi.getRecommendations(params)
+      if (seq !== fetchSeqRef.current) return
       if (data.status === 'building') {
         if (!buildStartRef.current) buildStartRef.current = Date.now()
         setBuilding(true)
@@ -109,6 +105,7 @@ export default function Explore() {
           intervalRef.current = setInterval(async () => {
             try {
               const { data: pollData } = await exploreApi.getRecommendations(params)
+              if (seq !== fetchSeqRef.current) return
               if (pollData.status !== 'building') {
                 clearInterval(intervalRef.current)
                 pollingRef.current = false
@@ -127,11 +124,12 @@ export default function Explore() {
       setPolling(false)
       setRecommendations(data)
     } catch (e) {
+      if (seq !== fetchSeqRef.current) return
       setBuilding(false)
       setPolling(false)
       toastError('Failed to load recommendations')
     } finally {
-      setLoading(false)
+      if (seq === fetchSeqRef.current) setLoading(false)
     }
   }, [matureEnabled, hideRequested, toastError])
 
@@ -172,17 +170,18 @@ export default function Explore() {
     await fetchRecommendations(true)
   }, [fetchRecommendations])
 
+  // No explicit refetch here: changing the state changes fetchRecommendations'
+  // identity, and the effect above refetches with the *new* params. Calling it
+  // directly would double-fetch using the stale closure.
   const handleMatureChange = useCallback((checked) => {
     setMatureEnabled(checked)
     localStorage.setItem('matureEnabled', checked ? 'true' : 'false')
-    fetchRecommendations(false)
-  }, [fetchRecommendations])
+  }, [])
 
   const handleHideRequestedChange = useCallback((checked) => {
     setHideRequested(checked)
     localStorage.setItem('hideRequested', checked ? 'true' : 'false')
-    fetchRecommendations(false)
-  }, [fetchRecommendations])
+  }, [])
 
   const handleOpenModal = useCallback((item) => {
     setSelectedItem(item)
@@ -329,7 +328,7 @@ export default function Explore() {
     ;(async () => { await handleSeasonsFetch(requestItem.tmdbId) })()
   }, [requestItem, handleSeasonsFetch])
 
-  const filteredRecommendations = useCallback(() => {
+  const filteredRecommendations = useMemo(() => {
     if (!recommendations) return null
     if (matureEnabled) return recommendations
     const filterItems = (items) => items.filter(item => {
@@ -347,11 +346,27 @@ export default function Explore() {
     }
   }, [recommendations, matureEnabled])
 
-  const filteredItems = (items) => {
-    if (!items) return []
-    if (hideRequested) return items.filter(i => !i.isMyRequest && !i.badgeRequested)
-    return items
-  }
+  // Second filter layer: the "hide requested" toggle on top of the mature
+  // filter. Memoized so the array props passed to each ExploreSection stay
+  // referentially stable and the memoized sections can skip re-rendering.
+  const visibleRecs = useMemo(() => {
+    const lists = filteredRecommendations || {}
+    const hide = (items) => {
+      if (!items) return []
+      if (hideRequested) return items.filter(i => !i.isMyRequest && !i.badgeRequested)
+      return items
+    }
+    return {
+      topPicks: hide(lists.topPicks),
+      movies: hide(lists.movies),
+      tvShows: hide(lists.tvShows),
+      anime: hide(lists.anime),
+      trendingMovies: hide(lists.trendingMovies),
+      trendingTV: hide(lists.trendingTV),
+      upcomingMovies: hide(lists.upcomingMovies),
+      upcomingTV: hide(lists.upcomingTV),
+    }
+  }, [filteredRecommendations, hideRequested])
 
   return (
     <>
@@ -425,229 +440,54 @@ export default function Explore() {
           </>
         ) : (
           <>
-            {filteredItems(filteredRecommendations()?.topPicks).length > 0 && (
-              <section className="section" id="section-top-picks">
-                <div className="section-header">
-                  <h2 className="section-title">Top Picks for You</h2>
-                  <span className="section-badge">Outside Your Library</span>
-                </div>
-                  <Carousel>
-                  {filteredItems(filteredRecommendations()?.topPicks).map(item => (
-                    <div key={item.tmdbId + item.mediaType} className="card" data-tmdb-id={item.tmdbId} data-adult={item.adult ? 'true' : undefined} data-request-tmdb={item.tmdbId} onClick={() => handleOpenModal(item)}>
-                      <button className="card-poster-link" onClick={() => handleOpenModal(item)} type="button">
-                        {item.posterUrl && (
-                          <img className="card-poster" src={posterUrl(item.posterUrl)} alt={item.title} loading="lazy" />
-                        )}
-                        <div className="card-poster-placeholder">{item.title?.charAt(0) || '?'}</div>
-                        {item.releaseDate && item.releaseDate > new Date().toISOString().slice(0, 10)
-                          ? <span className={'badge-upcoming-card' + (item.badgeRequested ? ' badge-requested' : '')}>{item.badgeRequested ? 'Requested' : 'Coming Soon'}</span>
-                          : <span className={'badge-not-in-library' + (item.badgeRequested ? ' badge-requested' : '')}>{item.badgeRequested ? 'Requested' : 'Not in Library'}</span>}
-                        <div className="card-overlay">
-                          <div className="card-overlay-actions">
-                            {item.ratingKey && (
-                              <button
-                                className={'btn-icon btn-watchlist' + (watchlistCache[item.ratingKey] ? ' in-watchlist' : '')}
-                                onClick={(e) => { e.stopPropagation(); handleToggleWatchlist(item) }}
-                              >
-                                {watchlistCache[item.ratingKey] ? '✓ In Watchlist' : '+ Watchlist'}
-                              </button>
-                            )}
-                            {!item.ratingKey && (
-                              <button
-                                className={'btn-icon btn-request' + (item.isMyRequest ? ' btn-request-sent' : '')}
-                                onClick={(e) => { e.stopPropagation(); !item.isMyRequest && (item.isRequested ? handleNotify(item) : openRequestDialog(item)) }}
-                                disabled={item.isMyRequest}
-                              >
-                                {item.isMyRequest ? 'Requested ✓' : (item.isRequested ? 'Notify Me' : 'Request')}
-                              </button>
-                            )}
-                            {!item.badgeRequested && (
-                              <button className="btn-icon btn-dismiss" onClick={(e) => { e.stopPropagation(); handleDismiss(item) }}>✕</button>
-                            )}
-                          </div>
-                        </div>
-                      </button>
-                      <div className="card-info">
-                        <div className="card-title">{item.title}</div>
-                        <div className="card-meta">
-                          {item.year && <span className="card-year">{item.year}</span>}
-                          {item.voteAverage && <span className="card-rating">★ {item.voteAverage.toFixed(1)}</span>}
-                        </div>
-                        {item.reasons && item.reasons.length > 0 && (
-                          <div className="card-reasons">
-                            {item.reasons.slice(0, 2).map((r, i) => (
-                              <span key={i} className="reason-tag"><span className="reason-tag-text">{r}</span></span>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </Carousel>
-              </section>
-            )}
+            <ExploreSection
+                id="section-top-picks"
+                title="Top Picks for You"
+                badge="Outside Your Library"
+                items={visibleRecs.topPicks}
+                watchlistCache={watchlistCache}
+                onOpenModal={handleOpenModal}
+                onToggleWatchlist={handleToggleWatchlist}
+                onNotify={handleNotify}
+                onRequest={openRequestDialog}
+                onDismiss={handleDismiss}
+              />
 
-            {filteredItems(filteredRecommendations()?.movies).length > 0 && (
-              <section className="section" id="section-movies">
-                <div className="section-header"><h2 className="section-title">Movies</h2></div>
-                 <Carousel>
-                  {filteredItems(filteredRecommendations()?.movies).map(item => (
-                    <div key={item.tmdbId + item.mediaType} className="card" data-tmdb-id={item.tmdbId} data-adult={item.adult ? 'true' : undefined} data-request-tmdb={item.tmdbId} onClick={() => handleOpenModal(item)}>
-                      <button className="card-poster-link" onClick={() => handleOpenModal(item)} type="button">
-                        {item.posterUrl && <img className="card-poster" src={posterUrl(item.posterUrl)} alt={item.title} loading="lazy" />}
-                        <div className="card-poster-placeholder">{item.title?.charAt(0) || '?'}</div>
-                        {item.releaseDate && item.releaseDate > new Date().toISOString().slice(0, 10)
-                          ? <span className={'badge-upcoming-card' + (item.badgeRequested ? ' badge-requested' : '')}>{item.badgeRequested ? 'Requested' : 'Coming Soon'}</span>
-                          : <span className={'badge-not-in-library' + (item.badgeRequested ? ' badge-requested' : '')}>{item.badgeRequested ? 'Requested' : 'Not in Library'}</span>}
-                        <div className="card-overlay">
-                          <div className="card-overlay-actions">
-                            {item.ratingKey && (
-                              <button className={'btn-icon btn-watchlist' + (watchlistCache[item.ratingKey] ? ' in-watchlist' : '')} onClick={(e) => { e.stopPropagation(); handleToggleWatchlist(item) }}>
-                                {watchlistCache[item.ratingKey] ? '✓ In Watchlist' : '+ Watchlist'}
-                              </button>
-                            )}
-                            {!item.ratingKey && (
-                              <button
-                                className={'btn-icon btn-request' + (item.isMyRequest ? ' btn-request-sent' : '')}
-                                onClick={(e) => { e.stopPropagation(); !item.isMyRequest && (item.isRequested ? handleNotify(item) : openRequestDialog(item)) }}
-                                disabled={item.isMyRequest}
-                              >
-                                {item.isMyRequest ? 'Requested ✓' : (item.isRequested ? 'Notify Me' : 'Request')}
-                              </button>
-                            )}
-                            {!item.badgeRequested && (
-                              <button className="btn-icon btn-dismiss" onClick={(e) => { e.stopPropagation(); handleDismiss(item) }}>✕</button>
-                            )}
-                          </div>
-                        </div>
-                      </button>
-                      <div className="card-info">
-                        <div className="card-title">{item.title}</div>
-                        <div className="card-meta">
-                          {item.year && <span className="card-year">{item.year}</span>}
-                          {item.voteAverage && <span className="card-rating">★ {item.voteAverage.toFixed(1)}</span>}
-                        </div>
-                        {item.reasons && item.reasons.length > 0 && (
-                          <div className="card-reasons">
-                            {item.reasons.slice(0, 2).map((r, i) => (
-                              <span key={i} className="reason-tag"><span className="reason-tag-text">{r}</span></span>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </Carousel>
-              </section>
-            )}
+            <ExploreSection
+                id="section-movies"
+                title="Movies"
+                items={visibleRecs.movies}
+                watchlistCache={watchlistCache}
+                onOpenModal={handleOpenModal}
+                onToggleWatchlist={handleToggleWatchlist}
+                onNotify={handleNotify}
+                onRequest={openRequestDialog}
+                onDismiss={handleDismiss}
+              />
 
-            {filteredItems(filteredRecommendations()?.tvShows).length > 0 && (
-              <section className="section" id="section-tv">
-                <div className="section-header"><h2 className="section-title">TV Shows</h2></div>
-                <Carousel>
-                  {filteredItems(filteredRecommendations()?.tvShows).map(item => (
-                    <div key={item.tmdbId + item.mediaType} className="card" data-tmdb-id={item.tmdbId} data-adult={item.adult ? 'true' : undefined} data-request-tmdb={item.tmdbId} onClick={() => handleOpenModal(item)}>
-                      <button className="card-poster-link" onClick={() => handleOpenModal(item)} type="button">
-                        {item.posterUrl && <img className="card-poster" src={posterUrl(item.posterUrl)} alt={item.title} loading="lazy" />}
-                        <div className="card-poster-placeholder">{item.title?.charAt(0) || '?'}</div>
-                        {item.releaseDate && item.releaseDate > new Date().toISOString().slice(0, 10)
-                          ? <span className={'badge-upcoming-card' + (item.badgeRequested ? ' badge-requested' : '')}>{item.badgeRequested ? 'Requested' : 'Coming Soon'}</span>
-                          : <span className={'badge-not-in-library' + (item.badgeRequested ? ' badge-requested' : '')}>{item.badgeRequested ? 'Requested' : 'Not in Library'}</span>}
-                        <div className="card-overlay">
-                          <div className="card-overlay-actions">
-                            {item.ratingKey && (
-                              <button className={'btn-icon btn-watchlist' + (watchlistCache[item.ratingKey] ? ' in-watchlist' : '')} onClick={(e) => { e.stopPropagation(); handleToggleWatchlist(item) }}>
-                                {watchlistCache[item.ratingKey] ? '✓ In Watchlist' : '+ Watchlist'}
-                              </button>
-                            )}
-                            {!item.ratingKey && (
-                              <button
-                                className={'btn-icon btn-request' + (item.isMyRequest ? ' btn-request-sent' : '')}
-                                onClick={(e) => { e.stopPropagation(); !item.isMyRequest && (item.isRequested ? handleNotify(item) : openRequestDialog(item)) }}
-                                disabled={item.isMyRequest}
-                              >
-                                {item.isMyRequest ? 'Requested ✓' : (item.isRequested ? 'Notify Me' : 'Request')}
-                              </button>
-                            )}
-                            {!item.badgeRequested && (
-                              <button className="btn-icon btn-dismiss" onClick={(e) => { e.stopPropagation(); handleDismiss(item) }}>✕</button>
-                            )}
-                          </div>
-                        </div>
-                      </button>
-                      <div className="card-info">
-                        <div className="card-title">{item.title}</div>
-                        <div className="card-meta">
-                          {item.year && <span className="card-year">{item.year}</span>}
-                          {item.voteAverage && <span className="card-rating">★ {item.voteAverage.toFixed(1)}</span>}
-                        </div>
-                        {item.reasons && item.reasons.length > 0 && (
-                          <div className="card-reasons">
-                            {item.reasons.slice(0, 2).map((r, i) => (
-                              <span key={i} className="reason-tag"><span className="reason-tag-text">{r}</span></span>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </Carousel>
-              </section>
-            )}
+            <ExploreSection
+                id="section-tv"
+                title="TV Shows"
+                items={visibleRecs.tvShows}
+                watchlistCache={watchlistCache}
+                onOpenModal={handleOpenModal}
+                onToggleWatchlist={handleToggleWatchlist}
+                onNotify={handleNotify}
+                onRequest={openRequestDialog}
+                onDismiss={handleDismiss}
+              />
 
-            {filteredItems(filteredRecommendations()?.anime).length > 0 && (
-              <section className="section" id="section-anime">
-                <div className="section-header"><h2 className="section-title">Anime</h2></div>
-                <Carousel>
-                  {filteredItems(filteredRecommendations()?.anime).map(item => (
-                    <div key={item.tmdbId + item.mediaType} className="card" data-tmdb-id={item.tmdbId} data-adult={item.adult ? 'true' : undefined} data-request-tmdb={item.tmdbId} onClick={() => handleOpenModal(item)}>
-                      <button className="card-poster-link" onClick={() => handleOpenModal(item)} type="button">
-                        {item.posterUrl && <img className="card-poster" src={posterUrl(item.posterUrl)} alt={item.title} loading="lazy" />}
-                        <div className="card-poster-placeholder">{item.title?.charAt(0) || '?'}</div>
-                        {item.releaseDate && item.releaseDate > new Date().toISOString().slice(0, 10)
-                          ? <span className={'badge-upcoming-card' + (item.badgeRequested ? ' badge-requested' : '')}>{item.badgeRequested ? 'Requested' : 'Coming Soon'}</span>
-                          : <span className={'badge-not-in-library' + (item.badgeRequested ? ' badge-requested' : '')}>{item.badgeRequested ? 'Requested' : 'Not in Library'}</span>}
-                        <div className="card-overlay">
-                          <div className="card-overlay-actions">
-                            {item.ratingKey && (
-                              <button className={'btn-icon btn-watchlist' + (watchlistCache[item.ratingKey] ? ' in-watchlist' : '')} onClick={(e) => { e.stopPropagation(); handleToggleWatchlist(item) }}>
-                                {watchlistCache[item.ratingKey] ? '✓ In Watchlist' : '+ Watchlist'}
-                              </button>
-                            )}
-                            {!item.ratingKey && (
-                              <button
-                                className={'btn-icon btn-request' + (item.isMyRequest ? ' btn-request-sent' : '')}
-                                onClick={(e) => { e.stopPropagation(); !item.isMyRequest && (item.isRequested ? handleNotify(item) : openRequestDialog(item)) }}
-                                disabled={item.isMyRequest}
-                              >
-                                {item.isMyRequest ? 'Requested ✓' : (item.isRequested ? 'Notify Me' : 'Request')}
-                              </button>
-                            )}
-                            {!item.badgeRequested && (
-                              <button className="btn-icon btn-dismiss" onClick={(e) => { e.stopPropagation(); handleDismiss(item) }}>✕</button>
-                            )}
-                          </div>
-                        </div>
-                      </button>
-                      <div className="card-info">
-                        <div className="card-title">{item.title}</div>
-                        <div className="card-meta">
-                          {item.year && <span className="card-year">{item.year}</span>}
-                          {item.voteAverage && <span className="card-rating">★ {item.voteAverage.toFixed(1)}</span>}
-                        </div>
-                        {item.reasons && item.reasons.length > 0 && (
-                          <div className="card-reasons">
-                            {item.reasons.slice(0, 2).map((r, i) => (
-                              <span key={i} className="reason-tag"><span className="reason-tag-text">{r}</span></span>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </Carousel>
-              </section>
-            )}
+            <ExploreSection
+                id="section-anime"
+                title="Anime"
+                items={visibleRecs.anime}
+                watchlistCache={watchlistCache}
+                onOpenModal={handleOpenModal}
+                onToggleWatchlist={handleToggleWatchlist}
+                onNotify={handleNotify}
+                onRequest={openRequestDialog}
+                onDismiss={handleDismiss}
+              />
 
             <section className="section" id="section-genre-browse">
               <div className="section-header">
@@ -673,214 +513,68 @@ export default function Explore() {
               </Carousel>
             </section>
 
-            {filteredRecommendations()?.trendingMovies && filteredRecommendations().trendingMovies.length >= 8 && (
-              <section className="section" id="section-trending-movies">
-                <div className="section-header">
-                  <h2 className="section-title">Trending Movies</h2>
-                  <span className="section-badge">Outside Your Library</span>
-                </div>
-                <Carousel>
-                  {filteredItems(filteredRecommendations()?.trendingMovies).map(item => (
-                    <div key={item.tmdbId + item.mediaType} className="card" data-tmdb-id={item.tmdbId} data-adult={item.adult ? 'true' : undefined} data-request-tmdb={item.tmdbId} onClick={() => handleOpenModal(item)}>
-                      <button className="card-poster-link" onClick={() => handleOpenModal(item)} type="button">
-                        {item.posterUrl && <img className="card-poster" src={posterUrl(item.posterUrl)} alt={item.title} loading="lazy" />}
-                        <div className="card-poster-placeholder">{item.title?.charAt(0) || '?'}</div>
-                        {item.releaseDate && item.releaseDate > new Date().toISOString().slice(0, 10)
-                          ? <span className={'badge-upcoming-card' + (item.badgeRequested ? ' badge-requested' : '')}>{item.badgeRequested ? 'Requested' : 'Coming Soon'}</span>
-                          : <span className={'badge-not-in-library' + (item.badgeRequested ? ' badge-requested' : '')}>{item.badgeRequested ? 'Requested' : 'Not in Library'}</span>}
-                        <div className="card-overlay">
-                          <div className="card-overlay-actions">
-                            {item.ratingKey && (
-                              <button className={'btn-icon btn-watchlist' + (watchlistCache[item.ratingKey] ? ' in-watchlist' : '')} onClick={(e) => { e.stopPropagation(); handleToggleWatchlist(item) }}>
-                                {watchlistCache[item.ratingKey] ? '✓ In Watchlist' : '+ Watchlist'}
-                              </button>
-                            )}
-                            {!item.ratingKey && (
-                              <button
-                                className={'btn-icon btn-request' + (item.isMyRequest ? ' btn-request-sent' : '')}
-                                onClick={(e) => { e.stopPropagation(); !item.isMyRequest && (item.isRequested ? handleNotify(item) : openRequestDialog(item)) }}
-                                disabled={item.isMyRequest}
-                              >
-                                {item.isMyRequest ? 'Requested ✓' : (item.isRequested ? 'Notify Me' : 'Request')}
-                              </button>
-                            )}
-                            {!item.badgeRequested && (
-                              <button className="btn-icon btn-dismiss" onClick={(e) => { e.stopPropagation(); handleDismiss(item) }}>✕</button>
-                            )}
-                          </div>
-                        </div>
-                      </button>
-                      <div className="card-info">
-                        <div className="card-title">{item.title}</div>
-                        <div className="card-meta">
-                          {item.year && <span className="card-year">{item.year}</span>}
-                          {item.voteAverage && <span className="card-rating">★ {item.voteAverage.toFixed(1)}</span>}
-                        </div>
-                        {item.reasons && item.reasons.length > 0 && (
-                          <div className="card-reasons">
-                            {item.reasons.slice(0, 2).map((r, i) => (
-                              <span key={i} className="reason-tag"><span className="reason-tag-text">{r}</span></span>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </Carousel>
-              </section>
+            {(filteredRecommendations?.trendingMovies?.length || 0) >= 8 && (
+              <ExploreSection
+                  id="section-trending-movies"
+                  title="Trending Movies"
+                  badge="Outside Your Library"
+                  items={visibleRecs.trendingMovies}
+                  watchlistCache={watchlistCache}
+                  onOpenModal={handleOpenModal}
+                  onToggleWatchlist={handleToggleWatchlist}
+                  onNotify={handleNotify}
+                  onRequest={openRequestDialog}
+                  onDismiss={handleDismiss}
+              />
             )}
 
-            {filteredRecommendations()?.trendingTV && filteredRecommendations().trendingTV.length >= 8 && (
-              <section className="section" id="section-trending-tv">
-                <div className="section-header">
-                  <h2 className="section-title">Trending TV Shows</h2>
-                  <span className="section-badge">Outside Your Library</span>
-                </div>
-                <Carousel>
-                  {filteredItems(filteredRecommendations()?.trendingTV).map(item => (
-                    <div key={item.tmdbId + item.mediaType} className="card" data-tmdb-id={item.tmdbId} data-adult={item.adult ? 'true' : undefined} data-request-tmdb={item.tmdbId} onClick={() => handleOpenModal(item)}>
-                      <button className="card-poster-link" onClick={() => handleOpenModal(item)} type="button">
-                        {item.posterUrl && <img className="card-poster" src={posterUrl(item.posterUrl)} alt={item.title} loading="lazy" />}
-                        <div className="card-poster-placeholder">{item.title?.charAt(0) || '?'}</div>
-                        {item.releaseDate && item.releaseDate > new Date().toISOString().slice(0, 10)
-                          ? <span className={'badge-upcoming-card' + (item.badgeRequested ? ' badge-requested' : '')}>{item.badgeRequested ? 'Requested' : 'Coming Soon'}</span>
-                          : <span className={'badge-not-in-library' + (item.badgeRequested ? ' badge-requested' : '')}>{item.badgeRequested ? 'Requested' : 'Not in Library'}</span>}
-                        <div className="card-overlay">
-                          <div className="card-overlay-actions">
-                            {item.ratingKey && (
-                              <button className={'btn-icon btn-watchlist' + (watchlistCache[item.ratingKey] ? ' in-watchlist' : '')} onClick={(e) => { e.stopPropagation(); handleToggleWatchlist(item) }}>
-                                {watchlistCache[item.ratingKey] ? '✓ In Watchlist' : '+ Watchlist'}
-                              </button>
-                            )}
-                            {!item.ratingKey && (
-                              <button
-                                className={'btn-icon btn-request' + (item.isMyRequest ? ' btn-request-sent' : '')}
-                                onClick={(e) => { e.stopPropagation(); !item.isMyRequest && (item.isRequested ? handleNotify(item) : openRequestDialog(item)) }}
-                                disabled={item.isMyRequest}
-                              >
-                                {item.isMyRequest ? 'Requested ✓' : (item.isRequested ? 'Notify Me' : 'Request')}
-                              </button>
-                            )}
-                            {!item.badgeRequested && (
-                              <button className="btn-icon btn-dismiss" onClick={(e) => { e.stopPropagation(); handleDismiss(item) }}>✕</button>
-                            )}
-                          </div>
-                        </div>
-                      </button>
-                      <div className="card-info">
-                        <div className="card-title">{item.title}</div>
-                        <div className="card-meta">
-                          {item.year && <span className="card-year">{item.year}</span>}
-                          {item.voteAverage && <span className="card-rating">★ {item.voteAverage.toFixed(1)}</span>}
-                        </div>
-                        {item.reasons && item.reasons.length > 0 && (
-                          <div className="card-reasons">
-                            {item.reasons.slice(0, 2).map((r, i) => (
-                              <span key={i} className="reason-tag"><span className="reason-tag-text">{r}</span></span>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </Carousel>
-              </section>
+            {(filteredRecommendations?.trendingTV?.length || 0) >= 8 && (
+              <ExploreSection
+                  id="section-trending-tv"
+                  title="Trending TV Shows"
+                  badge="Outside Your Library"
+                  items={visibleRecs.trendingTV}
+                  watchlistCache={watchlistCache}
+                  onOpenModal={handleOpenModal}
+                  onToggleWatchlist={handleToggleWatchlist}
+                  onNotify={handleNotify}
+                  onRequest={openRequestDialog}
+                  onDismiss={handleDismiss}
+              />
             )}
 
-            {filteredRecommendations()?.upcomingMovies && filteredRecommendations().upcomingMovies.length >= 8 && (
-              <section className="section" id="section-upcoming-movies">
-                <div className="section-header">
-                  <h2 className="section-title">Upcoming Movies</h2>
-                  <span className="section-badge badge-upcoming">Coming Soon</span>
-                </div>
-                <Carousel>
-                  {filteredItems(filteredRecommendations()?.upcomingMovies).map(item => (
-                    <div key={item.tmdbId + item.mediaType} className="card" data-tmdb-id={item.tmdbId} data-adult={item.adult ? 'true' : undefined} data-request-tmdb={item.tmdbId} onClick={() => handleOpenModal(item)}>
-                      <button className="card-poster-link" onClick={() => handleOpenModal(item)} type="button">
-                        {item.posterUrl && <img className="card-poster" src={posterUrl(item.posterUrl)} alt={item.title} loading="lazy" />}
-                        <div className="card-poster-placeholder">{item.title?.charAt(0) || '?'}</div>
-                        <span className={'badge-upcoming-card' + (item.badgeRequested ? ' badge-requested' : '')}>{item.badgeRequested ? 'Requested' : 'Coming Soon'}</span>
-                        <div className="card-overlay">
-                          <div className="card-overlay-actions">
-                            {item.ratingKey && (
-                              <button className={'btn-icon btn-watchlist' + (watchlistCache[item.ratingKey] ? ' in-watchlist' : '')} onClick={(e) => { e.stopPropagation(); handleToggleWatchlist(item) }}>
-                                {watchlistCache[item.ratingKey] ? '✓ In Watchlist' : '+ Watchlist'}
-                              </button>
-                            )}
-                            {!item.ratingKey && (
-                              <button
-                                className={'btn-icon btn-request' + (item.isMyRequest ? ' btn-request-sent' : '')}
-                                onClick={(e) => { e.stopPropagation(); !item.isMyRequest && (item.isRequested ? handleNotify(item) : openRequestDialog(item)) }}
-                                disabled={item.isMyRequest}
-                              >
-                                {item.isMyRequest ? 'Requested ✓' : (item.isRequested ? 'Notify Me' : 'Request')}
-                              </button>
-                            )}
-                            {!item.badgeRequested && (
-                              <button className="btn-icon btn-dismiss" onClick={(e) => { e.stopPropagation(); handleDismiss(item) }}>✕</button>
-                            )}
-                          </div>
-                        </div>
-                      </button>
-                      <div className="card-info">
-                        <div className="card-title">{item.title}</div>
-                        <div className="card-meta">
-                          {item.releaseDate && <span className="card-year">{formatReleaseDate(item.releaseDate)}</span>}
-                          {item.voteAverage && <span className="card-rating">★ {item.voteAverage.toFixed(1)}</span>}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </Carousel>
-              </section>
+            {(filteredRecommendations?.upcomingMovies?.length || 0) >= 8 && (
+              <ExploreSection
+                  id="section-upcoming-movies"
+                  title="Upcoming Movies"
+                  badge="Coming Soon"
+                  badgeClass="badge-upcoming"
+                  upcoming
+                  items={visibleRecs.upcomingMovies}
+                  watchlistCache={watchlistCache}
+                  onOpenModal={handleOpenModal}
+                  onToggleWatchlist={handleToggleWatchlist}
+                  onNotify={handleNotify}
+                  onRequest={openRequestDialog}
+                  onDismiss={handleDismiss}
+              />
             )}
 
-            {filteredRecommendations()?.upcomingTV && filteredRecommendations().upcomingTV.length >= 8 && (
-              <section className="section" id="section-upcoming-tv">
-                <div className="section-header">
-                  <h2 className="section-title">Upcoming TV Shows</h2>
-                  <span className="section-badge badge-upcoming">Coming Soon</span>
-                </div>
-                <Carousel>
-                  {filteredItems(filteredRecommendations()?.upcomingTV).map(item => (
-                    <div key={item.tmdbId + item.mediaType} className="card" data-tmdb-id={item.tmdbId} data-adult={item.adult ? 'true' : undefined} data-request-tmdb={item.tmdbId} onClick={() => handleOpenModal(item)}>
-                      <button className="card-poster-link" onClick={() => handleOpenModal(item)} type="button">
-                        {item.posterUrl && <img className="card-poster" src={posterUrl(item.posterUrl)} alt={item.title} loading="lazy" />}
-                        <div className="card-poster-placeholder">{item.title?.charAt(0) || '?'}</div>
-                        <span className={'badge-upcoming-card' + (item.badgeRequested ? ' badge-requested' : '')}>{item.badgeRequested ? 'Requested' : 'Coming Soon'}</span>
-                        <div className="card-overlay">
-                          <div className="card-overlay-actions">
-                            {item.ratingKey && (
-                              <button className={'btn-icon btn-watchlist' + (watchlistCache[item.ratingKey] ? ' in-watchlist' : '')} onClick={(e) => { e.stopPropagation(); handleToggleWatchlist(item) }}>
-                                {watchlistCache[item.ratingKey] ? '✓ In Watchlist' : '+ Watchlist'}
-                              </button>
-                            )}
-                            {!item.ratingKey && (
-                              <button
-                                className={'btn-icon btn-request' + (item.isMyRequest ? ' btn-request-sent' : '')}
-                                onClick={(e) => { e.stopPropagation(); !item.isMyRequest && (item.isRequested ? handleNotify(item) : openRequestDialog(item)) }}
-                                disabled={item.isMyRequest}
-                              >
-                                {item.isMyRequest ? 'Requested ✓' : (item.isRequested ? 'Notify Me' : 'Request')}
-                              </button>
-                            )}
-                            {!item.badgeRequested && (
-                              <button className="btn-icon btn-dismiss" onClick={(e) => { e.stopPropagation(); handleDismiss(item) }}>✕</button>
-                            )}
-                          </div>
-                        </div>
-                      </button>
-                      <div className="card-info">
-                        <div className="card-title">{item.title}</div>
-                        <div className="card-meta">
-                          {item.releaseDate && <span className="card-year">{formatReleaseDate(item.releaseDate)}</span>}
-                          {item.voteAverage && <span className="card-rating">★ {item.voteAverage.toFixed(1)}</span>}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </Carousel>
-              </section>
+            {(filteredRecommendations?.upcomingTV?.length || 0) >= 8 && (
+              <ExploreSection
+                  id="section-upcoming-tv"
+                  title="Upcoming TV Shows"
+                  badge="Coming Soon"
+                  badgeClass="badge-upcoming"
+                  upcoming
+                  items={visibleRecs.upcomingTV}
+                  watchlistCache={watchlistCache}
+                  onOpenModal={handleOpenModal}
+                  onToggleWatchlist={handleToggleWatchlist}
+                  onNotify={handleNotify}
+                  onRequest={openRequestDialog}
+                  onDismiss={handleDismiss}
+              />
             )}
           </>
         )}

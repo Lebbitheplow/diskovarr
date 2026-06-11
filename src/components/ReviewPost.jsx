@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext'
 import StarsDisplay from './StarsDisplay'
 import ShareButton from './ShareButton'
 import ReviewComments from './ReviewComments'
+import { posterUrl } from '../utils/media'
 
 function fmtTime(ts) {
   if (!ts) return ''
@@ -19,12 +20,6 @@ function fmtTime(ts) {
 function fmtDate(ts) {
   if (!ts) return ''
   return new Date(ts * 1000).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
-}
-
-function posterUrl(path) {
-  if (!path) return null
-  if (path.startsWith('http://') || path.startsWith('https://')) return path
-  return '/api/poster?path=' + encodeURIComponent(path)
 }
 
 function Avatar({ src, name, size = '36px' }) {

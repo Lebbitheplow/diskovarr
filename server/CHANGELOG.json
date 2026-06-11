@@ -1,5 +1,14 @@
 [
   {
+    "version": "2.2.2",
+    "date": "2026-06-11",
+    "changes": [
+      "Security hardening — session cookies are now marked Secure over HTTPS, API keys no longer create persistent sessions, the poster proxy blocks path traversal, and compute-heavy endpoints are rate limited.",
+      "Fixed stale results when changing filters mid-search or while recommendations were still building.",
+      "Performance and code improvements — faster Requests page rendering, new database indexes, cached Plex device lookups, and a new automated test suite."
+    ]
+  },
+  {
     "version": "2.2.1",
     "date": "2026-06-09",
     "changes": [
