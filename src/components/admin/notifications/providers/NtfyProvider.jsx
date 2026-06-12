@@ -1,6 +1,7 @@
 import React, { useState, useCallback } from 'react'
 import { adminNotifications } from '../../../../services/adminApi'
 import { SHARED_NOTIFICATION_TYPES, DEFAULT_AGENT_TYPES, NTFY_PRIORITIES } from '../constants'
+import { useTranslation } from 'react-i18next'
 
 function Checkbox({ checked, onChange, children }) {
   return (
@@ -12,6 +13,7 @@ function Checkbox({ checked, onChange, children }) {
 }
 
 export default function NtfyProvider({ initial, onToast, onOpenAgentInfo }) {
+  const { t } = useTranslation()
   const [enabled, setEnabled] = useState(initial?.enabled || false)
   const [url, setUrl] = useState(initial?.url || '')
   const [topic, setTopic] = useState(initial?.topic || '')
@@ -55,8 +57,8 @@ export default function NtfyProvider({ initial, onToast, onOpenAgentInfo }) {
     <section className="admin-section">
       <div className="admin-section-header">
         <h2 className="section-title">
-          ntfy
-          <button type="button" className="agent-info-btn" onClick={() => onOpenAgentInfo?.('ntfy')} title="How to configure" style={{ marginLeft: 8, background: 'none', border: 'none', cursor: 'pointer', fontSize: 'inherit', color: 'inherit', padding: 0, verticalAlign: 'middle' }}>&#9432;</button>
+          {t('ntfy')}
+          <button type="button" className="agent-info-btn" onClick={() => onOpenAgentInfo?.('ntfy')} title={t('How to configure')} style={{ marginLeft: 8, background: 'none', border: 'none', cursor: 'pointer', fontSize: 'inherit', color: 'inherit', padding: 0, verticalAlign: 'middle' }}>&#9432;</button>
         </h2>
         <label className="slide-toggle" style={{ flexShrink: 0 }}>
           <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
@@ -66,37 +68,37 @@ export default function NtfyProvider({ initial, onToast, onOpenAgentInfo }) {
       <p className="section-desc" style={{ marginBottom: 16 }}>Send notifications via ntfy (self-hosted or ntfy.sh cloud). Supports markdown and images.</p>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 20 }}>
         <div>
-          <label className="conn-label">Server URL</label>
-          <input type="url" className="conn-input" placeholder="https://ntfy.sh or https://ntfy.example.com" value={url} onChange={(e) => setUrl(e.target.value)} />
+          <label className="conn-label">{t('Server URL')}</label>
+          <input type="url" className="conn-input" placeholder={t('https://ntfy.sh or https://ntfy.example.com')} value={url} onChange={(e) => setUrl(e.target.value)} />
         </div>
         <div>
-          <label className="conn-label">Topic</label>
-          <input type="text" className="conn-input" placeholder="diskovarr" value={topic} onChange={(e) => setTopic(e.target.value)} />
+          <label className="conn-label">{t('Topic')}</label>
+          <input type="text" className="conn-input" placeholder={t('diskovarr')} value={topic} onChange={(e) => setTopic(e.target.value)} />
         </div>
         <div>
-          <label className="conn-label">Authentication <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(optional)</span></label>
+          <label className="conn-label">{t('Authentication')} <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(optional)</span></label>
           <select className="conn-input" value={authMethod} onChange={(e) => setAuthMethod(e.target.value)} style={{ marginBottom: 8 }}>
-            <option value="none">None</option>
-            <option value="token">Bearer Token</option>
-            <option value="basic">Username / Password</option>
+            <option value="none">{t('None')}</option>
+            <option value="token">{t('Bearer Token')}</option>
+            <option value="basic">{t('Username / Password')}</option>
           </select>
-          {authMethod === 'token' && <input type="password" className="conn-input" placeholder="Bearer token" value={token} onChange={(e) => setToken(e.target.value)} autoComplete="off" />}
+          {authMethod === 'token' && <input type="password" className="conn-input" placeholder={t('Bearer token')} value={token} onChange={(e) => setToken(e.target.value)} autoComplete="off" />}
           {authMethod === 'basic' && (
             <div style={{ display: 'flex', gap: 8 }}>
-              <input type="text" className="conn-input" placeholder="Username" value={username} onChange={(e) => setUsername(e.target.value)} />
-              <input type="password" className="conn-input" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="off" />
+              <input type="text" className="conn-input" placeholder={t('Username')} value={username} onChange={(e) => setUsername(e.target.value)} />
+              <input type="password" className="conn-input" placeholder={t('Password')} value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="off" />
             </div>
           )}
         </div>
         <div>
-          <label className="conn-label">Priority</label>
+          <label className="conn-label">{t('Priority')}</label>
           <select className="conn-input" value={priority} onChange={(e) => setPriority(Number(e.target.value))}>
             {NTFY_PRIORITIES.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
           </select>
         </div>
-        <Checkbox checked={embedPoster} onChange={(e) => setEmbedPoster(e.target.checked)}>Attach poster image</Checkbox>
+        <Checkbox checked={embedPoster} onChange={(e) => setEmbedPoster(e.target.checked)}>{t('Attach poster image')}</Checkbox>
         <div>
-          <p style={{ fontSize: '0.72rem', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-secondary)', margin: '0 0 8px' }}>Notification Types</p>
+          <p style={{ fontSize: '0.72rem', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-secondary)', margin: '0 0 8px' }}>{t('Notification Types')}</p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
             {SHARED_NOTIFICATION_TYPES.map(t => (
               <Checkbox key={'nf-'+t.value} checked={notifTypes.includes(t.value)} onChange={() => toggleType(setNotifTypes, t.value)}>
@@ -106,7 +108,7 @@ export default function NtfyProvider({ initial, onToast, onOpenAgentInfo }) {
           </div>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
-          <button className="btn-admin btn-primary" onClick={handleSave}>Save</button>
+          <button className="btn-admin btn-primary" onClick={handleSave}>{t('Save')}</button>
           <button className="btn-admin" onClick={handleTest} disabled={testing}>{testing ? 'Sending...' : 'Send Test'}</button>
         </div>
       </div>

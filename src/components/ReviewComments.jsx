@@ -3,6 +3,7 @@ import { socialReviewsApi } from '../services/api'
 import { useToast } from '../context/ToastContext'
 import { useAuth } from '../context/AuthContext'
 import { posterUrl } from '../utils/media'
+import { useTranslation } from 'react-i18next'
 
 function fmtTime(ts) {
   if (!ts) return ''
@@ -26,6 +27,7 @@ function Avatar({ src, name, size = '28px' }) {
 }
 
 function CommentItem({ comment, onDelete, onEdit }) {
+  const { t } = useTranslation()
   const [editing, setEditing] = useState(false)
   const [editBody, setEditBody] = useState(comment.body)
   const [saving, setSaving] = useState(false)
@@ -67,7 +69,7 @@ function CommentItem({ comment, onDelete, onEdit }) {
                 {saving ? 'Saving...' : 'Save'}
               </button>
               <button className="btn-page" onClick={() => { setEditing(false); setEditBody(comment.body) }} style={{ fontSize: '0.78rem', padding: '3px 10px' }}>
-                Cancel
+                {t('Cancel')}
               </button>
             </div>
           </div>
@@ -91,14 +93,14 @@ function CommentItem({ comment, onDelete, onEdit }) {
                   onClick={() => setEditing(true)}
                   style={{ fontSize: '0.7rem', padding: '2px 6px', opacity: 0.6 }}
                 >
-                  Edit
+                  {t('Edit')}
                 </button>
                 <button
                   className="btn-page"
                   onClick={() => onDelete(comment.id)}
                   style={{ fontSize: '0.7rem', padding: '2px 6px', opacity: 0.6, color: '#f87171' }}
                 >
-                  Delete
+                  {t('Delete')}
                 </button>
               </div>
             )}
@@ -113,6 +115,7 @@ function CommentItem({ comment, onDelete, onEdit }) {
 }
 
 export default function ReviewComments({ reviewId, onCommentCountChange }) {
+  const { t } = useTranslation()
   const { user } = useAuth()
   const { success, error: toastError } = useToast()
   const [comments, setComments] = useState([])
@@ -147,11 +150,11 @@ export default function ReviewComments({ reviewId, onCommentCountChange }) {
       onCommentCountChange(1)
       success('Comment added')
     } catch (e) {
-      toastError(e?.message || 'Failed to add comment')
+      toastError(e?.message || t('Failed to add comment'))
     } finally {
       setSubmitting(false)
     }
-  }, [reviewId, newBody, onCommentCountChange, success, toastError])
+  }, [reviewId, newBody, onCommentCountChange, success, toastError, t])
 
   const handleReply = useCallback(async (parentId) => {
     if (!replyBody.trim()) return
@@ -164,11 +167,11 @@ export default function ReviewComments({ reviewId, onCommentCountChange }) {
       onCommentCountChange(1)
       success('Reply added')
     } catch (e) {
-      toastError(e?.message || 'Failed to add reply')
+      toastError(e?.message || t('Failed to add reply'))
     } finally {
       setSubmitting(false)
     }
-  }, [reviewId, replyBody, onCommentCountChange, success, toastError])
+  }, [reviewId, replyBody, onCommentCountChange, success, toastError, t])
 
   const handleDelete = useCallback(async (commentId) => {
     try {
@@ -180,9 +183,9 @@ export default function ReviewComments({ reviewId, onCommentCountChange }) {
       if (removed > 0) onCommentCountChange(-removed)
       success('Comment deleted')
     } catch (e) {
-      toastError(e?.message || 'Failed to delete comment')
+      toastError(e?.message || t('Failed to delete comment'))
     }
-  }, [comments, onCommentCountChange, success, toastError])
+  }, [comments, onCommentCountChange, success, toastError, t])
 
   const handleEdit = useCallback((commentId, newBody) => {
     setComments(prev => prev.map(c => c.id === commentId ? { ...c, body: newBody } : c))
@@ -194,12 +197,12 @@ export default function ReviewComments({ reviewId, onCommentCountChange }) {
   return (
     <div className="review-comments" style={{ borderTop: '1px solid var(--border)', paddingTop: '12px', marginTop: '4px' }}>
       {loading ? (
-        <div style={{ textAlign: 'center', padding: '16px', color: 'var(--text-muted)', fontSize: '0.85rem' }}>Loading comments...</div>
+        <div style={{ textAlign: 'center', padding: '16px', color: 'var(--text-muted)', fontSize: '0.85rem' }}>{t('Loading comments...')}</div>
       ) : (
         <>
           {parents.length === 0 && (
             <div style={{ textAlign: 'center', padding: '12px 0', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-              No comments yet. Be the first!
+              {t('No comments yet. Be the first!')}
             </div>
           )}
           {parents.map(parent => (
@@ -219,7 +222,7 @@ export default function ReviewComments({ reviewId, onCommentCountChange }) {
                         onChange={e => setReplyBody(e.target.value)}
                         maxLength={1000}
                         rows={2}
-                        placeholder="Write a reply..."
+                        placeholder={t('Write a reply...')}
                         style={{
                           flex: 1, background: 'var(--bg-secondary)', border: '1px solid var(--border)',
                           borderRadius: '6px', padding: '6px 10px', color: 'var(--text-primary)', fontSize: '0.82rem',
@@ -242,7 +245,7 @@ export default function ReviewComments({ reviewId, onCommentCountChange }) {
                       onClick={() => setReplyTo(parent.id)}
                       style={{ fontSize: '0.72rem', padding: '2px 8px', opacity: 0.5, marginTop: '2px' }}
                     >
-                      Reply
+                      {t('Reply')}
                     </button>
                   )}
                 </div>
@@ -260,7 +263,7 @@ export default function ReviewComments({ reviewId, onCommentCountChange }) {
               onChange={e => setNewBody(e.target.value)}
               maxLength={1000}
               rows={2}
-              placeholder="Add a comment..."
+              placeholder={t('Add a comment...')}
               onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleAddComment() }}
               style={{
                 width: '100%', background: 'var(--bg-secondary)', border: '1px solid var(--border)',

@@ -1,4 +1,5 @@
 import React from 'react'
+import { useTranslation } from 'react-i18next'
 
 const SECTION_LABEL_STYLE = {
   margin: '4px 0 2px',
@@ -15,28 +16,46 @@ const ITEM_STYLE = { fontSize: '0.84rem' }
 const DATE_STYLE = { fontWeight: '400', color: 'var(--text-secondary)', fontSize: '0.78rem' }
 
 export default function ChangelogModal({ open, onClose }) {
+  const { t } = useTranslation()
   if (!open) return null
-  const currentVersion = import.meta.env.VITE_APP_VERSION || '2.2.2'
+  const currentVersion = import.meta.env.VITE_APP_VERSION || '2.3.0'
 
   return (
     <div className="info-modal-backdrop open" onClick={onClose}>
       <div className="info-modal-card" role="dialog" aria-modal="true" onClick={e => e.stopPropagation()} style={{ maxWidth: '520px' }}>
-        <button className="info-modal-close" onClick={onClose} aria-label="Close">✕</button>
+        <button className="info-modal-close" onClick={onClose} aria-label={t('Close')}>✕</button>
         <div className="info-modal-logo">
-          <span className="logo-text">Changelog</span>
+          <span className="logo-text">{t('Changelog')}</span>
         </div>
         <div className="info-modal-sections" id="changelog-entries">
           <div className="info-modal-section">
             <div className="info-modal-section-title">
               v{currentVersion}{' '}
+              <span style={DATE_STYLE}>2026-06-12</span>
+            </div>
+            <p style={SECTION_LABEL_STYLE}>{t('Additions')}</p>
+            <ul style={LIST_STYLE}>
+              <li style={ITEM_STYLE}>Added UI localization — Spanish, French, German, and Portuguese translations with user-selectable language</li>
+              <li style={ITEM_STYLE}>Added Automation tab in admin panel — auto-request content by genre, rating, or keyword; maintain Plex collections on a schedule; and clean up stale or unwatched requests automatically</li>
+            </ul>
+            <p style={SECTION_LABEL_STYLE}>{t('Improvements')}</p>
+            <ul style={LIST_STYLE_LAST}>
+              <li style={ITEM_STYLE}>Added /health endpoint for external monitoring, load balancers, and orchestrators</li>
+              <li style={ITEM_STYLE}>Added graceful shutdown — active connections are drained and pending writes flushed before exit</li>
+              <li style={ITEM_STYLE}>Added automated DB backups with configurable schedules and retention policies</li>
+            </ul>
+          </div>
+          <div className="info-modal-section">
+            <div className="info-modal-section-title">
+              v2.2.2{' '}
               <span style={DATE_STYLE}>2026-06-11</span>
             </div>
-            <p style={SECTION_LABEL_STYLE}>Security</p>
+            <p style={SECTION_LABEL_STYLE}>{t('Security')}</p>
             <ul style={LIST_STYLE}>
               <li style={ITEM_STYLE}>Session cookies are now marked Secure over HTTPS, and API keys no longer create persistent sessions</li>
               <li style={ITEM_STYLE}>Hardened the poster proxy against path traversal and added rate limiting to compute-heavy endpoints</li>
             </ul>
-            <p style={SECTION_LABEL_STYLE}>Fixes & Improvements</p>
+            <p style={SECTION_LABEL_STYLE}>{t('Fixes & Improvements')}</p>
             <ul style={LIST_STYLE_LAST}>
               <li style={ITEM_STYLE}>Fixed stale results when changing filters mid-search or while recommendations were still building</li>
               <li style={ITEM_STYLE}>Faster Requests page rendering, new database indexes, and cached Plex device lookups</li>
@@ -48,68 +67,11 @@ export default function ChangelogModal({ open, onClose }) {
               v2.2.1{' '}
               <span style={DATE_STYLE}>2026-06-09</span>
             </div>
-            <p style={SECTION_LABEL_STYLE}>Fixes</p>
+            <p style={SECTION_LABEL_STYLE}>{t('Fixes')}</p>
             <ul style={LIST_STYLE_LAST}>
               <li style={ITEM_STYLE}>Fixed queue page filters that were resetting unexpectedly due to broken URL-based filter state</li>
               <li style={ITEM_STYLE}>Fixed bulk delete of multiple requests and issues — transaction handling was preventing deletes from completing</li>
               <li style={ITEM_STYLE}>Fixed Plex SSE integration — message parsing now handles both SSE eventsource and WebSocket endpoint shapes, restoring real-time new-content detection</li>
-            </ul>
-          </div>
-          <div className="info-modal-section">
-            <div className="info-modal-section-title">
-              v2.2.0{' '}
-              <span style={DATE_STYLE}>2026-06-09</span>
-            </div>
-            <p style={SECTION_LABEL_STYLE}>Additions</p>
-            <ul style={LIST_STYLE}>
-              <li style={ITEM_STYLE}>Added user profiles with a customizable bio, your reviews, and a personal watch history</li>
-              <li style={ITEM_STYLE}>Added a Reviews page with social features — see what the community is watching and join the conversation</li>
-              <li style={ITEM_STYLE}>You can now generate and share beautifully formatted review images to your favorite social and messaging apps</li>
-              <li style={ITEM_STYLE}>Added "Most Popular on Server" sections to the Diskovarr page to surface what's trending in your own Plex library</li>
-              <li style={ITEM_STYLE}>Added a Cast & Crew tab to the item details modal for exploring actors, directors, and production staff</li>
-              <li style={ITEM_STYLE}>Added TMDB and Plex rating integration — ratings you give in Diskovarr now sync back to Plex</li>
-              <li style={ITEM_STYLE}>Added Connected Apps settings for linking your TMDB account</li>
-              <li style={ITEM_STYLE}>Added personal content monitors that notify you when newly available media matches the criteria you care about</li>
-              <li style={ITEM_STYLE}>Expanded the Filter page with more powerful filtering and search refinement options</li>
-              <li style={ITEM_STYLE}>Admins can now choose which Plex libraries are synced into Diskovarr</li>
-            </ul>
-            <p style={SECTION_LABEL_STYLE}>Fixes & Improvements</p>
-            <ul style={LIST_STYLE_LAST}>
-              <li style={ITEM_STYLE}>Watchlist and Blacklist management moved from the user menu to your profile for easier access</li>
-              <li style={ITEM_STYLE}>Smarter stale-content pruning keeps your library in sync as media is changed or removed</li>
-              <li style={ITEM_STYLE}>The About modal now highlights and explains recently added features</li>
-              <li style={ITEM_STYLE}>Various UI, usability, and quality-of-life improvements throughout the app</li>
-            </ul>
-          </div>
-          <div className="info-modal-section">
-            <div className="info-modal-section-title">
-              v2.1.0{' '}
-              <span style={DATE_STYLE}>2026-06-05</span>
-            </div>
-            <p style={SECTION_LABEL_STYLE}>Additions</p>
-            <ul style={LIST_STYLE}>
-              <li style={ITEM_STYLE}>Added a Blacklist page where users can see and manage blacklisted / "not interested" items</li>
-              <li style={ITEM_STYLE}>Added a site footer with GitHub and other links</li>
-            </ul>
-            <p style={SECTION_LABEL_STYLE}>Fixes & Improvements</p>
-            <ul style={LIST_STYLE_LAST}>
-              <li style={ITEM_STYLE}>Broadcast notification font styles are now applied correctly in the notification bell and modal</li>
-              <li style={ITEM_STYLE}>Broadcast font-style buttons now highlight to reflect their enabled state, and the highlight can be toggled off again</li>
-              <li style={ITEM_STYLE}>Admins can now edit approved requests to change the request app or season selection</li>
-              <li style={ITEM_STYLE}>Item info modals now open when selecting an item from the Queue page</li>
-              <li style={ITEM_STYLE}>Watchlist now correctly syncs and removes watched / deleted items</li>
-              <li style={ITEM_STYLE}>Various other under-the-hood code improvements</li>
-            </ul>
-          </div>
-          <div className="info-modal-section">
-            <div className="info-modal-section-title">
-              v2.0.1{' '}
-              <span style={DATE_STYLE}>2026-05-19</span>
-            </div>
-            <p style={SECTION_LABEL_STYLE}>Fixes & Improvements</p>
-            <ul style={LIST_STYLE_LAST}>
-              <li style={ITEM_STYLE}>Fixed search failures on certain titles (e.g. "Napoleon Dynamite") caused by double-gzipped TMDB responses from CloudFront</li>
-              <li style={ITEM_STYLE}>Hardened the TMDB client to resiliently decompress nested gzip payloads, fixing intermittent failures across Search, autocomplete, item details, and Discover</li>
             </ul>
           </div>
         </div>

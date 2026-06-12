@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import ToggleSwitch from './ToggleSwitch'
 import { CONTENT_RATING_ORDER } from './filterConstants'
+import { useTranslation } from 'react-i18next'
 
 const SCORE_THRESHOLDS = [
   { label: '★ 9+', value: 9 },
@@ -15,6 +16,7 @@ export default function FilterBar({
   hideLibrary,
   onGenres, onYearFrom, onYearTo, onContentRatings, onMinScore, onHideLibrary,
 }) {
+  const { t } = useTranslation()
   const [panel, setPanel] = useState(null)
 
   const toggle = (key) => setPanel(p => p === key ? null : key)
@@ -72,14 +74,14 @@ export default function FilterBar({
 
         <div className="filter-chip-divider" />
 
-        <ToggleSwitch checked={hideLibrary} onChange={onHideLibrary} label="Hide in library" />
+        <ToggleSwitch checked={hideLibrary} onChange={onHideLibrary} label={t('Hide in library')} />
       </div>
 
       {/* Genre panel */}
       {panel === 'genre' && (
         <div className="filter-panel">
           {availableGenres.length === 0
-            ? <span className="filter-panel-empty">Loading genres…</span>
+            ? <span className="filter-panel-empty">{t('Loading genres…')}</span>
             : availableGenres.map(g => (
               <button
                 key={g}
@@ -92,7 +94,7 @@ export default function FilterBar({
             ))
           }
           {filterGenres.length > 0 && (
-            <button className="filter-panel-clear" onClick={() => onGenres([])}>Clear</button>
+            <button className="filter-panel-clear" onClick={() => onGenres([])}>{t('Clear')}</button>
           )}
         </div>
       )}
@@ -101,7 +103,7 @@ export default function FilterBar({
       {panel === 'year' && (
         <div className="filter-panel filter-panel-year">
           <label className="filter-year-label">
-            <span>Start year</span>
+            <span>{t('Start year')}</span>
             <input
               className="filter-year-input"
               type="number"
@@ -114,7 +116,7 @@ export default function FilterBar({
           </label>
           <span className="filter-year-dash">→</span>
           <label className="filter-year-label">
-            <span>End year</span>
+            <span>{t('End year')}</span>
             <input
               className="filter-year-input"
               type="number"
@@ -126,7 +128,7 @@ export default function FilterBar({
             />
           </label>
           {yearActive && (
-            <button className="filter-panel-clear" style={{ alignSelf: 'flex-end' }} onClick={() => { onYearFrom(''); onYearTo('') }}>Clear</button>
+            <button className="filter-panel-clear" style={{ alignSelf: 'flex-end' }} onClick={() => { onYearFrom(''); onYearTo('') }}>{t('Clear')}</button>
           )}
         </div>
       )}
@@ -145,7 +147,7 @@ export default function FilterBar({
             </button>
           ))}
           {filterMinScore && (
-            <button className="filter-panel-clear" onClick={() => onMinScore(null)}>Clear</button>
+            <button className="filter-panel-clear" onClick={() => onMinScore(null)}>{t('Clear')}</button>
           )}
         </div>
       )}
@@ -164,7 +166,7 @@ export default function FilterBar({
             </button>
           ))}
           {filterContentRatings.length > 0 && (
-            <button className="filter-panel-clear" onClick={() => onContentRatings([])}>Clear</button>
+            <button className="filter-panel-clear" onClick={() => onContentRatings([])}>{t('Clear')}</button>
           )}
         </div>
       )}

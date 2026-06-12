@@ -1,7 +1,9 @@
 import React, { useState } from 'react'
 import { userApi } from '../../../services/api'
+import { useTranslation } from 'react-i18next'
 
 export default function PushoverUserProvider({ settings, onToast, onSave }) {
+  const { t } = useTranslation()
   const [userKey, setUserKey] = useState(settings?.pushover_user_key || '')
   const [enabled, setEnabled] = useState(!!settings?.pushover_enabled)
 
@@ -30,15 +32,15 @@ export default function PushoverUserProvider({ settings, onToast, onSave }) {
   return (
     <section className="admin-section">
       <div className="admin-section-header">
-        <h2 className="section-title">Pushover</h2>
+        <h2 className="section-title">{t('Pushover')}</h2>
       </div>
-      <p className="section-desc" style={{ marginBottom: 16 }}>Receive personal push notifications via Pushover.</p>
+      <p className="section-desc" style={{ marginBottom: 16 }}>{t('Receive personal push notifications via Pushover.')}</p>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         <div>
-          <label className="conn-label">Pushover User Key</label>
+          <label className="conn-label">{t('Pushover User Key')}</label>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <input type="text" className="conn-input" placeholder="User key..." value={userKey} onChange={(e) => setUserKey(e.target.value)} />
-            <button className="btn-admin" onClick={handleTest}>Send Test</button>
+            <input type="text" className="conn-input" placeholder={t('User key...')} value={userKey} onChange={(e) => setUserKey(e.target.value)} />
+            <button className="btn-admin" onClick={handleTest}>{t('Send Test')}</button>
           </div>
         </div>
         <div className="toggle-row">
@@ -46,10 +48,10 @@ export default function PushoverUserProvider({ settings, onToast, onSave }) {
             <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
             <span className="slide-track" />
           </label>
-          <span className="toggle-label">Enable Pushover notifications</span>
+          <span className="toggle-label">{t('Enable Pushover notifications')}</span>
         </div>
         <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
-          <button className="btn-admin btn-primary" onClick={handleSave}>Save</button>
+          <button className="btn-admin btn-primary" onClick={handleSave}>{t('Save')}</button>
         </div>
       </div>
     </section>

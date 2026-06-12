@@ -5,6 +5,8 @@ import { useToast } from '../context/ToastContext'
 import UserNotifications from '../components/UserNotifications/UserNotifications'
 import ConnectedAccounts from '../components/ConnectedAccounts'
 import MonitorManager from '../components/MonitorManager/MonitorManager'
+import { useTranslation } from 'react-i18next'
+import { setUiLanguage, SUPPORTED_LANGUAGES } from '../i18n'
 
 const REGIONS = [
   { value: '', label: 'All Regions' }, { value: 'US', label: 'United States' },
@@ -40,6 +42,7 @@ const LANGUAGES = [
 ]
 
 export default function Settings() {
+  const { t, i18n } = useTranslation()
   const { error: toastError, success: toastSuccess } = useToast()
   const [searchParams] = useSearchParams()
   const [settings, setSettings] = useState(null)
@@ -68,11 +71,11 @@ export default function Settings() {
         setFeatureFlags({ discoverEnabled: data.discover_enabled })
       }
     } catch (e) {
-      toastError('Failed to load settings')
+      toastError(t('Failed to load settings'))
     } finally {
       setLoading(false)
     }
-  }, [toastError])
+  }, [toastError, t])
 
   useEffect(() => {
     ;(async () => { await loadSettings() })()
@@ -86,33 +89,44 @@ export default function Settings() {
     formData.forEach((value, key) => { payload[key] = value || null })
     try {
       await userApi.updateSettings(payload)
-      toastSuccess('Settings saved')
+      toastSuccess(t('Settings saved'))
     } catch (e) {
-      toastError(e.message || 'Save failed')
+      toastError(e.message || t('Save failed'))
     } finally {
       setSaving(false)
     }
-  }, [toastSuccess, toastError])
+  }, [toastSuccess, toastError, t])
 
   const handleLandingPageChange = useCallback(async (checked) => {
     try {
       await userApi.updateSettings({ landing_page: checked ? 'explore' : 'home' })
       localStorage.setItem('landing_page', checked ? 'explore' : 'home')
-      toastSuccess('Landing page preference updated')
+      toastSuccess(t('Landing page preference updated'))
     } catch (e) {
-      toastError('Failed to update preference')
+      toastError(t('Failed to update preference'))
     }
-  }, [toastSuccess, toastError])
+  }, [toastSuccess, toastError, t])
 
   const handleMatureChange = useCallback(async (checked) => {
     try {
       await userApi.updateSettings({ show_mature: checked })
       localStorage.setItem('matureEnabled', checked ? 'true' : 'false')
-      toastSuccess('Mature content preference updated')
+      toastSuccess(t('Mature content preference updated'))
     } catch (e) {
-      toastError('Failed to update preference')
+      toastError(t('Failed to update preference'))
     }
-  }, [toastSuccess, toastError])
+  }, [toastSuccess, toastError, t])
+
+  const handleUiLanguageChange = useCallback(async (lang) => {
+    setUiLanguage(lang) // switches the live UI immediately
+    setSettings(prev => prev ? { ...prev, ui_language: lang } : prev)
+    try {
+      await userApi.updateSettings({ ui_language: lang })
+      toastSuccess(t('Language preference updated'))
+    } catch (e) {
+      toastError(t('Failed to update preference'))
+    }
+  }, [toastSuccess, toastError, t])
 
   const handleUpdateSettings = useCallback(async (payload) => {
     try {
@@ -120,16 +134,16 @@ export default function Settings() {
       // Refresh settings to stay in sync
       const { data } = await userApi.getSettings()
       setSettings(data)
-      toastSuccess('Settings updated')
+      toastSuccess(t('Settings updated'))
     } catch (e) {
-      toastError(e.message || 'Save failed')
+      toastError(e.message || t('Save failed'))
     }
-  }, [toastSuccess, toastError])
+  }, [toastSuccess, toastError, t])
 
   if (loading) {
     return (
       <main className="main-content">
-        <div className="queue-loading">Loading settings...</div>
+        <div className="queue-loading">{t('Loading settings...')}</div>
       </main>
     )
   }
@@ -141,8 +155,8 @@ export default function Settings() {
     <main className="main-content">
       <div className="settings-page">
         <div className="settings-hero">
-          <h1>My Settings</h1>
-          <p>Your personal preferences for Diskovarr.</p>
+          <h1>{t('My Settings')}</h1>
+          <p>{t('Your personal preferences for Diskovarr.')}</p>
         </div>
 
         {/* Internal tabs */}
@@ -158,7 +172,7 @@ export default function Settings() {
             }}
             onClick={() => setActiveTab('content')}
           >
-            Content Preferences
+            {t('Content Preferences')}
           </button>
           <button
             className={`settings-tab ${activeTab === 'notifications' ? 'active' : ''}`}
@@ -171,7 +185,7 @@ export default function Settings() {
             }}
             onClick={() => setActiveTab('notifications')}
           >
-            Notifications
+            {t('Notifications')}
           </button>
           <button
             className={`settings-tab ${activeTab === 'accounts' ? 'active' : ''}`}
@@ -184,7 +198,7 @@ export default function Settings() {
             }}
             onClick={() => setActiveTab('accounts')}
           >
-            Connected Accounts
+            {t('Connected Accounts')}
           </button>
           <button
             className={`settings-tab ${activeTab === 'privacy' ? 'active' : ''}`}
@@ -197,7 +211,7 @@ export default function Settings() {
             }}
             onClick={() => setActiveTab('privacy')}
           >
-            Privacy
+            {t('Privacy')}
           </button>
           <button
             className={`settings-tab ${activeTab === 'monitors' ? 'active' : ''}`}
@@ -210,44 +224,56 @@ export default function Settings() {
             }}
             onClick={() => setActiveTab('monitors')}
           >
-            Monitors
+            {t('Monitors')}
           </button>
         </div>
 
         {activeTab === 'content' && (
           <div className="settings-section">
-            <p className="settings-section-title">Content Preferences</p>
-            <p className="settings-desc" style={{ marginBottom: '20px' }}>These preferences will be used to filter content recommendations.</p>
+            <p className="settings-section-title">{t('Content Preferences')}</p>
+            <p className="settings-desc" style={{ marginBottom: '20px' }}>{t('These preferences will be used to filter content recommendations.')}</p>
             <form onSubmit={handleSavePreferences}>
               <div className="settings-field">
-                <label className="settings-label" htmlFor="pref-region">Region</label>
+                <label className="settings-label" htmlFor="pref-region">{t('Region')}</label>
                 <select id="pref-region" name="region" className="settings-select" defaultValue={s.region || ''}>
-                  {REGIONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+                  {REGIONS.map(r => <option key={r.value} value={r.value}>{t(r.label)}</option>)}
                 </select>
               </div>
               <div className="settings-field">
-                <label className="settings-label" htmlFor="pref-language">Language</label>
+                <label className="settings-label" htmlFor="pref-language">{t('Language')}</label>
                 <select id="pref-language" name="language" className="settings-select" defaultValue={s.language || ''}>
-                  {LANGUAGES.map(l => <option key={l.value} value={l.value}>{l.label}</option>)}
+                  {LANGUAGES.map(l => <option key={l.value} value={l.value}>{t(l.label)}</option>)}
                 </select>
+              </div>
+              <div className="settings-field">
+                <label className="settings-label" htmlFor="pref-ui-language">{t('UI Language')}</label>
+                <select
+                  id="pref-ui-language"
+                  className="settings-select"
+                  value={s.ui_language || i18n.language}
+                  onChange={(e) => handleUiLanguageChange(e.target.value)}
+                >
+                  {SUPPORTED_LANGUAGES.map(l => <option key={l.value} value={l.value}>{l.label}</option>)}
+                </select>
+                <p className="settings-desc" style={{ marginTop: '6px' }}>{t('Changes the language of the Diskovarr interface.')}</p>
               </div>
               <div className="settings-field" style={{ marginTop: '20px', paddingTop: '16px', borderTop: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '12px' }}>
                 <label className="slide-toggle">
                   <input type="checkbox" checked={s.show_mature || false} onChange={(e) => handleMatureChange(e.target.checked)} />
                   <span className="slide-track" />
                 </label>
-                <span className="toggle-label">Show mature content (R & TV-MA)</span>
+                <span className="toggle-label">{t('Show mature content (R & TV-MA)')}</span>
               </div>
               {ff.discoverEnabled && (
                 <div className="settings-field" style={{ marginTop: '20px', padding: '0' }}>
-                  <label className="settings-label">Default Landing Page</label>
+                  <label className="settings-label">{t('Default Landing Page')}</label>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 0' }}>
-                    <span className={s.landing_page !== 'explore' ? 'service-label-active' : 'service-label-inactive'}>Diskovarr</span>
+                    <span className={s.landing_page !== 'explore' ? 'service-label-active' : 'service-label-inactive'}>{t('Diskovarr')}</span>
                     <label className="slide-toggle slide-toggle-always-on">
                       <input type="checkbox" defaultChecked={s.landing_page === 'explore'} onChange={(e) => handleLandingPageChange(e.target.checked)} />
                       <span className="slide-track" />
                     </label>
-                    <span className={s.landing_page === 'explore' ? 'service-label-active' : 'service-label-inactive'}>Diskovarr Requests</span>
+                    <span className={s.landing_page === 'explore' ? 'service-label-active' : 'service-label-inactive'}>{t('Diskovarr Requests')}</span>
                   </div>
                 </div>
               )}
@@ -270,9 +296,9 @@ export default function Settings() {
 
         {activeTab === 'privacy' && (
           <div className="settings-section">
-            <p className="settings-section-title">Review Privacy</p>
+            <p className="settings-section-title">{t('Review Privacy')}</p>
             <p className="settings-desc" style={{ marginBottom: '20px' }}>
-              Control who can see your reviews on the public Reviews feed.
+              {t('Control who can see your reviews on the public Reviews feed.')}
             </p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <label
@@ -293,16 +319,16 @@ export default function Settings() {
                       await userApi.updateSettings({ review_privacy: 'public' })
                       const { data } = await userApi.getSettings()
                       setSettings(data)
-                      toastSuccess('Review privacy updated')
+                      toastSuccess(t('Review privacy updated'))
                     } catch (e) {
-                      toastError(e?.message || 'Failed to update privacy')
+                      toastError(e?.message || t('Failed to update privacy'))
                     }
                   }}
                   style={{ marginTop: '2px', accentColor: 'var(--accent)' }}
                 />
                 <div>
                   <div style={{ fontWeight: '600', fontSize: '0.95rem', color: 'var(--text-primary)', marginBottom: '4px' }}>
-                    Public
+                    {t('Public')}
                   </div>
                   <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: '1.5' }}>
                     Your reviews appear in the public Reviews feed and can receive likes and comments from other users. (Default)
@@ -327,16 +353,16 @@ export default function Settings() {
                       await userApi.updateSettings({ review_privacy: 'private' })
                       const { data } = await userApi.getSettings()
                       setSettings(data)
-                      toastSuccess('Review privacy updated')
+                      toastSuccess(t('Review privacy updated'))
                     } catch (e) {
-                      toastError(e?.message || 'Failed to update privacy')
+                      toastError(e?.message || t('Failed to update privacy'))
                     }
                   }}
                   style={{ marginTop: '2px', accentColor: 'var(--accent)' }}
                 />
                 <div>
                   <div style={{ fontWeight: '600', fontSize: '0.95rem', color: 'var(--text-primary)', marginBottom: '4px' }}>
-                    Private
+                    {t('Private')}
                   </div>
                   <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: '1.5' }}>
                     Your reviews are only visible to you. They won't appear in the public feed and can't receive reactions or comments.

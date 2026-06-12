@@ -13,6 +13,7 @@ import { useToast } from '../context/ToastContext'
 import { useAuth } from '../context/AuthContext'
 import { posterUrl } from '../utils/media'
 import { timeAgo as fmtDate } from '../utils/format'
+import { useTranslation } from 'react-i18next'
 
 const STATUS_LABELS = {
   pending: 'Pending Approval',
@@ -26,6 +27,7 @@ const COL_TO_SORT = { title: 'title', user: 'username', type: 'media_type', age:
 
 
 export default function Queue() {
+  const { t } = useTranslation()
   const [searchParams] = useSearchParams()
   const { user } = useAuth()
   const { error: toastError, success: toastSuccess } = useToast()
@@ -94,11 +96,11 @@ export default function Queue() {
       setTotal(data.total || 0)
       setPage(pageNum || 1)
     } catch (e) {
-      toastError('Failed to load queue')
+      toastError(t('Failed to load queue'))
     } finally {
       setLoading(false)
     }
-  }, [perPage, sortCol, sortDir, debouncedSearchQuery, selectedUser, dateFrom, dateTo, toastError])
+  }, [perPage, sortCol, sortDir, debouncedSearchQuery, selectedUser, dateFrom, dateTo, toastError, t])
 
   useEffect(() => {
     ;(async () => {
@@ -128,16 +130,16 @@ export default function Queue() {
     try {
       const ids = Array.from(selectedIds)
       const { data } = await queueApi.bulkDelete(ids)
-      toastSuccess(`Deleted ${data.deletedCount ?? ids.length} request${(data.deletedCount ?? ids.length) === 1 ? '' : 's'}`)
+      toastSuccess(t('Deleted {{n}} request(s)', { n: data.deletedCount ?? ids.length }))
       setSelectedIds(new Set())
       setBulkDeleteConfirm(false)
       loadQueue(currentFilter, page)
     } catch (e) {
-      toastError(e.message || 'Bulk delete failed')
+      toastError(e.message || t('Bulk delete failed'))
     } finally {
       setBulkDeleteLoading(false)
     }
-  }, [selectedIds, currentFilter, page, loadQueue, toastSuccess, toastError])
+  }, [selectedIds, currentFilter, page, loadQueue, toastSuccess, toastError, t])
 
   useEffect(() => {
     if (!isAdmin) return
@@ -167,35 +169,35 @@ export default function Queue() {
   const handleApprove = useCallback(async (id) => {
     try {
       await queueApi.approveRequest(id)
-      toastSuccess('Request approved and submitted')
+      toastSuccess(t('Request approved and submitted'))
       setRequests(prev => prev.map(r => r.id === id ? { ...r, status: 'approved', displayStatus: 'approved' } : r))
     } catch (e) {
-      toastError(e.message || 'Approve failed')
+      toastError(e.message || t('Approve failed'))
     }
-  }, [toastSuccess, toastError])
+  }, [toastSuccess, toastError, t])
 
   const handleDeny = useCallback(async (id) => {
-    const note = prompt('Denial reason (optional):')
+    const note = prompt(t('Denial reason (optional):'))
     if (note === null) return
     try {
       await queueApi.denyRequestWithNote(id, { note })
-      toastSuccess('Request denied')
+      toastSuccess(t('Request denied'))
       setRequests(prev => prev.map(r => r.id === id ? { ...r, status: 'denied', displayStatus: 'denied' } : r))
     } catch (e) {
-      toastError(e.message || 'Deny failed')
+      toastError(e.message || t('Deny failed'))
     }
-  }, [toastSuccess, toastError])
+  }, [toastSuccess, toastError, t])
 
   const handleDelete = useCallback(async (id) => {
     try {
       await queueApi.deleteRequest(id)
-      toastSuccess('Request deleted')
+      toastSuccess(t('Request deleted'))
       setRequests(prev => prev.filter(r => r.id !== id))
       setDeleteRequestId(null)
     } catch (e) {
-      toastError(e.message || 'Delete failed')
+      toastError(e.message || t('Delete failed'))
     }
-  }, [toastSuccess, toastError])
+  }, [toastSuccess, toastError, t])
 
   const handleEdit = useCallback(async (request) => {
     setEditRequest(request)
@@ -233,13 +235,13 @@ export default function Queue() {
     const seasons = editAllSeasons ? null : editSeasons.filter(s => s.selected).map(s => s.number) || null
     try {
       await queueApi.updateRequest(editRequest.id, { service: editService, seasons })
-      toastSuccess('Request updated')
+      toastSuccess(t('Request updated'))
       setEditRequest(null)
       loadQueue(currentFilter, page)
     } catch (e) {
-      toastError(e.message || 'Save failed')
+      toastError(e.message || t('Save failed'))
     }
-  }, [editRequest, editService, editAllSeasons, editSeasons, currentFilter, page, loadQueue, toastSuccess, toastError])
+  }, [editRequest, editService, editAllSeasons, editSeasons, currentFilter, page, loadQueue, toastSuccess, toastError, t])
 
   const handleOpenDetail = useCallback(async (request) => {
     try {
@@ -253,9 +255,9 @@ export default function Queue() {
         isRequested: true,
       })
     } catch {
-      toastError('Failed to load details')
+      toastError(t('Failed to load details'))
     }
-  }, [toastError])
+  }, [toastError, t])
 
   const handleSort = useCallback((col) => {
     const dbCol = COL_TO_SORT[col] || col
@@ -287,8 +289,8 @@ export default function Queue() {
   return (
     <main className="main-content queue-page">
       <div className="queue-hero">
-        <h1>{isAdmin ? 'Request Queue' : 'My Requests'}</h1>
-        <p>{isAdmin ? 'Review and manage media requests from all users.' : 'Your media requests and their status.'}</p>
+        <h1>{isAdmin ? t('Request Queue') : t('My Requests')}</h1>
+        <p>{isAdmin ? t('Review and manage media requests from all users.') : t('Your media requests and their status.')}</p>
       </div>
 
       <div className="list-filter-toolbar">
@@ -296,7 +298,7 @@ export default function Queue() {
           <input
             className="list-search-input"
             type="search"
-            placeholder="Search by title or user..."
+            placeholder={t('Search by title or user...')}
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }}
@@ -311,18 +313,18 @@ export default function Queue() {
             options={users}
             value={selectedUser}
             onChange={setSelectedUser}
-            placeholder="All Users"
-            label="User"
-            clearLabel="All Users"
-            noResultsLabel="No users found"
+            placeholder={t('All Users')}
+            label={t('User')}
+            clearLabel={t('All Users')}
+            noResultsLabel={t('No users found')}
           />
         )}
 
         <DateRangeFilter
           value={{ from: dateFrom, to: dateTo }}
           onChange={setDateRange}
-          label="Date"
-          placeholder="Any date"
+          label={t('Date')}
+          placeholder={t('Any date')}
         />
 
         <div className="queue-filter-row">
@@ -333,7 +335,7 @@ export default function Queue() {
               data-status={status}
               onClick={() => handleFilterChange(status)}
             >
-              {status === 'all' ? 'All' : STATUS_LABELS[status] || status}
+              {status === 'all' ? t('All') : t(STATUS_LABELS[status] || status)}
               {status === 'pending' && <span id="pending-count-label"></span>}
             </button>
           ))}
@@ -341,25 +343,25 @@ export default function Queue() {
 
         {hasActiveFilters && (
           <button className="chip-sm chip-sm-clear" onClick={clearAllFilters}>
-            Clear Filters
+            {t('Clear Filters')}
           </button>
         )}
       </div>
 
       {isAdmin && selectedIds.size > 0 && (
         <div className="bulk-action-bar">
-          <span className="bulk-action-bar-count">{selectedIds.size} selected</span>
+          <span className="bulk-action-bar-count">{t('{{n}} selected', { n: selectedIds.size })}</span>
           <span className="bulk-action-bar-spacer" />
-          <button type="button" className="btn-bulk-clear" onClick={clearSelection}>Clear</button>
-          <button type="button" className="btn-bulk-delete" onClick={() => setBulkDeleteConfirm(true)}>Delete selected</button>
+          <button type="button" className="btn-bulk-clear" onClick={clearSelection}>{t('Clear')}</button>
+          <button type="button" className="btn-bulk-delete" onClick={() => setBulkDeleteConfirm(true)}>{t('Delete selected')}</button>
         </div>
       )}
 
       {loading ? (
-        <div className="queue-loading">Loading requests...</div>
+        <div className="queue-loading">{t('Loading requests...')}</div>
       ) : requests.length === 0 ? (
         <div className="queue-empty">
-          {hasActiveFilters ? 'No matching requests found. Try adjusting your filters.' : 'No requests found.'}
+          {hasActiveFilters ? t('No matching requests found. Try adjusting your filters.') : t('No requests found.')}
         </div>
       ) : (
         <div className="table-scroll-wrap">
@@ -379,16 +381,16 @@ export default function Queue() {
                         el.indeterminate = some && !all
                       }}
                       onChange={toggleSelectAll}
-                      aria-label="Select all on page"
+                      aria-label={t('Select all on page')}
                     />
                   </th>
                 )}
-                <th className={'sortable' + (sortCol === 'title' ? ' ' + (sortDir === 'ASC' ? 'sort-asc' : 'sort-desc') : '')} data-col="title" onClick={() => handleSort('title')}>Title</th>
-                {isAdmin && <th className={'sortable' + (sortCol === 'username' ? ' ' + (sortDir === 'ASC' ? 'sort-asc' : 'sort-desc') : '')} data-col="user" onClick={() => handleSort('user')}>User</th>}
-                <th className={'sortable' + (sortCol === 'media_type' ? ' ' + (sortDir === 'ASC' ? 'sort-asc' : 'sort-desc') : '')} data-col="type" onClick={() => handleSort('type')}>Type</th>
-                <th className={'sortable' + (sortCol === 'requested_at' ? ' ' + (sortDir === 'ASC' ? 'sort-asc' : 'sort-desc') : '')} data-col="age" onClick={() => handleSort('age')}>Age</th>
-                <th className={'sortable' + (sortCol === 'status' ? ' ' + (sortDir === 'ASC' ? 'sort-asc' : 'sort-desc') : '')} data-col="status" onClick={() => handleSort('status')}>Status</th>
-                <th>Actions</th>
+                <th className={'sortable' + (sortCol === 'title' ? ' ' + (sortDir === 'ASC' ? 'sort-asc' : 'sort-desc') : '')} data-col="title" onClick={() => handleSort('title')}>{t('Title')}</th>
+                {isAdmin && <th className={'sortable' + (sortCol === 'username' ? ' ' + (sortDir === 'ASC' ? 'sort-asc' : 'sort-desc') : '')} data-col="user" onClick={() => handleSort('user')}>{t('User')}</th>}
+                <th className={'sortable' + (sortCol === 'media_type' ? ' ' + (sortDir === 'ASC' ? 'sort-asc' : 'sort-desc') : '')} data-col="type" onClick={() => handleSort('type')}>{t('Type')}</th>
+                <th className={'sortable' + (sortCol === 'requested_at' ? ' ' + (sortDir === 'ASC' ? 'sort-asc' : 'sort-desc') : '')} data-col="age" onClick={() => handleSort('age')}>{t('Age')}</th>
+                <th className={'sortable' + (sortCol === 'status' ? ' ' + (sortDir === 'ASC' ? 'sort-asc' : 'sort-desc') : '')} data-col="status" onClick={() => handleSort('status')}>{t('Status')}</th>
+                <th>{t('Actions')}</th>
               </tr>
             </thead>
             <tbody>
@@ -419,7 +421,7 @@ export default function Queue() {
                           <div className="queue-poster-placeholder" onClick={() => handleOpenDetail(r)} style={{ cursor: 'pointer' }}>?</div>
                         )}
                         <div className="queue-title-info" onClick={() => handleOpenDetail(r)} style={{ cursor: 'pointer' }}>
-                          <div className="queue-title">{r.title || 'Untitled'}</div>
+                          <div className="queue-title">{r.title || t('Untitled')}</div>
                           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                             {r.year && <span className="queue-year">{r.year}</span>}
                             {r.contentRating && <span className="content-rating-badge">{r.contentRating}</span>}
@@ -436,9 +438,9 @@ export default function Queue() {
                                     }
                                     return sorted.map(s => <span key={s} className="season-bubble">S{s}</span>)
                                   }
-                                  return <span className="season-bubble season-bubble-all">All Seasons</span>
+                                  return <span className="season-bubble season-bubble-all">{t('All Seasons')}</span>
                                 } catch {
-                                  return <span className="season-bubble season-bubble-all">All Seasons</span>
+                                  return <span className="season-bubble season-bubble-all">{t('All Seasons')}</span>
                                 }
                               })()}
                             </div>
@@ -457,21 +459,21 @@ export default function Queue() {
                         <span className={'queue-user-link' + (isSelected ? ' active' : '')} onClick={() => handleUsernameClick(r.user_id)}>{r.username || r.user_id}</span>
                       )}
                     </td>}
-                    <td><span className={'type-badge type-' + mediaType}>{mediaType === 'movie' ? 'Movie' : 'TV'}</span></td>
+                    <td><span className={'type-badge type-' + mediaType}>{mediaType === 'movie' ? t('Movie') : t('TV')}</span></td>
                     <td>{fmtDate(r.requested_at)}</td>
-                    <td><span className={'status-badge-' + ds}>{STATUS_LABELS[ds] || ds}</span></td>
+                    <td><span className={'status-badge-' + ds}>{t(STATUS_LABELS[ds] || ds)}</span></td>
                     <td><div className="queue-actions">
                       {isAdmin && isPending && (
                         <>
-                          <button className="btn-queue-approve" onClick={() => handleApprove(r.id)}>Approve</button>
-                          <button className="btn-queue-deny" onClick={() => handleDeny(r.id)}>Deny</button>
+                          <button className="btn-queue-approve" onClick={() => handleApprove(r.id)}>{t('Approve')}</button>
+                          <button className="btn-queue-deny" onClick={() => handleDeny(r.id)}>{t('Deny')}</button>
                         </>
                       )}
                       {isAdmin && (isPending || ds === 'requested') && (
-                        <button className="btn-queue-edit" onClick={() => handleEdit(r)}>Edit</button>
+                        <button className="btn-queue-edit" onClick={() => handleEdit(r)}>{t('Edit')}</button>
                       )}
                       {!isAdmin && (isPending || ds === 'requested') && String(user?.id) === String(r.user_id) && (
-                        <button className="btn-queue-edit" onClick={() => handleEdit(r)}>Edit</button>
+                        <button className="btn-queue-edit" onClick={() => handleEdit(r)}>{t('Edit')}</button>
                       )}
                       {(isAdmin || (isPending && String(user?.id) === String(r.user_id))) && (
                         <button className="btn-queue-delete" onClick={() => {
@@ -480,7 +482,7 @@ export default function Queue() {
                           } else {
                             setDeleteRequestId(r.id)
                           }
-                        }}>Delete</button>
+                        }}>{t('Delete')}</button>
                       )}
                     </div></td>
                   </tr>
@@ -493,13 +495,13 @@ export default function Queue() {
 
       {total > 0 && (
         <div className="queue-pagination" id="queue-pagination">
-          <button className="btn-page" onClick={() => handlePageChange(-1)} disabled={page <= 1}>❮ Prev</button>
-          <span id="page-info">{totalPages > 1 ? `Page ${page} of ${totalPages} (${total} total)` : `${total} total`}</span>
-          <button className="btn-page" onClick={() => handlePageChange(1)} disabled={page >= totalPages}>Next ❯</button>
+          <button className="btn-page" onClick={() => handlePageChange(-1)} disabled={page <= 1}>❮ {t('Prev')}</button>
+          <span id="page-info">{totalPages > 1 ? t('Page {{page}} of {{totalPages}} ({{total}} total)', { page, totalPages, total }) : t('{{total}} total', { total })}</span>
+          <button className="btn-page" onClick={() => handlePageChange(1)} disabled={page >= totalPages}>{t('Next')} ❯</button>
           <select id="queue-per-page" value={perPage} onChange={handlePerPageChange}>
-            <option value="25">25 / page</option>
-            <option value="50">50 / page</option>
-            <option value="100">100 / page</option>
+            <option value="25">{t('{{n}} / page', { n: 25 })}</option>
+            <option value="50">{t('{{n}} / page', { n: 50 })}</option>
+            <option value="100">{t('{{n}} / page', { n: 100 })}</option>
           </select>
         </div>
       )}
@@ -514,11 +516,11 @@ export default function Queue() {
       <Modal isOpen={!!editRequest} onClose={() => setEditRequest(null)}>
         {editRequest && (
           <div>
-            <h3 style={{ margin: '0 0 16px', fontSize: '1rem', fontWeight: '600' }}>Edit Request</h3>
+            <h3 style={{ margin: '0 0 16px', fontSize: '1rem', fontWeight: '600' }}>{t('Edit Request')}</h3>
             <div style={{ marginBottom: '14px' }}>
-              <label className="edit-field-label">Service</label>
+              <label className="edit-field-label">{t('Service')}</label>
               <select className="edit-select" value={editService} onChange={e => setEditService(e.target.value)}>
-                <option value="">Default</option>
+                <option value="">{t('Default')}</option>
                 <option value="overseerr">Overseerr</option>
                 <option value="radarr">Radarr</option>
                 <option value="sonarr">Sonarr</option>
@@ -526,7 +528,7 @@ export default function Queue() {
             </div>
             {editRequest.media_type === 'tv' && editSeasons.length > 0 && (
               <div id="edit-season-section" style={{ marginBottom: '14px' }}>
-                <label className="edit-field-label">Seasons</label>
+                <label className="edit-field-label">{t('Seasons')}</label>
                 <div>
                   <label style={{ fontSize: '0.82rem', marginBottom: '6px', display: 'block' }}>
                    <input
@@ -538,7 +540,7 @@ export default function Queue() {
                         setEditSeasons(editSeasons.map(s => ({ ...s, selected: e.target.checked })))
                       }}
                     />{' '}
-                    <strong>Select all</strong>
+                    <strong>{t('Select all')}</strong>
                   </label>
                 </div>
                 <div className="edit-season-list">
@@ -556,15 +558,15 @@ export default function Queue() {
                             setEditSeasons(prev => prev.map(se => se.number === s.number ? { ...se, selected: false } : se))
                           }
                         }}
-                      />{' '}Season {s.number}
+                      />{' '}{t('Season')} {s.number}
                     </label>
                   ))}
                 </div>
               </div>
             )}
             <div className="edit-modal-actions">
-              <button className="edit-modal-cancel" onClick={() => setEditRequest(null)}>Cancel</button>
-              <button className="edit-modal-save" onClick={handleEditSave}>Save</button>
+              <button className="edit-modal-cancel" onClick={() => setEditRequest(null)}>{t('Cancel')}</button>
+              <button className="edit-modal-save" onClick={handleEditSave}>{t('Save')}</button>
             </div>
           </div>
         )}
@@ -572,12 +574,12 @@ export default function Queue() {
 
       <Modal isOpen={bulkDeleteConfirm} onClose={() => setBulkDeleteConfirm(false)}>
         <div style={{ maxWidth: '380px' }}>
-          <h3>Delete {selectedIds.size} request{selectedIds.size === 1 ? '' : 's'}?</h3>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', margin: '8px 0 16px' }}>This cannot be undone.</p>
+          <h3>{t('Delete {{n}} request(s)?', { n: selectedIds.size })}</h3>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', margin: '8px 0 16px' }}>{t('This cannot be undone.')}</p>
           <div className="edit-modal-actions">
-            <button className="edit-modal-cancel" onClick={() => setBulkDeleteConfirm(false)}>Cancel</button>
+            <button className="edit-modal-cancel" onClick={() => setBulkDeleteConfirm(false)}>{t('Cancel')}</button>
             <button className="edit-modal-save" style={{ background: 'var(--accent-red, #e53e3e)' }} onClick={handleBulkDelete} disabled={bulkDeleteLoading}>
-              {bulkDeleteLoading ? 'Deleting...' : 'Delete'}
+              {bulkDeleteLoading ? t('Deleting...') : t('Delete')}
             </button>
           </div>
         </div>
@@ -585,8 +587,8 @@ export default function Queue() {
 
       <Modal isOpen={!!deleteRequestId} onClose={() => setDeleteRequestId(null)}>
         <div style={{ maxWidth: '380px' }}>
-          <h3>Delete Request</h3>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', margin: '8px 0 16px' }}>Are you sure you want to permanently delete this request?</p>
+          <h3>{t('Delete Request')}</h3>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', margin: '8px 0 16px' }}>{t('Are you sure you want to permanently delete this request?')}</p>
           <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.82rem', color: 'var(--text-secondary)', marginBottom: '16px' }}>
            <input
                type="checkbox"
@@ -597,11 +599,11 @@ export default function Queue() {
                 localStorage.setItem('diskovarr_no_confirm_delete', e.target.checked)
               }}
             />
-            Don't ask again
+            {t("Don't ask again")}
           </label>
           <div className="edit-modal-actions">
-            <button className="edit-modal-cancel" onClick={() => setDeleteRequestId(null)}>Cancel</button>
-            <button className="edit-modal-save" style={{ background: 'var(--accent-red, #e53e3e)' }} onClick={() => { if (deleteRequestId) handleDelete(deleteRequestId) }}>Delete</button>
+            <button className="edit-modal-cancel" onClick={() => setDeleteRequestId(null)}>{t('Cancel')}</button>
+            <button className="edit-modal-save" style={{ background: 'var(--accent-red, #e53e3e)' }} onClick={() => { if (deleteRequestId) handleDelete(deleteRequestId) }}>{t('Delete')}</button>
           </div>
         </div>
       </Modal>

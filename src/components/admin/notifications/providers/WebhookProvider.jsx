@@ -1,6 +1,7 @@
 import React, { useState, useCallback } from 'react'
 import { adminNotifications } from '../../../../services/adminApi'
 import { SHARED_NOTIFICATION_TYPES, DEFAULT_AGENT_TYPES, DEFAULT_WEBHOOK_PAYLOAD, decodeWebhookPayload, encodeWebhookPayload } from '../constants'
+import { useTranslation } from 'react-i18next'
 
 function Checkbox({ checked, onChange, children }) {
   return (
@@ -12,6 +13,7 @@ function Checkbox({ checked, onChange, children }) {
 }
 
 export default function WebhookProvider({ initial, onToast, onOpenAgentInfo }) {
+  const { t } = useTranslation()
   const [enabled, setEnabled] = useState(initial?.enabled || false)
   const [url, setUrl] = useState(initial?.webhookUrl || '')
   const [jsonPayload, setJsonPayload] = useState(
@@ -58,31 +60,31 @@ export default function WebhookProvider({ initial, onToast, onOpenAgentInfo }) {
     <section className="admin-section">
       <div className="admin-section-header">
         <h2 className="section-title">
-          Webhook
-          <button type="button" className="agent-info-btn" onClick={() => onOpenAgentInfo?.('webhook')} title="How to configure" style={{ marginLeft: 8, background: 'none', border: 'none', cursor: 'pointer', fontSize: 'inherit', color: 'inherit', padding: 0, verticalAlign: 'middle' }}>&#9432;</button>
+          {t('Webhook')}
+          <button type="button" className="agent-info-btn" onClick={() => onOpenAgentInfo?.('webhook')} title={t('How to configure')} style={{ marginLeft: 8, background: 'none', border: 'none', cursor: 'pointer', fontSize: 'inherit', color: 'inherit', padding: 0, verticalAlign: 'middle' }}>&#9432;</button>
         </h2>
         <label className="slide-toggle" style={{ flexShrink: 0 }}>
           <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
           <span className="slide-track" />
         </label>
       </div>
-      <p className="section-desc" style={{ marginBottom: 16 }}>Send a custom JSON payload to any endpoint. Supports template variables like <code style={{ fontSize: '0.8rem' }}>{'{{notification_type}}'}</code>.</p>
+      <p className="section-desc" style={{ marginBottom: 16 }}>{t('Send a custom JSON payload to any endpoint. Supports template variables like')} <code style={{ fontSize: '0.8rem' }}>{'{{notification_type}}'}</code>.</p>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 20 }}>
         <div>
-          <label className="conn-label">Webhook URL</label>
-          <input type="url" className="conn-input" placeholder="https://example.com/webhook" value={url} onChange={(e) => setUrl(e.target.value)} />
+          <label className="conn-label">{t('Webhook URL')}</label>
+          <input type="url" className="conn-input" placeholder={t('https://example.com/webhook')} value={url} onChange={(e) => setUrl(e.target.value)} />
         </div>
         <div>
-          <label className="conn-label">Authorization Header <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(optional)</span></label>
-          <input type="text" className="conn-input" placeholder="Bearer your-token" value={authHeader} onChange={(e) => setAuthHeader(e.target.value)} />
+          <label className="conn-label">{t('Authorization Header')} <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(optional)</span></label>
+          <input type="text" className="conn-input" placeholder={t('Bearer your-token')} value={authHeader} onChange={(e) => setAuthHeader(e.target.value)} />
         </div>
         <div>
-          <label className="conn-label">JSON Payload Template</label>
+          <label className="conn-label">{t('JSON Payload Template')}</label>
           <textarea className="conn-input" rows={6} style={{ fontFamily: 'monospace', fontSize: '0.8rem' }} value={jsonPayload} onChange={(e) => setJsonPayload(e.target.value)} />
         </div>
-        <Checkbox checked={supportVariables} onChange={(e) => setSupportVariables(e.target.checked)}>Enable variables in URL</Checkbox>
+        <Checkbox checked={supportVariables} onChange={(e) => setSupportVariables(e.target.checked)}>{t('Enable variables in URL')}</Checkbox>
         <div>
-          <p style={{ fontSize: '0.72rem', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-secondary)', margin: '0 0 8px' }}>Notification Types</p>
+          <p style={{ fontSize: '0.72rem', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-secondary)', margin: '0 0 8px' }}>{t('Notification Types')}</p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
             {SHARED_NOTIFICATION_TYPES.map(t => (
               <Checkbox key={'wh-'+t.value} checked={notifTypes.includes(t.value)} onChange={() => toggleType(setNotifTypes, t.value)}>
@@ -92,7 +94,7 @@ export default function WebhookProvider({ initial, onToast, onOpenAgentInfo }) {
           </div>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
-          <button className="btn-admin btn-primary" onClick={handleSave}>Save</button>
+          <button className="btn-admin btn-primary" onClick={handleSave}>{t('Save')}</button>
           <button className="btn-admin" onClick={handleTest} disabled={testing}>{testing ? 'Sending...' : 'Send Test'}</button>
         </div>
       </div>

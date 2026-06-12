@@ -6,6 +6,7 @@ import ReviewModal from '../components/ReviewModal'
 import StarsDisplay from '../components/StarsDisplay'
 import { useToast } from '../context/ToastContext'
 import { useAuth } from '../context/AuthContext'
+import { useTranslation } from 'react-i18next'
 
 function fmtDate(ts) {
   if (!ts) return ''
@@ -44,6 +45,7 @@ function StarBadge({ rating }) {
 }
 
 export default function WatchHistory() {
+  const { t } = useTranslation()
   const { user } = useAuth()
   const { error: toastError } = useToast()
   const isAdmin = !!(user?.isAdmin || user?.isPlexAdminUser || user?.isElevated || user?.isPrivileged)
@@ -117,11 +119,11 @@ export default function WatchHistory() {
       setTotal(data.total || 0)
       setPage(pageNum || 1)
     } catch (e) {
-      toastError('Failed to load watch history')
+      toastError(t('Failed to load watch history'))
     } finally {
       setLoading(false)
     }
-  }, [mediaType, watchedStatus, sortBy, sortDir, perPage, debouncedSearch, dateFrom, dateTo, isAdmin, selectedUserIds, users.length, toastError])
+  }, [mediaType, watchedStatus, sortBy, sortDir, perPage, debouncedSearch, dateFrom, dateTo, isAdmin, selectedUserIds, users.length, toastError, t])
 
   useEffect(() => {
     ;(async () => { await loadHistory(1) })()
@@ -232,7 +234,7 @@ export default function WatchHistory() {
           onClick={(e) => { e.stopPropagation(); setReviewModalItem(it) }}
           style={{ fontSize: '0.82rem', padding: '4px 10px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
         >
-          {it.review ? (<><StarBadge rating={it.review.rating} /> Edit</>) : 'Write Review'}
+          {it.review ? (<><StarBadge rating={it.review.rating} /> {t('Edit')}</>) : 'Write Review'}
         </button>
       )}
     </td>
@@ -309,7 +311,7 @@ export default function WatchHistory() {
         </td>
         {isAdmin && renderUserCell(group)}
         <td>
-          <span className="scope-badge">TV</span>
+          <span className="scope-badge">{t('TV')}</span>
         </td>
         <td style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
           <span title={fmtWatchedTime(group.watchedAt)}>{fmtDate(group.watchedAt)}</span>
@@ -358,8 +360,8 @@ export default function WatchHistory() {
   return (
     <main className="main-content queue-page">
       <div className="queue-hero">
-        <h1>Watch History</h1>
-        <p>Your watch history. Click any item to write or edit a review.</p>
+        <h1>{t('Watch History')}</h1>
+        <p>{t('Your watch history. Click any item to write or edit a review.')}</p>
       </div>
 
       <div className="list-filter-toolbar">
@@ -367,7 +369,7 @@ export default function WatchHistory() {
           <input
             className="list-search-input"
             type="search"
-            placeholder="Search by title..."
+            placeholder={t('Search by title...')}
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }}
@@ -383,9 +385,9 @@ export default function WatchHistory() {
           onChange={e => { handleFilterChange(setMediaType)(e.target.value); setPage(1) }}
           style={{ fontSize: '0.85rem', padding: '6px 10px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg-elevated)', color: 'var(--text)' }}
         >
-          <option value="all">All Types</option>
-          <option value="movie">Movies</option>
-          <option value="episode">TV Shows</option>
+          <option value="all">{t('All Types')}</option>
+          <option value="movie">{t('Movies')}</option>
+          <option value="episode">{t('TV Shows')}</option>
         </select>
 
         <select
@@ -394,17 +396,17 @@ export default function WatchHistory() {
           onChange={e => { handleFilterChange(setWatchedStatus)(e.target.value); setPage(1) }}
           style={{ fontSize: '0.85rem', padding: '6px 10px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg-elevated)', color: 'var(--text)' }}
         >
-          <option value="all">All Status</option>
-          <option value="complete">Complete</option>
-          <option value="incomplete">Incomplete</option>
-          <option value="reviewed">Reviewed</option>
+          <option value="all">{t('All Status')}</option>
+          <option value="complete">{t('Complete')}</option>
+          <option value="incomplete">{t('Incomplete')}</option>
+          <option value="reviewed">{t('Reviewed')}</option>
         </select>
 
         <DateRangeFilter
           value={{ from: dateFrom, to: dateTo }}
           onChange={handleDateRange}
-          label="Date"
-          placeholder="Any date"
+          label={t('Date')}
+          placeholder={t('Any date')}
         />
 
         {isAdmin && users.length > 0 && (
@@ -412,7 +414,7 @@ export default function WatchHistory() {
             options={users}
             value={selectedUserIds ?? users.map(u => String(u.id))}
             onChange={(ids) => { setSelectedUserIds(ids); setPage(1) }}
-            label="Users"
+            label={t('Users')}
           />
         )}
 
@@ -422,9 +424,9 @@ export default function WatchHistory() {
             onChange={e => { setSortBy(e.target.value); setPage(1) }}
             style={{ fontSize: '0.85rem', padding: '6px 10px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg-elevated)', color: 'var(--text)' }}
           >
-            <option value="date">Date</option>
-            <option value="title">Title</option>
-            <option value="duration">Duration</option>
+            <option value="date">{t('Date')}</option>
+            <option value="title">{t('Title')}</option>
+            <option value="duration">{t('Duration')}</option>
           </select>
           <button
             onClick={() => setSortDir(d => d === 'asc' ? 'desc' : 'asc')}
@@ -437,13 +439,13 @@ export default function WatchHistory() {
 
         {hasActiveFilters && (
           <button className="chip-sm chip-sm-clear" onClick={clearAllFilters}>
-            Clear Filters
+            {t('Clear Filters')}
           </button>
         )}
       </div>
 
       {loading ? (
-        <div className="queue-loading">Loading watch history...</div>
+        <div className="queue-loading">{t('Loading watch history...')}</div>
       ) : historyItems.length === 0 ? (
         <div className="queue-empty">
           {hasActiveFilters
@@ -455,12 +457,12 @@ export default function WatchHistory() {
           <table className="queue-table">
             <thead>
               <tr>
-                <th>Title</th>
-                {isAdmin && <th>User</th>}
-                <th>Type</th>
-                <th>Date Watched</th>
-                <th>Progress</th>
-                <th>Review</th>
+                <th>{t('Title')}</th>
+                {isAdmin && <th>{t('User')}</th>}
+                <th>{t('Type')}</th>
+                <th>{t('Date Watched')}</th>
+                <th>{t('Progress')}</th>
+                <th>{t('Review')}</th>
               </tr>
             </thead>
             <tbody>
@@ -479,13 +481,13 @@ export default function WatchHistory() {
 
       {total > 0 && (
         <div className="queue-pagination">
-          <button className="btn-page" onClick={() => handlePageChange(-1)} disabled={page <= 1}>❮ Prev</button>
+          <button className="btn-page" onClick={() => handlePageChange(-1)} disabled={page <= 1}>{t('❮ Prev')}</button>
           <span>{totalPages > 1 ? `Page ${page} of ${totalPages} (${total} total)` : `${total} total`}</span>
-          <button className="btn-page" onClick={() => handlePageChange(1)} disabled={page >= totalPages}>Next ❯</button>
+          <button className="btn-page" onClick={() => handlePageChange(1)} disabled={page >= totalPages}>{t('Next ❯')}</button>
           <select value={perPage} onChange={handlePerPageChange}>
-            <option value="25">25 / page</option>
-            <option value="50">50 / page</option>
-            <option value="100">100 / page</option>
+            <option value="25">{t('25 / page')}</option>
+            <option value="50">{t('50 / page')}</option>
+            <option value="100">{t('100 / page')}</option>
           </select>
         </div>
       )}

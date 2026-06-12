@@ -2,8 +2,10 @@ import React, { useState, useRef, useEffect } from 'react'
 import { monitorsApi } from '../../services/monitorsApi'
 import MonitorEditor from './MonitorEditor'
 import { useToast } from '../../context/ToastContext'
+import { useTranslation } from 'react-i18next'
 
 export default function MonitorDropdown({ item, onClose }) {
+  const { t } = useTranslation()
   const toast = useToast()
   const [open, setOpen] = useState(false)
   const [creating, setCreating] = useState(false)
@@ -118,7 +120,7 @@ export default function MonitorDropdown({ item, onClose }) {
 
       {open && (
         <div className="modal-monitor-dropdown">
-          <div className="monitor-dropdown-header">Create Monitor</div>
+          <div className="monitor-dropdown-header">{t('Create Monitor')}</div>
           {items.map((item, i) => (
             <button
               key={i}

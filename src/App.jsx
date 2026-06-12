@@ -3,6 +3,7 @@ import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from './context/AuthContext'
 import NavigationBar from './components/NavigationBar'
 import Footer from './components/Footer'
+import AmbientBackground from './components/AmbientBackground'
 
 // Lazy-loaded pages
 const Home = lazy(() => import('./pages/Home'))
@@ -54,6 +55,7 @@ export default function App() {
 
   return (
     <>
+      {user && !isAdminRoute && <AmbientBackground />}
       {user && !isAdminRoute && <NavigationBar />}
       <Suspense fallback={<LoadingScreen />}>
         <Routes>

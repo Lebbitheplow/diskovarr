@@ -1,8 +1,9 @@
 import React from 'react'
+import { useTranslation } from 'react-i18next'
 
 const REPO_URL = 'https://github.com/Lebbitheplow/diskovarr'
 const SITE_URL = 'https://diskovarr.com'
-const VERSION = import.meta.env.VITE_APP_VERSION || '2.2.2'
+const VERSION = import.meta.env.VITE_APP_VERSION || '2.3.0'
 const YEAR = new Date().getFullYear()
 
 // Diskovarr brand mark — mirrors the logo used in the navigation bar.
@@ -28,6 +29,7 @@ function GitHubIcon() {
 }
 
 export default function Footer() {
+  const { t } = useTranslation()
   return (
     <footer className="app-footer">
       <div className="app-footer-inner">
@@ -55,11 +57,11 @@ export default function Footer() {
         <span className="app-footer-sep" aria-hidden="true">·</span>
         <a href={`${REPO_URL}/releases`} target="_blank" rel="noopener noreferrer">v{VERSION}</a>
         <span className="app-footer-sep" aria-hidden="true">·</span>
-        <span>Made with <span className="app-footer-heart">♥</span> for Plex</span>
+        <span>{t('Made with')} <span className="app-footer-heart">♥</span> {t('for Plex')}</span>
         <p className="app-footer-fineprint">
-          © {YEAR} Diskovarr · This product uses the TMDB API but is not endorsed or certified by{' '}
+          © {YEAR} Diskovarr · {t('This product uses the TMDB API but is not endorsed or certified by')}{' '}
           <a href="https://www.themoviedb.org/" target="_blank" rel="noopener noreferrer">TMDB</a>.
-          {' '}Not affiliated with Plex, Inc.
+          {' '}{t('Not affiliated with Plex, Inc.')}
         </p>
       </div>
     </footer>

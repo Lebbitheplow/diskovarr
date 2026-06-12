@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { adminUserSettings } from '../../services/adminApi'
 import adminApi from '../../services/adminApi'
+import { useTranslation } from 'react-i18next'
 
 const REGIONS = [
   { value: '', label: 'All Regions' },
@@ -77,6 +78,7 @@ function Toggle({ checked, onChange, label, disabled }) {
 }
 
 export default function UserSettingsModal({ userId, username, onClose, onToast, enabledProviders }) {
+  const { t } = useTranslation()
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [ownerUserId, setOwnerUserId] = useState(null)
@@ -326,62 +328,62 @@ export default function UserSettingsModal({ userId, username, onClose, onToast, 
           &times;
         </button>
 
-        <h3 style={{ margin: '0 0 4px', fontSize: '1.05rem' }}>User Settings</h3>
+        <h3 style={{ margin: '0 0 4px', fontSize: '1.05rem' }}>{t('User Settings')}</h3>
         <p style={{ margin: '0 0 20px', color: 'var(--text-secondary)', fontSize: '0.88rem' }}>
           {username} (ID: {userId})
         </p>
 
         {/* ── Request Limit Override ── */}
         <div style={{ marginBottom: 16, paddingBottom: 16, borderBottom: '1px solid var(--border)' }}>
-          <div style={sectionLabel}>Request Limits</div>
+          <div style={sectionLabel}>{t('Request Limits')}</div>
           <div className="conn-toggle-row" style={{ marginBottom: 12 }}>
             <label className="slide-toggle">
               <input type="checkbox" checked={overrideGlobal} onChange={(e) => setOverrideGlobal(e.target.checked)} />
               <span className="slide-track" />
             </label>
-            <span className="conn-toggle-label" style={{ fontWeight: 500 }}>Override global request limits</span>
+            <span className="conn-toggle-label" style={{ fontWeight: 500 }}>{t('Override global request limits')}</span>
           </div>
 
           {overrideGlobal && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14, paddingLeft: 4 }}>
               {/* Movies */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
-                <span style={{ minWidth: 84, fontSize: '0.9rem', color: '#fff', fontWeight: 500 }}>Movies</span>
+                <span style={{ minWidth: 84, fontSize: '0.9rem', color: '#fff', fontWeight: 500 }}>{t('Movies')}</span>
                 <label style={{ display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer', fontSize: '0.88rem', color: 'var(--text-secondary)', userSelect: 'none' }}>
                   <input type="checkbox" className="themed-checkbox" checked={movieUnlimited} onChange={(e) => setMovieUnlimited(e.target.checked)} />
-                  Unlimited
+                  {t('Unlimited')}
                 </label>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, opacity: movieUnlimited ? 0.5 : 1, pointerEvents: movieUnlimited ? 'none' : 'auto' }}>
                   <div className="conn-field-group">
-                    <label className="conn-field-label">Count</label>
+                    <label className="conn-field-label">{t('Count')}</label>
                     <input type="number" min="1" max="9999" className="btn-admin limit-num" value={movieCount} onChange={(e) => setMovieCount(Math.min(9999, Math.max(1, Number(e.target.value))))} />
                   </div>
-                  <span style={{ fontSize: '0.88rem', color: 'var(--text-secondary)' }}>movies per</span>
+                  <span style={{ fontSize: '0.88rem', color: 'var(--text-secondary)' }}>{t('movies per')}</span>
                   <div className="conn-field-group">
-                    <label className="conn-field-label">Days</label>
+                    <label className="conn-field-label">{t('Days')}</label>
                     <input type="number" min="1" max="365" className="btn-admin limit-num" value={movieDays} onChange={(e) => setMovieDays(Math.min(365, Math.max(1, Number(e.target.value))))} />
                   </div>
-                  <span style={{ fontSize: '0.88rem', color: 'var(--text-secondary)' }}>days</span>
+                  <span style={{ fontSize: '0.88rem', color: 'var(--text-secondary)' }}>{t('days')}</span>
                 </div>
               </div>
               {/* TV Seasons */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
-                <span style={{ minWidth: 84, fontSize: '0.9rem', color: '#fff', fontWeight: 500 }}>TV Seasons</span>
+                <span style={{ minWidth: 84, fontSize: '0.9rem', color: '#fff', fontWeight: 500 }}>{t('TV Seasons')}</span>
                 <label style={{ display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer', fontSize: '0.88rem', color: 'var(--text-secondary)', userSelect: 'none' }}>
                   <input type="checkbox" className="themed-checkbox" checked={seasonUnlimited} onChange={(e) => setSeasonUnlimited(e.target.checked)} />
-                  Unlimited
+                  {t('Unlimited')}
                 </label>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, opacity: seasonUnlimited ? 0.5 : 1, pointerEvents: seasonUnlimited ? 'none' : 'auto' }}>
                   <div className="conn-field-group">
-                    <label className="conn-field-label">Count</label>
+                    <label className="conn-field-label">{t('Count')}</label>
                     <input type="number" min="1" max="9999" className="btn-admin limit-num" value={seasonCount} onChange={(e) => setSeasonCount(Math.min(9999, Math.max(1, Number(e.target.value))))} />
                   </div>
-                  <span style={{ fontSize: '0.88rem', color: 'var(--text-secondary)' }}>seasons per</span>
+                  <span style={{ fontSize: '0.88rem', color: 'var(--text-secondary)' }}>{t('seasons per')}</span>
                   <div className="conn-field-group">
-                    <label className="conn-field-label">Days</label>
+                    <label className="conn-field-label">{t('Days')}</label>
                     <input type="number" min="1" max="365" className="btn-admin limit-num" value={seasonDays} onChange={(e) => setSeasonDays(Math.min(365, Math.max(1, Number(e.target.value))))} />
                   </div>
-                  <span style={{ fontSize: '0.88rem', color: 'var(--text-secondary)' }}>days</span>
+                  <span style={{ fontSize: '0.88rem', color: 'var(--text-secondary)' }}>{t('days')}</span>
                 </div>
               </div>
             </div>
@@ -390,18 +392,18 @@ export default function UserSettingsModal({ userId, username, onClose, onToast, 
 
         {/* ── Auto-approve Override ── */}
         <div style={{ marginBottom: 16, paddingBottom: 16, borderBottom: '1px solid var(--border)' }}>
-          <div style={sectionLabel}>Auto-Approve Override</div>
+          <div style={sectionLabel}>{t('Auto-Approve Override')}</div>
           <div className="conn-toggle-row" style={{ marginBottom: 12 }}>
             <label className="slide-toggle">
               <input type="checkbox" checked={autoApproveOverride} onChange={(e) => setAutoApproveOverride(e.target.checked)} />
               <span className="slide-track" />
             </label>
-            <span className="conn-toggle-label" style={{ fontWeight: 500 }}>Override global approval settings</span>
+            <span className="conn-toggle-label" style={{ fontWeight: 500 }}>{t('Override global approval settings')}</span>
           </div>
           {autoApproveOverride && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingLeft: 4 }}>
-              <Toggle checked={autoApproveMovies} onChange={(e) => setAutoApproveMovies(e.target.checked)} label="Auto-approve movie requests" />
-              <Toggle checked={autoApproveTv} onChange={(e) => setAutoApproveTv(e.target.checked)} label="Auto-approve TV show requests" />
+              <Toggle checked={autoApproveMovies} onChange={(e) => setAutoApproveMovies(e.target.checked)} label={t('Auto-approve movie requests')} />
+              <Toggle checked={autoApproveTv} onChange={(e) => setAutoApproveTv(e.target.checked)} label={t('Auto-approve TV show requests')} />
             </div>
           )}
         </div>
@@ -411,34 +413,34 @@ export default function UserSettingsModal({ userId, username, onClose, onToast, 
           <Toggle
             checked={isAdmin}
             onChange={(e) => setIsAdmin(e.target.checked)}
-            label="Elevated privileges — can view and manage the request queue"
+            label={t('Elevated privileges — can view and manage the request queue')}
             disabled={ownerUserId && String(userId) === String(ownerUserId)}
           />
           {ownerUserId && String(userId) === String(ownerUserId) && (
             <p style={{ margin: '6px 0 0 40px', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-              Locked: designated server owner
+              {t('Locked: designated server owner')}
             </p>
           )}
         </div>
 
         {/* ── Personalization ── */}
         <div style={{ marginBottom: 16, paddingBottom: 16, borderBottom: '1px solid var(--border)' }}>
-          <div style={sectionLabel}>Personalization</div>
+          <div style={sectionLabel}>{t('Personalization')}</div>
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
             <div className="conn-field-group" style={{ flex: 1, minWidth: 120 }}>
-              <label className="conn-field-label">Region</label>
+              <label className="conn-field-label">{t('Region')}</label>
               <select className="conn-input" value={region} onChange={(e) => setRegion(e.target.value)}>
                 {REGIONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
               </select>
             </div>
             <div className="conn-field-group" style={{ flex: 1, minWidth: 120 }}>
-              <label className="conn-field-label">Language</label>
+              <label className="conn-field-label">{t('Language')}</label>
               <select className="conn-input" value={language} onChange={(e) => setLanguage(e.target.value)}>
                 {LANGUAGES.map(l => <option key={l.value} value={l.value}>{l.label}</option>)}
               </select>
             </div>
             <div className="conn-field-group" style={{ flex: 1, minWidth: 120 }}>
-              <label className="conn-field-label">Landing Page</label>
+              <label className="conn-field-label">{t('Landing Page')}</label>
               <select className="conn-input" value={landingPage} onChange={(e) => setLandingPage(e.target.value)}>
                 {LANDING_PAGES.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
               </select>
@@ -448,10 +450,10 @@ export default function UserSettingsModal({ userId, username, onClose, onToast, 
 
         {/* ── Auto-Request Watchlist ── */}
         <div style={{ marginBottom: 16, paddingBottom: 16, borderBottom: '1px solid var(--border)' }}>
-          <div style={sectionLabel}>Auto-Request Watchlist</div>
+          <div style={sectionLabel}>{t('Auto-Request Watchlist')}</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <Toggle checked={autoRequestMovies} onChange={(e) => setAutoRequestMovies(e.target.checked)} label="Auto-request movies from watchlist" />
-            <Toggle checked={autoRequestTv} onChange={(e) => setAutoRequestTv(e.target.checked)} label="Auto-request TV shows from watchlist" />
+            <Toggle checked={autoRequestMovies} onChange={(e) => setAutoRequestMovies(e.target.checked)} label={t('Auto-request movies from watchlist')} />
+            <Toggle checked={autoRequestTv} onChange={(e) => setAutoRequestTv(e.target.checked)} label={t('Auto-request TV shows from watchlist')} />
           </div>
         </div>
 
@@ -465,53 +467,53 @@ export default function UserSettingsModal({ userId, username, onClose, onToast, 
 
           return (
             <div style={{ marginBottom: 16, paddingBottom: 16, borderBottom: '1px solid var(--border)' }}>
-              <div style={sectionLabel}>Notification Delivery</div>
+              <div style={sectionLabel}>{t('Notification Delivery')}</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {isProviderEnabled('discord') && (
                   <>
                     <div>
-                      <label className="conn-field-label">Discord User ID</label>
+                      <label className="conn-field-label">{t('Discord User ID')}</label>
                       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                        <input type="text" className="conn-input" style={{ maxWidth: 220 }} placeholder="Discord user ID" value={discordUserId} onChange={(e) => setDiscordUserId(e.target.value)} />
-                        <Toggle checked={discordEnabled} onChange={(e) => setDiscordEnabled(e.target.checked)} label="Enable" />
+                        <input type="text" className="conn-input" style={{ maxWidth: 220 }} placeholder={t('Discord user ID')} value={discordUserId} onChange={(e) => setDiscordUserId(e.target.value)} />
+                        <Toggle checked={discordEnabled} onChange={(e) => setDiscordEnabled(e.target.checked)} label={t('Enable')} />
                       </div>
                     </div>
                     <div>
-                      <label className="conn-field-label">Discord Personal Webhook <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(optional)</span></label>
-                      <input type="url" className="conn-input" style={{ maxWidth: 350 }} placeholder="https://discord.com/api/webhooks/..." value={discordWebhook} onChange={(e) => setDiscordWebhook(e.target.value)} />
+                      <label className="conn-field-label">{t('Discord Personal Webhook')} <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(optional)</span></label>
+                      <input type="url" className="conn-input" style={{ maxWidth: 350 }} placeholder={t('https://discord.com/api/webhooks/...')} value={discordWebhook} onChange={(e) => setDiscordWebhook(e.target.value)} />
                     </div>
                   </>
                 )}
                 {isProviderEnabled('pushover') && (
                   <>
                     <div>
-                      <label className="conn-field-label">Pushover User Key</label>
+                      <label className="conn-field-label">{t('Pushover User Key')}</label>
                       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                        <input type="text" className="conn-input" style={{ maxWidth: 220 }} placeholder="Pushover user key" value={pushoverUserKey} onChange={(e) => setPushoverUserKey(e.target.value)} />
-                        <Toggle checked={pushoverEnabled} onChange={(e) => setPushoverEnabled(e.target.checked)} label="Enable" />
+                        <input type="text" className="conn-input" style={{ maxWidth: 220 }} placeholder={t('Pushover user key')} value={pushoverUserKey} onChange={(e) => setPushoverUserKey(e.target.value)} />
+                        <Toggle checked={pushoverEnabled} onChange={(e) => setPushoverEnabled(e.target.checked)} label={t('Enable')} />
                       </div>
                     </div>
                     <div>
-                      <label className="conn-field-label">Pushover App Token <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(optional, use your own app)</span></label>
-                      <input type="text" className="conn-input" style={{ maxWidth: 280 }} placeholder="App token" value={pushoverAppToken} onChange={(e) => setPushoverAppToken(e.target.value)} />
+                      <label className="conn-field-label">{t('Pushover App Token')} <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(optional, use your own app)</span></label>
+                      <input type="text" className="conn-input" style={{ maxWidth: 280 }} placeholder={t('App token')} value={pushoverAppToken} onChange={(e) => setPushoverAppToken(e.target.value)} />
                     </div>
                     <div>
-                      <label className="conn-field-label">Pushover Sound <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(optional)</span></label>
+                      <label className="conn-field-label">{t('Pushover Sound')} <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(optional)</span></label>
                       <select className="conn-input" style={{ maxWidth: 220 }} value={pushoverSound} onChange={(e) => setPushoverSound(e.target.value)}>
-                        <option value="">Device Default</option>
-                        <option value="pushover">Pushover</option>
-                        <option value="bike">Bike</option>
-                        <option value="bugle">Bugle</option>
-                        <option value="cashregister">Cash Register</option>
-                        <option value="cosmic">Cosmic</option>
-                        <option value="falling">Falling</option>
-                        <option value="gamelan">Gamelan</option>
-                        <option value="incoming">Incoming</option>
-                        <option value="magic">Magic</option>
-                        <option value="pianobar">Piano Bar</option>
-                        <option value="siren">Siren</option>
-                        <option value="spacealarm">Space Alarm</option>
-                        <option value="none">Silent</option>
+                        <option value="">{t('Device Default')}</option>
+                        <option value="pushover">{t('Pushover')}</option>
+                        <option value="bike">{t('Bike')}</option>
+                        <option value="bugle">{t('Bugle')}</option>
+                        <option value="cashregister">{t('Cash Register')}</option>
+                        <option value="cosmic">{t('Cosmic')}</option>
+                        <option value="falling">{t('Falling')}</option>
+                        <option value="gamelan">{t('Gamelan')}</option>
+                        <option value="incoming">{t('Incoming')}</option>
+                        <option value="magic">{t('Magic')}</option>
+                        <option value="pianobar">{t('Piano Bar')}</option>
+                        <option value="siren">{t('Siren')}</option>
+                        <option value="spacealarm">{t('Space Alarm')}</option>
+                        <option value="none">{t('Silent')}</option>
                       </select>
                     </div>
                   </>
@@ -519,17 +521,17 @@ export default function UserSettingsModal({ userId, username, onClose, onToast, 
                 {isProviderEnabled('telegram') && (
                   <>
                     <div>
-                      <label className="conn-field-label">Telegram Chat ID</label>
+                      <label className="conn-field-label">{t('Telegram Chat ID')}</label>
                       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                        <input type="text" className="conn-input" style={{ maxWidth: 220 }} placeholder="Chat ID" value={telegramChatId} onChange={(e) => setTelegramChatId(e.target.value)} />
-                        <Toggle checked={telegramEnabled} onChange={(e) => setTelegramEnabled(e.target.checked)} label="Enable" />
+                        <input type="text" className="conn-input" style={{ maxWidth: 220 }} placeholder={t('Chat ID')} value={telegramChatId} onChange={(e) => setTelegramChatId(e.target.value)} />
+                        <Toggle checked={telegramEnabled} onChange={(e) => setTelegramEnabled(e.target.checked)} label={t('Enable')} />
                       </div>
                     </div>
                     {telegramEnabled && (
                       <>
                         <div>
-                          <label className="conn-field-label">Thread ID <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(optional, forum topics)</span></label>
-                          <input type="text" className="conn-input" style={{ maxWidth: 220 }} placeholder="Thread ID" value={telegramThreadId} onChange={(e) => setTelegramThreadId(e.target.value)} />
+                          <label className="conn-field-label">{t('Thread ID')} <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(optional, forum topics)</span></label>
+                          <input type="text" className="conn-input" style={{ maxWidth: 220 }} placeholder={t('Thread ID')} value={telegramThreadId} onChange={(e) => setTelegramThreadId(e.target.value)} />
                         </div>
                         <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem', cursor: 'pointer' }}>
                           <input type="checkbox" className="themed-checkbox" checked={telegramSilent} onChange={(e) => setTelegramSilent(e.target.checked)} />
@@ -541,18 +543,18 @@ export default function UserSettingsModal({ userId, username, onClose, onToast, 
                 )}
                 {isProviderEnabled('pushbullet') && (
                   <div>
-                    <label className="conn-field-label">Pushbullet Access Token</label>
+                    <label className="conn-field-label">{t('Pushbullet Access Token')}</label>
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                      <input type="password" className="conn-input" style={{ maxWidth: 220 }} placeholder="o.YourToken" value={pushbulletToken} onChange={(e) => setPushbulletToken(e.target.value)} autoComplete="off" />
-                      <Toggle checked={pushbulletEnabled} onChange={(e) => setPushbulletEnabled(e.target.checked)} label="Enable" />
+                      <input type="password" className="conn-input" style={{ maxWidth: 220 }} placeholder={t('o.YourToken')} value={pushbulletToken} onChange={(e) => setPushbulletToken(e.target.value)} autoComplete="off" />
+                      <Toggle checked={pushbulletEnabled} onChange={(e) => setPushbulletEnabled(e.target.checked)} label={t('Enable')} />
                     </div>
                   </div>
                 )}
                 {isProviderEnabled('email') && (
                   <div>
-                    <label className="conn-field-label">Email Notifications</label>
+                    <label className="conn-field-label">{t('Email Notifications')}</label>
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                      <Toggle checked={emailEnabled} onChange={(e) => setEmailEnabled(e.target.checked)} label="Enable" />
+                      <Toggle checked={emailEnabled} onChange={(e) => setEmailEnabled(e.target.checked)} label={t('Enable')} />
                     </div>
                   </div>
                 )}
@@ -563,7 +565,7 @@ export default function UserSettingsModal({ userId, username, onClose, onToast, 
 
         {/* ── Notification Types ── */}
         <div style={{ marginBottom: 20, paddingBottom: 16, borderBottom: '1px solid var(--border)' }}>
-          <div style={sectionLabel}>Notification Settings</div>
+          <div style={sectionLabel}>{t('Notification Settings')}</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {NOTIF_TYPES_BASE.map(({ key, label }) => (
               <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem', cursor: 'pointer' }}>
@@ -592,7 +594,7 @@ export default function UserSettingsModal({ userId, username, onClose, onToast, 
 
         {/* ── User Actions ── */}
         <div style={{ marginBottom: 20, paddingBottom: 20, borderBottom: '1px solid var(--border)' }}>
-          <div style={sectionLabel}>Actions</div>
+          <div style={sectionLabel}>{t('Actions')}</div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <button className="btn-admin btn-sm" onClick={syncWatched}>&#8639; Re-sync Watched</button>
             <button className="btn-admin btn-sm btn-danger" onClick={clearWatched}>&#10005; Clear Watched</button>
@@ -603,7 +605,7 @@ export default function UserSettingsModal({ userId, username, onClose, onToast, 
 
         {/* ── Footer Buttons ── */}
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-          <button className="btn-admin" onClick={onClose} disabled={saving}>Cancel</button>
+          <button className="btn-admin" onClick={onClose} disabled={saving}>{t('Cancel')}</button>
           <button className="btn-admin btn-primary" onClick={handleSubmit} disabled={saving}>
             {saving ? 'Saving...' : 'Save'}
           </button>

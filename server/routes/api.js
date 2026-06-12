@@ -2522,6 +2522,7 @@ router.get('/user/settings', (req, res) => {
   res.json({
     region: prefs.region,
     language: prefs.language,
+    ui_language: prefs.ui_language,
     landing_page: prefs.landing_page,
     show_mature: prefs.show_mature,
     review_privacy: prefs.review_privacy || 'public',
@@ -2539,7 +2540,7 @@ router.get('/user/settings', (req, res) => {
 // POST /api/user/settings — save user's own content preferences + notification prefs
 router.post('/user/settings', (req, res) => {
   const userId = req.session.plexUser.id;
-  const { region, language, landing_page, show_mature, review_privacy,
+  const { region, language, ui_language, landing_page, show_mature, review_privacy,
           notify_approved, notify_denied, notify_available,
           discord_webhook, discord_enabled, discord_user_id, pushover_user_key, pushover_enabled,
           notify_pending, notify_auto_approved, notify_process_failed,
@@ -2549,13 +2550,14 @@ router.post('/user/settings', (req, res) => {
   const oldNotif = db.getUserNotificationPrefs(userId);
   const newRegion      = region      !== undefined ? (region      || null) : oldPrefs.region;
   const newLanguage    = language    !== undefined ? (language    || null) : oldPrefs.language;
+  const newUiLanguage  = ui_language !== undefined ? (ui_language || null) : oldPrefs.ui_language;
   const newLandingPage = landing_page !== undefined ? (landing_page || null) : oldPrefs.landing_page;
   const newShowMature  = show_mature !== undefined
     ? (show_mature === true || show_mature === 'true' || show_mature === 1)
     : oldPrefs.show_mature;
   const newReviewPrivacy = review_privacy !== undefined ? review_privacy : oldPrefs.review_privacy;
   db.setUserPreferences(userId, {
-    region: newRegion, language: newLanguage, landing_page: newLandingPage, show_mature: newShowMature, review_privacy: newReviewPrivacy,
+    region: newRegion, language: newLanguage, ui_language: newUiLanguage, landing_page: newLandingPage, show_mature: newShowMature, review_privacy: newReviewPrivacy,
   });
   // Invalidate discover pool cache if any pref that affects pool selection changed
   const poolChanged = oldPrefs.show_mature !== newShowMature

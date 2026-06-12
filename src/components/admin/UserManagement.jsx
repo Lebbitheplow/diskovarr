@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { useTranslation } from 'react-i18next'
 import adminApi, {
   adminUsers,
   adminSettings,
@@ -61,6 +62,7 @@ function BulkEditToolbar({
   onOpenBulkSettings,
   loading,
 }) {
+  const { t } = useTranslation()
   if (selectedCount === 0) return null
   return (
     <div className="admin-actions" style={{ marginBottom: 12, gap: 8, flexWrap: 'wrap' }}>
@@ -72,28 +74,28 @@ function BulkEditToolbar({
         onClick={onClearWatched}
         disabled={loading}
       >
-        Clear Watched Caches
+        {t('Clear Watched Caches')}
       </button>
       <button
         className="btn-admin btn-primary btn-sm"
         onClick={onClearDismissals}
         disabled={loading}
       >
-        Clear Dismissals
+        {t('Clear Dismissals')}
       </button>
       <button
         className="btn-admin btn-primary btn-sm"
         onClick={onClearRecCache}
         disabled={loading}
       >
-        Clear Rec Cache
+        {t('Clear Rec Cache')}
       </button>
       <button
         className="btn-admin btn-secondary btn-sm"
         onClick={onOpenBulkSettings}
         disabled={loading}
       >
-        Bulk Edit Settings
+        {t('Bulk Edit Settings')}
       </button>
     </div>
   )
@@ -154,6 +156,7 @@ function PaginationControls({
 }
 
 function SearchableSelect({ options, value, onChange, placeholder = 'Select...', disabled = false }) {
+  const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
   const containerRef = useRef(null)
@@ -238,7 +241,7 @@ function SearchableSelect({ options, value, onChange, placeholder = 'Select...',
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search users..."
+              placeholder={t('Search users...')}
               style={{
                 width: '100%',
                 boxSizing: 'border-box',
@@ -257,7 +260,7 @@ function SearchableSelect({ options, value, onChange, placeholder = 'Select...',
           </div>
           <div style={{ maxHeight: 220, overflowY: 'auto' }}>
             {filtered.length === 0 ? (
-              <div style={{ padding: '10px 16px', color: 'var(--text-muted)', fontSize: '0.85rem' }}>No users found</div>
+              <div style={{ padding: '10px 16px', color: 'var(--text-muted)', fontSize: '0.85rem' }}>{t('No users found')}</div>
             ) : filtered.map((o) => (
               <button
                 key={o.value}
@@ -290,6 +293,7 @@ function SearchableSelect({ options, value, onChange, placeholder = 'Select...',
 }
 
 export default function UserManagement({ onToast, connections, onOpenUserSettings, onOpenBulkSettings }) {
+  const { t } = useTranslation()
   const [users, setUsers] = useState([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(null)
@@ -684,9 +688,9 @@ export default function UserManagement({ onToast, connections, onOpenUserSetting
     return (
       <div className="admin-section">
         <div className="admin-section-header">
-          <h2 className="section-title">Users</h2>
+          <h2 className="section-title">{t('Users')}</h2>
         </div>
-        <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>Loading users...</p>
+        <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>{t('Loading users...')}</p>
       </div>
     )
   }
@@ -695,12 +699,12 @@ export default function UserManagement({ onToast, connections, onOpenUserSetting
     return (
       <div className="admin-section">
         <div className="admin-section-header">
-          <h2 className="section-title">Users</h2>
+          <h2 className="section-title">{t('Users')}</h2>
         </div>
         <div className="error-banner">
           <span>{loadError}</span>
           <button className="btn-admin btn-primary" onClick={() => loadUsers()}>
-            Retry
+            {t('Retry')}
           </button>
         </div>
       </div>
@@ -715,15 +719,14 @@ export default function UserManagement({ onToast, connections, onOpenUserSetting
           <div>
             <h2 className="section-title">Server Owner &amp; Watchlist Mode</h2>
             <p className="section-desc">
-              Select the server owner user. The owner has full access to all admin features.
-              Toggle the watchlist mode to switch between Plex Watchlist and Diskovarr Playlist.
+              {t('Select the server owner user. The owner has full access to all admin features. Toggle the watchlist mode to switch between Plex Watchlist and Diskovarr Playlist.')}
             </p>
           </div>
         </div>
 
         <div className="admin-actions" style={{ flexWrap: 'wrap', gap: 24 }}>
           <div className="conn-field-group" style={{ flex: '1 1 260px', minWidth: 0 }}>
-            <label className="conn-field-label">Server Owner</label>
+            <label className="conn-field-label">{t('Server Owner')}</label>
             <div className="conn-input-wrap" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 6 }}>
               <SearchableSelect
                 options={allUsersList.map((u) => ({
@@ -732,7 +735,7 @@ export default function UserManagement({ onToast, connections, onOpenUserSetting
                 }))}
                 value={serverOwner}
                 onChange={handleOwnerChange}
-                placeholder="Select a user..."
+                placeholder={t('Select a user...')}
                 disabled={savingOwner}
               />
               {ownerUser && (
@@ -756,15 +759,15 @@ export default function UserManagement({ onToast, connections, onOpenUserSetting
         <div style={{ marginTop: 24, paddingTop: 20, borderTop: '1px solid var(--border)' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16 }}>
             <div>
-              <span className="conn-field-label" style={{ marginBottom: 4 }}>Watchlist Mode</span>
+              <span className="conn-field-label" style={{ marginBottom: 4 }}>{t('Watchlist Mode')}</span>
               <p className="section-desc" style={{ margin: 0 }}>
-                Toggle between Plex Watchlist and Diskovarr Playlist. This determines how the watchlist is populated and managed.
+                {t('Toggle between Plex Watchlist and Diskovarr Playlist. This determines how the watchlist is populated and managed.')}
               </p>
             </div>
             <div className="conn-toggle-row">
               <div style={{ display: 'flex', gap: 10, fontSize: '0.85rem', color: 'var(--text-muted)', alignItems: 'center' }}>
                 <span style={{ fontWeight: watchlistMode === 'watchlist' ? 600 : 400, color: watchlistMode === 'watchlist' ? 'var(--accent)' : 'var(--text-muted)' }}>
-                  Plex Watchlist
+                  {t('Plex Watchlist')}
                 </span>
                 <label className="slide-toggle slide-toggle-choice" style={{ width: 56 }}>
                   <input
@@ -776,7 +779,7 @@ export default function UserManagement({ onToast, connections, onOpenUserSetting
                   <span className="slide-track" />
                 </label>
                 <span style={{ fontWeight: watchlistMode === 'playlist' ? 600 : 400, color: watchlistMode === 'playlist' ? 'var(--accent)' : 'var(--text-muted)' }}>
-                  Diskovarr Playlist
+                  {t('Diskovarr Playlist')}
                 </span>
               </div>
             </div>
@@ -788,9 +791,9 @@ export default function UserManagement({ onToast, connections, onOpenUserSetting
       <div className="admin-section">
         <div className="admin-section-header">
           <div>
-            <h2 className="section-title">Individual Requests</h2>
+            <h2 className="section-title">{t('Individual Requests')}</h2>
             <p className="section-desc" style={{ margin: 0 }}>
-              When enabled, TV show requests present a season selector instead of requesting all seasons at once.
+              {t('When enabled, TV show requests present a season selector instead of requesting all seasons at once.')}
             </p>
           </div>
           <div className="conn-toggle-row" style={{ margin: 0 }}>
@@ -813,8 +816,7 @@ export default function UserManagement({ onToast, connections, onOpenUserSetting
           <div>
             <h2 className="section-title">Users &amp; Watch Sync</h2>
             <p className="section-desc">
-              Manage individual user settings and permissions. Select users to perform bulk actions such as clearing watched caches or dismissals.
-              The Settings column is only visible when Discover is enabled.
+              {t('Manage individual user settings and permissions. Select users to perform bulk actions such as clearing watched caches or dismissals. The Settings column is only visible when Discover is enabled.')}
             </p>
           </div>
         </div>
@@ -846,11 +848,11 @@ export default function UserManagement({ onToast, connections, onOpenUserSetting
                   <span className="slide-track" style={{ width: 32, height: 20, borderRadius: 10 }} />
                 </label>
               </span>
-              <span>User</span>
-              <span>Watched</span>
-              <span>Requests</span>
-              <span>Last Visit</span>
-              {discoverEnabled && <span>Settings</span>}
+              <span>{t('User')}</span>
+              <span>{t('Watched')}</span>
+              <span>{t('Requests')}</span>
+              <span>{t('Last Visit')}</span>
+              {discoverEnabled && <span>{t('Settings')}</span>}
             </div>
 
             {users.length === 0 ? (
@@ -858,7 +860,7 @@ export default function UserManagement({ onToast, connections, onOpenUserSetting
                 padding: '32px 16px', textAlign: 'center', color: 'var(--text-muted)',
                 fontSize: '0.9rem',
               }}>
-                No users found.
+                {t('No users found.')}
               </div>
             ) : (
               users.map((user) => {
@@ -909,7 +911,7 @@ export default function UserManagement({ onToast, connections, onOpenUserSetting
                           onClick={() => onOpenUserSettings?.(user.user_id, user.username)}
                           title={`Edit settings for ${user.username}`}
                         >
-                          Settings
+                          {t('Settings')}
                         </button>
                       </span>
                     )}
@@ -940,7 +942,7 @@ export default function UserManagement({ onToast, connections, onOpenUserSetting
             }}
             disabled={bulkLoading}
           >
-            Clear All Watched Caches
+            {t('Clear All Watched Caches')}
           </button>
           <button
             className="btn-admin btn-danger btn-sm"
@@ -951,7 +953,7 @@ export default function UserManagement({ onToast, connections, onOpenUserSetting
             }}
             disabled={bulkLoading}
           >
-            Clear All Dismissals
+            {t('Clear All Dismissals')}
           </button>
           <button
             className="btn-admin btn-sm"
@@ -966,16 +968,16 @@ export default function UserManagement({ onToast, connections, onOpenUserSetting
         {discoverEnabled && (
           <div className="admin-section" style={{ marginTop: 24 }}>
             <div className="admin-section-header">
-              <h2 className="section-title">Global Request Limits</h2>
+              <h2 className="section-title">{t('Global Request Limits')}</h2>
             </div>
             <p className="section-desc" style={{ marginBottom: 20 }}>
-              Default limits applied to each user individually. Users with the override toggle enabled can have custom limits via <strong>Settings</strong>.
+              {t('Default limits applied to each user individually. Users with the override toggle enabled can have custom limits via')} <strong>{t('Settings')}</strong>.
             </p>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginBottom: 20 }}>
               {/* Movies */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
-                <span style={{ minWidth: 84, fontSize: '0.9rem', color: '#fff', fontWeight: 500 }}>Movies</span>
+                <span style={{ minWidth: 84, fontSize: '0.9rem', color: '#fff', fontWeight: 500 }}>{t('Movies')}</span>
                 <label style={{ display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer', fontSize: '0.88rem', color: 'var(--text-secondary)', userSelect: 'none' }}>
                   <input
                     type="checkbox"
@@ -984,11 +986,11 @@ export default function UserManagement({ onToast, connections, onOpenUserSetting
                     onChange={handleMovieUnlimitedChange}
                     disabled={loadingGlobalLimits}
                   />
-                  Unlimited
+                  {t('Unlimited')}
                 </label>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, opacity: globalLimits.movieLimit === 0 ? 0.5 : 1, pointerEvents: globalLimits.movieLimit === 0 ? 'none' : 'auto' }}>
                   <div className="conn-field-group">
-                    <label className="conn-field-label">Count</label>
+                    <label className="conn-field-label">{t('Count')}</label>
                     <input
                       type="number"
                       min="1"
@@ -998,9 +1000,9 @@ export default function UserManagement({ onToast, connections, onOpenUserSetting
                       onChange={(e) => setGlobalLimits((p) => ({ ...p, movieLimit: Math.min(9999, Math.max(1, Number(e.target.value) || 0))}))}
                     />
                   </div>
-                  <span style={{ fontSize: '0.88rem', color: 'var(--text-secondary)' }}>movies per</span>
+                  <span style={{ fontSize: '0.88rem', color: 'var(--text-secondary)' }}>{t('movies per')}</span>
                   <div className="conn-field-group">
-                    <label className="conn-field-label">Days</label>
+                    <label className="conn-field-label">{t('Days')}</label>
                     <input
                       type="number"
                       min="1"
@@ -1010,13 +1012,13 @@ export default function UserManagement({ onToast, connections, onOpenUserSetting
                       onChange={(e) => setGlobalLimits((p) => ({ ...p, movieWindowDays: Math.min(365, Math.max(1, Number(e.target.value) || 0))}))}
                     />
                   </div>
-                  <span style={{ fontSize: '0.88rem', color: 'var(--text-secondary)' }}>days</span>
+                  <span style={{ fontSize: '0.88rem', color: 'var(--text-secondary)' }}>{t('days')}</span>
                 </div>
               </div>
 
               {/* TV Seasons */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
-                <span style={{ minWidth: 84, fontSize: '0.9rem', color: '#fff', fontWeight: 500 }}>TV Seasons</span>
+                <span style={{ minWidth: 84, fontSize: '0.9rem', color: '#fff', fontWeight: 500 }}>{t('TV Seasons')}</span>
                 <label style={{ display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer', fontSize: '0.88rem', color: 'var(--text-secondary)', userSelect: 'none' }}>
                   <input
                     type="checkbox"
@@ -1025,11 +1027,11 @@ export default function UserManagement({ onToast, connections, onOpenUserSetting
                     onChange={handleSeasonUnlimitedChange}
                     disabled={loadingGlobalLimits}
                   />
-                  Unlimited
+                  {t('Unlimited')}
                 </label>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, opacity: globalLimits.seasonLimit === 0 ? 0.5 : 1, pointerEvents: globalLimits.seasonLimit === 0 ? 'none' : 'auto' }}>
                   <div className="conn-field-group">
-                    <label className="conn-field-label">Count</label>
+                    <label className="conn-field-label">{t('Count')}</label>
                     <input
                       type="number"
                       min="1"
@@ -1039,9 +1041,9 @@ export default function UserManagement({ onToast, connections, onOpenUserSetting
                       onChange={(e) => setGlobalLimits((p) => ({ ...p, seasonLimit: Math.min(9999, Math.max(1, Number(e.target.value) || 0))}))}
                     />
                   </div>
-                  <span style={{ fontSize: '0.88rem', color: 'var(--text-secondary)' }}>seasons per</span>
+                  <span style={{ fontSize: '0.88rem', color: 'var(--text-secondary)' }}>{t('seasons per')}</span>
                   <div className="conn-field-group">
-                    <label className="conn-field-label">Days</label>
+                    <label className="conn-field-label">{t('Days')}</label>
                     <input
                       type="number"
                       min="1"
@@ -1051,7 +1053,7 @@ export default function UserManagement({ onToast, connections, onOpenUserSetting
                       onChange={(e) => setGlobalLimits((p) => ({ ...p, seasonWindowDays: Math.min(365, Math.max(1, Number(e.target.value) || 0))}))}
                     />
                   </div>
-                  <span style={{ fontSize: '0.88rem', color: 'var(--text-secondary)' }}>days</span>
+                  <span style={{ fontSize: '0.88rem', color: 'var(--text-secondary)' }}>{t('days')}</span>
                 </div>
               </div>
             </div>
@@ -1060,16 +1062,16 @@ export default function UserManagement({ onToast, connections, onOpenUserSetting
               onClick={handleSaveGlobalLimits}
               disabled={savingGlobalLimits || loadingGlobalLimits}
             >
-              Save
+              {t('Save')}
             </button>
 
             {/* Auto-approve subsection */}
             <div style={{ marginTop: 24, paddingTop: 20, borderTop: '1px solid var(--border)' }}>
               <p style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-secondary)', margin: '0 0 14px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-                Auto Approve Requests
+                {t('Auto Approve Requests')}
               </p>
               <p className="section-desc" style={{ marginBottom: 14, fontSize: '0.82rem' }}>
-                When enabled, requests go directly to the configured service. When disabled, requests enter the queue for review.
+                {t('When enabled, requests go directly to the configured service. When disabled, requests enter the queue for review.')}
               </p>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
@@ -1082,7 +1084,7 @@ export default function UserManagement({ onToast, connections, onOpenUserSetting
                     />
                     <span className="slide-track" />
                   </label>
-                  <span style={{ fontSize: '0.9rem', color: '#fff', fontWeight: 500 }}>Movies</span>
+                  <span style={{ fontSize: '0.9rem', color: '#fff', fontWeight: 500 }}>{t('Movies')}</span>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
                   <label className="slide-toggle">
@@ -1094,7 +1096,7 @@ export default function UserManagement({ onToast, connections, onOpenUserSetting
                     />
                     <span className="slide-track" />
                   </label>
-                  <span style={{ fontSize: '0.9rem', color: '#fff', fontWeight: 500 }}>TV Shows</span>
+                  <span style={{ fontSize: '0.9rem', color: '#fff', fontWeight: 500 }}>{t('TV Shows')}</span>
                 </div>
               </div>
             </div>
@@ -1102,7 +1104,7 @@ export default function UserManagement({ onToast, connections, onOpenUserSetting
             {/* Auto-request watchlist subsection */}
             <div style={{ marginTop: 24, paddingTop: 20, borderTop: '1px solid var(--border)' }}>
               <p style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-secondary)', margin: '0 0 14px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-                Auto-Request Watchlist
+                {t('Auto-Request Watchlist')}
               </p>
               <p className="section-desc" style={{ marginBottom: 14, fontSize: '0.82rem' }}>
                 When enabled, items added to a user's Plex watchlist are automatically submitted as requests.
@@ -1118,7 +1120,7 @@ export default function UserManagement({ onToast, connections, onOpenUserSetting
                     />
                     <span className="slide-track" />
                   </label>
-                  <span style={{ fontSize: '0.9rem', color: '#fff', fontWeight: 500 }}>Movies</span>
+                  <span style={{ fontSize: '0.9rem', color: '#fff', fontWeight: 500 }}>{t('Movies')}</span>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
                   <label className="slide-toggle">
@@ -1130,7 +1132,7 @@ export default function UserManagement({ onToast, connections, onOpenUserSetting
                     />
                     <span className="slide-track" />
                   </label>
-                  <span style={{ fontSize: '0.9rem', color: '#fff', fontWeight: 500 }}>TV Shows</span>
+                  <span style={{ fontSize: '0.9rem', color: '#fff', fontWeight: 500 }}>{t('TV Shows')}</span>
                 </div>
               </div>
             </div>

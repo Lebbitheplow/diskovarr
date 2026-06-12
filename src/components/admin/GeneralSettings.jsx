@@ -9,6 +9,7 @@ import {
 } from '../../services/adminApi'
 
 import { useTheme } from '../../context/ThemeContext'
+import { useTranslation } from 'react-i18next'
 
 const PRESET_COLORS = [
   { label: 'Plex Gold',   hex: '#e5a00d' },
@@ -38,6 +39,7 @@ function formatTimestamp(ts) {
 
 // ── App Options Section ────────────────────────────────────────
 function AppOptionsSection({ appPublicUrl, onAppPublicUrlChange }) {
+  const { t } = useTranslation()
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState(null)
 
@@ -81,15 +83,15 @@ function AppOptionsSection({ appPublicUrl, onAppPublicUrlChange }) {
       <div className="admin-section">
         <div className="admin-section-header">
           <div>
-            <h2 className="section-title">App Options</h2>
+            <h2 className="section-title">{t('App Options')}</h2>
             <p className="section-desc">
-              Configure general application options. The Public URL is used for the Discord bot avatar and link destination.
+              {t('Configure general application options. The Public URL is used for the Discord bot avatar and link destination.')}
             </p>
           </div>
         </div>
         <div className="conn-field-group" style={{ flex: 1, minWidth: 0, marginBottom: 12 }}>
           <label className="conn-field-label">
-            App Public URL
+            {t('App Public URL')}
             <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>&nbsp;— required for Discord bot avatar</span>
           </label>
           <div className="conn-input-wrap">
@@ -97,7 +99,7 @@ function AppOptionsSection({ appPublicUrl, onAppPublicUrlChange }) {
               type="url"
               className="conn-input"
               style={{ maxWidth: 380 }}
-              placeholder="https://diskovarr.yourdomain.com"
+              placeholder={t('https://diskovarr.yourdomain.com')}
               value={appPublicUrl}
               onChange={(e) => onAppPublicUrlChange(e.target.value)}
               onFocus={handleFocus}
@@ -105,7 +107,7 @@ function AppOptionsSection({ appPublicUrl, onAppPublicUrlChange }) {
             />
           </div>
           <span className="conn-hint">
-            The externally reachable URL of this Diskovarr instance (e.g. <code style={{ fontSize: '0.75rem' }}>https://diskovarr.yourdomain.com</code>).
+            The externally reachable URL of this Diskovarr instance (e.g. <code style={{ fontSize: '0.75rem' }}>{t('https://diskovarr.yourdomain.com')}</code>).
           </span>
         </div>
         <div className="admin-actions">
@@ -120,6 +122,7 @@ function AppOptionsSection({ appPublicUrl, onAppPublicUrlChange }) {
 
 // ── Theme Color Section ────────────────────────────────────────
 function ThemeColorSection({ themeColor, onThemeColorChange }) {
+  const { t } = useTranslation()
   const [color, setColor] = useState(themeColor)
   const [applying, setApplying] = useState(false)
   const { setThemeColor: applyTheme } = useTheme()
@@ -156,9 +159,9 @@ function ThemeColorSection({ themeColor, onThemeColorChange }) {
     <div className="admin-section">
       <div className="admin-section-header">
         <div>
-          <h2 className="section-title">Theme Color</h2>
+          <h2 className="section-title">{t('Theme Color')}</h2>
           <p className="section-desc">
-            Pick an accent color. Changes apply immediately across the whole app.
+            {t('Pick an accent color. Changes apply immediately across the whole app.')}
           </p>
         </div>
       </div>
@@ -175,8 +178,8 @@ function ThemeColorSection({ themeColor, onThemeColorChange }) {
           ))}
         </div>
         <div className="color-wheel-wrap">
-          <label htmlFor="custom-color-input">Custom</label>
-          <input type="color" id="custom-color-input" value={color} onChange={handleCustomInput} title="Pick any color" />
+          <label htmlFor="custom-color-input">{t('Custom')}</label>
+          <input type="color" id="custom-color-input" value={color} onChange={handleCustomInput} title={t('Pick any color')} />
         </div>
         <button className="btn-admin btn-primary" id="btn-apply-color" onClick={handleApply} disabled={applying}>
           {applying ? 'Applying...' : 'Apply'}
@@ -188,10 +191,11 @@ function ThemeColorSection({ themeColor, onThemeColorChange }) {
 
 // ── Library Sync Section ───────────────────────────────────────
 function LibrarySyncSection({ stats, syncStatus, autoSync, onSyncNow, onAutoSyncChange, onToast }) {
+  const { t } = useTranslation()
   return (
     <div className="admin-section">
       <div className="admin-section-header">
-        <h2 className="section-title">Library Sync</h2>
+        <h2 className="section-title">{t('Library Sync')}</h2>
         <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
           <div className="conn-toggle-row" style={{ margin: 0 }}>
             <span className="conn-toggle-sublabel" style={{ color: '#fff', fontSize: 12 }}>Auto-Sync (every 2h)</span>
@@ -212,21 +216,21 @@ function LibrarySyncSection({ stats, syncStatus, autoSync, onSyncNow, onAutoSync
       </div>
       <div className="admin-grid">
         <div className="stat-card">
-          <div className="stat-label">Movies</div>
+          <div className="stat-label">{t('Movies')}</div>
           <div className="stat-value">{stats.movies.toLocaleString()}</div>
           <div className="stat-sub">
-            Last sync: <span>{formatTimestamp(stats.lastSyncMovies)}</span>
+            {t('Last sync:')} <span>{formatTimestamp(stats.lastSyncMovies)}</span>
           </div>
         </div>
         <div className="stat-card">
           <div className="stat-label">TV &amp; Anime</div>
           <div className="stat-value">{stats.tv.toLocaleString()}</div>
           <div className="stat-sub">
-            Last sync: <span>{formatTimestamp(stats.lastSyncTV)}</span>
+            {t('Last sync:')} <span>{formatTimestamp(stats.lastSyncTV)}</span>
           </div>
         </div>
         <div className="stat-card">
-          <div className="stat-label">Total</div>
+          <div className="stat-label">{t('Total')}</div>
           <div className="stat-value">{(stats.movies + stats.tv).toLocaleString()}</div>
         </div>
       </div>
@@ -235,7 +239,7 @@ function LibrarySyncSection({ stats, syncStatus, autoSync, onSyncNow, onAutoSync
       )}
       <div className="admin-actions">
         <button className="btn-admin btn-primary" onClick={onSyncNow} disabled={syncStatus === 'syncing'}>
-          <span>↻</span> Sync Library Now
+          <span>↻</span> {t('Sync Library Now')}
         </button>
       </div>
       {stats.lastSyncError && (
@@ -248,6 +252,7 @@ function LibrarySyncSection({ stats, syncStatus, autoSync, onSyncNow, onAutoSync
 
 // ── Library Selection Section ──────────────────────────────────
 function LibrarySelectionSection({ onToast }) {
+  const { t } = useTranslation()
   const [libraries, setLibraries] = useState([])
   const [localSections, setLocalSections] = useState([])
   const [loading, setLoading] = useState(true)
@@ -320,9 +325,9 @@ function LibrarySelectionSection({ onToast }) {
     <div style={{ marginTop: 24, paddingTop: 20, borderTop: '1px solid var(--border)' }}>
       <div className="admin-section-header">
         <div>
-          <h3 className="section-title" style={{ fontSize: '1rem' }}>Synced Libraries</h3>
+          <h3 className="section-title" style={{ fontSize: '1rem' }}>{t('Synced Libraries')}</h3>
           <p className="section-desc">
-            Choose which Plex libraries to sync. Only enabled libraries are included in sync operations. Removing a library deletes its synced data.
+            {t('Choose which Plex libraries to sync. Only enabled libraries are included in sync operations. Removing a library deletes its synced data.')}
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -331,7 +336,7 @@ function LibrarySelectionSection({ onToast }) {
             onClick={openModal}
             style={{ fontSize: '0.8rem', padding: '6px 12px' }}
           >
-            Add/Edit Libraries
+            {t('Add/Edit Libraries')}
           </button>
         </div>
       </div>
@@ -353,12 +358,12 @@ function LibrarySelectionSection({ onToast }) {
             <button
               onClick={() => !saving && setModalOpen(false)}
               style={{ position: 'absolute', top: 14, right: 16, background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 20, cursor: 'pointer', lineHeight: 1 }}
-              title="Close"
+              title={t('Close')}
             >
               &times;
             </button>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, margin: '0 0 16px', paddingRight: 24 }}>
-              <h3 style={{ margin: 0, fontSize: '1.05rem' }}>Add/Edit Libraries</h3>
+              <h3 style={{ margin: 0, fontSize: '1.05rem' }}>{t('Add/Edit Libraries')}</h3>
               <button
                 className="btn-admin"
                 onClick={handleRefresh}
@@ -370,7 +375,7 @@ function LibrarySelectionSection({ onToast }) {
             </div>
             {libraries.length === 0 ? (
               <div style={{ padding: '12px 0', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-                No Movie or TV libraries found from Plex. Ensure your Plex connection is configured in the Connections tab.
+                {t('No Movie or TV libraries found from Plex. Ensure your Plex connection is configured in the Connections tab.')}
               </div>
             ) : (
               <div className="library-list">
@@ -387,7 +392,7 @@ function LibrarySelectionSection({ onToast }) {
                           <span className="library-item-count">{lib.itemCount.toLocaleString()} items</span>
                         )}
                         {!local.enabled && (
-                          <span className="library-item-disabled">Not synced</span>
+                          <span className="library-item-disabled">{t('Not synced')}</span>
                         )}
                       </div>
                       <div className="library-item-controls">
@@ -411,7 +416,7 @@ function LibrarySelectionSection({ onToast }) {
                 onClick={() => setModalOpen(false)}
                 disabled={saving}
               >
-                Cancel
+                {t('Cancel')}
               </button>
               {libraries.length > 0 && (
                 <button
@@ -432,17 +437,18 @@ function LibrarySelectionSection({ onToast }) {
 
 // ── Verbose Logging Section ────────────────────────────────────
 function VerboseLoggingSection({ enabled, onChange }) {
+  const { t } = useTranslation()
   return (
     <div className="admin-section">
       <div className="admin-section-header">
         <div>
-          <h2 className="section-title">Verbose Logging</h2>
+          <h2 className="section-title">{t('Verbose Logging')}</h2>
           <p className="section-desc" style={{ marginTop: 4 }}>
-            When enabled, Diskovarr writes detailed HTTP request logs and debug output. Basic info/warn/error logs are always written.
+            {t('When enabled, Diskovarr writes detailed HTTP request logs and debug output. Basic info/warn/error logs are always written.')}
             <br />
-            View with: <code style={{ fontSize: '0.78rem', background: 'var(--bg-elevated)', padding: '1px 5px', borderRadius: 4, border: '1px solid var(--border)' }}>sudo journalctl -u diskovarr -f</code>
+            {t('View with:')} <code style={{ fontSize: '0.78rem', background: 'var(--bg-elevated)', padding: '1px 5px', borderRadius: 4, border: '1px solid var(--border)' }}>{t('sudo journalctl -u diskovarr -f')}</code>
             &nbsp;or&nbsp;
-            <code style={{ fontSize: '0.78rem', background: 'var(--bg-elevated)', padding: '1px 5px', borderRadius: 4, border: '1px solid var(--border)' }}>docker logs diskovarr -f</code>
+            <code style={{ fontSize: '0.78rem', background: 'var(--bg-elevated)', padding: '1px 5px', borderRadius: 4, border: '1px solid var(--border)' }}>{t('docker logs diskovarr -f')}</code>
           </p>
         </div>
         <label className="slide-toggle" style={{ flexShrink: 0 }}>
@@ -456,6 +462,7 @@ function VerboseLoggingSection({ enabled, onChange }) {
 
 // ── API Key Section ────────────────────────────────────────────
 function ApiKeySection({ hasKey, onRegenerate, resetToken }) {
+  const { t } = useTranslation()
   const [visible, setVisible] = useState(false)
   const [fetchedKey, setFetchedKey] = useState('')
   const [regenerating, setRegenerating] = useState(false)
@@ -505,14 +512,14 @@ function ApiKeySection({ hasKey, onRegenerate, resetToken }) {
   return (
     <div className="admin-section">
       <div className="section-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
-        <h2 className="section-title">API Key</h2>
+        <h2 className="section-title">{t('API Key')}</h2>
       </div>
       <p className="section-desc">
-        Use this key to authenticate external applications with Diskovarr's API. Send it as an <code>Authorization: Bearer &lt;key&gt;</code> or <code>X-Api-Key</code> header. The key grants admin-level access to all API endpoints.
+        Use this key to authenticate external applications with Diskovarr's API. Send it as an <code>Authorization: Bearer &lt;key&gt;</code> {t('or')} <code>{t('X-Api-Key')}</code> {t('header. The key grants admin-level access to all API endpoints.')}
       </p>
       <div className="conn-block-fields">
         <div className="conn-field-group" style={{ flex: 1, minWidth: 240, maxWidth: 520 }}>
-          <span className="conn-field-label">API Key</span>
+          <span className="conn-field-label">{t('API Key')}</span>
           <div className="conn-input-wrap">
             <input
               type={visible ? 'text' : 'password'}
@@ -520,14 +527,14 @@ function ApiKeySection({ hasKey, onRegenerate, resetToken }) {
               className="conn-input"
               readOnly
               value={visible && fetchedKey ? fetchedKey : hasKey ? '••••••••' : ''}
-              placeholder="No key generated yet"
+              placeholder={t('No key generated yet')}
               style={{ cursor: 'text' }}
             />
             <div className="conn-input-btns">
               {hasKey && (
                 <>
-                  <button type="button" className="conn-input-icon-btn" onClick={handleToggleVisible} title="Show / hide" />
-                  <button type="button" className="conn-input-icon-btn is-copy" onClick={handleCopy} title="Copy to clipboard" />
+                  <button type="button" className="conn-input-icon-btn" onClick={handleToggleVisible} title={t('Show / hide')} />
+                  <button type="button" className="conn-input-icon-btn is-copy" onClick={handleCopy} title={t('Copy to clipboard')} />
                 </>
               )}
             </div>
@@ -538,7 +545,7 @@ function ApiKeySection({ hasKey, onRegenerate, resetToken }) {
         </button>
       </div>
       <p style={{ marginTop: 1.25, fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-        View the full API endpoint reference in the
+        {t('View the full API endpoint reference in the')}
         <a href="https://diskovarr.com/#api-reference" target="_blank" rel="noopener" style={{ color: 'var(--accent)', textDecoration: 'none' }}>documentation &rarr;</a>
       </p>
     </div>
@@ -547,6 +554,7 @@ function ApiKeySection({ hasKey, onRegenerate, resetToken }) {
 
 // ── Overseerr Compat Section ───────────────────────────────────
 function OverseerrCompatSection({ enabled, onToggle, apiKey, onRegenerate }) {
+  const { t } = useTranslation()
   const [visible, setVisible] = useState(false)
   const [regenerating, setRegenerating] = useState(false)
 
@@ -571,23 +579,23 @@ function OverseerrCompatSection({ enabled, onToggle, apiKey, onRegenerate }) {
   return (
     <div className="admin-section">
       <div className="section-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
-        <h2 className="section-title">Overseerr Compat API</h2>
+        <h2 className="section-title">{t('Overseerr Compat API')}</h2>
         <div className="conn-toggle-wrap">
           <span className="conn-toggle-label" id="lbl-agregarr-enabled">
             {enabled ? 'Enabled' : 'Disabled'}
           </span>
-          <label className="slide-toggle" title="Enable the Overseerr-compatible API shim">
+          <label className="slide-toggle" title={t('Enable the Overseerr-compatible API shim')}>
             <input type="checkbox" checked={enabled} onChange={(e) => onToggle(e.target.checked)} />
             <span className="slide-track" />
           </label>
         </div>
       </div>
       <p className="section-desc">
-        Exposes an Overseerr-compatible API at <code>/api/v1/</code> for DUMB, Agregarr, Homarr, and any other app that speaks the Overseerr API. Use the key below as the <code>X-Api-Key</code> header.
+        {t('Exposes an Overseerr-compatible API at')} <code>{t('/api/v1/')}</code> {t('for DUMB, Agregarr, Homarr, and any other app that speaks the Overseerr API. Use the key below as the')} <code>{t('X-Api-Key')}</code> {t('header.')}
       </p>
       <div className="conn-block-fields">
         <div className="conn-field-group" style={{ flex: 1, minWidth: 240, maxWidth: 520 }}>
-          <span className="conn-field-label">Compat Key</span>
+          <span className="conn-field-label">{t('Compat Key')}</span>
           <div className="conn-input-wrap">
             <input
               type={visible ? 'text' : 'password'}
@@ -595,15 +603,15 @@ function OverseerrCompatSection({ enabled, onToggle, apiKey, onRegenerate }) {
               className="conn-input"
               readOnly
               value={visible && apiKey ? apiKey : apiKey ? '••••••••' : ''}
-              placeholder="No key generated yet"
+              placeholder={t('No key generated yet')}
               autoComplete="off"
               style={{ cursor: 'text' }}
             />
             <div className="conn-input-btns">
               {apiKey && (
                 <>
-                  <button type="button" className="conn-input-icon-btn" onClick={() => setVisible(!visible)} title="Show / hide" />
-                  <button type="button" className="conn-input-icon-btn is-copy" onClick={handleCopy} title="Copy to clipboard" />
+                  <button type="button" className="conn-input-icon-btn" onClick={() => setVisible(!visible)} title={t('Show / hide')} />
+                  <button type="button" className="conn-input-icon-btn is-copy" onClick={handleCopy} title={t('Copy to clipboard')} />
                 </>
               )}
             </div>
@@ -620,7 +628,7 @@ function OverseerrCompatSection({ enabled, onToggle, apiKey, onRegenerate }) {
       {/* Service accounts created by Agregarr */}
       <div id="agregarr-svc-users" style={{ margin: '16px 0 0', padding: '14px 16px', borderTop: '1px solid var(--border)', display: 'none' }}>
         <p style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text)', margin: '0 0 10px' }}>
-          Service Accounts <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>(auto-created by Agregarr)</span>
+          {t('Service Accounts')} <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>(auto-created by Agregarr)</span>
         </p>
         <div id="agregarr-svc-users-list" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}></div>
       </div>
@@ -630,24 +638,25 @@ function OverseerrCompatSection({ enabled, onToggle, apiKey, onRegenerate }) {
 
 // ── Default Landing Page Section ───────────────────────────────
 function DefaultLandingPageSection({ value, onChange }) {
+  const { t } = useTranslation()
   const isExplore = value === 'explore'
   return (
     <div className="admin-section">
       <div className="admin-section-header">
         <div>
-          <h2 className="section-title">Default Landing Page</h2>
+          <h2 className="section-title">{t('Default Landing Page')}</h2>
           <p className="section-desc" style={{ marginTop: 4 }}>
-            Set the page all users land on after logging in. Individual users can override this in their own settings.
+            {t('Set the page all users land on after logging in. Individual users can override this in their own settings.')}
           </p>
         </div>
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '4px 0' }}>
-        <span className={!isExplore ? 'service-label-active' : 'service-label-inactive'}>Diskovarr</span>
+        <span className={!isExplore ? 'service-label-active' : 'service-label-inactive'}>{t('Diskovarr')}</span>
         <label className="slide-toggle slide-toggle-always-on">
           <input type="checkbox" checked={isExplore} onChange={(e) => onChange(e.target.checked ? 'explore' : 'home')} />
           <span className="slide-track" />
         </label>
-        <span className={isExplore ? 'service-label-active' : 'service-label-inactive'}>Diskovarr Requests</span>
+        <span className={isExplore ? 'service-label-active' : 'service-label-inactive'}>{t('Diskovarr Requests')}</span>
       </div>
     </div>
   )
@@ -655,6 +664,7 @@ function DefaultLandingPageSection({ value, onChange }) {
 
 // ── Main Component ─────────────────────────────────────────────
 export default function GeneralSettings({ onDataLoaded, onToast }) {
+  const { t } = useTranslation()
   const [appPublicUrl, setAppPublicUrl] = useState('')
   const [themeColor, setThemeColor] = useState('#e5a00d')
   const [stats, setStats] = useState({
@@ -811,7 +821,7 @@ export default function GeneralSettings({ onDataLoaded, onToast }) {
     }
   }, [onToast])
 
-  if (loading) return <div className="admin-section"><p style={{ color: 'var(--text-muted)' }}>Loading settings...</p></div>
+  if (loading) return <div className="admin-section"><p style={{ color: 'var(--text-muted)' }}>{t('Loading settings...')}</p></div>
 
   return (
     <>

@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react'
 import { adminUserSettings } from '../../services/adminApi'
+import { useTranslation } from 'react-i18next'
 
 const defaultState = {
   overrideGlobal: 'nochange',
@@ -15,6 +16,7 @@ const defaultState = {
 }
 
 function BulkSettingsModal({ onClose, onToast, selectedUserIds = [] }) {
+  const { t } = useTranslation()
   const [state, setState] = useState(defaultState)
 
   const handleOverlayClick = useCallback((e) => {
@@ -116,7 +118,7 @@ function BulkSettingsModal({ onClose, onToast, selectedUserIds = [] }) {
           &#215;
         </button>
 
-        <h3 style={{ margin: '0 0 4px', fontSize: '1.05rem' }}>Bulk Edit Settings</h3>
+        <h3 style={{ margin: '0 0 4px', fontSize: '1.05rem' }}>{t('Bulk Edit Settings')}</h3>
         <p style={{ margin: '0 0 20px', color: 'var(--text-secondary)', fontSize: '0.88rem' }}>
           {selectedUserIds.length} user{selectedUserIds.length !== 1 ? 's' : ''} selected
         </p>
@@ -124,7 +126,7 @@ function BulkSettingsModal({ onClose, onToast, selectedUserIds = [] }) {
         {/* Override global limits */}
         <div style={{ marginBottom: '16px', paddingBottom: '16px', borderBottom: '1px solid var(--border)' }}>
           <div style={{ fontSize: '0.82rem', fontWeight: '600', color: 'var(--text-secondary)', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-            Request Limit Override
+            {t('Request Limit Override')}
           </div>
 
           <select
@@ -135,16 +137,16 @@ function BulkSettingsModal({ onClose, onToast, selectedUserIds = [] }) {
               setField('overrideGlobal')(e.target.value)
             }}
           >
-            <option value="nochange">No change</option>
-            <option value="enable">Enable override</option>
-            <option value="disable">Disable override</option>
+            <option value="nochange">{t('No change')}</option>
+            <option value="enable">{t('Enable override')}</option>
+            <option value="disable">{t('Disable override')}</option>
           </select>
 
           {state.overrideGlobal === 'enable' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
               {/* Movies */}
               <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
-                <span style={{ minWidth: '84px', fontSize: '0.9rem', color: '#fff', fontWeight: '500' }}>Movies</span>
+                <span style={{ minWidth: '84px', fontSize: '0.9rem', color: '#fff', fontWeight: '500' }}>{t('Movies')}</span>
                 <label style={{ display: 'flex', alignItems: 'center', gap: '7px', cursor: 'pointer', fontSize: '0.88rem', color: 'var(--text-secondary)', userSelect: 'none' }}>
                   <input
                     type="checkbox"
@@ -152,7 +154,7 @@ function BulkSettingsModal({ onClose, onToast, selectedUserIds = [] }) {
                     checked={state.movieUnlimited}
                     onChange={(e) => setField('movieUnlimited')(e.target.checked)}
                   />
-                  Unlimited
+                  {t('Unlimited')}
                 </label>
                 {!state.movieUnlimited && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -164,7 +166,7 @@ function BulkSettingsModal({ onClose, onToast, selectedUserIds = [] }) {
                       value={state.movieCount}
                       onChange={(e) => setField('movieCount')(Math.min(9999, Math.max(1, Number(e.target.value) || 0)))}
                     />
-                    <span style={{ fontSize: '0.88rem', color: 'var(--text-secondary)' }}>movies per</span>
+                    <span style={{ fontSize: '0.88rem', color: 'var(--text-secondary)' }}>{t('movies per')}</span>
                     <input
                       type="number"
                       className="btn-admin limit-num"
@@ -173,14 +175,14 @@ function BulkSettingsModal({ onClose, onToast, selectedUserIds = [] }) {
                       value={state.movieDays}
                       onChange={(e) => setField('movieDays')(Math.min(365, Math.max(1, Number(e.target.value) || 0)))}
                     />
-                    <span style={{ fontSize: '0.88rem', color: 'var(--text-secondary)' }}>days</span>
+                    <span style={{ fontSize: '0.88rem', color: 'var(--text-secondary)' }}>{t('days')}</span>
                   </div>
                 )}
               </div>
 
               {/* TV Seasons */}
               <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
-                <span style={{ minWidth: '84px', fontSize: '0.9rem', color: '#fff', fontWeight: '500' }}>TV Seasons</span>
+                <span style={{ minWidth: '84px', fontSize: '0.9rem', color: '#fff', fontWeight: '500' }}>{t('TV Seasons')}</span>
                 <label style={{ display: 'flex', alignItems: 'center', gap: '7px', cursor: 'pointer', fontSize: '0.88rem', color: 'var(--text-secondary)', userSelect: 'none' }}>
                   <input
                     type="checkbox"
@@ -188,7 +190,7 @@ function BulkSettingsModal({ onClose, onToast, selectedUserIds = [] }) {
                     checked={state.seasonUnlimited}
                     onChange={(e) => setField('seasonUnlimited')(e.target.checked)}
                   />
-                  Unlimited
+                  {t('Unlimited')}
                 </label>
                 {!state.seasonUnlimited && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -200,7 +202,7 @@ function BulkSettingsModal({ onClose, onToast, selectedUserIds = [] }) {
                       value={state.seasonCount}
                       onChange={(e) => setField('seasonCount')(Math.min(9999, Math.max(1, Number(e.target.value) || 0)))}
                     />
-                    <span style={{ fontSize: '0.88rem', color: 'var(--text-secondary)' }}>seasons per</span>
+                    <span style={{ fontSize: '0.88rem', color: 'var(--text-secondary)' }}>{t('seasons per')}</span>
                     <input
                       type="number"
                       className="btn-admin limit-num"
@@ -209,7 +211,7 @@ function BulkSettingsModal({ onClose, onToast, selectedUserIds = [] }) {
                       value={state.seasonDays}
                       onChange={(e) => setField('seasonDays')(Math.min(365, Math.max(1, Number(e.target.value) || 0)))}
                     />
-                    <span style={{ fontSize: '0.88rem', color: 'var(--text-secondary)' }}>days</span>
+                    <span style={{ fontSize: '0.88rem', color: 'var(--text-secondary)' }}>{t('days')}</span>
                   </div>
                 )}
               </div>
@@ -220,34 +222,34 @@ function BulkSettingsModal({ onClose, onToast, selectedUserIds = [] }) {
         {/* Auto-approve override */}
         <div style={{ marginBottom: '16px', paddingBottom: '16px', borderBottom: '1px solid var(--border)' }}>
           <div style={{ fontSize: '0.82rem', fontWeight: '600', color: 'var(--text-secondary)', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-            Auto-Approve Override
+            {t('Auto-Approve Override')}
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <span style={{ minWidth: '130px', fontSize: '0.88rem', color: 'var(--text-secondary)' }}>Movies override</span>
+              <span style={{ minWidth: '130px', fontSize: '0.88rem', color: 'var(--text-secondary)' }}>{t('Movies override')}</span>
               <select
                 className="btn-admin"
                 style={{ flex: 1 }}
                 value={state.autoApproveMovies}
                 onChange={(e) => setField('autoApproveMovies')(e.target.value)}
               >
-                <option value="nochange">No change</option>
-                <option value="enable">Auto-approve</option>
-                <option value="disable">Require approval</option>
+                <option value="nochange">{t('No change')}</option>
+                <option value="enable">{t('Auto-approve')}</option>
+                <option value="disable">{t('Require approval')}</option>
                 <option value="clear">Clear (use global)</option>
               </select>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <span style={{ minWidth: '130px', fontSize: '0.88rem', color: 'var(--text-secondary)' }}>TV override</span>
+              <span style={{ minWidth: '130px', fontSize: '0.88rem', color: 'var(--text-secondary)' }}>{t('TV override')}</span>
               <select
                 className="btn-admin"
                 style={{ flex: 1 }}
                 value={state.autoApproveTv}
                 onChange={(e) => setField('autoApproveTv')(e.target.value)}
               >
-                <option value="nochange">No change</option>
-                <option value="enable">Auto-approve</option>
-                <option value="disable">Require approval</option>
+                <option value="nochange">{t('No change')}</option>
+                <option value="enable">{t('Auto-approve')}</option>
+                <option value="disable">{t('Require approval')}</option>
                 <option value="clear">Clear (use global)</option>
               </select>
             </div>
@@ -257,7 +259,7 @@ function BulkSettingsModal({ onClose, onToast, selectedUserIds = [] }) {
         {/* Admin privileges */}
         <div style={{ marginBottom: '24px' }}>
           <div style={{ fontSize: '0.82rem', fontWeight: '600', color: 'var(--text-secondary)', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-            Admin Privileges
+            {t('Admin Privileges')}
           </div>
           <select
             className="btn-admin"
@@ -265,23 +267,23 @@ function BulkSettingsModal({ onClose, onToast, selectedUserIds = [] }) {
             value={state.isAdmin}
             onChange={(e) => setField('isAdmin')(e.target.value)}
           >
-            <option value="nochange">No change</option>
-            <option value="grant">Grant admin</option>
-            <option value="revoke">Revoke admin</option>
+            <option value="nochange">{t('No change')}</option>
+            <option value="grant">{t('Grant admin')}</option>
+            <option value="revoke">{t('Revoke admin')}</option>
           </select>
         </div>
 
         {/* Actions */}
         <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
           <button className="btn-admin" onClick={onClose}>
-            Cancel
+            {t('Cancel')}
           </button>
           <button
             className="btn-admin btn-primary"
             onClick={handleApply}
             disabled={!canApply}
           >
-            Apply to Selected
+            {t('Apply to Selected')}
           </button>
         </div>
       </div>

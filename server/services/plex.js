@@ -47,6 +47,13 @@ function parseMediaItem(video) {
   const guids = video.Guid || [];
   const tmdbGuid = guids.find(g => g.id && g.id.startsWith('tmdb://'));
   const tmdbId = tmdbGuid ? tmdbGuid.id.replace('tmdb://', '') : null;
+  // Media is only present on movies in the bulk listing (shows carry per-episode
+  // media), so resolution/size stay null for shows.
+  const media = video.Media || [];
+  const videoResolution = media[0]?.videoResolution
+    ? String(media[0].videoResolution).toLowerCase() : null;
+  let fileSize = 0;
+  for (const m of media) for (const p of (m.Part || [])) fileSize += parseInt(p.size) || 0;
   return {
     ratingKey: String(video.ratingKey),
     title: video.title,
@@ -77,6 +84,8 @@ function parseMediaItem(video) {
     edition: video.editionTitle || '',
     releaseDate: video.originallyAvailableAt || '',
     duration: parseInt(video.duration) || 0,
+    videoResolution,
+    fileSize: fileSize || null,
   };
 }
 

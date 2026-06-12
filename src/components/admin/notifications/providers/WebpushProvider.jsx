@@ -1,5 +1,6 @@
 import React, { useState, useCallback } from 'react'
 import { adminNotifications } from '../../../../services/adminApi'
+import { useTranslation } from 'react-i18next'
 
 function Checkbox({ checked, onChange, children }) {
   return (
@@ -11,6 +12,7 @@ function Checkbox({ checked, onChange, children }) {
 }
 
 export default function WebpushProvider({ initial, onToast, onOpenAgentInfo }) {
+  const { t } = useTranslation()
   const [enabled, setEnabled] = useState(initial?.enabled || false)
   const [embedPoster, setEmbedPoster] = useState(!!initial?.embedPoster)
   const [vapidKey] = useState(initial?.vapidPublic || '')
@@ -39,25 +41,25 @@ export default function WebpushProvider({ initial, onToast, onOpenAgentInfo }) {
     <section className="admin-section">
       <div className="admin-section-header">
         <h2 className="section-title">
-          WebPush
-          <button type="button" className="agent-info-btn" onClick={() => onOpenAgentInfo?.('webpush')} title="How to configure" style={{ marginLeft: 8, background: 'none', border: 'none', cursor: 'pointer', fontSize: 'inherit', color: 'inherit', padding: 0, verticalAlign: 'middle' }}>&#9432;</button>
+          {t('WebPush')}
+          <button type="button" className="agent-info-btn" onClick={() => onOpenAgentInfo?.('webpush')} title={t('How to configure')} style={{ marginLeft: 8, background: 'none', border: 'none', cursor: 'pointer', fontSize: 'inherit', color: 'inherit', padding: 0, verticalAlign: 'middle' }}>&#9432;</button>
         </h2>
         <label className="slide-toggle" style={{ flexShrink: 0 }}>
           <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
           <span className="slide-track" />
         </label>
       </div>
-      <p className="section-desc" style={{ marginBottom: 16 }}>Send browser push notifications to users. Users opt-in from their profile settings. VAPID keys are auto-generated.</p>
+      <p className="section-desc" style={{ marginBottom: 16 }}>{t('Send browser push notifications to users. Users opt-in from their profile settings. VAPID keys are auto-generated.')}</p>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 20 }}>
-        <Checkbox checked={embedPoster} onChange={(e) => setEmbedPoster(e.target.checked)}>Include poster image in push</Checkbox>
+        <Checkbox checked={embedPoster} onChange={(e) => setEmbedPoster(e.target.checked)}>{t('Include poster image in push')}</Checkbox>
         {vapidKey && (
           <div>
-            <label className="conn-label">VAPID Public Key</label>
+            <label className="conn-label">{t('VAPID Public Key')}</label>
             <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', wordBreak: 'break-all', background: 'var(--bg-surface)', padding: 8, borderRadius: 4, border: '1px solid var(--border)' }}>{vapidKey}</div>
           </div>
         )}
         <div style={{ display: 'flex', gap: 10 }}>
-          <button className="btn-admin btn-primary" onClick={handleSave}>Save</button>
+          <button className="btn-admin btn-primary" onClick={handleSave}>{t('Save')}</button>
           <button className="btn-admin" onClick={handleTest} disabled={testing}>{testing ? 'Sending...' : 'Send Test'}</button>
         </div>
       </div>

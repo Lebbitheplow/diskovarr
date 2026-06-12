@@ -1,7 +1,9 @@
 import React from 'react'
 import { USER_NOTIF_TYPES, ELEVATED_NOTIF_TYPES, ADMIN_ONLY_NOTIF_TYPES } from '../../components/admin/notifications/constants'
+import { useTranslation } from 'react-i18next'
 
 export default function NotificationTypesPanel({ types, onChange, isElevated, isAdmin }) {
+  const { t } = useTranslation()
   const allTypes = [
     ...USER_NOTIF_TYPES,
     ...(isElevated ? ELEVATED_NOTIF_TYPES : []),
@@ -10,8 +12,8 @@ export default function NotificationTypesPanel({ types, onChange, isElevated, is
 
   return (
     <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
-      <p className="settings-section-title">Notification Types</p>
-      <p className="settings-desc" style={{ marginBottom: 12 }}>Choose which events trigger notifications across all your enabled channels.</p>
+      <p className="settings-section-title">{t('Notification Types')}</p>
+      <p className="settings-desc" style={{ marginBottom: 12 }}>{t('Choose which events trigger notifications across all your enabled channels.')}</p>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {allTypes.map(({ key, label, desc }) => (
           <label key={key} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer' }}>

@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { monitorsApi } from '../../services/monitorsApi'
+import { useTranslation } from 'react-i18next'
 
 const DEBOUNCE_MS = 280
 
 export default function CriterionAutocomplete({ type, value, onChange, placeholder }) {
+  const { t } = useTranslation()
   const [input, setInput] = useState(value || '')
   const [options, setOptions] = useState([])
   const [showDropdown, setShowDropdown] = useState(false)
@@ -99,7 +101,7 @@ export default function CriterionAutocomplete({ type, value, onChange, placehold
         onKeyDown={handleKeyDown}
         placeholder={placeholder || 'Type to search...'}
       />
-      {loading && <span className="criterion-loading">Searching...</span>}
+      {loading && <span className="criterion-loading">{t('Searching...')}</span>}
       {visibleOptions && (
         <div className="criterion-dropdown">
           {options.map((opt, i) => (

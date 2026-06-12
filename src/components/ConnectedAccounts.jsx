@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { tmdbApi } from '../services/api'
 import { useToast } from '../context/ToastContext'
+import { useTranslation } from 'react-i18next'
 
 function fmtDate(isoStr) {
   if (!isoStr) return 'Never'
@@ -15,6 +16,7 @@ function fmtDateWithTime(isoStr) {
 }
 
 export default function ConnectedAccounts() {
+  const { t } = useTranslation()
   const { success: toastSuccess, error: toastError } = useToast()
   const [connection, setConnection] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -59,7 +61,7 @@ export default function ConnectedAccounts() {
       const { data } = await tmdbApi.initiateConnect()
       const popup = window.open(data.authUrl, '_blank', 'width=600,height=700,scrollbars=yes')
       if (!popup || popup.closed) {
-        toastError('Popup was blocked. Please allow popups and try again, or copy this URL: ' + data.authUrl)
+        toastError(t('Popup was blocked. Please allow popups and try again, or copy this URL: ') + data.authUrl)
         setConnecting(false)
         return
       }
@@ -71,9 +73,9 @@ export default function ConnectedAccounts() {
             const { data: conn } = await tmdbApi.getConnection()
             if (conn?.connected) {
               setConnection(conn)
-              toastSuccess('Connected to TMDB!')
+              toastSuccess(t('Connected to TMDB!'))
             } else {
-              toastError('Connection was cancelled or timed out')
+              toastError(t('Connection was cancelled or timed out'))
             }
             setConnecting(false)
           } catch {
@@ -88,14 +90,14 @@ export default function ConnectedAccounts() {
         if (connecting) {
           popup?.close()
           setConnecting(false)
-          toastError('Connection timed out. Please try again.')
+          toastError(t('Connection timed out. Please try again.'))
         }
       }, 120000)
     } catch (e) {
-      toastError(e.message || 'Failed to initiate TMDB connection')
+      toastError(e.message || t('Failed to initiate TMDB connection'))
       setConnecting(false)
     }
-  }, [stopPolling, toastError, toastSuccess, connecting])
+  }, [stopPolling, toastError, toastSuccess, connecting, t])
 
   const handleDisconnect = useCallback(async () => {
     setDisconnecting(true)
@@ -103,36 +105,36 @@ export default function ConnectedAccounts() {
       await tmdbApi.disconnect()
       setConnection({ connected: false })
       setDisconnectConfirm(false)
-      toastSuccess('Disconnected from TMDB')
+      toastSuccess(t('Disconnected from TMDB'))
     } catch (e) {
-      toastError(e.message || 'Failed to disconnect')
+      toastError(e.message || t('Failed to disconnect'))
     } finally {
       setDisconnecting(false)
     }
-  }, [toastSuccess, toastError])
+  }, [toastSuccess, toastError, t])
 
   const handleVerify = useCallback(async () => {
     setVerifying(true)
     try {
       await tmdbApi.verifySession()
       await loadConnection()
-      toastSuccess('TMDB session verified')
+      toastSuccess(t('TMDB session verified'))
     } catch (e) {
       if (e.status === 401) {
         await loadConnection()
-        toastError('TMDB session has expired. Please reconnect.')
+        toastError(t('TMDB session has expired. Please reconnect.'))
       } else {
-        toastError(e.message || 'Verification failed')
+        toastError(e.message || t('Verification failed'))
       }
     } finally {
       setVerifying(false)
     }
-  }, [loadConnection, toastSuccess, toastError])
+  }, [loadConnection, toastSuccess, toastError, t])
 
   if (loading) {
     return (
       <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-secondary)' }}>
-        Loading...
+        {t('Loading...')}
       </div>
     )
   }
@@ -141,7 +143,7 @@ export default function ConnectedAccounts() {
 
   return (
     <div className="settings-section">
-      <p className="settings-section-title">Connected Accounts</p>
+      <p className="settings-section-title">{t('Connected Accounts')}</p>
       <p className="settings-desc" style={{ marginBottom: '20px' }}>
         Connect your TMDB account to sync your star ratings. Only your rating is sent &mdash; review text and watch date stay local.
       </p>
@@ -160,10 +162,10 @@ export default function ConnectedAccounts() {
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             color: '#fff', fontWeight: '700', fontSize: '0.7rem', letterSpacing: '0.05em',
           }}>
-            TMDB
+            {t('TMDB')}
           </div>
           <div>
-            <div style={{ fontWeight: '600', fontSize: '1rem' }}>The Movie Database</div>
+            <div style={{ fontWeight: '600', fontSize: '1rem' }}>{t('The Movie Database')}</div>
             <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
               {connected
                 ? status === 'needs_reconnect'
@@ -178,7 +180,7 @@ export default function ConnectedAccounts() {
               background: 'rgba(104,211,145,0.12)', color: '#68d791',
               fontSize: '0.72rem', fontWeight: '600',
             }}>
-              Active
+              {t('Active')}
             </span>
           )}
           {connected && status === 'needs_reconnect' && (
@@ -187,7 +189,7 @@ export default function ConnectedAccounts() {
               background: 'rgba(251,191,36,0.12)', color: '#fbbf24',
               fontSize: '0.72rem', fontWeight: '600',
             }}>
-              Needs Reconnect
+              {t('Needs Reconnect')}
             </span>
           )}
         </div>
@@ -198,9 +200,9 @@ export default function ConnectedAccounts() {
             fontSize: '0.82rem', color: 'var(--text-secondary)', display: 'grid',
             gridTemplateColumns: '1fr 1fr', gap: '8px 24px',
           }}>
-            <div><span style={{ color: 'var(--text-muted)' }}>Account ID:</span> {accountId}</div>
-            <div><span style={{ color: 'var(--text-muted)' }}>Connected:</span> {fmtDate(connectedAt)}</div>
-            <div><span style={{ color: 'var(--text-muted)' }}>Last verified:</span> {fmtDateWithTime(lastVerifiedAt)}</div>
+            <div><span style={{ color: 'var(--text-muted)' }}>{t('Account ID:')}</span> {accountId}</div>
+            <div><span style={{ color: 'var(--text-muted)' }}>{t('Connected:')}</span> {fmtDate(connectedAt)}</div>
+            <div><span style={{ color: 'var(--text-muted)' }}>{t('Last verified:')}</span> {fmtDateWithTime(lastVerifiedAt)}</div>
           </div>
         )}
 
@@ -210,7 +212,7 @@ export default function ConnectedAccounts() {
             borderRadius: '8px', padding: '12px 16px', marginBottom: '16px',
             fontSize: '0.82rem', color: '#fbbf24',
           }}>
-            Your TMDB session has expired or been revoked. Reconnect to continue syncing ratings.
+            {t('Your TMDB session has expired or been revoked. Reconnect to continue syncing ratings.')}
           </div>
         )}
 
@@ -249,7 +251,7 @@ export default function ConnectedAccounts() {
                   onClick={() => setDisconnectConfirm(true)}
                   style={{ fontSize: '0.85rem', padding: '8px 20px' }}
                 >
-                  Disconnect
+                  {t('Disconnect')}
                 </button>
               ) : (
                 <>
@@ -258,7 +260,7 @@ export default function ConnectedAccounts() {
                     onClick={() => setDisconnectConfirm(false)}
                     style={{ fontSize: '0.85rem', padding: '8px 20px' }}
                   >
-                    Cancel
+                    {t('Cancel')}
                   </button>
                   <button
                     className="btn-queue-delete"

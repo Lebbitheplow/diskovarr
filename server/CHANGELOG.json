@@ -1,5 +1,16 @@
 [
   {
+    "version": "2.3.0",
+    "date": "2026-06-12",
+    "changes": [
+      "UI localization — full interface translation for Spanish, French, German, and Portuguese with user-selectable language in settings.",
+      "Automation tab — new admin panel tab for automating library management with auto requests, auto collections, and auto deletion profiles.",
+      "Health endpoint — new /health route for external monitoring, load balancers, and orchestrators.",
+      "Graceful shutdown — server drains active connections and flushes pending writes before exiting, preventing data corruption on restarts.",
+      "Automated DB backups — configurable scheduled backups of the SQLite database with retention policies."
+    ]
+  },
+  {
     "version": "2.2.2",
     "date": "2026-06-11",
     "changes": [

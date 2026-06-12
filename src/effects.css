@@ -1,0 +1,177 @@
+/* ============================================================
+   Diskovarr — Premium effects layer
+   Imported after style.css/admin.css/discover.css so these
+   rules win without rewriting the base stylesheet.
+   Perf budget: keep at most ~2 backdrop-filter layers visible
+   at once (nav + one open dropdown/modal); never put
+   backdrop-filter on .card (dozens per page).
+   ============================================================ */
+
+/* ── Ambient background (bokeh orb canvas) ──────────────────── */
+.ambient-bg {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.ambient-canvas {
+  position: absolute;
+  inset: 0;
+}
+
+/* ── Glass surfaces ─────────────────────────────────────────── */
+.nav {
+  background: var(--glass-bg-heavy);
+  backdrop-filter: blur(var(--glass-blur)) saturate(150%);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(150%);
+  border-bottom-color: var(--glass-border);
+}
+
+.nav-fab-menu,
+.nav-bell-dropdown,
+.nav-search-dropdown,
+.search-page-dropdown {
+  background: var(--glass-bg-heavy);
+  backdrop-filter: blur(var(--glass-blur)) saturate(150%);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(150%);
+  border-color: var(--glass-border);
+  box-shadow: var(--shadow-3);
+}
+
+.modal-backdrop {
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+}
+
+.modal-card {
+  background: rgba(24, 24, 24, 0.86);
+  backdrop-filter: blur(20px) saturate(140%);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  border-color: var(--glass-border);
+}
+
+.carousel-arrow {
+  background: var(--glass-bg);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-color: var(--glass-border);
+}
+
+.carousel-arrow:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+/* ── Card pick-up (pointer devices only — no sticky touch hover) ── */
+@media (hover: hover) and (pointer: fine) {
+  .card {
+    transition: transform var(--dur-med) var(--ease-spring),
+      box-shadow var(--dur-med) var(--ease-out),
+      opacity 0.3s ease;
+  }
+
+  .card:hover {
+    transform: translateY(-6px) scale(1.035);
+    box-shadow: var(--shadow-hover);
+    z-index: 2;
+  }
+
+  .card:hover .card-poster {
+    transform: scale(1.06);
+  }
+}
+
+/* Press feedback on every input type */
+.card:active {
+  transform: scale(0.97);
+  transition-duration: 0.1s;
+}
+
+/* Headroom so the hover lift isn't clipped by the carousel's
+   overflow-x: auto (which also clips Y) */
+.carousel-wrap .card-grid {
+  padding-top: 10px;
+  margin-top: -10px;
+}
+
+/* ── Staggered card entrance ────────────────────────────────── */
+@keyframes card-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.card-grid .card {
+  animation: card-in 0.35s var(--ease-out) backwards;
+}
+
+.card-grid .card:nth-child(1) { animation-delay: 0.03s; }
+.card-grid .card:nth-child(2) { animation-delay: 0.06s; }
+.card-grid .card:nth-child(3) { animation-delay: 0.09s; }
+.card-grid .card:nth-child(4) { animation-delay: 0.12s; }
+.card-grid .card:nth-child(5) { animation-delay: 0.15s; }
+.card-grid .card:nth-child(6) { animation-delay: 0.18s; }
+.card-grid .card:nth-child(7) { animation-delay: 0.21s; }
+.card-grid .card:nth-child(8) { animation-delay: 0.24s; }
+.card-grid .card:nth-child(9) { animation-delay: 0.27s; }
+.card-grid .card:nth-child(10) { animation-delay: 0.3s; }
+.card-grid .card:nth-child(11) { animation-delay: 0.33s; }
+.card-grid .card:nth-child(12) { animation-delay: 0.36s; }
+.card-grid .card:nth-child(n + 13) { animation-delay: 0.36s; }
+
+/* ── Snappiness retunes ─────────────────────────────────────── */
+.nav-fab-menu {
+  transition: opacity 0.18s var(--ease-spring), transform 0.18s var(--ease-spring);
+}
+
+.modal-backdrop {
+  transition: opacity var(--dur-med) ease;
+}
+
+.modal-card {
+  transform: translateY(20px) scale(0.97);
+  transition: transform var(--dur-med) var(--ease-spring);
+}
+
+.modal-backdrop.open .modal-card {
+  transform: translateY(0) scale(1);
+}
+
+.btn-icon {
+  transition: background var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out);
+}
+
+.modal-close {
+  transition: background var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out);
+}
+
+/* ── Reduced motion ─────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  /* A frozen spinner reads as a hang */
+  .spinner {
+    animation-duration: 0.8s !important;
+    animation-iteration-count: infinite !important;
+  }
+
+  .ambient-bg { display: none; }
+}

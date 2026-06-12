@@ -3,8 +3,10 @@ import { useSearchParams, useNavigate } from 'react-router-dom'
 import { authApi } from '../services/api'
 import { useToast } from '../context/ToastContext'
 import { useAuth } from '../context/AuthContext'
+import { useTranslation } from 'react-i18next'
 
 export default function Callback() {
+  const { t } = useTranslation()
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
   const { error: toastError } = useToast()
@@ -16,7 +18,7 @@ export default function Callback() {
     const pinCode = searchParams.get('pinCode')
 
     if (!pinId || !pinCode) {
-      toastError('Missing authentication parameters')
+      toastError(t('Missing authentication parameters'))
       navigate('/login', { replace: true })
       return
     }
@@ -40,9 +42,9 @@ export default function Callback() {
         } else if (data.status === 'expired' || data.status === 'no_access' || data.status === 'error') {
           clearInterval(pollInterval)
           if (data.status === 'no_access') {
-            toastError('Your account does not have access to this Plex server')
+            toastError(t('Your account does not have access to this Plex server'))
           } else {
-            toastError('Authentication failed or expired')
+            toastError(t('Authentication failed or expired'))
           }
           navigate('/login', { replace: true })
         }
@@ -54,10 +56,10 @@ export default function Callback() {
     // Timeout after 3 minutes
     setTimeout(() => {
       clearInterval(pollInterval)
-      toastError('Authentication timed out')
+      toastError(t('Authentication timed out'))
       navigate('/login', { replace: true })
     }, 180000)
-  }, [searchParams, navigate, toastError, checkAuth])
+  }, [searchParams, navigate, toastError, checkAuth, t])
 
   useEffect(() => {
     ;(async () => { await handleAuth() })()
@@ -78,7 +80,7 @@ export default function Callback() {
                 <line x1="18.5" y1="12.5" x2="22" y2="16" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
               </svg>
             </span>
-            <span className="logo-text">Diskovarr</span>
+            <span className="logo-text">{t('Diskovarr')}</span>
           </div>
           <p className="login-tagline">
             {status === 'connecting' && 'Connecting to Plex...'}

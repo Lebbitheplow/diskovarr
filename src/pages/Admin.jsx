@@ -3,13 +3,15 @@ import GeneralSettings from '../components/admin/GeneralSettings'
 import UserManagement from '../components/admin/UserManagement'
 import ConnectionSettings from '../components/admin/ConnectionSettings'
 import AdminNotifications from '../components/admin/notifications/AdminNotifications'
+import AutomationTab from '../components/admin/automation/AutomationTab'
 import UserSettingsModal from '../components/admin/UserSettingsModal'
 import BulkSettingsModal from '../components/admin/BulkSettingsModal'
 import AgentInfoModal from '../components/admin/AgentInfoModal'
 import { adminStatus, adminNotifications, adminUpdate } from '../services/adminApi'
 import ChangelogModal from '../components/ChangelogModal'
+import { useTranslation } from 'react-i18next'
 
-const APP_VERSION = import.meta.env.VITE_APP_VERSION || '2.2.2'
+const APP_VERSION = import.meta.env.VITE_APP_VERSION || '2.3.0'
 
 const LOGO_SVG = (
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="1em" height="1em" fill="none" aria-hidden="true">
@@ -26,27 +28,29 @@ const TABS = [
   { id: 'settings', label: 'General' },
   { id: 'users', label: 'Users' },
   { id: 'connections', label: 'Connections' },
+  { id: 'automation', label: 'Automation' },
   { id: 'notifications', label: 'Notifications' },
 ]
 
 function AdminNav({ onLogout }) {
+  const { t } = useTranslation()
   return (
     <nav className="nav">
       <div className="nav-inner">
         <a href="/" className="nav-logo">
           <span className="logo-icon">{LOGO_SVG}</span>
-          <span className="logo-text">Diskovarr</span>
-          <span className="admin-badge">admin</span>
+          <span className="logo-text">{t('Diskovarr')}</span>
+          <span className="admin-badge">{t('admin')}</span>
         </a>
         <div className="nav-user">
-          <a href="/" className="nav-logout">← App</a>
+          <a href="/" className="nav-logout">{t('← App')}</a>
           <button
             type="button"
             className="nav-logout"
             style={{ background: 'none', border: 'none', cursor: 'pointer', marginLeft: 4 }}
             onClick={onLogout}
           >
-            Sign out
+            {t('Sign out')}
           </button>
         </div>
       </div>
@@ -55,6 +59,7 @@ function AdminNav({ onLogout }) {
 }
 
 function VersionStrip({ updateAvailable, latestVersion, onOpenChangelog }) {
+  const { t } = useTranslation()
   return (
     <div className="version-strip">
       <button
@@ -62,7 +67,7 @@ function VersionStrip({ updateAvailable, latestVersion, onOpenChangelog }) {
         className="version-badge"
         onClick={onOpenChangelog}
         style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit', color: 'inherit' }}
-        aria-label="View changelog"
+        aria-label={t('View changelog')}
       >
         v{APP_VERSION}
       </button>
@@ -77,7 +82,7 @@ function VersionStrip({ updateAvailable, latestVersion, onOpenChangelog }) {
         </a>
       )}
       {!updateAvailable && latestVersion && (
-        <span className="version-uptodate">up to date</span>
+        <span className="version-uptodate">{t('up to date')}</span>
       )}
       <a
         className="version-docs-link"
@@ -92,7 +97,7 @@ function VersionStrip({ updateAvailable, latestVersion, onOpenChangelog }) {
           <line x1="16" y1="17" x2="8" y2="17" />
           <polyline points="10 9 9 9 8 9" />
         </svg>
-        Documentation
+        {t('Documentation')}
       </a>
     </div>
   )
@@ -116,6 +121,7 @@ function Toast({ message, type, visible, onClose }) {
 }
 
 export default function Admin() {
+  const { t } = useTranslation()
   const [activeTab, setActiveTab] = useState(() => {
     const hash = window.location.hash.replace('#', '')
     return TABS.find(t => t.id === hash)?.id || 'settings'
@@ -287,8 +293,8 @@ export default function Admin() {
 
       <main className="main-content">
         <div className="hero">
-          <h1 className="hero-title">Admin Panel</h1>
-          <p className="hero-sub">Connections, users, requests, and system settings</p>
+          <h1 className="hero-title">{t('Admin Panel')}</h1>
+          <p className="hero-sub">{t('Connections, users, requests, and system settings')}</p>
         </div>
 
         <VersionStrip
@@ -338,6 +344,12 @@ export default function Admin() {
               onDataLoaded={handleDataLoaded}
               onToast={showToast}
             />
+          </div>
+        )}
+
+        {activeTab === 'automation' && (
+          <div className="admin-tab-panel" id="panel-automation" hidden={activeTab !== 'automation'}>
+            <AutomationTab onToast={showToast} />
           </div>
         )}
 

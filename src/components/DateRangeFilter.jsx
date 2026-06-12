@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react'
+import { useTranslation } from 'react-i18next'
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June',
@@ -53,6 +54,7 @@ export default function DateRangeFilter({
   placeholder = 'Any date',
   clearLabel = 'Clear',
 }) {
+  const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const [mode, setMode] = useState('range') // 'single' | 'range'
   const containerRef = useRef(null)
@@ -161,7 +163,7 @@ export default function DateRangeFilter({
         <span className="searchable-dropdown-label">{label}</span>
         <span className="searchable-dropdown-value">{triggerLabel}</span>
         {hasValue && (
-          <span className="searchable-dropdown-clear" onClick={handleClearTrigger} title="Clear date">&times;</span>
+          <span className="searchable-dropdown-clear" onClick={handleClearTrigger} title={t('Clear date')}>&times;</span>
         )}
         <span className="searchable-dropdown-caret" />
       </button>
@@ -173,18 +175,18 @@ export default function DateRangeFilter({
               type="button"
               className={`date-range-mode-btn${mode === 'single' ? ' active' : ''}`}
               onClick={() => setMode('single')}
-            >Single date</button>
+            >{t('Single date')}</button>
             <button
               type="button"
               className={`date-range-mode-btn${mode === 'range' ? ' active' : ''}`}
               onClick={() => setMode('range')}
-            >Range</button>
+            >{t('Range')}</button>
           </div>
 
           <div className="date-range-header">
-            <button type="button" className="date-range-nav-btn" onClick={handlePrev} aria-label="Previous month">‹</button>
+            <button type="button" className="date-range-nav-btn" onClick={handlePrev} aria-label={t('Previous month')}>‹</button>
             <span className="date-range-header-label">{MONTH_NAMES[viewMonth]} {viewYear}</span>
-            <button type="button" className="date-range-nav-btn" onClick={handleNext} aria-label="Next month">›</button>
+            <button type="button" className="date-range-nav-btn" onClick={handleNext} aria-label={t('Next month')}>›</button>
           </div>
 
           <div className="date-range-weekdays">

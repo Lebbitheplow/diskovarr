@@ -1,5 +1,6 @@
 import React, { useState, useRef } from 'react'
 import { adminNotifications } from '../../../services/adminApi'
+import { useTranslation } from 'react-i18next'
 
 // Discord-flavored markdown markers — bold/italic/underline render natively in Discord webhooks/DMs.
 // Highlight (==) is a non-standard marker rendered with the app accent in the in-app modal; in channels
@@ -118,6 +119,7 @@ function getFormatState() {
 }
 
 export default function BroadcastMessage({ onToast }) {
+  const { t } = useTranslation()
   const [result, setResult] = useState('')
   const [sending, setSending] = useState(false)
   const [empty, setEmpty] = useState(true)
@@ -215,12 +217,12 @@ export default function BroadcastMessage({ onToast }) {
   return (
     <section className="admin-section notif-broadcast">
       <div className="admin-section-header">
-        <h2 className="section-title">Broadcast Message</h2>
+        <h2 className="section-title">{t('Broadcast Message')}</h2>
       </div>
       <p className="section-desc" style={{ marginBottom: 16 }}>
         Send a custom message to all users via all configured notification channels (in-app bell, Discord, etc).
       </p>
-      <div className="broadcast-toolbar" role="toolbar" aria-label="Text formatting">
+      <div className="broadcast-toolbar" role="toolbar" aria-label={t('Text formatting')}>
         {FORMATS.map((f) => (
           <button
             key={f.key}
@@ -242,7 +244,7 @@ export default function BroadcastMessage({ onToast }) {
         suppressContentEditableWarning
         role="textbox"
         aria-multiline="true"
-        data-placeholder="Type a message to send to all users..."
+        data-placeholder={t('Type a message to send to all users...')}
         data-empty={empty ? '1' : undefined}
         onKeyDown={handleKeyDown}
         onInput={handleInput}

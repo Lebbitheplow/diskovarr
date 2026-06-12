@@ -1,4 +1,5 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
 
 // Multi-select checkbox filter for the admin watch-history user list.
 // `value` is an array of included user ids. Checked = include in results,
@@ -9,6 +10,7 @@ export default function UserMultiSelect({
   onChange,
   label = 'Users',
 }) {
+  const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const [input, setInput] = useState('')
   const containerRef = useRef(null)
@@ -79,15 +81,15 @@ export default function UserMultiSelect({
               ref={inputRef}
               className="searchable-dropdown-input"
               type="text"
-              placeholder="Search users..."
+              placeholder={t('Search users...')}
               value={input}
               onChange={e => setInput(e.target.value)}
             />
           </div>
 
           <div className="user-multiselect-toolbar">
-            <button type="button" className="user-multiselect-link" onClick={selectAll}>Select all</button>
-            <button type="button" className="user-multiselect-link" onClick={selectNone}>Clear all</button>
+            <button type="button" className="user-multiselect-link" onClick={selectAll}>{t('Select all')}</button>
+            <button type="button" className="user-multiselect-link" onClick={selectNone}>{t('Clear all')}</button>
           </div>
 
           <div className="searchable-dropdown-list">
@@ -106,7 +108,7 @@ export default function UserMultiSelect({
             })}
 
             {filtered.length === 0 && (
-              <div className="searchable-dropdown-empty">No users found</div>
+              <div className="searchable-dropdown-empty">{t('No users found')}</div>
             )}
           </div>
         </div>

@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react'
 import axios from 'axios'
+import i18n from '../i18n'
 
 const AuthContext = createContext(null)
 
@@ -14,6 +15,14 @@ export function AuthProvider({ children }) {
       if (res.data && res.data.authenticated && res.data.user) {
         setUser(res.data.user)
         setDiscoverAvailable(!!res.data.discoverAvailable)
+        // Apply the user's saved UI language (follows them across devices).
+        // Fire-and-forget: localStorage already gave a fast first paint.
+        axios.get('/api/user/settings', { withCredentials: true }).then(({ data }) => {
+          if (data?.ui_language && data.ui_language !== i18n.language) {
+            localStorage.setItem('uiLanguage', data.ui_language)
+            i18n.changeLanguage(data.ui_language)
+          }
+        }).catch(() => { /* settings fetch is best-effort */ })
       }
     } catch (e) {
       // Not authenticated

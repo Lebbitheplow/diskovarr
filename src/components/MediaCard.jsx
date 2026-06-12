@@ -1,9 +1,11 @@
 import React, { useState, useCallback } from 'react'
+import { useTranslation } from 'react-i18next'
 
 export default function MediaCard({
   item, onOpenModal, onToggleWatchlist, onDismiss, variant = 'home',
   isInWatchlist = false, isWatched = false
 }) {
+  const { t } = useTranslation()
   const [imgError, setImgError] = useState(false)
   const { title, year, audienceRating, contentRating, thumb, posterUrl, ratingKey, reasons } = item
   const posterPath = thumb || posterUrl
@@ -47,17 +49,17 @@ export default function MediaCard({
           </div>
         )}
         {isWatched && (
-          <div className="card-watched-badge" title="Watched">
+          <div className="card-watched-badge" title={t('Watched')}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" width="12" height="12">
               <polyline points="20 6 9 17 4 12" />
             </svg>
           </div>
         )}
         {variant === 'explore' && item.badgeNotInLibrary && !item.badgeRequested && (
-          <div className="badge-not-in-library">Not in Library</div>
+          <div className="badge-not-in-library">{t('Not in Library')}</div>
         )}
         {variant === 'explore' && item.badgeRequested && (
-          <div className="badge-not-in-library badge-requested">Requested</div>
+          <div className="badge-not-in-library badge-requested">{t('Requested')}</div>
         )}
         <div className="card-overlay">
           <div className="card-overlay-actions">
@@ -65,13 +67,13 @@ export default function MediaCard({
               className={`btn-icon btn-watchlist ${isInWatchlist ? 'in-watchlist' : ''}`}
               onClick={handleToggleWatchlist}
             >
-              {isInWatchlist ? '✓ In Watchlist' : '+ Watchlist'}
+              {isInWatchlist ? '✓ ' + t('In Watchlist') : '+ ' + t('Watchlist')}
             </button>
             {variant === 'home' && (
-              <button className="btn-icon btn-dismiss" onClick={handleDismiss} title="Don't show this again">✕</button>
+              <button className="btn-icon btn-dismiss" onClick={handleDismiss} title={t("Don't show this again")}>✕</button>
             )}
             {variant === 'explore' && onDismiss && !item.badgeRequested && (
-              <button className="btn-icon btn-dismiss" onClick={handleDismiss} title="Dismiss">✕</button>
+              <button className="btn-icon btn-dismiss" onClick={handleDismiss} title={t('Dismiss')}>✕</button>
             )}
           </div>
         </div>

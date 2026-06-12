@@ -1391,3 +1391,5 @@ router.use((req, res) => {
 });
 
 module.exports = router;
+// Reused by the list sync job so auto-requests route like shim requests do
+module.exports.pickService = pickService;

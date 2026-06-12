@@ -314,6 +314,10 @@ db.exec(`
   'ALTER TABLE library_items ADD COLUMN duration INTEGER DEFAULT 0',
   'ALTER TABLE library_items ADD COLUMN last_episode_added_at INTEGER DEFAULT 0',
   'ALTER TABLE library_items ADD COLUMN detail_synced_at INTEGER DEFAULT 0',
+  // Automation (deletion profiles): resolution + total file size from the Media
+  // element of the bulk listing. Movies only — shows carry per-episode media.
+  'ALTER TABLE library_items ADD COLUMN video_resolution TEXT DEFAULT NULL',
+  'ALTER TABLE library_items ADD COLUMN file_size INTEGER DEFAULT NULL',
   'ALTER TABLE discover_requests ADD COLUMN seasons_count INTEGER DEFAULT 1',
   "ALTER TABLE discover_requests ADD COLUMN status TEXT NOT NULL DEFAULT 'approved'",
   'ALTER TABLE discover_requests ADD COLUMN denial_note TEXT',
@@ -620,6 +624,107 @@ db.exec(`CREATE TABLE IF NOT EXISTS migrations (name TEXT PRIMARY KEY, ran_at IN
       },
     },
     {
+      // Per-user UI language for frontend localization (en/es/fr/de/pt).
+      // Distinct from `language`, which controls TMDB metadata language.
+      name: 'ui_language_v1',
+      sql: () => {
+        try { db.exec('ALTER TABLE user_request_limits ADD COLUMN ui_language TEXT'); } catch {}
+      },
+    },
+    {
+      // Automation: admin-configured external list sync (auto-requests + Plex
+      // collection mirroring) and deletion profiles (criteria-based auto-delete
+      // with dry_run/review/auto modes). CRUD lives in server/db/automation.js.
+      name: 'automation_v1',
+      sql: () => {
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS list_sources (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            source_type TEXT NOT NULL,
+            url TEXT,
+            preset_key TEXT,
+            enabled INTEGER NOT NULL DEFAULT 1,
+            media_type TEXT NOT NULL DEFAULT 'all',
+            approval_mode TEXT NOT NULL DEFAULT 'auto' CHECK(approval_mode IN ('auto', 'pending')),
+            sync_interval_hours INTEGER NOT NULL DEFAULT 24,
+            max_requests_per_run INTEGER NOT NULL DEFAULT 10,
+            collection_enabled INTEGER NOT NULL DEFAULT 0,
+            collection_name TEXT,
+            collection_visibility TEXT NOT NULL DEFAULT 'library' CHECK(collection_visibility IN ('home', 'recommended', 'library')),
+            collection_rating_key TEXT,
+            criteria_json TEXT DEFAULT NULL,
+            match_mode TEXT NOT NULL DEFAULT 'ALL',
+            last_synced_at INTEGER DEFAULT 0,
+            last_status TEXT,
+            last_error TEXT,
+            created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+            updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+          );
+        `);
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS list_source_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            list_id INTEGER NOT NULL REFERENCES list_sources(id) ON DELETE CASCADE,
+            tmdb_id INTEGER NOT NULL,
+            media_type TEXT NOT NULL,
+            title TEXT,
+            status TEXT NOT NULL DEFAULT 'seen',
+            request_id INTEGER,
+            first_seen_at INTEGER NOT NULL DEFAULT (unixepoch()),
+            last_seen_at INTEGER NOT NULL DEFAULT (unixepoch()),
+            requested_at INTEGER,
+            UNIQUE(list_id, tmdb_id, media_type)
+          );
+          CREATE INDEX IF NOT EXISTS idx_list_items_list ON list_source_items(list_id);
+        `);
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS deletion_profiles (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            enabled INTEGER NOT NULL DEFAULT 1,
+            mode TEXT NOT NULL DEFAULT 'dry_run' CHECK(mode IN ('dry_run', 'review', 'auto')),
+            media_type TEXT NOT NULL DEFAULT 'movie' CHECK(media_type IN ('movie', 'show')),
+            criteria_json TEXT NOT NULL DEFAULT '[]',
+            exclusions_json TEXT NOT NULL DEFAULT '{}',
+            grace_period_days INTEGER NOT NULL DEFAULT 0,
+            max_deletions_per_run INTEGER NOT NULL DEFAULT 10,
+            arr_import_exclusion INTEGER NOT NULL DEFAULT 1,
+            created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+            updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+          );
+        `);
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS deletion_candidates (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            profile_id INTEGER NOT NULL REFERENCES deletion_profiles(id) ON DELETE CASCADE,
+            rating_key TEXT NOT NULL,
+            tmdb_id TEXT,
+            title TEXT,
+            media_type TEXT,
+            status TEXT NOT NULL DEFAULT 'matched' CHECK(status IN ('matched', 'pending_review', 'deleted', 'dismissed', 'failed')),
+            first_matched_at INTEGER NOT NULL DEFAULT (unixepoch()),
+            deleted_at INTEGER,
+            delete_method TEXT,
+            details_json TEXT,
+            UNIQUE(profile_id, rating_key)
+          );
+          CREATE INDEX IF NOT EXISTS idx_del_candidates_status ON deletion_candidates(status);
+        `);
+      },
+    },
+    {
+      // Criteria-based auto-request lists: a list source can be defined by the
+      // same criteria vocabulary as content monitors (genre/cast/network/…)
+      // instead of an external URL. Columns exist in the automation_v1 CREATE
+      // for fresh installs; this adds them to databases created before.
+      name: 'automation_criteria_v1',
+      sql: () => {
+        try { db.exec('ALTER TABLE list_sources ADD COLUMN criteria_json TEXT DEFAULT NULL'); } catch {}
+        try { db.exec("ALTER TABLE list_sources ADD COLUMN match_mode TEXT NOT NULL DEFAULT 'ALL'"); } catch {}
+      },
+    },
+    {
       // Compound indexes for the hottest filter+sort patterns: per-user watch
       // history ordered by recency, request lists filtered by user+status, and
       // comment threads ordered within a review. The existing single-column
@@ -663,8 +768,9 @@ const stmtUpsertItem = db.prepare(`
     (rating_key, section_id, title, year, thumb, art, type, genres, directors, cast,
      audience_rating, content_rating, added_at, summary, synced_at,
      rating, rating_image, audience_rating_image, studio, tmdb_id, leaf_count,
-     writers, countries, collections, edition, release_date, duration)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     writers, countries, collections, edition, release_date, duration,
+     video_resolution, file_size)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   ON CONFLICT(rating_key) DO UPDATE SET
     section_id=excluded.section_id, title=excluded.title, year=excluded.year,
     thumb=excluded.thumb, art=excluded.art, type=excluded.type, genres=excluded.genres,
@@ -674,7 +780,8 @@ const stmtUpsertItem = db.prepare(`
     audience_rating_image=excluded.audience_rating_image, studio=excluded.studio,
     tmdb_id=excluded.tmdb_id, leaf_count=excluded.leaf_count, writers=excluded.writers,
     countries=excluded.countries, collections=excluded.collections, edition=excluded.edition,
-    release_date=excluded.release_date, duration=excluded.duration
+    release_date=excluded.release_date, duration=excluded.duration,
+    video_resolution=excluded.video_resolution, file_size=excluded.file_size
 `);
 
 function upsertManyItems(items) {
@@ -689,7 +796,8 @@ function upsertManyItems(items) {
         item.tmdbId || null, item.leafCount ?? null,
         JSON.stringify(item.writers || []), JSON.stringify(item.countries || []),
         JSON.stringify(item.collections || []), item.edition || '',
-        item.releaseDate || '', item.duration || 0
+        item.releaseDate || '', item.duration || 0,
+        item.videoResolution || null, item.fileSize ?? null
       );
     }
   });
@@ -773,6 +881,8 @@ function rowToItem(r) {
     releaseDate: r.release_date || '',
     duration: r.duration || 0,
     lastEpisodeAddedAt: r.last_episode_added_at || 0,
+    videoResolution: r.video_resolution || null,
+    fileSize: r.file_size ?? null,
   };
 }
 
@@ -1167,8 +1277,13 @@ function clearUserDismissals(userId) {
 
 function upsertKnownUser(userId, username, thumb, token) {
   db.prepare(`
-    INSERT OR REPLACE INTO known_users (user_id, username, thumb, seen_at, plex_token)
+    INSERT INTO known_users (user_id, username, thumb, seen_at, plex_token)
     VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(user_id) DO UPDATE SET
+      username = excluded.username,
+      thumb = excluded.thumb,
+      seen_at = excluded.seen_at,
+      plex_token = excluded.plex_token
   `).run(String(userId), username, thumb || null, Math.floor(Date.now() / 1000), token || null);
 }
 
@@ -1737,10 +1852,11 @@ function getRequestById(id) {
 }
 
 function getUserPreferences(userId) {
-  const row = db.prepare('SELECT region, language, auto_request_movies, auto_request_tv, landing_page, show_mature, review_privacy FROM user_request_limits WHERE user_id = ?').get(String(userId));
+  const row = db.prepare('SELECT region, language, ui_language, auto_request_movies, auto_request_tv, landing_page, show_mature, review_privacy FROM user_request_limits WHERE user_id = ?').get(String(userId));
   return {
     region: row?.region || null,
     language: row?.language || null,
+    ui_language: row?.ui_language || null,
     auto_request_movies: row ? !!row.auto_request_movies : false,
     auto_request_tv: row ? !!row.auto_request_tv : false,
     landing_page: row?.landing_page || null,
@@ -1749,12 +1865,12 @@ function getUserPreferences(userId) {
   };
 }
 
-function setUserPreferences(userId, { region, language, auto_request_movies, auto_request_tv, landing_page, show_mature, review_privacy }) {
+function setUserPreferences(userId, { region, language, ui_language, auto_request_movies, auto_request_tv, landing_page, show_mature, review_privacy }) {
   // Ensure row exists first
   db.prepare('INSERT OR IGNORE INTO user_request_limits (user_id) VALUES (?)').run(String(userId));
   const rp = (review_privacy === 'private') ? 'private' : 'public';
-  db.prepare('UPDATE user_request_limits SET region = ?, language = ?, auto_request_movies = ?, auto_request_tv = ?, landing_page = ?, show_mature = ?, review_privacy = ? WHERE user_id = ?')
-    .run(region || null, language || null, auto_request_movies ? 1 : 0, auto_request_tv ? 1 : 0, landing_page || null, show_mature ? 1 : 0, rp, String(userId));
+  db.prepare('UPDATE user_request_limits SET region = ?, language = ?, ui_language = ?, auto_request_movies = ?, auto_request_tv = ?, landing_page = ?, show_mature = ?, review_privacy = ? WHERE user_id = ?')
+    .run(region || null, language || null, ui_language || null, auto_request_movies ? 1 : 0, auto_request_tv ? 1 : 0, landing_page || null, show_mature ? 1 : 0, rp, String(userId));
 }
 
 // ── User Profile ──────────────────────────────────────────────────────────────
@@ -3015,4 +3131,8 @@ module.exports = {
   hasNotified, recordNotification,
   // Raw prepare — used by overseerrShim for ad-hoc queries not worth a dedicated function
   prepare: (sql) => db.prepare(sql),
+  // Online backup: VACUUM INTO writes a compact, consistent snapshot without
+  // blocking readers. The destination must not already exist.
+  backupTo: (destPath) => db.exec(`VACUUM INTO '${String(destPath).replace(/'/g, "''")}'`),
+  close: () => db.close(),
 };

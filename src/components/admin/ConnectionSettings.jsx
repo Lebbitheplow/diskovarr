@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
+import { useTranslation } from 'react-i18next'
 import {
   adminConnections,
   adminPlex,
@@ -33,6 +34,7 @@ function parsePort(url) {
 
 
 function PlexSection({ plexUrl, plexToken, onUpdate, onSave, onToast }) {
+  const { t } = useTranslation()
   const [host, setHost] = useState(parseHost(plexUrl))
   const [port, setPort] = useState(parsePort(plexUrl))
   const [token, setToken] = useState(plexToken ? MASKED : '')
@@ -128,29 +130,29 @@ function PlexSection({ plexUrl, plexToken, onUpdate, onSave, onToast }) {
       <div className="conn-block">
         <div className="conn-block-header">
           <div className="conn-block-meta">
-            <span className="conn-block-name">Plex</span>
-            <span className="conn-block-desc">Your Plex Media Server — required for library sync and authentication</span>
+            <span className="conn-block-name">{t('Plex')}</span>
+            <span className="conn-block-desc">{t('Your Plex Media Server — required for library sync and authentication')}</span>
           </div>
         </div>
         <div className="conn-block-fields">
           <div className="conn-field-group conn-field-host">
-            <span className="conn-field-label">Address</span>
-            <input type="text" className="conn-input" placeholder="http://localhost"
+            <span className="conn-field-label">{t('Address')}</span>
+            <input type="text" className="conn-input" placeholder={t('http://localhost')}
               value={host} onChange={(e) => setHost(e.target.value)} onBlur={handleBlur} />
           </div>
           <div className="conn-field-group conn-field-port">
-            <span className="conn-field-label">Port <span className="conn-field-optional">optional</span></span>
+            <span className="conn-field-label">{t('Port')} <span className="conn-field-optional">{t('optional')}</span></span>
             <input type="number" className="conn-input conn-input-port" placeholder="32400" min="1" max="65535"
               value={port} onChange={(e) => setPort(e.target.value.replace(/[^0-9]/g, ''))} onBlur={handleBlur} />
           </div>
           <div className="conn-field-group conn-field-key">
-            <span className="conn-field-label">Token</span>
+            <span className="conn-field-label">{t('Token')}</span>
             <div className="conn-input-wrap">
-              <input type={tokenVisible ? 'text' : 'password'} className="conn-input" placeholder="Plex Token"
+              <input type={tokenVisible ? 'text' : 'password'} className="conn-input" placeholder={t('Plex Token')}
                 value={tokenVisible && token === MASKED ? plexToken : token} onChange={handleTokenInput} autoComplete="new-password" />
               <div className="conn-input-btns">
                 <button type="button" className="conn-input-icon-btn"
-                  onClick={() => setTokenVisible(!tokenVisible)} title="Show / hide" />
+                  onClick={() => setTokenVisible(!tokenVisible)} title={t('Show / hide')} />
               </div>
             </div>
           </div>
@@ -170,6 +172,7 @@ function PlexSection({ plexUrl, plexToken, onUpdate, onSave, onToast }) {
 }
 
 function TautulliSection({ tautulliUrl, tautulliApiKey, onUpdate, onSave, onToast }) {
+  const { t } = useTranslation()
   const [host, setHost] = useState(parseHost(tautulliUrl))
   const [port, setPort] = useState(parsePort(tautulliUrl))
   const [apiKey, setApiKey] = useState(tautulliApiKey ? MASKED : '')
@@ -225,29 +228,29 @@ function TautulliSection({ tautulliUrl, tautulliApiKey, onUpdate, onSave, onToas
       <div className="conn-block">
         <div className="conn-block-header">
           <div className="conn-block-meta">
-            <span className="conn-block-name">Tautulli</span>
-            <span className="conn-block-desc">Watch history source — required for personalized recommendations</span>
+            <span className="conn-block-name">{t('Tautulli')}</span>
+            <span className="conn-block-desc">{t('Watch history source — required for personalized recommendations')}</span>
           </div>
         </div>
         <div className="conn-block-fields">
           <div className="conn-field-group conn-field-host">
-            <span className="conn-field-label">Address</span>
-            <input type="text" className="conn-input" placeholder="http://localhost"
+            <span className="conn-field-label">{t('Address')}</span>
+            <input type="text" className="conn-input" placeholder={t('http://localhost')}
               value={host} onChange={(e) => setHost(e.target.value)} onBlur={handleBlur} />
           </div>
           <div className="conn-field-group conn-field-port">
-            <span className="conn-field-label">Port <span className="conn-field-optional">optional</span></span>
+            <span className="conn-field-label">{t('Port')} <span className="conn-field-optional">{t('optional')}</span></span>
             <input type="number" className="conn-input conn-input-port" placeholder="8181" min="1" max="65535"
               value={port} onChange={(e) => setPort(e.target.value.replace(/[^0-9]/g, ''))} onBlur={handleBlur} />
           </div>
           <div className="conn-field-group conn-field-key">
-            <span className="conn-field-label">API Key</span>
+            <span className="conn-field-label">{t('API Key')}</span>
             <div className="conn-input-wrap">
-              <input type={apiKeyVisible ? 'text' : 'password'} className="conn-input" placeholder="API Key"
+              <input type={apiKeyVisible ? 'text' : 'password'} className="conn-input" placeholder={t('API Key')}
                 value={apiKeyVisible && apiKey === MASKED ? tautulliApiKey : apiKey} onChange={(e) => setApiKey(e.target.value)} onBlur={handleBlur} autoComplete="new-password" />
               <div className="conn-input-btns">
                 <button type="button" className="conn-input-icon-btn"
-                  onClick={() => setApiKeyVisible(!apiKeyVisible)} title="Show / hide" />
+                  onClick={() => setApiKeyVisible(!apiKeyVisible)} title={t('Show / hide')} />
               </div>
             </div>
           </div>
@@ -264,6 +267,7 @@ function TautulliSection({ tautulliUrl, tautulliApiKey, onUpdate, onSave, onToas
 }
 
 function TmdbSection({ tmdbApiKey, discoverEnabled, onUpdate, onSave, onToast }) {
+  const { t } = useTranslation()
   const [apiKey, setApiKey] = useState(tmdbApiKey ? MASKED : '')
   const [apiKeyVisible, setApiKeyVisible] = useState(false)
   const [discover, setDiscover] = useState(!!discoverEnabled)
@@ -318,12 +322,12 @@ function TmdbSection({ tmdbApiKey, discoverEnabled, onUpdate, onSave, onToast })
       <div className="conn-block">
         <div className="conn-block-header">
           <div className="conn-block-meta">
-            <span className="conn-block-name">TMDB</span>
-            <span className="conn-block-desc">The Movie Database — metadata source for Diskovarr Requests</span>
+            <span className="conn-block-name">{t('TMDB')}</span>
+            <span className="conn-block-desc">{t('The Movie Database — metadata source for Diskovarr Requests')}</span>
           </div>
           <div className="conn-toggle-wrap">
             <div className="conn-toggle-stack">
-              <span className="conn-toggle-sublabel" style={{ color: '#fff' }}>Diskovarr Requests Tab</span>
+              <span className="conn-toggle-sublabel" style={{ color: '#fff' }}>{t('Diskovarr Requests Tab')}</span>
               <div className="conn-toggle-row">
                 <span className="conn-toggle-label">{discover ? 'Enabled' : 'Disabled'}</span>
                 <label className="slide-toggle" title={!hasKey ? 'Save a TMDB API key first' : ''}>
@@ -337,15 +341,15 @@ function TmdbSection({ tmdbApiKey, discoverEnabled, onUpdate, onSave, onToast })
         </div>
         <div className="conn-block-fields">
           <div className="conn-field-group conn-field-key">
-            <span className="conn-field-label">API Key</span>
+            <span className="conn-field-label">{t('API Key')}</span>
             <div className="conn-input-wrap">
-              <input type={apiKeyVisible ? 'text' : 'password'} className="conn-input" placeholder="API Key (v3 auth)"
+              <input type={apiKeyVisible ? 'text' : 'password'} className="conn-input" placeholder={t('API Key (v3 auth)')}
                 value={apiKeyVisible && apiKey === MASKED ? tmdbApiKey : apiKey} onChange={(e) => { setApiKey(e.target.value); onUpdate({ tmdb_api_key: e.target.value }) }}
                 onBlur={() => { adminConnections.save({ tmdb_api_key: realKey }).catch(() => {}) }}
                 autoComplete="new-password" />
               <div className="conn-input-btns">
                 <button type="button" className="conn-input-icon-btn"
-                  onClick={() => setApiKeyVisible(!apiKeyVisible)} title="Show / hide" />
+                  onClick={() => setApiKeyVisible(!apiKeyVisible)} title={t('Show / hide')} />
               </div>
             </div>
           </div>
@@ -366,6 +370,7 @@ function DefaultServiceSection({
   hasOverseerrSide, hasRivenSide, hasDirectSide,
   onSave, onToast,
 }) {
+  const { t } = useTranslation()
   const [service, setService] = useState(defaultService)
   const [adminOnly, setAdminOnly] = useState(directRequestAccess === '1')
 
@@ -407,7 +412,7 @@ function DefaultServiceSection({
     <div className="conn-block" id="default-service-block">
       <div className="conn-block-header" style={{ borderBottom: 'none', paddingBottom: 0 }}>
         <div className="conn-block-meta">
-          <span className="conn-block-name">Default app for requests</span>
+          <span className="conn-block-name">{t('Default app for requests')}</span>
           <span className="conn-block-desc">
             {service === 'direct' ? 'Sonarr/Radarr is the default' : service === 'riven' ? 'DUMB is the default' : 'Overseerr is the default'}
           </span>
@@ -416,32 +421,32 @@ function DefaultServiceSection({
           {hasOverseerrSide && (
             <button type="button"
               className={`service-opt-btn ${service !== 'direct' && service !== 'riven' ? 'service-opt-active' : 'service-opt-inactive'}`}
-              onClick={() => handleService('overseerr')}>Overseerr</button>
+              onClick={() => handleService('overseerr')}>{t('Overseerr')}</button>
           )}
           {hasRivenSide && (
             <button type="button"
               className={`service-opt-btn ${service === 'riven' ? 'service-opt-active' : 'service-opt-inactive'}`}
-              onClick={() => handleService('riven')}>DUMB</button>
+              onClick={() => handleService('riven')}>{t('DUMB')}</button>
           )}
           {hasDirectSide && (
             <button type="button"
               className={`service-opt-btn ${service === 'direct' ? 'service-opt-active' : 'service-opt-inactive'}`}
-              onClick={() => handleService('direct')}>Sonarr/Radarr</button>
+              onClick={() => handleService('direct')}>{t('Sonarr/Radarr')}</button>
           )}
         </div>
       </div>
       <div className="conn-block-header" style={{ borderBottom: 'none', paddingTop: 10, marginTop: 10, borderTop: '1px solid var(--border)' }}>
         <div className="conn-block-meta">
-          <span className="conn-block-name" style={{ fontSize: '0.88rem' }}>Alternate Request App Access</span>
+          <span className="conn-block-name" style={{ fontSize: '0.88rem' }}>{t('Alternate Request App Access')}</span>
           <span className="conn-block-desc">Controls who can see the secondary request service (Advanced button). "Admin" hides it from regular users.</span>
         </div>
         <div className="conn-toggle-wrap" style={{ gap: 10, alignItems: 'center' }}>
-          <span className={adminOnly ? 'service-label-inactive' : 'service-label-active'}>All Users</span>
+          <span className={adminOnly ? 'service-label-inactive' : 'service-label-active'}>{t('All Users')}</span>
           <label className="slide-toggle slide-toggle-choice">
             <input type="checkbox" checked={adminOnly} onChange={(e) => handleAccessChange(e.target.checked)} />
             <span className="slide-track" />
           </label>
-          <span className={adminOnly ? 'service-label-active' : 'service-label-inactive'}>Admin</span>
+          <span className={adminOnly ? 'service-label-active' : 'service-label-inactive'}>{t('Admin')}</span>
         </div>
       </div>
     </div>
@@ -449,6 +454,7 @@ function DefaultServiceSection({
 }
 
 function OverseerrSection({ overseerrUrl, overseerrApiKey, overseerrEnabled, onUpdate, onToast }) {
+  const { t } = useTranslation()
   const [host, setHost] = useState(parseHost(overseerrUrl))
   const [port, setPort] = useState(parsePort(overseerrUrl))
   const [apiKey, setApiKey] = useState(overseerrApiKey ? MASKED : '')
@@ -510,8 +516,8 @@ function OverseerrSection({ overseerrUrl, overseerrApiKey, overseerrEnabled, onU
       <div className="conn-block">
         <div className="conn-block-header">
           <div className="conn-block-meta">
-            <span className="conn-block-name">Overseerr</span>
-            <span className="conn-block-desc">Media request management</span>
+            <span className="conn-block-name">{t('Overseerr')}</span>
+            <span className="conn-block-desc">{t('Media request management')}</span>
           </div>
           <div className="conn-toggle-wrap">
             <span className="conn-toggle-label">{enabled ? 'Enabled' : 'Disabled'}</span>
@@ -524,23 +530,23 @@ function OverseerrSection({ overseerrUrl, overseerrApiKey, overseerrEnabled, onU
         </div>
         <div className="conn-block-fields">
           <div className="conn-field-group conn-field-host">
-            <span className="conn-field-label">Address</span>
-            <input type="text" className="conn-input" placeholder="http://localhost"
+            <span className="conn-field-label">{t('Address')}</span>
+            <input type="text" className="conn-input" placeholder={t('http://localhost')}
               value={host} onChange={(e) => setHost(e.target.value)} onBlur={handleBlur} />
           </div>
           <div className="conn-field-group conn-field-port">
-            <span className="conn-field-label">Port <span className="conn-field-optional">optional</span></span>
+            <span className="conn-field-label">{t('Port')} <span className="conn-field-optional">{t('optional')}</span></span>
             <input type="number" className="conn-input conn-input-port" placeholder="5055" min="1" max="65535"
               value={port} onChange={(e) => setPort(e.target.value.replace(/[^0-9]/g, ''))} onBlur={handleBlur} />
           </div>
           <div className="conn-field-group conn-field-key">
-            <span className="conn-field-label">API Key</span>
+            <span className="conn-field-label">{t('API Key')}</span>
             <div className="conn-input-wrap">
-              <input type={apiKeyVisible ? 'text' : 'password'} className="conn-input" placeholder="API Key"
+              <input type={apiKeyVisible ? 'text' : 'password'} className="conn-input" placeholder={t('API Key')}
                 value={apiKeyVisible && apiKey === MASKED ? overseerrApiKey : apiKey} onChange={(e) => setApiKey(e.target.value)} onBlur={handleBlur} autoComplete="new-password" />
               <div className="conn-input-btns">
                 <button type="button" className="conn-input-icon-btn"
-                  onClick={() => setApiKeyVisible(!apiKeyVisible)} title="Show / hide" />
+                  onClick={() => setApiKeyVisible(!apiKeyVisible)} title={t('Show / hide')} />
               </div>
             </div>
           </div>
@@ -555,6 +561,7 @@ function OverseerrSection({ overseerrUrl, overseerrApiKey, overseerrEnabled, onU
 
 function RadarrSection({ radarrUrl, radarrApiKey, radarrEnabled, radarrQualityProfileId, radarrQualityProfileName,
   profiles, onUpdate, onToast }) {
+  const { t } = useTranslation()
   const [host, setHost] = useState(parseHost(radarrUrl))
   const [port, setPort] = useState(parsePort(radarrUrl))
   const [apiKey, setApiKey] = useState(radarrApiKey ? MASKED : '')
@@ -651,8 +658,8 @@ function RadarrSection({ radarrUrl, radarrApiKey, radarrEnabled, radarrQualityPr
       <div className="conn-block">
         <div className="conn-block-header">
           <div className="conn-block-meta">
-            <span className="conn-block-name">Radarr</span>
-            <span className="conn-block-desc">Movies — direct fallback if Overseerr is not used</span>
+            <span className="conn-block-name">{t('Radarr')}</span>
+            <span className="conn-block-desc">{t('Movies — direct fallback if Overseerr is not used')}</span>
           </div>
           <div className="conn-toggle-wrap">
             <span className="conn-toggle-label">{enabled ? 'Enabled' : 'Disabled'}</span>
@@ -665,23 +672,23 @@ function RadarrSection({ radarrUrl, radarrApiKey, radarrEnabled, radarrQualityPr
         </div>
         <div className="conn-block-fields">
           <div className="conn-field-group conn-field-host">
-            <span className="conn-field-label">Address</span>
-            <input type="text" className="conn-input" placeholder="http://localhost"
+            <span className="conn-field-label">{t('Address')}</span>
+            <input type="text" className="conn-input" placeholder={t('http://localhost')}
               value={host} onChange={(e) => setHost(e.target.value)} onBlur={handleBlur} />
           </div>
           <div className="conn-field-group conn-field-port">
-            <span className="conn-field-label">Port <span className="conn-field-optional">optional</span></span>
+            <span className="conn-field-label">{t('Port')} <span className="conn-field-optional">{t('optional')}</span></span>
             <input type="number" className="conn-input conn-input-port" placeholder="7878" min="1" max="65535"
               value={port} onChange={(e) => setPort(e.target.value.replace(/[^0-9]/g, ''))} onBlur={handleBlur} />
           </div>
           <div className="conn-field-group conn-field-key">
-            <span className="conn-field-label">API Key</span>
+            <span className="conn-field-label">{t('API Key')}</span>
             <div className="conn-input-wrap">
-              <input type={apiKeyVisible ? 'text' : 'password'} className="conn-input" placeholder="API Key"
+              <input type={apiKeyVisible ? 'text' : 'password'} className="conn-input" placeholder={t('API Key')}
                 value={apiKeyVisible && apiKey === MASKED ? radarrApiKey : apiKey} onChange={(e) => setApiKey(e.target.value)} onBlur={handleBlur} autoComplete="new-password" />
               <div className="conn-input-btns">
                 <button type="button" className="conn-input-icon-btn"
-                  onClick={() => setApiKeyVisible(!apiKeyVisible)} title="Show / hide" />
+                  onClick={() => setApiKeyVisible(!apiKeyVisible)} title={t('Show / hide')} />
               </div>
             </div>
           </div>
@@ -691,12 +698,12 @@ function RadarrSection({ radarrUrl, radarrApiKey, radarrEnabled, radarrQualityPr
         </div>
         <div className="conn-quality-row" style={qualityRowStyle}>
           <div className="conn-quality-header">
-            <span className="conn-quality-label">Quality Profile</span>
-            <span className="conn-quality-required">required to enable</span>
+            <span className="conn-quality-label">{t('Quality Profile')}</span>
+            <span className="conn-quality-required">{t('required to enable')}</span>
           </div>
           <div className="conn-quality-field">
             <select className="conn-select" value={profileId} onChange={(e) => handleProfileChange(e.target.value)}>
-              <option value="">— select a profile —</option>
+              <option value="">{t('— select a profile —')}</option>
               {profilesList.map((p) => (
                 <option key={p.id} value={p.id}>{p.name}</option>
               ))}
@@ -713,6 +720,7 @@ function RadarrSection({ radarrUrl, radarrApiKey, radarrEnabled, radarrQualityPr
 
 function SonarrSection({ sonarrUrl, sonarrApiKey, sonarrEnabled, sonarrQualityProfileId, sonarrQualityProfileName,
   profiles, onUpdate, onToast }) {
+  const { t } = useTranslation()
   const [host, setHost] = useState(parseHost(sonarrUrl))
   const [port, setPort] = useState(parsePort(sonarrUrl))
   const [apiKey, setApiKey] = useState(sonarrApiKey ? MASKED : '')
@@ -809,8 +817,8 @@ function SonarrSection({ sonarrUrl, sonarrApiKey, sonarrEnabled, sonarrQualityPr
       <div className="conn-block">
         <div className="conn-block-header">
           <div className="conn-block-meta">
-            <span className="conn-block-name">Sonarr</span>
-            <span className="conn-block-desc">TV Shows — direct fallback if Overseerr is not used</span>
+            <span className="conn-block-name">{t('Sonarr')}</span>
+            <span className="conn-block-desc">{t('TV Shows — direct fallback if Overseerr is not used')}</span>
           </div>
           <div className="conn-toggle-wrap">
             <span className="conn-toggle-label">{enabled ? 'Enabled' : 'Disabled'}</span>
@@ -823,23 +831,23 @@ function SonarrSection({ sonarrUrl, sonarrApiKey, sonarrEnabled, sonarrQualityPr
         </div>
         <div className="conn-block-fields">
           <div className="conn-field-group conn-field-host">
-            <span className="conn-field-label">Address</span>
-            <input type="text" className="conn-input" placeholder="http://localhost"
+            <span className="conn-field-label">{t('Address')}</span>
+            <input type="text" className="conn-input" placeholder={t('http://localhost')}
               value={host} onChange={(e) => setHost(e.target.value)} onBlur={handleBlur} />
           </div>
           <div className="conn-field-group conn-field-port">
-            <span className="conn-field-label">Port <span className="conn-field-optional">optional</span></span>
+            <span className="conn-field-label">{t('Port')} <span className="conn-field-optional">{t('optional')}</span></span>
             <input type="number" className="conn-input conn-input-port" placeholder="8989" min="1" max="65535"
               value={port} onChange={(e) => setPort(e.target.value.replace(/[^0-9]/g, ''))} onBlur={handleBlur} />
           </div>
           <div className="conn-field-group conn-field-key">
-            <span className="conn-field-label">API Key</span>
+            <span className="conn-field-label">{t('API Key')}</span>
             <div className="conn-input-wrap">
-              <input type={apiKeyVisible ? 'text' : 'password'} className="conn-input" placeholder="API Key"
+              <input type={apiKeyVisible ? 'text' : 'password'} className="conn-input" placeholder={t('API Key')}
                 value={apiKeyVisible && apiKey === MASKED ? sonarrApiKey : apiKey} onChange={(e) => setApiKey(e.target.value)} onBlur={handleBlur} autoComplete="new-password" />
               <div className="conn-input-btns">
                 <button type="button" className="conn-input-icon-btn"
-                  onClick={() => setApiKeyVisible(!apiKeyVisible)} title="Show / hide" />
+                  onClick={() => setApiKeyVisible(!apiKeyVisible)} title={t('Show / hide')} />
               </div>
             </div>
           </div>
@@ -849,12 +857,12 @@ function SonarrSection({ sonarrUrl, sonarrApiKey, sonarrEnabled, sonarrQualityPr
         </div>
         <div className="conn-quality-row" style={qualityRowStyle}>
           <div className="conn-quality-header">
-            <span className="conn-quality-label">Quality Profile</span>
-            <span className="conn-quality-required">required to enable</span>
+            <span className="conn-quality-label">{t('Quality Profile')}</span>
+            <span className="conn-quality-required">{t('required to enable')}</span>
           </div>
           <div className="conn-quality-field">
             <select className="conn-select" value={profileId} onChange={(e) => handleProfileChange(e.target.value)}>
-              <option value="">— select a profile —</option>
+              <option value="">{t('— select a profile —')}</option>
               {profilesList.map((p) => (
                 <option key={p.id} value={p.id}>{p.name}</option>
               ))}
@@ -871,6 +879,7 @@ function SonarrSection({ sonarrUrl, sonarrApiKey, sonarrEnabled, sonarrQualityPr
 
 function RivenSection({ rivenEnabled, rivenUrl, rivenApiKey, dumbRequestMode, compatKey,
   onUpdate, onSave, onToast }) {
+  const { t } = useTranslation()
   const [url, setUrl] = useState(parseHost(rivenUrl))
   const [apiKey, setApiKey] = useState(rivenApiKey ? MASKED : '')
   const [apiKeyVisible, setApiKeyVisible] = useState(false)
@@ -964,14 +973,14 @@ function RivenSection({ rivenEnabled, rivenUrl, rivenApiKey, dumbRequestMode, co
         <div className="conn-block-header">
           <div className="conn-block-meta">
             <span className="conn-block-name">
-              DUMB / Riven
-              <button type="button" className="agent-info-btn" title="API key info">&#9432;</button>
+              {t('DUMB / Riven')}
+              <button type="button" className="agent-info-btn" title={t('API key info')}>&#9432;</button>
             </span>
             <span className="conn-block-desc">All-in-one debrid media stack — routes approved requests through DUMB&apos;s Riven component</span>
           </div>
           <div className="conn-toggle-wrap">
             <span className="conn-toggle-label">{enabled ? 'Enabled' : 'Disabled'}</span>
-            <label className="slide-toggle" title="Enable DUMB / Riven features">
+            <label className="slide-toggle" title={t('Enable DUMB / Riven features')}>
               <input type="checkbox" checked={enabled} onChange={(e) => handleToggle(e.target.checked)} />
               <span className="slide-track" />
             </label>
@@ -979,19 +988,19 @@ function RivenSection({ rivenEnabled, rivenUrl, rivenApiKey, dumbRequestMode, co
         </div>
         <div className="conn-block-fields">
           <div className="conn-field-group conn-field-host">
-            <span className="conn-field-label">Riven URL <span className="conn-field-optional">DUMB component</span></span>
-            <input type="text" className="conn-input" placeholder="http://127.0.0.1:8082"
+            <span className="conn-field-label">{t('Riven URL')} <span className="conn-field-optional">{t('DUMB component')}</span></span>
+            <input type="text" className="conn-input" placeholder={t('http://127.0.0.1:8082')}
               value={url} onChange={(e) => setUrl(e.target.value)} />
           </div>
           <div className="conn-field-group conn-field-key">
-            <span className="conn-field-label">API Key <span className="conn-field-optional">auto-read from DUMB</span></span>
+            <span className="conn-field-label">{t('API Key')} <span className="conn-field-optional">{t('auto-read from DUMB')}</span></span>
             <div className="conn-input-wrap">
               <input type={apiKeyVisible ? 'text' : 'password'} className="conn-input"
-                placeholder="Auto-detected from /docker/DUMB/data/riven/settings.json"
+                placeholder={t('Auto-detected from /docker/DUMB/data/riven/settings.json')}
                 value={apiKey} onChange={(e) => setApiKey(e.target.value)} autoComplete="new-password" />
               <div className="conn-input-btns">
                 <button type="button" className="conn-input-icon-btn"
-                  onClick={() => setApiKeyVisible(!apiKeyVisible)} title="Show / hide" />
+                  onClick={() => setApiKeyVisible(!apiKeyVisible)} title={t('Show / hide')} />
               </div>
             </div>
           </div>
@@ -1007,24 +1016,24 @@ function RivenSection({ rivenEnabled, rivenUrl, rivenApiKey, dumbRequestMode, co
         <div style={{ margin: '20px 0 0', padding: '16px', borderTop: '1px solid var(--border)' }}>
           <div style={{ marginBottom: 12 }}>
             <span style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text)' }}>
-              DUMB Integration <button type="button" className="agent-info-btn" title="How to connect DUMB">&#9432;</button>
+              {t('DUMB Integration')} <button type="button" className="agent-info-btn" title={t('How to connect DUMB')}>&#9432;</button>
             </span>
             <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginLeft: 8 }}>
-              Let DUMB poll Diskovarr for approved requests
+              {t('Let DUMB poll Diskovarr for approved requests')}
             </span>
           </div>
           <div className="conn-block-fields">
             <div className="conn-field-group">
-              <span className="conn-field-label">Overseerr Compat Key</span>
+              <span className="conn-field-label">{t('Overseerr Compat Key')}</span>
               <button className="btn-admin btn-primary" onClick={handleCopyCompatKey} style={{ marginTop: 6 }}>
-                Copy Key
+                {t('Copy Key')}
               </button>
               <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: '6px 0 0' }}>
-                Manage this key in General Settings.
+                {t('Manage this key in General Settings.')}
               </p>
             </div>
             <div className="conn-field-group" style={{ marginLeft: 'auto' }}>
-              <span className="conn-field-label">Request Mode</span>
+              <span className="conn-field-label">{t('Request Mode')}</span>
               <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 6 }}>
                 <button type="button"
                   className={`service-opt-btn ${mode !== 'push' ? 'service-opt-active' : 'service-opt-inactive'}`}
@@ -1046,6 +1055,7 @@ function RivenSection({ rivenEnabled, rivenUrl, rivenApiKey, dumbRequestMode, co
 
 /* ───────── Main Component ───────── */
 export default function ConnectionSettings({ onDataLoaded, onToast }) {
+  const { t } = useTranslation()
   const [fields, setFields] = useState({})
   const [loading, setLoading] = useState(true)
   const [radarrProfiles, setRadarrProfiles] = useState([])
@@ -1168,7 +1178,7 @@ export default function ConnectionSettings({ onDataLoaded, onToast }) {
   }, [])
 
   if (loading) {
-    return <div className="admin-section"><p style={{ color: 'var(--text-muted)' }}>Loading connection settings...</p></div>
+    return <div className="admin-section"><p style={{ color: 'var(--text-muted)' }}>{t('Loading connection settings...')}</p></div>
   }
 
   return (
@@ -1176,7 +1186,7 @@ export default function ConnectionSettings({ onDataLoaded, onToast }) {
       {/* ───────── Core Services ───────── */}
       <section className="admin-section">
         <p className="section-desc" style={{ marginBottom: 24 }}>
-          Configure external metadata sources and request services. Fill in the URL and API key for a service, then flip its toggle to enable it. Settings are saved automatically when the toggle changes.
+          {t('Configure external metadata sources and request services. Fill in the URL and API key for a service, then flip its toggle to enable it. Settings are saved automatically when the toggle changes.')}
         </p>
 
         <PlexSection

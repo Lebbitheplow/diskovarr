@@ -8,6 +8,7 @@ import ProfileEditForm from '../components/ProfileEditForm'
 import SkeletonLoader from '../components/SkeletonLoader'
 import DetailModal from '../components/DetailModal'
 import { posterUrl } from '../utils/media'
+import { useTranslation } from 'react-i18next'
 
 const PER_PAGE = 20
 
@@ -31,6 +32,7 @@ export default function UserProfile() {
 }
 
 function UserProfileView({ userId }) {
+  const { t } = useTranslation()
   const { user: currentUser } = useAuth()
   const { error: toastError, success: toastSuccess } = useToast()
   const [searchParams] = useSearchParams()
@@ -61,13 +63,13 @@ function UserProfileView({ userId }) {
       .catch((e) => {
         if (!active) return
         setError(true)
-        toastError(e?.message || 'Failed to load profile')
+        toastError(e?.message || t('Failed to load profile'))
       })
       .finally(() => {
         if (active) setLoading(false)
       })
     return () => { active = false }
-  }, [userId, toastError, reloadKey])
+  }, [userId, toastError, reloadKey, t])
 
   const handleRetry = useCallback(() => {
     setLoading(true)
@@ -87,23 +89,23 @@ function UserProfileView({ userId }) {
       }
     } catch (e) {
       setFollowing(prev)
-      toastError(e?.message || 'Failed to update follow status')
+      toastError(e?.message || t('Failed to update follow status'))
     } finally {
       setFollowingLoading(false)
     }
-  }, [userId, following, toastError])
+  }, [userId, following, toastError, t])
 
   const handleProfileUpdated = useCallback((updated) => {
     setProfile(prev => prev ? { ...prev, ...updated } : null)
     setEditing(false)
-    toastSuccess('Profile updated')
-  }, [toastSuccess])
+    toastSuccess(t('Profile updated'))
+  }, [toastSuccess, t])
 
   if (loading) {
     return (
       <div className="main-content">
         <div style={{ textAlign: 'center', padding: '60px 20px' }}>
-          <div style={{ fontSize: '1.2rem', color: 'var(--text-secondary)', marginBottom: '24px' }}>Loading profile...</div>
+          <div style={{ fontSize: '1.2rem', color: 'var(--text-secondary)', marginBottom: '24px' }}>{t('Loading profile...')}</div>
           <SkeletonLoader count={4} />
         </div>
       </div>
@@ -115,9 +117,9 @@ function UserProfileView({ userId }) {
       <div className="main-content">
         <div style={{ textAlign: 'center', padding: '60px 20px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border)', maxWidth: '480px', margin: '40px auto' }}>
           <div style={{ fontSize: '2.5rem', marginBottom: '16px' }}>⚠️</div>
-          <h3 style={{ margin: '0 0 8px', color: 'var(--text-primary)' }}>Profile not found</h3>
-          <p style={{ margin: '0 0 20px', color: 'var(--text-secondary)' }}>This user profile could not be loaded.</p>
-          <button className="btn-page" onClick={handleRetry} style={{ background: 'var(--accent)', color: '#000', fontWeight: '600', padding: '8px 20px', borderRadius: '8px', border: 'none', cursor: 'pointer' }}>Retry</button>
+          <h3 style={{ margin: '0 0 8px', color: 'var(--text-primary)' }}>{t('Profile not found')}</h3>
+          <p style={{ margin: '0 0 20px', color: 'var(--text-secondary)' }}>{t('This user profile could not be loaded.')}</p>
+          <button className="btn-page" onClick={handleRetry} style={{ background: 'var(--accent)', color: '#000', fontWeight: '600', padding: '8px 20px', borderRadius: '8px', border: 'none', cursor: 'pointer' }}>{t('Retry')}</button>
         </div>
       </div>
     )
@@ -157,7 +159,7 @@ function UserProfileView({ userId }) {
                 <>
                   {profile.favoriteGenres?.length > 0 ? (
                     <div className="profile-section">
-                      <h3 className="profile-section-title">Favorite Genres</h3>
+                      <h3 className="profile-section-title">{t('Favorite Genres')}</h3>
                       <div className="profile-genres">
                         {profile.favoriteGenres.map((genre, i) => (
                           <span key={i} className="profile-genre-chip">{genre}</span>
@@ -166,23 +168,23 @@ function UserProfileView({ userId }) {
                     </div>
                   ) : isOwn && (
                     <div className="profile-section">
-                      <h3 className="profile-section-title">Favorite Genres</h3>
-                      <div className="profile-empty-hint">No favorite genres yet — add some from Edit Profile.</div>
+                      <h3 className="profile-section-title">{t('Favorite Genres')}</h3>
+                      <div className="profile-empty-hint">{t('No favorite genres yet — add some from Edit Profile.')}</div>
                     </div>
                   )}
                   {profile.favoriteMedia?.length > 0 ? (
                     <div className="profile-section">
-                      <h3 className="profile-section-title">Favorite Media</h3>
+                      <h3 className="profile-section-title">{t('Favorite Media')}</h3>
                       <FavoriteMediaGrid items={profile.favoriteMedia} />
                     </div>
                   ) : isOwn && (
                     <div className="profile-section">
-                      <h3 className="profile-section-title">Favorite Media</h3>
-                      <div className="profile-empty-hint">No favorite media yet — add some from Edit Profile.</div>
+                      <h3 className="profile-section-title">{t('Favorite Media')}</h3>
+                      <div className="profile-empty-hint">{t('No favorite media yet — add some from Edit Profile.')}</div>
                     </div>
                   )}
                   <div className="profile-section">
-                    <h3 className="profile-section-title">Reviews</h3>
+                    <h3 className="profile-section-title">{t('Reviews')}</h3>
                     <UserReviewsTab userId={userId} />
                   </div>
                 </>
@@ -202,6 +204,7 @@ function UserProfileView({ userId }) {
 }
 
 function ProfileHeader({ profile, isOwn, editing, following, followingLoading, onFollowToggle, onEdit }) {
+  const { t } = useTranslation()
   return (
     <div className="profile-header">
       <div className="profile-header-main">
@@ -214,7 +217,7 @@ function ProfileHeader({ profile, isOwn, editing, following, followingLoading, o
         </div>
         <div className="profile-header-actions">
           {isOwn ? (
-            !editing && <button className="btn-page profile-edit-btn" onClick={onEdit}>Edit Profile</button>
+            !editing && <button className="btn-page profile-edit-btn" onClick={onEdit}>{t('Edit Profile')}</button>
           ) : (
             <button
               className="btn-page"
@@ -234,7 +237,7 @@ function ProfileHeader({ profile, isOwn, editing, following, followingLoading, o
       {profile.bio ? (
         <div className="profile-bio">{profile.bio}</div>
       ) : isOwn && !editing && (
-        <div className="profile-bio profile-empty-hint">No bio yet — add one from Edit Profile.</div>
+        <div className="profile-bio profile-empty-hint">{t('No bio yet — add one from Edit Profile.')}</div>
       )}
     </div>
   )
@@ -314,6 +317,7 @@ function FavoriteMediaGrid({ items }) {
 }
 
 function UserReviewsTab({ userId }) {
+  const { t } = useTranslation()
   const [reviews, setReviews] = useState([])
   const [loading, setLoading] = useState(true)
   const [page, setPage] = useState(1)
@@ -336,9 +340,9 @@ function UserReviewsTab({ userId }) {
       setError(false)
     } catch (e) {
       if (!append) setError(true)
-      toastError(e?.message || 'Failed to load reviews')
+      toastError(e?.message || t('Failed to load reviews'))
     }
-  }, [userId, toastError])
+  }, [userId, toastError, t])
 
   useEffect(() => {
     let active = true
@@ -394,20 +398,20 @@ function UserReviewsTab({ userId }) {
   }, [])
 
   if (loading) {
-    return <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-secondary)' }}>Loading reviews...</div>
+    return <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-secondary)' }}>{t('Loading reviews...')}</div>
   }
 
   if (error) {
     return (
       <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-secondary)' }}>
-        <p>Failed to load reviews</p>
-        <button className="btn-page" onClick={() => loadReviews(1)} style={{ marginTop: '12px', background: 'var(--accent)', color: '#000', fontWeight: '600', padding: '6px 16px', borderRadius: '8px', border: 'none', cursor: 'pointer' }}>Retry</button>
+        <p>{t('Failed to load reviews')}</p>
+        <button className="btn-page" onClick={() => loadReviews(1)} style={{ marginTop: '12px', background: 'var(--accent)', color: '#000', fontWeight: '600', padding: '6px 16px', borderRadius: '8px', border: 'none', cursor: 'pointer' }}>{t('Retry')}</button>
       </div>
     )
   }
 
   if (reviews.length === 0) {
-    return <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-secondary)' }}>No reviews yet</div>
+    return <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-secondary)' }}>{t('No reviews yet')}</div>
   }
 
   return (
@@ -417,8 +421,8 @@ function UserReviewsTab({ userId }) {
           <ReviewPost key={review.id} review={review} onOpenMediaModal={handleOpenMediaModal} />
         ))}
         <div ref={sentinelRef} style={{ height: '1px' }} />
-        {loadingMore && <div style={{ textAlign: 'center', padding: '20px', color: 'var(--text-muted)', fontSize: '0.85rem' }}>Loading more...</div>}
-        {!hasMore && <div style={{ textAlign: 'center', padding: '20px', color: 'var(--text-muted)', fontSize: '0.85rem' }}>End of reviews</div>}
+        {loadingMore && <div style={{ textAlign: 'center', padding: '20px', color: 'var(--text-muted)', fontSize: '0.85rem' }}>{t('Loading more...')}</div>}
+        {!hasMore && <div style={{ textAlign: 'center', padding: '20px', color: 'var(--text-muted)', fontSize: '0.85rem' }}>{t('End of reviews')}</div>}
       </div>
       {selectedMedia && <DetailModal item={selectedMedia} onClose={() => setSelectedMedia(null)} />}
     </>
@@ -426,6 +430,7 @@ function UserReviewsTab({ userId }) {
 }
 
 function WatchlistTab() {
+  const { t } = useTranslation()
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
   const [selectedItem, setSelectedItem] = useState(null)
@@ -439,31 +444,31 @@ function WatchlistTab() {
         const { data } = await watchlistApi.getWatchlist()
         if (active) setItems(data.items || [])
       } catch {
-        if (active) toastError('Failed to load watchlist')
+        if (active) toastError(t('Failed to load watchlist'))
       } finally {
         if (active) setLoading(false)
       }
     })()
     return () => { active = false }
-  }, [toastError])
+  }, [toastError, t])
 
   const handleRemove = useCallback(async (ratingKey) => {
     try {
       await watchlistApi.removeFromWatchlist(ratingKey)
       setItems(prev => prev.filter(item => item.ratingKey !== ratingKey))
-      toastSuccess('Removed from watchlist')
+      toastSuccess(t('Removed from watchlist'))
     } catch {
-      toastError('Failed to remove from watchlist')
+      toastError(t('Failed to remove from watchlist'))
     }
-  }, [toastSuccess, toastError])
+  }, [toastSuccess, toastError, t])
 
-  if (loading) return <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-secondary)' }}>Loading watchlist...</div>
+  if (loading) return <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-secondary)' }}>{t('Loading watchlist...')}</div>
 
   if (items.length === 0) {
     return (
       <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-secondary)' }}>
-        <p>Nothing saved yet.</p>
-        <button className="btn-page" onClick={() => navigate('/')} style={{ marginTop: '12px', background: 'var(--accent)', color: '#000', fontWeight: '600', padding: '6px 16px', borderRadius: '8px', border: 'none', cursor: 'pointer' }}>Browse Recommendations</button>
+        <p>{t('Nothing saved yet.')}</p>
+        <button className="btn-page" onClick={() => navigate('/')} style={{ marginTop: '12px', background: 'var(--accent)', color: '#000', fontWeight: '600', padding: '6px 16px', borderRadius: '8px', border: 'none', cursor: 'pointer' }}>{t('Browse Recommendations')}</button>
       </div>
     )
   }
@@ -482,7 +487,7 @@ function WatchlistTab() {
                 {item.year && <span className="card-year">{item.year}</span>}
                 {item.audienceRating && <span className="card-rating">★ {item.audienceRating.toFixed(1)}</span>}
               </div>
-              <button className="wl-remove-btn" onClick={() => handleRemove(item.ratingKey)}>✕ Remove</button>
+              <button className="wl-remove-btn" onClick={() => handleRemove(item.ratingKey)}>{t('✕ Remove')}</button>
             </div>
           </div>
         ))}
@@ -493,6 +498,7 @@ function WatchlistTab() {
 }
 
 function BlacklistTab() {
+  const { t } = useTranslation()
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
   const [selectedItem, setSelectedItem] = useState(null)
@@ -506,13 +512,13 @@ function BlacklistTab() {
         const { data } = await blacklistApi.getBlacklist()
         if (active) setItems(data.items || [])
       } catch {
-        if (active) toastError('Failed to load blacklist')
+        if (active) toastError(t('Failed to load blacklist'))
       } finally {
         if (active) setLoading(false)
       }
     })()
     return () => { active = false }
-  }, [toastError])
+  }, [toastError, t])
 
   const handleRemove = useCallback(async (item) => {
     try {
@@ -525,11 +531,11 @@ function BlacklistTab() {
         if (item.source === 'library') return prev.filter(i => i.ratingKey !== item.ratingKey)
         return prev.filter(i => i.tmdbId !== item.tmdbId || i.mediaType !== item.mediaType)
       })
-      toastSuccess('Removed from blacklist')
+      toastSuccess(t('Removed from blacklist'))
     } catch {
-      toastError('Failed to remove from blacklist')
+      toastError(t('Failed to remove from blacklist'))
     }
-  }, [toastSuccess, toastError])
+  }, [toastSuccess, toastError, t])
 
   const handleOpenModal = useCallback((item) => {
     setSelectedItem({
@@ -544,13 +550,13 @@ function BlacklistTab() {
     })
   }, [])
 
-  if (loading) return <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-secondary)' }}>Loading blacklist...</div>
+  if (loading) return <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-secondary)' }}>{t('Loading blacklist...')}</div>
 
   if (items.length === 0) {
     return (
       <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-secondary)' }}>
-        <p>Nothing blacklisted yet.</p>
-        <button className="btn-page" onClick={() => navigate('/')} style={{ marginTop: '12px', background: 'var(--accent)', color: '#000', fontWeight: '600', padding: '6px 16px', borderRadius: '8px', border: 'none', cursor: 'pointer' }}>Browse Recommendations</button>
+        <p>{t('Nothing blacklisted yet.')}</p>
+        <button className="btn-page" onClick={() => navigate('/')} style={{ marginTop: '12px', background: 'var(--accent)', color: '#000', fontWeight: '600', padding: '6px 16px', borderRadius: '8px', border: 'none', cursor: 'pointer' }}>{t('Browse Recommendations')}</button>
       </div>
     )
   }
@@ -569,7 +575,7 @@ function BlacklistTab() {
                 {item.year && <span className="card-year">{item.year}</span>}
                 <span className={'type-badge type-' + item.type}>{item.type === 'movie' ? 'Movie' : 'TV'}</span>
               </div>
-              <button className="bl-remove-btn" onClick={() => handleRemove(item)}>✕ Remove</button>
+              <button className="bl-remove-btn" onClick={() => handleRemove(item)}>{t('✕ Remove')}</button>
             </div>
           </div>
         ))}

@@ -6,6 +6,7 @@ import StarsDisplay from './StarsDisplay'
 import ShareButton from './ShareButton'
 import ReviewComments from './ReviewComments'
 import { posterUrl } from '../utils/media'
+import { useTranslation } from 'react-i18next'
 
 function fmtTime(ts) {
   if (!ts) return ''
@@ -34,6 +35,7 @@ function Avatar({ src, name, size = '36px' }) {
 }
 
 function MediaPoster({ posterUrl, title }) {
+  const { t } = useTranslation()
   const [error, setError] = useState(false)
   return (
     <div
@@ -52,7 +54,7 @@ function MediaPoster({ posterUrl, title }) {
         />
       ) : (
         <div style={{ width: '100%', height: '120px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-          No poster
+          {t('No poster')}
         </div>
       )}
     </div>
@@ -60,6 +62,7 @@ function MediaPoster({ posterUrl, title }) {
 }
 
 export default function ReviewPost({ review, onOpenMediaModal }) {
+  const { t } = useTranslation()
   const { user } = useAuth()
   const { error: toastError } = useToast()
   const [reacted, setReacted] = useState(review.hasReacted || false)
@@ -86,11 +89,11 @@ export default function ReviewPost({ review, onOpenMediaModal }) {
     } catch (e) {
       setReacted(prevReacted)
       setReactionCount(prevCount)
-      toastError(e?.message || 'Failed to toggle reaction')
+      toastError(e?.message || t('Failed to toggle reaction'))
     } finally {
       setReacting(false)
     }
-  }, [review.id, reacting, reacted, reactionCount, toastError])
+  }, [review.id, reacting, reacted, reactionCount, toastError, t])
 
   const handleFollowToggle = useCallback(async () => {
     if (followingBtnLoading || review.isOwn) return
@@ -105,11 +108,11 @@ export default function ReviewPost({ review, onOpenMediaModal }) {
       }
     } catch (e) {
       setFollowing(prevFollowing)
-      toastError(e?.message || 'Failed to update follow status')
+      toastError(e?.message || t('Failed to update follow status'))
     } finally {
       setFollowingBtnLoading(false)
     }
-  }, [review.userId, review.isOwn, followingBtnLoading, following, toastError])
+  }, [review.userId, review.isOwn, followingBtnLoading, following, toastError, t])
 
   const handleCommentCountChange = useCallback((delta) => {
     setCommentCount(prev => Math.max(0, prev + delta))
@@ -149,7 +152,7 @@ export default function ReviewPost({ review, onOpenMediaModal }) {
             </a>
             {isOwn && (
               <span style={{ fontSize: '0.65rem', background: 'var(--accent-dim)', color: 'var(--accent)', padding: '1px 6px', borderRadius: '10px', fontWeight: '500' }}>
-                You
+                {t('You')}
               </span>
             )}
           </div>
@@ -225,9 +228,9 @@ export default function ReviewPost({ review, onOpenMediaModal }) {
                 type="button"
                 className="review-spoiler-reveal"
                 onClick={() => setRevealed(true)}
-                aria-label="Reveal spoiler — this review contains spoilers"
+                aria-label={t('Reveal spoiler — this review contains spoilers')}
               >
-                <span aria-hidden="true">👁</span> Reveal spoiler
+                <span aria-hidden="true">👁</span> {t('Reveal spoiler')}
               </button>
             )}
             {review.spoiler && revealed && (
@@ -236,7 +239,7 @@ export default function ReviewPost({ review, onOpenMediaModal }) {
                 className="review-spoiler-hide"
                 onClick={() => setRevealed(false)}
               >
-                Hide spoiler
+                {t('Hide spoiler')}
               </button>
             )}
           </div>
@@ -244,12 +247,12 @@ export default function ReviewPost({ review, onOpenMediaModal }) {
         <div style={{ display: 'flex', gap: '6px', marginTop: '8px' }}>
           {review.spoiler && (
             <span style={{ fontSize: '0.7rem', background: 'rgba(248,113,113,0.15)', color: '#f87171', padding: '2px 8px', borderRadius: '4px', fontWeight: '500' }}>
-              Spoiler
+              {t('Spoiler')}
             </span>
           )}
           {review.rewatch && (
             <span style={{ fontSize: '0.7rem', background: 'rgba(52,211,153,0.15)', color: '#34d399', padding: '2px 8px', borderRadius: '4px', fontWeight: '500' }}>
-              Would Rewatch
+              {t('Would Rewatch')}
             </span>
           )}
         </div>

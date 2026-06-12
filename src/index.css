@@ -1,6 +1,7 @@
 @import './style.css';
 @import './admin.css';
 @import './discover.css';
+@import './effects.css';
 
 .toast-container {
   position: fixed;

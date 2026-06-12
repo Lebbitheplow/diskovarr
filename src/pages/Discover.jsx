@@ -9,10 +9,12 @@ import DetailModal from '../components/DetailModal'
 import { useToast } from '../context/ToastContext'
 import FilterControls from '../components/FilterControls'
 import { SCORE_VALUES, FACET_FIELDS } from '../components/filterConstants'
+import { useTranslation } from 'react-i18next'
 
 const emptyTags = () => Object.fromEntries(FACET_FIELDS.map(f => [f.field, new Set()]))
 
 export default function Discover() {
+  const { t } = useTranslation()
   const { error: toastError, success: toastSuccess } = useToast()
 
   const [type, setType] = useState('all')
@@ -93,12 +95,12 @@ export default function Discover() {
       setTotalResults(data.total || 0)
       setAvailableContentRatings(data.availableContentRatings || [])
     } catch (e) {
-      toastError('Failed to load results')
+      toastError(t('Failed to load results'))
     } finally {
       loadingRef.current = false
       setLoading(false)
     }
-  }, [type, decade, minScore, sort, tags, filterContentRatings, year, releaseFrom, releaseTo, durationMin, durationMax, search, page, toastError])
+  }, [type, decade, minScore, sort, tags, filterContentRatings, year, releaseFrom, releaseTo, durationMin, durationMax, search, page, toastError, t])
 
   useEffect(() => {
     ;(async () => { await loadWatchlist() })()
@@ -177,16 +179,16 @@ export default function Discover() {
       if (isInWatchlist) {
         await watchlistApi.removeFromWatchlist(ratingKey)
         setWatchlistCache(prev => { const next = { ...prev }; delete next[ratingKey]; return next })
-        toastSuccess('Removed from watchlist')
+        toastSuccess(t('Removed from watchlist'))
       } else {
         await watchlistApi.addToWatchlist(ratingKey)
         setWatchlistCache(prev => ({ ...prev, [ratingKey]: true }))
-        toastSuccess('Added to watchlist')
+        toastSuccess(t('Added to watchlist'))
       }
     } catch (e) {
-      toastError(e.message || 'Watchlist action failed')
+      toastError(e.message || t('Watchlist action failed'))
     }
-  }, [watchlistCache, toastSuccess, toastError])
+  }, [watchlistCache, toastSuccess, toastError, t])
 
   const handleDismiss = useCallback(async (item) => {
     try {
@@ -194,11 +196,11 @@ export default function Discover() {
       const key = item.ratingKey
       setResults(prev => prev.filter(i => i.ratingKey !== key))
       setTotalResults(prev => prev - 1)
-      toastSuccess('Not interested')
+      toastSuccess(t('Not interested'))
     } catch (e) {
-      toastError('Dismiss failed')
+      toastError(t('Dismiss failed'))
     }
-  }, [toastSuccess, toastError])
+  }, [toastSuccess, toastError, t])
 
   const handleOpenModal = useCallback((item) => setSelectedItem(item), [])
 
@@ -212,9 +214,9 @@ export default function Discover() {
             <line x1="4" y1="8" x2="12" y2="8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
             <line x1="6" y1="12" x2="10" y2="12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
           </svg>
-          Filter
+          {t('Filter')}
         </h1>
-        <p className="hero-sub">Browse and filter your entire library</p>
+        <p className="hero-sub">{t('Browse and filter your entire library')}</p>
       </div>
 
       <FilterControls
@@ -236,7 +238,7 @@ export default function Discover() {
       {totalResults > 0 && (
         <div className="discover-results-header" id="results-header">
           <span id="results-count" className="results-count">
-            {totalResults.toLocaleString()} result{totalResults !== 1 ? 's' : ''}
+            {totalResults.toLocaleString()} {totalResults !== 1 ? t('results') : t('result')}
           </span>
         </div>
       )}
@@ -245,12 +247,12 @@ export default function Discover() {
         {initialLoad ? (
           <div className="discover-empty" id="discover-initial">
             <div className="discover-empty-icon">◈</div>
-            <p>Set your filters above and results will appear here</p>
+            <p>{t('Set your filters above and results will appear here')}</p>
           </div>
         ) : results.length === 0 ? (
           <div className="discover-empty">
             <div className="discover-empty-icon">◈</div>
-            <p>No results match your filters</p>
+            <p>{t('No results match your filters')}</p>
           </div>
         ) : (
           results.map(item => (
@@ -270,7 +272,7 @@ export default function Discover() {
       {page < totalPages && (
         <div id="load-more-wrap" style={{ textAlign: 'center', padding: '32px 0' }}>
           <button className="btn-load-more" id="btn-load-more" onClick={handleLoadMore} disabled={loading}>
-            Load more
+            {t('Load more')}
           </button>
         </div>
       )}

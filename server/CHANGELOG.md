@@ -4,6 +4,21 @@ All notable changes are documented here. Versioning follows [Semantic Versioning
 
 ---
 
+## v2.3.0 — 2026-06-12
+
+### Added
+
+- **UI localization** — full interface translation for Spanish, French, German, and Portuguese. Users can select their language in settings; English remains the default.
+- **Automation tab** — new admin panel tab for automating library management. Create rules to auto-request content by genre, rating, or keyword; maintain Plex collections on a schedule; and set up deletion profiles that clean up stale or unwatched requests automatically.
+
+### Improved
+
+- **Health endpoint** — new `/health` route for external monitoring, load balancers, and orchestrators to verify instance liveness.
+- **Graceful shutdown** — the server now drains active connections and flushes pending writes before exiting, preventing data corruption on restarts and deployments.
+- **Automated DB backups** — configurable scheduled backups of the SQLite database with retention policies to protect against data loss.
+
+---
+
 ## v2.2.2 — 2026-06-11
 
 A patch release with security hardening and internal code improvements.

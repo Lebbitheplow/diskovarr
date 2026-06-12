@@ -1,4 +1,5 @@
 import React, { memo } from 'react'
+import { useTranslation } from 'react-i18next'
 import Carousel from './Carousel'
 import { posterUrl } from '../utils/media'
 import { formatReleaseDate } from '../utils/format'
@@ -10,6 +11,7 @@ const ExploreCard = memo(function ExploreCard({
   item, inWatchlist, upcoming,
   onOpenModal, onToggleWatchlist, onNotify, onRequest, onDismiss,
 }) {
+  const { t } = useTranslation()
   const isFutureRelease = item.releaseDate && item.releaseDate > new Date().toISOString().slice(0, 10)
   return (
     <div key={item.tmdbId + item.mediaType} className="card" data-tmdb-id={item.tmdbId} data-adult={item.adult ? 'true' : undefined} data-request-tmdb={item.tmdbId} onClick={() => onOpenModal(item)}>
@@ -17,8 +19,8 @@ const ExploreCard = memo(function ExploreCard({
         {item.posterUrl && <img className="card-poster" src={posterUrl(item.posterUrl)} alt={item.title} loading="lazy" />}
         <div className="card-poster-placeholder">{item.title?.charAt(0) || '?'}</div>
         {(upcoming || isFutureRelease)
-          ? <span className={'badge-upcoming-card' + (item.badgeRequested ? ' badge-requested' : '')}>{item.badgeRequested ? 'Requested' : 'Coming Soon'}</span>
-          : <span className={'badge-not-in-library' + (item.badgeRequested ? ' badge-requested' : '')}>{item.badgeRequested ? 'Requested' : 'Not in Library'}</span>}
+          ? <span className={'badge-upcoming-card' + (item.badgeRequested ? ' badge-requested' : '')}>{item.badgeRequested ? t('Requested') : t('Coming Soon')}</span>
+          : <span className={'badge-not-in-library' + (item.badgeRequested ? ' badge-requested' : '')}>{item.badgeRequested ? t('Requested') : t('Not in Library')}</span>}
         <div className="card-overlay">
           <div className="card-overlay-actions">
             {item.ratingKey && (
@@ -26,7 +28,7 @@ const ExploreCard = memo(function ExploreCard({
                 className={'btn-icon btn-watchlist' + (inWatchlist ? ' in-watchlist' : '')}
                 onClick={(e) => { e.stopPropagation(); onToggleWatchlist(item) }}
               >
-                {inWatchlist ? '✓ In Watchlist' : '+ Watchlist'}
+                {inWatchlist ? '✓ ' + t('In Watchlist') : '+ ' + t('Watchlist')}
               </button>
             )}
             {!item.ratingKey && (
@@ -35,7 +37,7 @@ const ExploreCard = memo(function ExploreCard({
                 onClick={(e) => { e.stopPropagation(); !item.isMyRequest && (item.isRequested ? onNotify(item) : onRequest(item)) }}
                 disabled={item.isMyRequest}
               >
-                {item.isMyRequest ? 'Requested ✓' : (item.isRequested ? 'Notify Me' : 'Request')}
+                {item.isMyRequest ? t('Requested') + ' ✓' : (item.isRequested ? t('Notify Me') : t('Request'))}
               </button>
             )}
             {!item.badgeRequested && (
@@ -68,12 +70,13 @@ function ExploreSection({
   id, title, badge, badgeClass, items, upcoming = false, watchlistCache,
   onOpenModal, onToggleWatchlist, onNotify, onRequest, onDismiss,
 }) {
+  const { t } = useTranslation()
   if (!items || items.length === 0) return null
   return (
     <section className="section" id={id}>
       <div className="section-header">
-        <h2 className="section-title">{title}</h2>
-        {badge && <span className={'section-badge' + (badgeClass ? ' ' + badgeClass : '')}>{badge}</span>}
+        <h2 className="section-title">{t(title)}</h2>
+        {badge && <span className={'section-badge' + (badgeClass ? ' ' + badgeClass : '')}>{t(badge)}</span>}
       </div>
       <Carousel>
         {items.map(item => (

@@ -15,8 +15,10 @@ import Modal from '../components/Modal'
 import { useToast } from '../context/ToastContext'
 import { useAuth } from '../context/AuthContext'
 import { posterUrl } from '../utils/media'
+import { useTranslation } from 'react-i18next'
 
 export default function Search() {
+  const { t } = useTranslation()
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
   const { error: toastError, success: toastSuccess } = useToast()
@@ -120,11 +122,11 @@ export default function Search() {
       setAvailableGenres(data.availableGenres || [])
     } catch {
       if (seq !== searchSeqRef.current) return
-      toastError('Search failed. Please try again.')
+      toastError(t('Search failed. Please try again.'))
     } finally {
       if (seq === searchSeqRef.current) setLoading(false)
     }
-  }, [toastError])
+  }, [toastError, t])
 
   // Refetch when query, genre, or any filter changes — reset to page 1
   useEffect(() => {
@@ -259,16 +261,16 @@ export default function Search() {
       if (isInWatchlist) {
         await watchlistApi.removeFromWatchlist(ratingKey)
         setWatchlistCache(prev => { const next = { ...prev }; delete next[ratingKey]; return next })
-        toastSuccess('Removed from watchlist')
+        toastSuccess(t('Removed from watchlist'))
       } else {
         await watchlistApi.addToWatchlist(ratingKey)
         setWatchlistCache(prev => ({ ...prev, [ratingKey]: true }))
-        toastSuccess('Added to watchlist')
+        toastSuccess(t('Added to watchlist'))
       }
     } catch (e) {
-      toastError(e.message || 'Watchlist action failed')
+      toastError(e.message || t('Watchlist action failed'))
     }
-  }, [watchlistCache, toastSuccess, toastError])
+  }, [watchlistCache, toastSuccess, toastError, t])
 
   const handleOpenModal = useCallback((item) => {
     setSelectedItem(item)
@@ -337,13 +339,13 @@ export default function Search() {
         service: service || services.defaultService || 'overseerr',
         seasons: seasons,
       })
-      toastSuccess('Request submitted for ' + requestItem.title)
+      toastSuccess(t('Request submitted for ') + requestItem.title)
       setRequestItem(null)
       setSelectedSeasons(['all'])
     } catch (e) {
-      toastError(e.message || 'Request failed')
+      toastError(e.message || t('Request failed'))
     }
-  }, [requestItem, selectedSeasons, toastSuccess, toastError, services])
+  }, [requestItem, selectedSeasons, toastSuccess, toastError, services, t])
 
   useEffect(() => {
     if (!requestItem) return
@@ -355,7 +357,7 @@ export default function Search() {
       <div className="search-page-header">
         <button
           className="search-back-btn"
-          aria-label="Back"
+          aria-label={t('Back')}
           onClick={() => {
             if (history.length > 1) history.back()
             else navigate('/')
@@ -364,7 +366,7 @@ export default function Search() {
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none" width="16" height="16" aria-hidden="true">
             <path d="M12 4L6 10L12 16" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
-          Back
+          {t('Back')}
         </button>
         <div className="search-page-query-wrap">
           <form className="search-page-form" onSubmit={handleSubmit} autocomplete="off">
@@ -381,7 +383,7 @@ export default function Search() {
                 value={inputValue}
                 onChange={handleInputChange}
                 onKeyDown={handleKeyDown}
-                placeholder="Search movies & TV shows…"
+                placeholder={t('Search movies & TV shows…')}
                 spellcheck="false"
                 autoFocus
               />
@@ -392,7 +394,7 @@ export default function Search() {
                   params.delete('q'); params.delete('selectedTmdbId'); params.delete('selectedType')
                   params.delete('personId'); params.delete('personName')
                   navigate('/search' + (params.toString() ? '?' + params.toString() : ''))
-                }} aria-label="Clear">✕</button>
+                }} aria-label={t('Clear')}>✕</button>
               )}
               {suggestions.length > 0 && showSuggestions && (
                 <div className="search-page-dropdown open">
@@ -457,7 +459,7 @@ export default function Search() {
           {urlGenre && (
             <div className="genre-filter-badge">
               <span>Genre: {urlGenre}</span>
-              <button onClick={handleClearGenre} aria-label="Clear genre filter">×</button>
+              <button onClick={handleClearGenre} aria-label={t('Clear genre filter')}>×</button>
             </div>
           )}
         </div>
@@ -499,7 +501,7 @@ export default function Search() {
                     )}
                     <div className="card-poster-placeholder">{item.title?.charAt(0) || '?'}</div>
                     {item.inLibrary ? (
-                      <span className="badge-in-library">In Library</span>
+                      <span className="badge-in-library">{t('In Library')}</span>
                     ) : item.releaseDate && item.releaseDate > new Date().toISOString().slice(0, 10) ? (
                       <span className={'badge-upcoming-card' + (item.isRequested ? ' badge-requested' : '')}>
                         {item.isRequested ? 'Requested' : 'Coming Soon'}
@@ -510,7 +512,7 @@ export default function Search() {
                       </span>
                     )}
                     {item.isWatched && (
-                      <div className="card-watched-badge" title="Watched">
+                      <div className="card-watched-badge" title={t('Watched')}>
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" width="12" height="12">
                           <polyline points="20 6 9 17 4 12" />
                         </svg>
@@ -559,7 +561,7 @@ export default function Search() {
                   )}
                   <div className="card-poster-placeholder">{item.title?.charAt(0) || '?'}</div>
                   {item.inLibrary ? (
-                    <span className="badge-in-library">In Library</span>
+                    <span className="badge-in-library">{t('In Library')}</span>
                   ) : item.releaseDate && item.releaseDate > new Date().toISOString().slice(0, 10) ? (
                     <span className={'badge-upcoming-card' + (item.isRequested ? ' badge-requested' : '')}>
                       {item.isRequested ? 'Requested' : 'Coming Soon'}
@@ -570,7 +572,7 @@ export default function Search() {
                     </span>
                   )}
                   {item.isWatched && (
-                    <div className="card-watched-badge" title="Watched">
+                    <div className="card-watched-badge" title={t('Watched')}>
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" width="12" height="12">
                         <polyline points="20 6 9 17 4 12" />
                       </svg>
@@ -637,7 +639,7 @@ export default function Search() {
                     )}
                     <div className="card-poster-placeholder">{item.title?.charAt(0) || '?'}</div>
                     {item.inLibrary ? (
-                      <span className="badge-in-library">In Library</span>
+                      <span className="badge-in-library">{t('In Library')}</span>
                     ) : item.releaseDate && item.releaseDate > new Date().toISOString().slice(0, 10) ? (
                       <span className={'badge-upcoming-card' + (item.isRequested ? ' badge-requested' : '')}>
                         {item.isRequested ? 'Requested' : 'Coming Soon'}
@@ -648,7 +650,7 @@ export default function Search() {
                       </span>
                     )}
                     {item.isWatched && (
-                      <div className="card-watched-badge" title="Watched">
+                      <div className="card-watched-badge" title={t('Watched')}>
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" width="12" height="12">
                           <polyline points="20 6 9 17 4 12" />
                         </svg>
@@ -697,7 +699,7 @@ export default function Search() {
       {similarSourceTitle && (
         <section className="section" id="section-more-like-this">
           <div className="section-header">
-            <h2 className="section-title">More Like This</h2>
+            <h2 className="section-title">{t('More Like This')}</h2>
             <span className="section-badge">
               Showing recommendations for: {similarSourceTitle}
             </span>
@@ -714,7 +716,7 @@ export default function Search() {
                     )}
                     <div className="card-poster-placeholder">{item.title?.charAt(0) || '?'}</div>
                     {item.inLibrary ? (
-                      <span className="badge-in-library">In Library</span>
+                      <span className="badge-in-library">{t('In Library')}</span>
                     ) : item.releaseDate && item.releaseDate > new Date().toISOString().slice(0, 10) ? (
                       <span className={'badge-upcoming-card' + (item.isRequested ? ' badge-requested' : '')}>
                         {item.isRequested ? 'Requested' : 'Coming Soon'}
@@ -725,7 +727,7 @@ export default function Search() {
                       </span>
                     )}
                     {item.isWatched && (
-                      <div className="card-watched-badge" title="Watched">
+                      <div className="card-watched-badge" title={t('Watched')}>
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" width="12" height="12">
                           <polyline points="20 6 9 17 4 12" />
                         </svg>
@@ -770,7 +772,7 @@ export default function Search() {
       {page < totalPages && displayResults.length > 0 && (
         <div id="search-load-more-wrap" style={{ display: 'text-align: center', padding: '32px 0' }}>
           <button className="btn-load-more" id="btn-search-load-more" onClick={handleLoadMore} disabled={loading}>
-            Load more
+            {t('Load more')}
           </button>
         </div>
       )}
@@ -808,7 +810,7 @@ export default function Search() {
             </p>
             {requestItem.mediaType === 'tv' && seasons.length > 0 && (
               <div style={{ marginBottom: '16px' }}>
-                <label style={{ display: 'block', fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: '5px' }}>Seasons</label>
+                <label style={{ display: 'block', fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: '5px' }}>{t('Seasons')}</label>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
                   <button
                     type="button"
@@ -816,7 +818,7 @@ export default function Search() {
                     style={{ border: '1px solid var(--border)', cursor: 'pointer' }}
                     onClick={() => setSelectedSeasons(['all'])}
                   >
-                    All
+                    {t('All')}
                   </button>
                   {seasons.map(s => (
                     <button
@@ -868,7 +870,7 @@ export default function Search() {
                         }}
                         id="request-adv-toggle"
                       >
-                        Advanced ▸
+                        {t('Advanced ▸')}
                       </button>
                       <div id="request-adv-panel" style={{ display: 'none', marginTop: '8px' }}>
                         {altOptions.map(opt => (
@@ -886,9 +888,9 @@ export default function Search() {
                     </div>
                   )}
                   <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '16px' }}>
-                    <button className="chip-sm" onClick={() => setRequestItem(null)}>Cancel</button>
+                    <button className="chip-sm" onClick={() => setRequestItem(null)}>{t('Cancel')}</button>
                     <button className="chip-sm" style={{ background: 'var(--accent)', color: '#000', fontWeight: '600', border: 'none' }} onClick={() => handleSubmitRequest(defaultSvc)}>
-                      Request
+                      {t('Request')}
                     </button>
                   </div>
                 </>

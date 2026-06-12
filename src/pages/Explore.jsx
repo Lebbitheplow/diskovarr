@@ -14,6 +14,7 @@ import ToggleSwitch from '../components/ToggleSwitch'
 import Modal from '../components/Modal'
 import { useToast } from '../context/ToastContext'
 import { useAuth } from '../context/AuthContext'
+import { useTranslation } from 'react-i18next'
 
 const GENRE_META = {
   'Action':          { gradient: 'linear-gradient(145deg, #7f1d1d 0%, #c2410c 60%, #ea580c 100%)', emoji: '💥' },
@@ -40,6 +41,7 @@ const GENRES = Object.keys(GENRE_META)
 const MATURE_RATINGS = new Set(['r', 'tv-ma', 'nc-17', 'x', 'nr'])
 
 export default function Explore() {
+  const { t } = useTranslation()
   const { error: toastError, success: toastSuccess } = useToast()
   const { user } = useAuth()
   const isAdmin = !!(user?.isAdmin)
@@ -127,11 +129,11 @@ export default function Explore() {
       if (seq !== fetchSeqRef.current) return
       setBuilding(false)
       setPolling(false)
-      toastError('Failed to load recommendations')
+      toastError(t('Failed to load recommendations'))
     } finally {
       if (seq === fetchSeqRef.current) setLoading(false)
     }
-  }, [matureEnabled, hideRequested, toastError])
+  }, [matureEnabled, hideRequested, toastError, t])
 
   useEffect(() => {
     ;(async () => {
@@ -194,16 +196,16 @@ export default function Explore() {
       if (isInWatchlist) {
         await watchlistApi.removeFromWatchlist(ratingKey)
         setWatchlistCache(prev => { const next = { ...prev }; delete next[ratingKey]; return next })
-        toastSuccess('Removed from watchlist')
+        toastSuccess(t('Removed from watchlist'))
       } else {
         await watchlistApi.addToWatchlist(ratingKey)
         setWatchlistCache(prev => ({ ...prev, [ratingKey]: true }))
-        toastSuccess('Added to watchlist')
+        toastSuccess(t('Added to watchlist'))
       }
     } catch (e) {
-      toastError(e.message || 'Watchlist action failed')
+      toastError(e.message || t('Watchlist action failed'))
     }
-  }, [watchlistCache, toastSuccess, toastError])
+  }, [watchlistCache, toastSuccess, toastError, t])
 
   const handleNotify = useCallback(async (item) => {
     try {
@@ -227,11 +229,11 @@ export default function Explore() {
           upcomingTV: updateItem(prev.upcomingTV || []),
         }
       })
-      toastSuccess('You\'ll be notified when ' + item.title + ' is available')
+      toastSuccess(t("You'll be notified when {{title}} is available", { title: item.title }))
     } catch (e) {
-      toastError('Notify failed')
+      toastError(t('Notify failed'))
     }
-  }, [toastSuccess, toastError])
+  }, [toastSuccess, toastError, t])
 
   const handleDismiss = useCallback(async (item) => {
     try {
@@ -251,11 +253,11 @@ export default function Explore() {
           upcomingTV: filterItems(prev.upcomingTV || []),
         }
       })
-      toastSuccess('Not interested')
+      toastSuccess(t('Not interested'))
     } catch (e) {
-      toastError('Dismiss failed')
+      toastError(t('Dismiss failed'))
     }
-  }, [toastSuccess, toastError])
+  }, [toastSuccess, toastError, t])
 
   const openRequestDialog = useCallback((item) => {
     setRequestItem(item)
@@ -288,7 +290,7 @@ export default function Explore() {
         service: service || services.defaultService || 'overseerr',
         seasons: seasons,
       })
-      toastSuccess('Request submitted for ' + requestItem.title)
+      toastSuccess(t('Request submitted for {{title}}', { title: requestItem.title }))
       setRequestItem(null)
       setSelectedSeasons(['all'])
       setRecommendations(prev => {
@@ -314,7 +316,7 @@ export default function Explore() {
       const msg = e.response?.data?.error || e.response?.data?.message || e.message || 'Request failed'
       toastError(msg)
     }
-  }, [requestItem, selectedSeasons, toastSuccess, toastError, services])
+  }, [requestItem, selectedSeasons, toastSuccess, toastError, services, t])
 
   const handleSeasonsFetch = useCallback(async (tmdbId) => {
     try {
@@ -373,8 +375,8 @@ export default function Explore() {
       <main className="main-content">
         {building && (
           <div style={{ padding: '28px 24px 20px', maxWidth: '480px', margin: '0 auto' }}>
-            <p style={{ color: 'var(--text-primary)', fontWeight: 600, marginBottom: '6px' }}>Building your recommendations…</p>
-            <p style={{ color: 'var(--text-secondary)', fontSize: '0.82rem', marginBottom: '14px' }}>Analyzing your watch history and preferences. This takes a few minutes on first run.</p>
+            <p style={{ color: 'var(--text-primary)', fontWeight: 600, marginBottom: '6px' }}>{t('Building your recommendations…')}</p>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.82rem', marginBottom: '14px' }}>{t('Analyzing your watch history and preferences. This takes a few minutes on first run.')}</p>
             <div style={{ background: 'var(--bg-secondary)', borderRadius: '999px', height: '8px', overflow: 'hidden', border: '1px solid var(--border)' }}>
               <div style={{ height: '100%', width: `${buildProgress}%`, background: 'var(--accent)', borderRadius: '999px', transition: 'width 1s linear' }} />
             </div>
@@ -382,25 +384,25 @@ export default function Explore() {
           </div>
         )}
         <div className="hero">
-          <h1 className="hero-title">Diskovarr <span className="accent">Requests</span></h1>
-          <p className="hero-sub">Everything here is <strong>not yet in the library</strong> — picked for your taste based on your watch history.</p>
+          <h1 className="hero-title">Diskovarr <span className="accent">{t('Requests')}</span></h1>
+          <p className="hero-sub">{t('Everything here is')} <strong>{t('not yet in the library')}</strong> — {t('picked for your taste based on your watch history.')}</p>
           <div className="hero-controls hero-controls-split">
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               <ToggleSwitch
                 checked={matureEnabled}
                 onChange={handleMatureChange}
-                label="Show mature content (R & TV-MA)"
+                label={t('Show mature content (R & TV-MA)')}
               />
               <ToggleSwitch
                 checked={hideRequested}
                 onChange={handleHideRequestedChange}
-                label="Hide requested"
+                label={t('Hide requested')}
               />
             </div>
             <button
               type="button"
               className="btn-shuffle-all"
-              title="Refresh picks"
+              title={t('Refresh picks')}
               onClick={handleShuffle}
               disabled={loading}
               style={{ transition: 'transform 0.4s ease', transform: loading ? 'rotate(360deg)' : '' }}
@@ -414,26 +416,26 @@ export default function Explore() {
           <>
             <section className="section" id="section-top-picks">
               <div className="section-header">
-                <h2 className="section-title">Top Picks for You</h2>
-                <span className="section-badge">Outside Your Library</span>
+                <h2 className="section-title">{t('Top Picks for You')}</h2>
+                <span className="section-badge">{t('Outside Your Library')}</span>
               </div>
               <SkeletonLoader count={12} rows={2} />
             </section>
             <section className="section" id="section-movies">
               <div className="section-header">
-                <h2 className="section-title">Movies</h2>
+                <h2 className="section-title">{t('Movies')}</h2>
               </div>
               <SkeletonLoader count={12} rows={2} />
             </section>
             <section className="section" id="section-tv">
               <div className="section-header">
-                <h2 className="section-title">TV Shows</h2>
+                <h2 className="section-title">{t('TV Shows')}</h2>
               </div>
               <SkeletonLoader count={12} rows={2} />
             </section>
             <section className="section" id="section-anime">
               <div className="section-header">
-                <h2 className="section-title">Anime</h2>
+                <h2 className="section-title">{t('Anime')}</h2>
               </div>
               <SkeletonLoader count={12} rows={2} />
             </section>
@@ -491,7 +493,7 @@ export default function Explore() {
 
             <section className="section" id="section-genre-browse">
               <div className="section-header">
-                <h2 className="section-title">Browse by Genre</h2>
+                <h2 className="section-title">{t('Browse by Genre')}</h2>
               </div>
               <Carousel variant="genre">
                 {GENRES.map((genre, idx) => {
@@ -505,7 +507,7 @@ export default function Explore() {
                     >
                       <span className="genre-tile-emoji">{meta.emoji}</span>
                       <div className="genre-tile-footer">
-                        <span className="genre-tile-name">{genre}</span>
+                        <span className="genre-tile-name">{t(genre)}</span>
                       </div>
                     </Link>
                   )
@@ -603,14 +605,14 @@ export default function Explore() {
         {requestItem && (
           <div>
             <h3 style={{ margin: '0 0 16px', fontSize: '1rem', fontWeight: '600' }}>
-              Request "{requestItem.title}"?
+              {t('Request \u201c{{title}}\u201d?', { title: requestItem.title })}
             </h3>
             <p style={{ color: 'var(--text-secondary)', fontSize: '0.88rem' }}>
-              {requestItem.year} · {requestItem.mediaType === 'movie' ? 'Movie' : 'TV Show'}
+              {requestItem.year} · {requestItem.mediaType === 'movie' ? t('Movie') : t('TV Show')}
             </p>
             {requestItem.mediaType === 'tv' && seasons.length > 0 && (
               <div style={{ marginBottom: '16px' }}>
-                <label style={{ display: 'block', fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: '5px' }}>Seasons</label>
+                <label style={{ display: 'block', fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: '5px' }}>{t('Seasons')}</label>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
                   <button
                     type="button"
@@ -618,7 +620,7 @@ export default function Explore() {
                     style={{ border: '1px solid var(--border)', cursor: 'pointer' }}
                     onClick={() => setSelectedSeasons(['all'])}
                   >
-                    All
+                    {t('All')}
                   </button>
                   {seasons.map(s => (
                     <button
@@ -665,12 +667,12 @@ export default function Explore() {
                           if (panel) {
                             const isOpen = panel.style.display !== 'none'
                             panel.style.display = isOpen ? 'none' : ''
-                            toggle.textContent = isOpen ? 'Advanced ▸' : 'Advanced ▾'
+                            toggle.textContent = isOpen ? t('Advanced') + ' ▸' : t('Advanced') + ' ▾'
                           }
                         }}
                         id="request-adv-toggle"
                       >
-                        Advanced ▸
+                        {t('Advanced')} ▸
                       </button>
                       <div id="request-adv-panel" style={{ display: 'none', marginTop: '8px' }}>
                         {altOptions.map(opt => (
@@ -681,16 +683,16 @@ export default function Explore() {
                             style={{ border: '1px solid var(--border)', cursor: 'pointer', width: '100%', marginBottom: '6px', textAlign: 'left' }}
                             onClick={() => handleSubmitRequest(opt.svc)}
                           >
-                            Send to {opt.name} instead
+                            {t('Send to {{name}} instead', { name: opt.name })}
                           </button>
                         ))}
                       </div>
                     </div>
                   )}
                   <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '16px' }}>
-                    <button className="chip-sm" onClick={() => setRequestItem(null)}>Cancel</button>
+                    <button className="chip-sm" onClick={() => setRequestItem(null)}>{t('Cancel')}</button>
                     <button className="chip-sm" style={{ background: 'var(--accent)', color: '#000', fontWeight: '600', border: 'none' }} onClick={() => handleSubmitRequest(defaultSvc)}>
-                      Request
+                      {t('Request')}
                     </button>
                   </div>
                 </>

@@ -5,6 +5,7 @@ import { AuthProvider } from './context/AuthContext'
 import { ThemeProvider } from './context/ThemeContext'
 import { ToastProvider } from './context/ToastContext'
 import App from './App'
+import './i18n'
 import './index.css'
 
 ReactDOM.createRoot(document.getElementById('root')).render(

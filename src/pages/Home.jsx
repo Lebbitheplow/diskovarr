@@ -14,6 +14,7 @@ import SkeletonLoader from '../components/SkeletonLoader'
 import ToggleSwitch from '../components/ToggleSwitch'
 import { useToast } from '../context/ToastContext'
 import { useAuth } from '../context/AuthContext'
+import { useTranslation } from 'react-i18next'
 
 const MATURE_RATINGS = new Set(['r', 'tv-ma', 'nc-17', 'x', 'nr'])
 
@@ -31,6 +32,7 @@ function setMatureEnabled(checked) {
 }
 
 export default function Home() {
+  const { t } = useTranslation()
   const [searchParams] = useSearchParams()
   const { error: toastError, success: toastSuccess } = useToast()
   const { user } = useAuth()
@@ -79,11 +81,11 @@ export default function Home() {
         }
       }
     } catch (e) {
-      toastError('Failed to load recommendations. Please refresh.')
+      toastError(t('Failed to load recommendations. Please refresh.'))
     } finally {
       setLoading(false)
     }
-  }, [toastError])
+  }, [toastError, t])
 
   useEffect(() => {
     ;(async () => { await fetchRecommendations(matureEnabled) })()
@@ -153,13 +155,13 @@ export default function Home() {
         await fetchRecommendations(matureEnabled)
       } catch (e) {
         setRecommendations(prev)
-        toastError('Failed to shuffle recommendations')
+        toastError(t('Failed to shuffle recommendations'))
       } finally {
         setShuffling(false)
         setMatureLoading(false)
       }
     }, 400)
-  }, [matureEnabled, recommendations, fetchRecommendations, toastError])
+  }, [matureEnabled, recommendations, fetchRecommendations, toastError, t])
 
   const handleMatureChange = useCallback((checked) => {
     setMatureEnabledState(checked)
@@ -177,16 +179,16 @@ export default function Home() {
       if (isInWatchlist) {
         await watchlistApi.removeFromWatchlist(ratingKey)
         setWatchlistCache(prev => { const next = { ...prev }; delete next[ratingKey]; return next })
-        toastSuccess('Removed from watchlist')
+        toastSuccess(t('Removed from watchlist'))
       } else {
         await watchlistApi.addToWatchlist(ratingKey)
         setWatchlistCache(prev => ({ ...prev, [ratingKey]: true }))
-        toastSuccess('Added to watchlist')
+        toastSuccess(t('Added to watchlist'))
       }
     } catch (e) {
-      toastError(e.message || 'Watchlist action failed')
+      toastError(e.message || t('Watchlist action failed'))
     }
-  }, [watchlistCache, toastSuccess, toastError])
+  }, [watchlistCache, toastSuccess, toastError, t])
 
   const handleDismiss = useCallback(async (item) => {
     try {
@@ -201,11 +203,11 @@ export default function Home() {
           anime: prev.anime.filter(i => i.ratingKey !== key),
         }
       })
-      toastSuccess('Not interested')
+      toastSuccess(t('Not interested'))
     } catch (e) {
-      toastError('Dismiss failed')
+      toastError(t('Dismiss failed'))
     }
-  }, [toastSuccess, toastError])
+  }, [toastSuccess, toastError, t])
 
   const handleModalClose = useCallback(() => {
     setSelectedItem(null)
@@ -241,20 +243,20 @@ export default function Home() {
       <main className="main-content">
         <div className="hero">
           <h1 className="hero-title">
-            Welcome back{user?.username ? <>, <span style={{ color: 'var(--accent)' }}>{user.username}</span></> : ''}
+            {t('Welcome back')}{user?.username ? <>, <span style={{ color: 'var(--accent)' }}>{user.username}</span></> : ''}
           </h1>
-          <p className="hero-sub">Personalized picks based on your watch history</p>
+          <p className="hero-sub">{t('Personalized picks based on your watch history')}</p>
           <div className="hero-controls hero-controls-split">
             <ToggleSwitch
               checked={matureEnabled}
               onChange={handleMatureChange}
-              label="Show mature content (R & TV-MA)"
+              label={t('Show mature content (R & TV-MA)')}
             />
             <button
               type="button"
               id="btn-shuffle-all"
               className="btn-shuffle-all"
-              title="Refresh picks"
+              title={t('Refresh picks')}
               onClick={handleShuffle}
               disabled={shuffling}
               style={{ transition: 'transform 0.4s ease', transform: shuffling ? 'rotate(360deg)' : '' }}
@@ -268,26 +270,26 @@ export default function Home() {
           <>
             <section className="section" id="section-top-picks">
               <div className="section-header">
-                <h2 className="section-title">Top Picks for You</h2>
-                <span className="section-badge">Personalized</span>
+                <h2 className="section-title">{t('Top Picks for You')}</h2>
+                <span className="section-badge">{t('Personalized')}</span>
               </div>
               <SkeletonLoader count={12} rows={2} />
             </section>
             <section className="section" id="section-movies">
               <div className="section-header">
-                <h2 className="section-title">Movies</h2>
+                <h2 className="section-title">{t('Movies')}</h2>
               </div>
               <SkeletonLoader count={12} rows={2} />
             </section>
             <section className="section" id="section-tv">
               <div className="section-header">
-                <h2 className="section-title">TV Shows</h2>
+                <h2 className="section-title">{t('TV Shows')}</h2>
               </div>
               <SkeletonLoader count={12} rows={2} />
             </section>
             <section className="section" id="section-anime">
               <div className="section-header">
-                <h2 className="section-title">Anime</h2>
+                <h2 className="section-title">{t('Anime')}</h2>
               </div>
               <SkeletonLoader count={12} rows={2} />
             </section>
@@ -295,15 +297,15 @@ export default function Home() {
               <>
                 <section className="section" id="section-popular-movies">
                   <div className="section-header">
-                    <h2 className="section-title">Most Popular Movies on the Server</h2>
-                    <span className="section-badge">Last 90 Days</span>
+                    <h2 className="section-title">{t('Most Popular Movies on the Server')}</h2>
+                    <span className="section-badge">{t('Last 90 Days')}</span>
                   </div>
                   <SkeletonLoader count={12} rows={2} />
                 </section>
                 <section className="section" id="section-popular-tv">
                   <div className="section-header">
-                    <h2 className="section-title">Most Popular TV Shows on the Server</h2>
-                    <span className="section-badge">Last 90 Days</span>
+                    <h2 className="section-title">{t('Most Popular TV Shows on the Server')}</h2>
+                    <span className="section-badge">{t('Last 90 Days')}</span>
                   </div>
                   <SkeletonLoader count={12} rows={2} />
                 </section>
@@ -315,8 +317,8 @@ export default function Home() {
             {showTopPicks.length > 0 && (
               <section className="section" id="section-top-picks">
                 <div className="section-header">
-                  <h2 className="section-title">Top Picks for You</h2>
-                  <span className="section-badge">Personalized</span>
+                  <h2 className="section-title">{t('Top Picks for You')}</h2>
+                  <span className="section-badge">{t('Personalized')}</span>
                 </div>
                 <Carousel>
                   {showTopPicks.map(item => (
@@ -337,7 +339,7 @@ export default function Home() {
             {showMovies.length > 0 && (
               <section className="section" id="section-movies">
                 <div className="section-header">
-                  <h2 className="section-title">Movies</h2>
+                  <h2 className="section-title">{t('Movies')}</h2>
                 </div>
                 <Carousel>
                   {showMovies.map(item => (
@@ -358,7 +360,7 @@ export default function Home() {
             {showTvShows.length > 0 && (
               <section className="section" id="section-tv">
                 <div className="section-header">
-                  <h2 className="section-title">TV Shows</h2>
+                  <h2 className="section-title">{t('TV Shows')}</h2>
                 </div>
                 <Carousel>
                   {showTvShows.map(item => (
@@ -379,7 +381,7 @@ export default function Home() {
             {showAnime.length > 0 && (
               <section className="section" id="section-anime">
                 <div className="section-header">
-                  <h2 className="section-title">Anime</h2>
+                  <h2 className="section-title">{t('Anime')}</h2>
                 </div>
                 <Carousel>
                   {showAnime.map(item => (
@@ -400,8 +402,8 @@ export default function Home() {
             {showPopularMovies.length > 0 && (
               <section className="section" id="section-popular-movies">
                 <div className="section-header">
-                  <h2 className="section-title">Most Popular Movies on the Server</h2>
-                  <span className="section-badge">Last 90 Days</span>
+                  <h2 className="section-title">{t('Most Popular Movies on the Server')}</h2>
+                  <span className="section-badge">{t('Last 90 Days')}</span>
                 </div>
                 <Carousel>
                   {showPopularMovies.map(item => (
@@ -423,8 +425,8 @@ export default function Home() {
             {showPopularTvShows.length > 0 && (
               <section className="section" id="section-popular-tv">
                 <div className="section-header">
-                  <h2 className="section-title">Most Popular TV Shows on the Server</h2>
-                  <span className="section-badge">Last 90 Days</span>
+                  <h2 className="section-title">{t('Most Popular TV Shows on the Server')}</h2>
+                  <span className="section-badge">{t('Last 90 Days')}</span>
                 </div>
                 <Carousel>
                   {showPopularTvShows.map(item => (

@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 
 const LOGO_SVG = (
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="1em" height="1em" fill="none" aria-hidden="true">
@@ -13,6 +14,7 @@ const LOGO_SVG = (
 )
 
 export default function AdminLogin() {
+  const { t } = useTranslation()
   const [password, setPassword] = useState('')
   const [error, setError] = useState(null)
   const [loading, setLoading] = useState(false)
@@ -48,22 +50,22 @@ export default function AdminLogin() {
         <div className="login-card">
           <div className="login-logo">
             <span className="logo-icon">{LOGO_SVG}</span>
-            <span className="logo-text">Diskovarr</span>
-            <span className="admin-badge">admin</span>
+            <span className="logo-text">{t('Diskovarr')}</span>
+            <span className="admin-badge">{t('admin')}</span>
           </div>
-          <p className="login-tagline">Admin Access</p>
+          <p className="login-tagline">{t('Admin Access')}</p>
 
           {error && <div className="error-banner">{error}</div>}
 
           <form onSubmit={handleSubmit} className="admin-login-form">
             <div className="form-group">
-              <label htmlFor="password">Password</label>
+              <label htmlFor="password">{t('Password')}</label>
               <input
                 type="password"
                 id="password"
                 name="password"
                 className="form-input"
-                placeholder="Enter admin password"
+                placeholder={t('Enter admin password')}
                 autoFocus
                 autoComplete="current-password"
                 value={password}
@@ -76,7 +78,7 @@ export default function AdminLogin() {
           </form>
 
           <p className="login-footer">
-            <a href="/" style={{ color: 'var(--text-muted)' }}>← Back to Diskovarr</a>
+            <a href="/" style={{ color: 'var(--text-muted)' }}>{t('← Back to Diskovarr')}</a>
           </p>
         </div>
       </div>

@@ -12,6 +12,7 @@ import CastCrewTab from './CastCrewTab'
 import RatingBadges from './RatingBadges'
 import MonitorDropdown from './MonitorManager/MonitorDropdown'
 import { posterUrl } from '../utils/media'
+import { useTranslation } from 'react-i18next'
 
 const CAST_ICON = (
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="15" height="15" fill="currentColor" style={{ verticalAlign: '-2px', marginRight: '6px' }}>
@@ -21,6 +22,7 @@ const CAST_ICON = (
 
 
 function CastPicker({ item, onClose }) {
+  const { t } = useTranslation()
   const [clients, setClients] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -32,9 +34,9 @@ function CastPicker({ item, onClose }) {
       success('Playing on ' + client.name)
       onClose()
     } catch (e) {
-      toastError(e.message || 'Cast failed')
+      toastError(e.message || t('Cast failed'))
     }
-  }, [item.ratingKey, onClose, success, toastError])
+  }, [item.ratingKey, onClose, success, toastError, t])
 
   useEffect(() => {
     let active = true
@@ -53,7 +55,7 @@ function CastPicker({ item, onClose }) {
 
   if (loading) return <div className="modal-cast-picker"><span>…</span></div>
   if (error) return <div className="modal-cast-picker"><span className="cast-no-clients">{error}</span></div>
-  if (clients.length === 0) return <div className="modal-cast-picker"><span className="cast-no-clients">No Plex clients found.<br />Open your Plex app on your TV first.</span></div>
+  if (clients.length === 0) return <div className="modal-cast-picker"><span className="cast-no-clients">{t('No Plex clients found.')}<br />{t('Open your Plex app on your TV first.')}</span></div>
 
   return (
     <div className="modal-cast-picker">
@@ -67,6 +69,7 @@ function CastPicker({ item, onClose }) {
 }
 
 function ReportIssueForm({ item }) {
+  const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [reported, setReported] = useState(false)
@@ -105,7 +108,7 @@ function ReportIssueForm({ item }) {
 
   if (reported) return (
     <button className="modal-btn modal-btn-dismiss" style={{ background: 'rgba(0,180,216,0.08)', color: '#00b4d8', borderColor: 'rgba(0,180,216,0.2)', width: '100%', cursor: 'default' }}>
-      ✓ Issue Reported
+      {t('✓ Issue Reported')}
     </button>
   )
 
@@ -122,33 +125,33 @@ function ReportIssueForm({ item }) {
         <div style={{ marginTop: '10px', padding: '12px', background: 'var(--bg-elevated)', borderRadius: '8px', border: '1px solid var(--border)' }}>
           {isShow && (
             <div style={{ marginBottom: '10px' }}>
-              <label style={{ display: 'block', fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: '5px' }}>Scope</label>
+              <label style={{ display: 'block', fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: '5px' }}>{t('Scope')}</label>
               <select className="filter-select" value={scope} onChange={e => setScope(e.target.value)} style={{ width: '100%', padding: '6px 8px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text)', fontSize: '0.85rem' }}>
-                <option value="series">Entire Series</option>
-                <option value="season">Specific Season</option>
-                <option value="episode">Specific Episode</option>
+                <option value="series">{t('Entire Series')}</option>
+                <option value="season">{t('Specific Season')}</option>
+                <option value="episode">{t('Specific Episode')}</option>
               </select>
             </div>
           )}
           {isShow && (scope === 'season' || scope === 'episode') && (
             <div style={{ marginBottom: '10px' }}>
-              <label style={{ display: 'block', fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: '5px' }}>Season Number</label>
+              <label style={{ display: 'block', fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: '5px' }}>{t('Season Number')}</label>
               <input type="number" min="1" className="filter-select" value={season} onChange={e => setSeason(e.target.value)} style={{ width: '80px', padding: '6px 8px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text)', fontSize: '0.85rem' }} />
             </div>
           )}
           {isShow && scope === 'episode' && (
             <div style={{ marginBottom: '10px' }}>
-              <label style={{ display: 'block', fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: '5px' }}>Episode Number</label>
+              <label style={{ display: 'block', fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: '5px' }}>{t('Episode Number')}</label>
               <input type="number" min="1" className="filter-select" value={episode} onChange={e => setEpisode(e.target.value)} style={{ width: '80px', padding: '6px 8px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text)', fontSize: '0.85rem' }} />
             </div>
           )}
           <div style={{ marginBottom: '10px' }}>
             <label style={{ display: 'block', fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: '5px' }}>Description (optional)</label>
-            <textarea className="filter-select" placeholder="Describe the problem..." value={description} onChange={e => setDescription(e.target.value)} style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text)', fontSize: '0.85rem', resize: 'vertical', minHeight: '70px', fontFamily: 'inherit', boxSizing: 'border-box' }} />
+            <textarea className="filter-select" placeholder={t('Describe the problem...')} value={description} onChange={e => setDescription(e.target.value)} style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text)', fontSize: '0.85rem', resize: 'vertical', minHeight: '70px', fontFamily: 'inherit', boxSizing: 'border-box' }} />
           </div>
           {error && <div style={{ fontSize: '0.78rem', color: '#ff5252', marginBottom: '8px' }}>Error: {error}</div>}
           <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-            <button className="chip-sm" onClick={() => setOpen(false)} style={{ padding: '5px 12px', borderRadius: '6px', border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-secondary)', fontSize: '0.82rem', cursor: 'pointer' }}>Cancel</button>
+            <button className="chip-sm" onClick={() => setOpen(false)} style={{ padding: '5px 12px', borderRadius: '6px', border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-secondary)', fontSize: '0.82rem', cursor: 'pointer' }}>{t('Cancel')}</button>
             <button className="chip-sm" onClick={handleSubmit} disabled={submitting} style={{ padding: '5px 12px', borderRadius: '6px', border: 'none', background: 'rgba(0,180,216,0.18)', color: '#00b4d8', fontSize: '0.82rem', fontWeight: '600', cursor: 'pointer' }}>
               {submitting ? 'Submitting…' : 'Submit'}
             </button>
@@ -160,6 +163,7 @@ function ReportIssueForm({ item }) {
 }
 
 export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
+  const { t } = useTranslation()
   const navigate = useNavigate()
   const [trailerKey, setTrailerKey] = useState(null)
   const [trailerLoading, setTrailerLoading] = useState(!!item?.tmdbId)
@@ -209,9 +213,9 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
       }
       if (onRefresh) onRefresh(item.ratingKey)
     } catch (e) {
-      toastError(e.message || 'Watchlist action failed')
+      toastError(e.message || t('Watchlist action failed'))
     }
-  }, [item, inWatchlist, onRefresh, success, toastError])
+  }, [item, inWatchlist, onRefresh, success, toastError, t])
 
   const handleDismiss = useCallback(async () => {
     try {
@@ -223,9 +227,9 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
       }
       onClose()
     } catch (e) {
-      toastError(e.message || 'Dismiss failed')
+      toastError(e.message || t('Dismiss failed'))
     }
-  }, [item, inLibrary, onClose, onRefresh, toastError])
+  }, [item, inLibrary, onClose, onRefresh, toastError, t])
 
   const handleNotify = useCallback(async () => {
     try {
@@ -233,9 +237,9 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
       success('You\'ll be notified when ' + item.title + ' is available')
       onClose()
     } catch (e) {
-      toastError(e.message || 'Notify failed')
+      toastError(e.message || t('Notify failed'))
     }
-  }, [item, success, toastError, onClose])
+  }, [item, success, toastError, onClose, t])
 
   const handleRequest = useCallback(() => {
     if (onRequest) {
@@ -255,11 +259,11 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
       setClients(data.clients || [])
       setCastOpen(true)
     } catch (e) {
-      toastError('Could not fetch clients')
+      toastError(t('Could not fetch clients'))
     } finally {
       setCastLoading(false)
     }
-  }, [castOpen, toastError])
+  }, [castOpen, toastError, t])
 
   // Jump to the search page's "More with X" browse for a cast/crew member.
   const handlePersonClick = useCallback((person) => {
@@ -281,9 +285,9 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
       })
       success(`Monitoring "${person.name}"`)
     } catch (err) {
-      toastError('Failed to create monitor')
+      toastError(t('Failed to create monitor'))
     }
-  }, [success, toastError])
+  }, [success, toastError, t])
 
   const handleCastMedia = useCallback(async (client) => {
     try {
@@ -291,9 +295,9 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
       success('Playing on ' + client.name)
       setCastOpen(false)
     } catch (e) {
-      toastError(e.message || 'Cast failed')
+      toastError(e.message || t('Cast failed'))
     }
-  }, [item, success, toastError])
+  }, [item, success, toastError, t])
 
   useEffect(() => {
     if (!item?.tmdbId) return
@@ -369,7 +373,7 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
   return (
     <div className="detail-modal-wrap open" aria-hidden="false" onClick={handleClose}>
       <div className="detail-modal-card" role="dialog" aria-modal="true" onClick={e => e.stopPropagation()}>
-        <button className="detail-modal-close" onClick={handleClose} aria-label="Close">✕</button>
+        <button className="detail-modal-close" onClick={handleClose} aria-label={t('Close')}>✕</button>
         {heroPath && (
           <div className="detail-modal-hero" style={{ backgroundImage: `url(${posterUrl(heroPath)})` }} />
         )}
@@ -389,7 +393,7 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
                 <>
                   {' · '}
                   <span className="modal-watched-pill">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" width="11" height="11"><polyline points="20 6 9 17 4 12" /></svg> Watched
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" width="11" height="11"><polyline points="20 6 9 17 4 12" /></svg> {t('Watched')}
                   </span>
                 </>
               )}
@@ -410,13 +414,13 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
                 className={'detail-modal-tab' + (activeTab === 'overview' ? ' active' : '')}
                 onClick={() => setActiveTab('overview')}
               >
-                Overview
+                {t('Overview')}
               </button>
               <button
                 className={'detail-modal-tab' + (activeTab === 'castcrew' ? ' active' : '')}
                 onClick={() => setActiveTab('castcrew')}
               >
-                Cast & Crew
+                {t('Cast & Crew')}
               </button>
             </div>
             {activeTab === 'overview' ? (
@@ -430,7 +434,7 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
                   )}
                   {item.cast && item.cast.length > 0 && (
                     <div className="detail-credit-row">
-                      <span className="detail-credit-label">Cast:</span> {item.cast.slice(0, 6).join(', ')}
+                      <span className="detail-credit-label">{t('Cast:')}</span> {item.cast.slice(0, 6).join(', ')}
                     </div>
                   )}
                   {item.studio && (
@@ -463,7 +467,7 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
                       </button>
                       {castOpen && !castLoading && (
                         <div className="modal-cast-picker">
-                          {clients.length === 0 && <span className="cast-no-clients">No Plex clients found.<br />Open your Plex app on your TV first.</span>}
+                          {clients.length === 0 && <span className="cast-no-clients">{t('No Plex clients found.')}<br />{t('Open your Plex app on your TV first.')}</span>}
                           {clients.map(client => (
                             <button key={client.machineIdentifier} className="cast-client-btn" onClick={() => handleCastMedia(client)}>
                               {client.name}{client.product ? ' · ' + client.product : ''}
@@ -474,7 +478,7 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
                     </div>
                   )}
                   <MonitorDropdown item={item} />
-                  <button className="modal-btn modal-btn-dismiss" onClick={handleDismiss}>✕ Not Interested</button>
+                  <button className="modal-btn modal-btn-dismiss" onClick={handleDismiss}>{t('✕ Not Interested')}</button>
                   <ReportIssueForm item={item} />
                 </>
               ) : (
@@ -487,10 +491,10 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
                     {item.isRequested ? 'Notify Me' : 'Request'}
                   </button>
                   <MonitorDropdown item={item} />
-                  <button className="modal-btn modal-btn-dismiss" onClick={handleDismiss}>✕ Not Interested</button>
+                  <button className="modal-btn modal-btn-dismiss" onClick={handleDismiss}>{t('✕ Not Interested')}</button>
                   {item.tmdbId && (
                     <a className="modal-btn modal-btn-dismiss" href={`https://www.themoviedb.org/${item.mediaType === 'tv' ? 'tv' : 'movie'}/${item.tmdbId}`} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none', cursor: 'pointer' }}>
-                      View on TMDB
+                      {t('View on TMDB')}
                     </a>
                   )}
                 </>

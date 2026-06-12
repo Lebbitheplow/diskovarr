@@ -1,4 +1,5 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
 
 export default function SearchableDropdown({
   options = [],
@@ -9,6 +10,7 @@ export default function SearchableDropdown({
   clearLabel = 'All',
   noResultsLabel = 'No results found',
 }) {
+  const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const [input, setInput] = useState('')
   const [highlightIdx, setHighlightIdx] = useState(-1)
@@ -106,7 +108,7 @@ export default function SearchableDropdown({
           {value ? selectedName : placeholder}
         </span>
         {value && (
-          <span className="searchable-dropdown-clear" onClick={handleClear} title="Clear filter">&times;</span>
+          <span className="searchable-dropdown-clear" onClick={handleClear} title={t('Clear filter')}>&times;</span>
         )}
         <span className="searchable-dropdown-caret" />
       </button>
@@ -118,7 +120,7 @@ export default function SearchableDropdown({
               ref={inputRef}
               className="searchable-dropdown-input"
               type="text"
-              placeholder="Search users..."
+              placeholder={t('Search users...')}
               value={input}
               onChange={e => { setInput(e.target.value); setHighlightIdx(-1); }}
               onKeyDown={handleKeyDown}

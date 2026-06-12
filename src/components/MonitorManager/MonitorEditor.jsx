@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { monitorsApi } from '../../services/monitorsApi'
 import CriterionAutocomplete from './CriterionAutocomplete'
 import { useToast } from '../../context/ToastContext'
+import { useTranslation } from 'react-i18next'
 
 const CRITERIA_TYPES = [
   { value: 'media_type', label: 'Media Type', autocomplete: false, options: ['Movie', 'TV'] },
@@ -20,6 +21,7 @@ const CRITERIA_TYPES = [
 ]
 
 export default function MonitorEditor({ monitor, onSave, onCancel, prefillName, prefillCriteria }) {
+  const { t } = useTranslation()
   const toast = useToast()
   const [name, setName] = useState(monitor?.name || prefillName || '')
   const [enabled, setEnabled] = useState(monitor?.enabled !== false)
@@ -94,19 +96,19 @@ export default function MonitorEditor({ monitor, onSave, onCancel, prefillName, 
 
         <div className="monitor-editor-body">
           <div className="monitor-field">
-            <label>Monitor Name</label>
+            <label>{t('Monitor Name')}</label>
             <input
               type="text"
               className="monitor-input"
               value={name}
               onChange={e => setName(e.target.value)}
-              placeholder="e.g. Horror Movies With Favorite Actors"
+              placeholder={t('e.g. Horror Movies With Favorite Actors')}
               autoFocus
             />
           </div>
 
           <div className="monitor-field">
-            <label>Status</label>
+            <label>{t('Status')}</label>
             <label className="slide-toggle">
               <input type="checkbox" checked={enabled} onChange={e => setEnabled(e.target.checked)} />
               <span className="slide-track" />
@@ -114,39 +116,39 @@ export default function MonitorEditor({ monitor, onSave, onCancel, prefillName, 
           </div>
 
           <div className="monitor-field">
-            <label>Notification Types</label>
+            <label>{t('Notification Types')}</label>
             <div className="monitor-notif-types">
               <label className="monitor-checkbox">
                 <input type="checkbox" checked={notifyPlex} onChange={e => setNotifyPlex(e.target.checked)} />
-                <span>Notify when added to Plex</span>
+                <span>{t('Notify when added to Plex')}</span>
               </label>
               <label className="monitor-checkbox">
                 <input type="checkbox" checked={notifyRequestable} onChange={e => setNotifyRequestable(e.target.checked)} />
-                <span>Notify when available to request</span>
+                <span>{t('Notify when available to request')}</span>
               </label>
             </div>
           </div>
 
           <div className="monitor-field">
-            <label>Match Mode</label>
+            <label>{t('Match Mode')}</label>
             <div className="monitor-match-mode">
               <button
                 className={`chip-sm${matchMode === 'ALL' ? ' active' : ''}`}
                 onClick={() => setMatchMode('ALL')}
               >
-                Match ALL criteria
+                {t('Match ALL criteria')}
               </button>
               <button
                 className={`chip-sm${matchMode === 'ANY' ? ' active' : ''}`}
                 onClick={() => setMatchMode('ANY')}
               >
-                Match ANY criteria
+                {t('Match ANY criteria')}
               </button>
             </div>
           </div>
 
           <div className="monitor-field">
-            <label>Criteria</label>
+            <label>{t('Criteria')}</label>
             <div className="monitor-criteria">
               {criteria.map((c, idx) => (
                 <div key={idx} className="monitor-criterion-row">
@@ -166,9 +168,9 @@ export default function MonitorEditor({ monitor, onSave, onCancel, prefillName, 
                       value={c.entityName}
                       onChange={e => updateCriterion(idx, 'entityName', e.target.value)}
                     >
-                      <option value="">Select type...</option>
-                      <option value="movie">Movie</option>
-                      <option value="tv">TV Series</option>
+                      <option value="">{t('Select type...')}</option>
+                      <option value="movie">{t('Movie')}</option>
+                      <option value="tv">{t('TV Series')}</option>
                     </select>
                   ) : (
                     <CriterionAutocomplete
@@ -182,7 +184,7 @@ export default function MonitorEditor({ monitor, onSave, onCancel, prefillName, 
                   <button
                     className="criterion-remove"
                     onClick={() => removeCriterion(idx)}
-                    title="Remove criterion"
+                    title={t('Remove criterion')}
                   >
                     &times;
                   </button>
@@ -191,13 +193,13 @@ export default function MonitorEditor({ monitor, onSave, onCancel, prefillName, 
             </div>
 
             <button className="monitor-add-criterion" onClick={addCriterion}>
-              + Add Criterion
+              {t('+ Add Criterion')}
             </button>
           </div>
         </div>
 
         <div className="monitor-editor-actions">
-          <button className="btn-admin" onClick={onCancel}>Cancel</button>
+          <button className="btn-admin" onClick={onCancel}>{t('Cancel')}</button>
           <button className="btn-admin btn-primary" onClick={handleSave} disabled={saving}>
             {saving ? 'Saving...' : monitor ? 'Update' : 'Create'}
           </button>

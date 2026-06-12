@@ -77,6 +77,21 @@ app.use((req, res, next) => {
 app.use(express.json())
 app.use(express.urlencoded({ extended: true }))
 
+// Unauthenticated health check for Docker/monitoring — verifies the DB answers.
+// Mounted before the session middleware so probes never touch the session store.
+app.get('/health', (req, res) => {
+  try {
+    require('./db/database').prepare('SELECT 1').get()
+    res.json({
+      status: 'ok',
+      version: require('./package.json').version,
+      uptime: Math.floor(process.uptime()),
+    })
+  } catch (err) {
+    res.status(503).json({ status: 'error', error: err.message })
+  }
+})
+
 app.use(session({
   name: 'diskovarr.react.sid',
   store: new SQLiteStore({ dir: dataDir, db: 'sessions.db' }),
@@ -105,6 +120,7 @@ app.use('/api/public', require('./routes/public'))
 app.use('/api', require('./routes/api'))
 app.use('/admin', require('./routes/admin'))
 app.use('/admin/riven', require('./routes/riven'))
+app.use('/admin/automation', require('./routes/adminAutomation'))
 
 // Public Open Graph card images for shared reviews (no auth — crawlers have no session)
 app.use('/og', require('./routes/og'))
@@ -293,7 +309,7 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '../dist/index.html'))
 })
 
-app.listen(PORT, '0.0.0.0', () => {
+const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`Diskovarr server running on port ${PORT}`)
 
   const discoverRecommender = require('./services/discoverRecommender')
@@ -315,6 +331,29 @@ app.listen(PORT, '0.0.0.0', () => {
   // Sweep stale generated share cards on boot, then daily
   setTimeout(() => reviewCardCache.sweepJob(), 60_000)
   setInterval(() => reviewCardCache.sweepJob(), 24 * 60 * 60 * 1000)
+
+  // Nightly DB backup via VACUUM INTO (consistent snapshot, doesn't block
+  // readers). First run 5 min after boot, then every 24h; keeps the last 7.
+  const BACKUP_KEEP = 7
+  const runDbBackup = () => {
+    try {
+      const backupsDir = path.join(dataDir, 'backups')
+      fs.mkdirSync(backupsDir, { recursive: true })
+      const stamp = new Date().toISOString().slice(0, 10)
+      const dest = path.join(backupsDir, `diskovarr-${stamp}.db`)
+      if (fs.existsSync(dest)) fs.rmSync(dest) // same-day rerun replaces
+      db.backupTo(dest)
+      const old = fs.readdirSync(backupsDir)
+        .filter(f => /^diskovarr-\d{4}-\d{2}-\d{2}\.db$/.test(f))
+        .sort()
+      while (old.length > BACKUP_KEEP) fs.rmSync(path.join(backupsDir, old.shift()))
+      logger.info(`DB backup written: ${dest}`)
+    } catch (err) {
+      logger.warn('DB backup failed:', err.message)
+    }
+  }
+  setTimeout(runDbBackup, 5 * 60 * 1000)
+  setInterval(runDbBackup, 24 * 60 * 60 * 1000)
 
   // Seed user tokens from active sessions (covers first run after migration)
   const { DatabaseSync } = require('node:sqlite')
@@ -496,6 +535,28 @@ app.listen(PORT, '0.0.0.0', () => {
     15 * 60 * 1000
   )
 
+  // Automation: auto-request from monitored lists. The runner checks every
+  // 15 min; each list honors its own sync_interval_hours. First pass ~2 min
+  // after boot (library cache is warm by then, so in-library dedup works).
+  const autoRequest = require('./services/autoRequest')
+  setTimeout(() => autoRequest.runDueLists()
+    .catch(err => logger.warn('Auto request sync failed:', err.message)), 2 * 60 * 1000)
+  setInterval(() => autoRequest.runDueLists()
+    .catch(err => logger.warn('Auto request sync failed:', err.message)),
+    15 * 60 * 1000
+  )
+
+  // Automation: deletion profiles. Daily, plus a startup evaluation ~5 min after
+  // boot (needs library + watch history synced). No-ops with no enabled profiles;
+  // only profiles in 'auto' mode ever delete anything.
+  const deletionService = require('./services/deletion')
+  setTimeout(() => deletionService.runProfiles()
+    .catch(err => logger.warn('Deletion profile run failed:', err.message)), 5 * 60 * 1000)
+  setInterval(() => deletionService.runProfiles()
+    .catch(err => logger.warn('Deletion profile run failed:', err.message)),
+    24 * 60 * 60 * 1000
+  )
+
   // Keep the public review feed cache warm (matches its 5-min TTL)
   setInterval(() => reviewFeed.warmFeedCacheJob(), reviewFeed.FEED_CACHE_TTL)
 
@@ -532,3 +593,21 @@ app.listen(PORT, '0.0.0.0', () => {
       .catch(err => logger.warn('[plex ws] fetchAndUpsertItem error:', err.message));
   });
 })
+
+// Graceful shutdown: stop accepting connections, halt the notification queue
+// loop, and close SQLite so the WAL checkpoints cleanly. Force-exits after 10s
+// in case a request or job hangs.
+let _shuttingDown = false
+function shutdown(signal) {
+  if (_shuttingDown) return
+  _shuttingDown = true
+  console.log(`${signal} received — shutting down gracefully`)
+  server.close(() => {
+    try { require('./services/notificationService').stop() } catch { /* not started */ }
+    try { db.close() } catch { /* already closed */ }
+    process.exit(0)
+  })
+  setTimeout(() => process.exit(1), 10_000).unref()
+}
+process.on('SIGTERM', () => shutdown('SIGTERM'))
+process.on('SIGINT', () => shutdown('SIGINT'))

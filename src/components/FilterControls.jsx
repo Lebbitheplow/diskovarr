@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react'
 import { discoverApi } from '../services/api'
+import { useTranslation } from 'react-i18next'
 import {
   CONTENT_RATING_ORDER, DECADES, SCORE_VALUES, SORT_OPTIONS, TYPE_OPTIONS, FACET_FIELDS,
 } from './filterConstants'
@@ -24,6 +25,7 @@ const CATEGORY_LABEL = {
 
 // A multi-select value editor backed by the /discover/facets endpoint.
 function FacetEditor({ field, searchable, selected, onToggle, onClear }) {
+  const { t } = useTranslation()
   const [query, setQuery] = useState('')
   const [options, setOptions] = useState([])
   const [loading, setLoading] = useState(false)
@@ -63,7 +65,7 @@ function FacetEditor({ field, searchable, selected, onToggle, onClear }) {
       <input
         type="text"
         className="filter-editor-search"
-        placeholder={searchable ? `Type to search ${field}s…` : `Filter ${field}s…`}
+        placeholder={searchable ? t('Type to search {{field}}s…', { field }) : t('Filter {{field}}s…', { field })}
         value={query}
         onChange={handleQuery}
         autoComplete="off"
@@ -75,11 +77,11 @@ function FacetEditor({ field, searchable, selected, onToggle, onClear }) {
           </button>
         ))}
         {loading ? (
-          <span className="filter-panel-empty">Loading…</span>
+          <span className="filter-panel-empty">{t('Loading…')}</span>
         ) : searchable && !query.trim() ? (
-          selectedArr.length === 0 && <span className="filter-panel-empty">Type to search</span>
+          selectedArr.length === 0 && <span className="filter-panel-empty">{t('Type to search')}</span>
         ) : inactiveOptions.length === 0 && selectedArr.length === 0 ? (
-          <span className="filter-panel-empty">No matches</span>
+          <span className="filter-panel-empty">{t('No matches')}</span>
         ) : (
           inactiveOptions.map(v => (
             <button key={v} className="filter-pill" onClick={() => onToggle(field, v)}>{v}</button>
@@ -87,7 +89,7 @@ function FacetEditor({ field, searchable, selected, onToggle, onClear }) {
         )}
       </div>
       {selectedArr.length > 0 && (
-        <button className="filter-panel-clear" onClick={() => onClear(field)}>Clear</button>
+        <button className="filter-panel-clear" onClick={() => onClear(field)}>{t('Clear')}</button>
       )}
     </div>
   )
@@ -106,6 +108,7 @@ export default function FilterControls({
   durationMin, durationMax, onDurationMin, onDurationMax,
   onRangeCommit, onClearAll,
 }) {
+  const { t } = useTranslation()
   const [openMenu, setOpenMenu] = useState(null) // 'type'|'genre'|'score'|'more'|'sort'|null
   const [moreCategory, setMoreCategory] = useState(null)
   const barRef = useRef(null)
@@ -132,20 +135,20 @@ export default function FilterControls({
 
   // Short summary shown next to a category in the More menu (and to decide its active dot).
   const summary = useCallback((key) => {
-    if (key === 'type') return type !== 'all' ? TYPE_OPTIONS.find(t => t.value === type)?.label : ''
-    if (key === 'genre') return tags.genre?.size ? (tags.genre.size === 1 ? [...tags.genre][0] : `${tags.genre.size} selected`) : ''
+    if (key === 'type') return type !== 'all' ? t(TYPE_OPTIONS.find(o => o.value === type)?.label) : ''
+    if (key === 'genre') return tags.genre?.size ? (tags.genre.size === 1 ? [...tags.genre][0] : t('{{n}} selected', { n: tags.genre.size })) : ''
     if (key === 'score') return minScore > 0 ? `${minScore}+` : ''
-    if (key === 'decade') return decade ? DECADES.find(d => d.value === decade)?.label : ''
+    if (key === 'decade') return decade ? t(DECADES.find(d => d.value === decade)?.label) : ''
     if (key === 'year') return year || ''
     if (key === 'rated') return contentRatings.length ? contentRatings.join(', ') : ''
     if (key === 'release') return (releaseFrom || releaseTo) ? `${releaseFrom || '…'} → ${releaseTo || '…'}` : ''
     if (key === 'duration') return (durationMin || durationMax) ? `${durationMin || '0'}–${durationMax || '∞'}m` : ''
     if (isFacet(key)) {
       const set = tags[key]
-      return set?.size ? (set.size === 1 ? [...set][0] : `${set.size} selected`) : ''
+      return set?.size ? (set.size === 1 ? [...set][0] : t('{{n}} selected', { n: set.size })) : ''
     }
     return ''
-  }, [type, tags, minScore, decade, year, contentRatings, releaseFrom, releaseTo, durationMin, durationMax])
+  }, [type, tags, minScore, decade, year, contentRatings, releaseFrom, releaseTo, durationMin, durationMax, t])
 
   // The value editor for a category — reused by both the inline chips and the More drill-down.
   const renderEditor = (key) => {
@@ -160,9 +163,9 @@ export default function FilterControls({
     if (key === 'type') {
       return (
         <div className="filter-editor filter-editor-pills">
-          {TYPE_OPTIONS.map(t => (
-            <button key={t.value} className={`filter-pill${type === t.value ? ' active' : ''}`} onClick={() => onType(t.value)}>
-              {type === t.value && <span className="filter-pill-check">✓</span>}{t.label}
+          {TYPE_OPTIONS.map(opt => (
+            <button key={opt.value} className={`filter-pill${type === opt.value ? ' active' : ''}`} onClick={() => onType(opt.value)}>
+              {type === opt.value && <span className="filter-pill-check">✓</span>}{t(opt.label)}
             </button>
           ))}
         </div>
@@ -173,7 +176,7 @@ export default function FilterControls({
         <div className="filter-editor filter-editor-pills">
           {DECADES.map(d => (
             <button key={d.value || 'any'} className={`filter-pill${decade === d.value ? ' active' : ''}`} onClick={() => onDecade(d.value)}>
-              {decade === d.value && d.value && <span className="filter-pill-check">✓</span>}{d.label}
+              {decade === d.value && d.value && <span className="filter-pill-check">✓</span>}{t(d.label)}
             </button>
           ))}
         </div>
@@ -183,8 +186,8 @@ export default function FilterControls({
       return (
         <div className="filter-editor" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '6px' }}>
           <input type="range" min="0" max="9" step="1" value={SCORE_VALUES.indexOf(minScore)} className="rating-slider" onChange={onScoreChange} onBlur={onScoreCommit} />
-          <div className="rating-ticks">{SCORE_VALUES.map((v, i) => <span key={i}>{v === 0 ? 'Any' : v}</span>)}</div>
-          {minScore > 0 && <button className="filter-panel-clear" onClick={onScoreClear}>Clear</button>}
+          <div className="rating-ticks">{SCORE_VALUES.map((v, i) => <span key={i}>{v === 0 ? t('Any') : v}</span>)}</div>
+          {minScore > 0 && <button className="filter-panel-clear" onClick={onScoreClear}>{t('Clear')}</button>}
         </div>
       )
     }
@@ -196,16 +199,16 @@ export default function FilterControls({
               {contentRatings.includes(r) && <span className="filter-pill-check">✓</span>}{r}
             </button>
           ))}
-          {contentRatings.length > 0 && <button className="filter-panel-clear" onClick={onClearContentRatings}>Clear</button>}
+          {contentRatings.length > 0 && <button className="filter-panel-clear" onClick={onClearContentRatings}>{t('Clear')}</button>}
         </div>
       )
     }
     if (key === 'year') {
       return (
         <div className="filter-editor" style={{ gap: '8px', alignItems: 'center' }}>
-          <input type="number" className="filter-editor-search" style={{ width: '120px' }} placeholder="e.g. 1999"
+          <input type="number" className="filter-editor-search" style={{ width: '120px' }} placeholder={t('e.g. 1999')}
             value={year} onChange={e => onYear(e.target.value)} onBlur={onRangeCommit} onKeyDown={commitOnEnter} />
-          {year && <button className="filter-panel-clear" onClick={() => { onYear(''); onRangeCommit() }}>Clear</button>}
+          {year && <button className="filter-panel-clear" onClick={() => { onYear(''); onRangeCommit() }}>{t('Clear')}</button>}
         </div>
       )
     }
@@ -213,20 +216,20 @@ export default function FilterControls({
       return (
         <div className="filter-editor" style={{ gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
           <input type="date" className="filter-editor-search" value={releaseFrom} onChange={e => onReleaseFrom(e.target.value)} onBlur={onRangeCommit} />
-          <span className="filter-editor-dash">to</span>
+          <span className="filter-editor-dash">{t('to')}</span>
           <input type="date" className="filter-editor-search" value={releaseTo} onChange={e => onReleaseTo(e.target.value)} onBlur={onRangeCommit} />
-          {(releaseFrom || releaseTo) && <button className="filter-panel-clear" onClick={() => { onReleaseFrom(''); onReleaseTo(''); onRangeCommit() }}>Clear</button>}
+          {(releaseFrom || releaseTo) && <button className="filter-panel-clear" onClick={() => { onReleaseFrom(''); onReleaseTo(''); onRangeCommit() }}>{t('Clear')}</button>}
         </div>
       )
     }
     if (key === 'duration') {
       return (
         <div className="filter-editor" style={{ gap: '8px', alignItems: 'center' }}>
-          <input type="number" className="filter-editor-search" style={{ width: '80px' }} placeholder="Min" value={durationMin} onChange={e => onDurationMin(e.target.value)} onBlur={onRangeCommit} onKeyDown={commitOnEnter} />
+          <input type="number" className="filter-editor-search" style={{ width: '80px' }} placeholder={t('Min')} value={durationMin} onChange={e => onDurationMin(e.target.value)} onBlur={onRangeCommit} onKeyDown={commitOnEnter} />
           <span className="filter-editor-dash">–</span>
-          <input type="number" className="filter-editor-search" style={{ width: '80px' }} placeholder="Max" value={durationMax} onChange={e => onDurationMax(e.target.value)} onBlur={onRangeCommit} onKeyDown={commitOnEnter} />
-          <span className="filter-editor-dash">min</span>
-          {(durationMin || durationMax) && <button className="filter-panel-clear" onClick={() => { onDurationMin(''); onDurationMax(''); onRangeCommit() }}>Clear</button>}
+          <input type="number" className="filter-editor-search" style={{ width: '80px' }} placeholder={t('Max')} value={durationMax} onChange={e => onDurationMax(e.target.value)} onBlur={onRangeCommit} onKeyDown={commitOnEnter} />
+          <span className="filter-editor-dash">{t('min')}</span>
+          {(durationMin || durationMax) && <button className="filter-panel-clear" onClick={() => { onDurationMin(''); onDurationMax(''); onRangeCommit() }}>{t('Clear')}</button>}
         </div>
       )
     }
@@ -240,7 +243,7 @@ export default function FilterControls({
     return (
       <div className="filter-dd">
         <button className={`filter-chip${sum ? ' active' : ''}${openMenu === id ? ' open' : ''}`} onClick={() => toggle(id)}>
-          {sum ? `${fallback} · ${sum}` : fallback}
+          {sum ? `${t(fallback)} · ${sum}` : t(fallback)}
           <span className="filter-chip-caret" />
         </button>
         {openMenu === id && <div className="filter-popover">{renderEditor(id)}</div>}
@@ -254,16 +257,16 @@ export default function FilterControls({
 
   // Removable chips for every applied filter.
   const appliedChips = []
-  if (type !== 'all') appliedChips.push({ id: 'type', label: `Type: ${TYPE_OPTIONS.find(t => t.value === type)?.label}`, remove: () => onType('all') })
-  if (decade) appliedChips.push({ id: 'decade', label: `Decade: ${DECADES.find(d => d.value === decade)?.label}`, remove: () => onDecade('') })
-  if (year) appliedChips.push({ id: 'year', label: `Year: ${year}`, remove: () => { onYear(''); onRangeCommit() } })
-  if (minScore > 0) appliedChips.push({ id: 'score', label: `Score: ${minScore}+`, remove: onScoreClear })
-  contentRatings.forEach(r => appliedChips.push({ id: `rated-${r}`, label: `Rated: ${r}`, remove: () => onToggleContentRating(r) }))
+  if (type !== 'all') appliedChips.push({ id: 'type', label: `${t('Type')}: ${t(TYPE_OPTIONS.find(o => o.value === type)?.label)}`, remove: () => onType('all') })
+  if (decade) appliedChips.push({ id: 'decade', label: `${t('Decade')}: ${t(DECADES.find(d => d.value === decade)?.label)}`, remove: () => onDecade('') })
+  if (year) appliedChips.push({ id: 'year', label: `${t('Year')}: ${year}`, remove: () => { onYear(''); onRangeCommit() } })
+  if (minScore > 0) appliedChips.push({ id: 'score', label: `${t('Score')}: ${minScore}+`, remove: onScoreClear })
+  contentRatings.forEach(r => appliedChips.push({ id: `rated-${r}`, label: `${t('Rated')}: ${r}`, remove: () => onToggleContentRating(r) }))
   FACET_FIELDS.forEach(({ field, label }) => {
-    ;[...(tags[field] || [])].forEach(v => appliedChips.push({ id: `${field}-${v}`, label: `${label}: ${v}`, remove: () => onToggleTag(field, v) }))
+    ;[...(tags[field] || [])].forEach(v => appliedChips.push({ id: `${field}-${v}`, label: `${t(label)}: ${v}`, remove: () => onToggleTag(field, v) }))
   })
-  if (releaseFrom || releaseTo) appliedChips.push({ id: 'release', label: `Release: ${releaseFrom || '…'}→${releaseTo || '…'}`, remove: () => { onReleaseFrom(''); onReleaseTo(''); onRangeCommit() } })
-  if (durationMin || durationMax) appliedChips.push({ id: 'duration', label: `Runtime: ${durationMin || '0'}–${durationMax || '∞'}m`, remove: () => { onDurationMin(''); onDurationMax(''); onRangeCommit() } })
+  if (releaseFrom || releaseTo) appliedChips.push({ id: 'release', label: `${t('Release')}: ${releaseFrom || '…'}→${releaseTo || '…'}`, remove: () => { onReleaseFrom(''); onReleaseTo(''); onRangeCommit() } })
+  if (durationMin || durationMax) appliedChips.push({ id: 'duration', label: `${t('Runtime')}: ${durationMin || '0'}–${durationMax || '∞'}m`, remove: () => { onDurationMin(''); onDurationMax(''); onRangeCommit() } })
 
   return (
     <div className="filter-bar" id="filter-bar" ref={barRef}>
@@ -275,10 +278,10 @@ export default function FilterControls({
         </svg>
         <input
           type="search" id="filter-search" className="filter-search"
-          placeholder="Search titles in library…" autoComplete="off" spellCheck="false"
+          placeholder={t('Search titles in library…')} autoComplete="off" spellCheck="false"
           value={search} onChange={onSearchChange}
         />
-        <button className={'search-clear' + (search ? ' visible' : '')} aria-label="Clear search" onClick={onSearchClear}>✕</button>
+        <button className={'search-clear' + (search ? ' visible' : '')} aria-label={t('Clear search')} onClick={onSearchClear}>✕</button>
       </div>
 
       {/* Trigger row: common chips + More + Sort */}
@@ -290,7 +293,7 @@ export default function FilterControls({
         {/* More filters — nested drill-down menu */}
         <div className="filter-dd">
           <button className={`filter-chip${moreActiveCount > 0 ? ' active' : ''}${openMenu === 'more' ? ' open' : ''}`} onClick={() => toggle('more')}>
-            {moreActiveCount > 0 ? `More · ${moreActiveCount}` : '+ More filters'}
+            {moreActiveCount > 0 ? `${t('More')} · ${moreActiveCount}` : '+ ' + t('More filters')}
             <span className="filter-chip-caret" />
           </button>
           {openMenu === 'more' && (
@@ -300,7 +303,7 @@ export default function FilterControls({
                   const sum = summary(key)
                   return (
                     <button key={key} className={`filter-menu-row${sum ? ' has-value' : ''}`} onClick={() => setMoreCategory(key)}>
-                      <span className="filter-menu-row-label">{CATEGORY_LABEL[key]}</span>
+                      <span className="filter-menu-row-label">{t(CATEGORY_LABEL[key])}</span>
                       <span className="filter-menu-row-value">{sum}</span>
                       <span className="filter-menu-row-arrow">›</span>
                     </button>
@@ -309,7 +312,7 @@ export default function FilterControls({
               ) : (
                 <>
                   <button className="filter-menu-back" onClick={() => setMoreCategory(null)}>
-                    ‹ Back · {CATEGORY_LABEL[moreCategory]}
+                    ‹ {t('Back')} · {t(CATEGORY_LABEL[moreCategory])}
                   </button>
                   {renderEditor(moreCategory)}
                 </>
@@ -321,7 +324,7 @@ export default function FilterControls({
         {/* Sort */}
         <div className="filter-dd filter-dd-sort">
           <button className={`filter-chip${openMenu === 'sort' ? ' open' : ''}`} onClick={() => toggle('sort')}>
-            ↕ {SORT_OPTIONS.find(s => s.value === sort)?.label || 'Sort'}
+            ↕ {t(SORT_OPTIONS.find(s => s.value === sort)?.label || 'Sort')}
             <span className="filter-chip-caret" />
           </button>
           {openMenu === 'sort' && (
@@ -329,7 +332,7 @@ export default function FilterControls({
               <div className="filter-menu-list">
                 {SORT_OPTIONS.map(s => (
                   <button key={s.value} className={`filter-menu-option${sort === s.value ? ' active' : ''}`} onClick={() => { onSort(s.value); setOpenMenu(null) }}>
-                    {sort === s.value && <span className="filter-pill-check">✓</span>}{s.label}
+                    {sort === s.value && <span className="filter-pill-check">✓</span>}{t(s.label)}
                   </button>
                 ))}
               </div>
@@ -342,11 +345,11 @@ export default function FilterControls({
       {appliedChips.length > 0 && (
         <div className="applied-filters">
           {appliedChips.map(c => (
-            <button key={c.id} className="applied-chip" onClick={c.remove} title="Remove filter">
+            <button key={c.id} className="applied-chip" onClick={c.remove} title={t('Remove filter')}>
               {c.label}<span className="applied-chip-x">✕</span>
             </button>
           ))}
-          <button className="applied-clear" onClick={onClearAll}>Clear all</button>
+          <button className="applied-clear" onClick={onClearAll}>{t('Clear all')}</button>
         </div>
       )}
     </div>

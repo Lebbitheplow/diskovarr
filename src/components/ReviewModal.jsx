@@ -3,6 +3,7 @@ import { reviewsApi, searchApi, tmdbApi } from '../services/api'
 import { useToast } from '../context/ToastContext'
 import { useAuth } from '../context/AuthContext'
 import ShareModal from './ShareModal'
+import { useTranslation } from 'react-i18next'
 
 // Letterboxd-style rating: 5 stars, each selectable in half-star increments.
 // The left half of a star selects X.5 below the whole; the right half selects
@@ -72,6 +73,7 @@ function fmtWatchedDate(ts) {
 }
 
 export default function ReviewModal({ onClose, historyItem, onSave }) {
+  const { t } = useTranslation()
   const { success: toastSuccess, error: toastError } = useToast()
   const { user } = useAuth()
   // After a successful save we keep the modal open on a "posted" success panel
@@ -160,7 +162,7 @@ export default function ReviewModal({ onClose, historyItem, onSave }) {
 
   const handleSave = useCallback(async () => {
     if (rating === 0) {
-      toastError('Please select a star rating')
+      toastError(t('Please select a star rating'))
       return
     }
     setSaving(true)
@@ -187,11 +189,11 @@ export default function ReviewModal({ onClose, historyItem, onSave }) {
       if (existingId) {
         await reviewsApi.updateReview(existingId, payload)
         reviewId = existingId
-        toastSuccess('Review updated')
+        toastSuccess(t('Review updated'))
       } else {
         const created = await reviewsApi.createReview(payload)
         reviewId = created?.data?.id
-        toastSuccess('Review saved')
+        toastSuccess(t('Review saved'))
       }
 
       // Push rating to TMDB if requested
@@ -201,12 +203,12 @@ export default function ReviewModal({ onClose, historyItem, onSave }) {
           await tmdbApi.syncRating(reviewId)
         } catch (syncErr) {
           if (syncErr?.status === 401) {
-            toastError('TMDB session expired. Reconnect in Settings.')
+            toastError(t('TMDB session expired. Reconnect in Settings.'))
             setTmdbConnected(false)
           } else if (syncErr?.status === 429) {
-            toastError('TMDB rate limited. Rating saved locally.')
+            toastError(t('TMDB rate limited. Rating saved locally.'))
           } else {
-            toastError('Failed to push to TMDB. Rating saved locally.')
+            toastError(t('Failed to push to TMDB. Rating saved locally.'))
           }
         } finally {
           setTmdbSyncing(false)
@@ -218,10 +220,10 @@ export default function ReviewModal({ onClose, historyItem, onSave }) {
       if (reviewId) setPostedId(reviewId)
       else onClose()
     } catch (e) {
-      toastError(e.message || 'Failed to save review')
+      toastError(e.message || t('Failed to save review'))
     }
     setSaving(false)
-  }, [rating, reviewText, spoiler, rewatch, reviewMediaType, reviewTmdbId, reviewRatingKey, historyItem, mediaInfo, onSave, onClose, toastSuccess, toastError, pushToTmdb, tmdbConnected])
+  }, [rating, reviewText, spoiler, rewatch, reviewMediaType, reviewTmdbId, reviewRatingKey, historyItem, mediaInfo, onSave, onClose, toastSuccess, toastError, pushToTmdb, tmdbConnected, t])
 
   const handleDelete = useCallback(async () => {
     setDeleting(true)
@@ -231,15 +233,15 @@ export default function ReviewModal({ onClose, historyItem, onSave }) {
         : (historyItem?.review?.id || null)
       if (existingId) {
         await reviewsApi.deleteReview(existingId)
-        toastSuccess('Review deleted')
+        toastSuccess(t('Review deleted'))
         onSave?.()
       }
       onClose()
     } catch (e) {
-      toastError(e.message || 'Failed to delete review')
+      toastError(e.message || t('Failed to delete review'))
     }
     setDeleting(false)
-  }, [reviewMediaType, reviewTmdbId, historyItem, onSave, onClose, toastSuccess, toastError])
+  }, [reviewMediaType, reviewTmdbId, historyItem, onSave, onClose, toastSuccess, toastError, t])
 
 
   const hasReview = rating > 0 || reviewText.trim()
@@ -247,9 +249,9 @@ export default function ReviewModal({ onClose, historyItem, onSave }) {
   const copyPostedLink = useCallback(async () => {
     try {
       await navigator.clipboard.writeText(`${window.location.origin}/review/${postedId}`)
-      toastSuccess('Review link copied!')
-    } catch { toastError('Copy failed') }
-  }, [postedId, toastSuccess, toastError])
+      toastSuccess(t('Review link copied!'))
+    } catch { toastError(t('Copy failed')) }
+  }, [postedId, toastSuccess, toastError, t])
 
   const downloadPostedImage = useCallback(async () => {
     try {
@@ -259,8 +261,8 @@ export default function ReviewModal({ onClose, historyItem, onSave }) {
       const a = document.createElement('a')
       a.href = href; a.download = `diskovarr-review-${postedId}.png`
       document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(href)
-    } catch { toastError('Could not download image') }
-  }, [postedId, toastError])
+    } catch { toastError(t('Could not download image')) }
+  }, [postedId, toastError, t])
 
   const postBtn = {
     display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
@@ -272,25 +274,25 @@ export default function ReviewModal({ onClose, historyItem, onSave }) {
   return (
     <div className="modal-backdrop open" onClick={onClose}>
       <div className="modal-card review-modal-card" role="dialog" aria-modal="true" onClick={e => e.stopPropagation()}>
-        <button className="modal-close" onClick={onClose} aria-label="Close">✕</button>
+        <button className="modal-close" onClick={onClose} aria-label={t('Close')}>✕</button>
 
         {postedId ? (
           <div style={{ textAlign: 'center', padding: '8px 4px' }}>
             <div style={{ width: '56px', height: '56px', borderRadius: '50%', background: 'var(--accent-dim)', color: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 14px', fontSize: '1.7rem' }}>✓</div>
-            <h2 style={{ margin: '0 0 6px', fontSize: '1.2rem', fontWeight: 700 }}>Review posted successfully</h2>
+            <h2 style={{ margin: '0 0 6px', fontSize: '1.2rem', fontWeight: 700 }}>{t('Review posted successfully')}</h2>
             <p style={{ margin: '0 0 22px', color: 'var(--text-secondary)', fontSize: '0.88rem' }}>{mediaInfo?.title}</p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxWidth: '320px', margin: '0 auto' }}>
               <button onClick={() => setShowShare(true)} style={{ ...postBtn, background: 'var(--accent)', color: '#000', border: 'none', fontWeight: 600 }}>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" /><line x1="8.59" y1="13.51" x2="15.42" y2="17.49" /><line x1="15.41" y1="6.51" x2="8.59" y2="10.49" /></svg>
-                Share Review
+                {t('Share Review')}
               </button>
-              <button onClick={copyPostedLink} style={postBtn}>Copy Link</button>
-              <button onClick={downloadPostedImage} style={postBtn}>Download Share Image</button>
-              <button onClick={onClose} style={{ ...postBtn, background: 'transparent', color: 'var(--text-secondary)' }}>Close</button>
+              <button onClick={copyPostedLink} style={postBtn}>{t('Copy Link')}</button>
+              <button onClick={downloadPostedImage} style={postBtn}>{t('Download Share Image')}</button>
+              <button onClick={onClose} style={{ ...postBtn, background: 'transparent', color: 'var(--text-secondary)' }}>{t('Close')}</button>
             </div>
           </div>
         ) : loading ? (
-          <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--text-secondary)' }}>Loading...</div>
+          <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--text-secondary)' }}>{t('Loading...')}</div>
         ) : (
           <>
             <div className="review-modal-header">
@@ -310,7 +312,7 @@ export default function ReviewModal({ onClose, historyItem, onSave }) {
                 </div>
                 <div style={{ marginTop: '12px' }}>
                   <div style={{ fontSize: '0.78rem', fontWeight: '600', color: 'var(--text-secondary)', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                    Your Rating
+                    {t('Your Rating')}
                   </div>
                   <StarRating value={rating} onChange={setRating} />
                 </div>
@@ -353,11 +355,11 @@ export default function ReviewModal({ onClose, historyItem, onSave }) {
             <div className="review-modal-body" style={{ marginTop: '16px' }}>
               <div style={{ marginBottom: '12px' }}>
                 <label style={{ fontSize: '0.78rem', fontWeight: '600', color: 'var(--text-secondary)', display: 'block', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                  Review
+                  {t('Review')}
                 </label>
                 <textarea
                   className="review-textarea"
-                  placeholder="Write your review..."
+                  placeholder={t('Write your review...')}
                   rows="4"
                   maxLength={2000}
                   value={reviewText}
@@ -389,7 +391,7 @@ export default function ReviewModal({ onClose, historyItem, onSave }) {
                     onChange={e => setSpoiler(e.target.checked)}
                     style={{ accentColor: 'var(--accent)', width: '16px', height: '16px' }}
                   />
-                  Contains spoilers
+                  {t('Contains spoilers')}
                 </label>
                 <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', color: 'var(--text-secondary)', cursor: 'pointer', userSelect: 'none' }}>
                   <input
@@ -398,13 +400,13 @@ export default function ReviewModal({ onClose, historyItem, onSave }) {
                     onChange={e => setRewatch(e.target.checked)}
                     style={{ accentColor: 'var(--accent)', width: '16px', height: '16px' }}
                   />
-                  Would rewatch
+                  {t('Would rewatch')}
                 </label>
               </div>
 
               {spoiler && reviewText.trim() && (
                 <div style={{ background: 'rgba(255,82,82,0.08)', border: '1px solid rgba(255,82,82,0.2)', borderRadius: '6px', padding: '8px 12px', fontSize: '0.78rem', color: '#ff5252', marginBottom: '12px' }}>
-                  ⚠ Review marked as containing spoilers
+                  {t('⚠ Review marked as containing spoilers')}
                 </div>
               )}
 
@@ -421,20 +423,20 @@ export default function ReviewModal({ onClose, historyItem, onSave }) {
                     onClick={() => setDeleteConfirm(true)}
                     style={{ fontSize: '0.82rem', padding: '6px 14px' }}
                   >
-                    Delete
+                    {t('Delete')}
                   </button>
                 )}
                 {deleteConfirm ? (
                   <>
-                    <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', alignSelf: 'center', marginRight: 'auto' }}>Delete this review?</span>
-                    <button className="edit-modal-cancel" onClick={() => setDeleteConfirm(false)}>Cancel</button>
+                    <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', alignSelf: 'center', marginRight: 'auto' }}>{t('Delete this review?')}</span>
+                    <button className="edit-modal-cancel" onClick={() => setDeleteConfirm(false)}>{t('Cancel')}</button>
                     <button className="btn-queue-delete" onClick={handleDelete} disabled={deleting}>
                       {deleting ? 'Deleting...' : 'Confirm Delete'}
                     </button>
                   </>
                 ) : (
                   <>
-                    <button className="edit-modal-cancel" onClick={onClose}>Cancel</button>
+                    <button className="edit-modal-cancel" onClick={onClose}>{t('Cancel')}</button>
                     <button
                       className="edit-modal-save"
                       onClick={handleSave}

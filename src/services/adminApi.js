@@ -160,6 +160,31 @@ export const adminCompat = {
   regenerateKey: () => adminApi.post('/compat/regenerate-key'),
 }
 
+/** Automation (list sync + deletion profiles) */
+export const adminAutomation = {
+  getLists: () => adminApi.get('/automation/lists'),
+  createList: (data) => adminApi.post('/automation/lists', data),
+  updateList: (id, data) => adminApi.put(`/automation/lists/${id}`, data),
+  deleteList: (id, deleteCollection) => adminApi.delete(`/automation/lists/${id}`, { params: { deleteCollection: deleteCollection ? 1 : 0 } }),
+  syncListNow: (id) => adminApi.post(`/automation/lists/${id}/sync-now`),
+  getListItems: (id) => adminApi.get(`/automation/lists/${id}/items`),
+  validateList: (data) => adminApi.post('/automation/lists/validate', data, { timeout: 60000 }),
+  getPresets: () => adminApi.get('/automation/presets'),
+  getCredentials: () => adminApi.get('/automation/credentials'),
+  setCredentials: (data) => adminApi.post('/automation/credentials', data),
+  getProfiles: () => adminApi.get('/automation/profiles'),
+  createProfile: (data) => adminApi.post('/automation/profiles', data),
+  updateProfile: (id, data) => adminApi.put(`/automation/profiles/${id}`, data),
+  deleteProfile: (id) => adminApi.delete(`/automation/profiles/${id}`),
+  previewProfile: (id) => adminApi.post(`/automation/profiles/${id}/preview`, {}, { timeout: 60000 }),
+  previewDraft: (data) => adminApi.post('/automation/profiles/preview', data, { timeout: 60000 }),
+  runNow: () => adminApi.post('/automation/run-now'),
+  getCandidates: (params) => adminApi.get('/automation/candidates', { params }),
+  approveCandidates: (ids) => adminApi.post('/automation/candidates/approve', { ids }, { timeout: 120000 }),
+  dismissCandidates: (ids) => adminApi.post('/automation/candidates/dismiss', { ids }),
+  getHistory: () => adminApi.get('/automation/history'),
+}
+
 /** DUMB/Riven */
 export const adminRiven = {
   save: (data) => adminApi.post('/connections/save', data),

@@ -1,6 +1,8 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react'
+import { useTranslation } from 'react-i18next'
 
 export default function Carousel({ children, variant = 'home' }) {
+  const { t } = useTranslation()
   const scrollRef = useRef(null)
   const [canScrollLeft, setCanScrollLeft] = useState(false)
   const [canScrollRight, setCanScrollRight] = useState(true)
@@ -27,16 +29,16 @@ export default function Carousel({ children, variant = 'home' }) {
 
   return (
     <div className="carousel-wrap">
-      {!canScrollLeft && <button className="carousel-arrow carousel-arrow-prev" disabled aria-label="Previous">❮</button>}
+      {!canScrollLeft && <button className="carousel-arrow carousel-arrow-prev" disabled aria-label={t('Previous')}>❮</button>}
       {canScrollLeft && (
-        <button className="carousel-arrow carousel-arrow-prev" onClick={() => scrollByAmount(-scrollRef.current?.clientWidth || 0)} aria-label="Previous">❮</button>
+        <button className="carousel-arrow carousel-arrow-prev" onClick={() => scrollByAmount(-scrollRef.current?.clientWidth || 0)} aria-label={t('Previous')}>❮</button>
       )}
       <div className={`card-grid ${variant === 'home' ? '' : ''}`} ref={scrollRef} style={variant === 'home' ? { gridTemplateRows: 'repeat(2, auto)', gridAutoFlow: 'column', gridAutoColumns: '160px' } : {}}>
         {children}
       </div>
-      {!canScrollRight && <button className="carousel-arrow carousel-arrow-next" disabled aria-label="Next">❯</button>}
+      {!canScrollRight && <button className="carousel-arrow carousel-arrow-next" disabled aria-label={t('Next')}>❯</button>}
       {canScrollRight && (
-        <button className="carousel-arrow carousel-arrow-next" onClick={() => scrollByAmount(scrollRef.current?.clientWidth || 0)} aria-label="Next">❯</button>
+        <button className="carousel-arrow carousel-arrow-next" onClick={() => scrollByAmount(scrollRef.current?.clientWidth || 0)} aria-label={t('Next')}>❯</button>
       )}
     </div>
   )

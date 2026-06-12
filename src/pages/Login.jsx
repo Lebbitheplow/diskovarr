@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useEffect, useRef, useMemo, memo } from 'react'
+import { useTranslation } from 'react-i18next'
 
 const LOGO_SVG = (
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="1em" height="1em" fill="none" aria-hidden="true">
@@ -108,6 +109,7 @@ const PosterBackground = memo(function PosterBackground({ posters }) {
 })
 
 export default function Login() {
+  const { t } = useTranslation()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [posters, setPosters] = useState([])
@@ -151,23 +153,23 @@ export default function Login() {
             <span className="logo-icon">{LOGO_SVG}</span>
             <span className="logo-text">Diskovarr</span>
           </div>
-          <p className="login-tagline">Your Plex. Personalized.</p>
+          <p className="login-tagline">{t('Your Plex. Personalized.')}</p>
           <p className="login-description">
-            Sign in with your Plex account to get personalized recommendations based on your watch history.
+            {t('Sign in with your Plex account to get personalized recommendations based on your watch history.')}
           </p>
           {error === 'plex_unreachable' && (
-            <div className="error-banner">Could not reach Plex. Please try again.</div>
+            <div className="error-banner">{t('Could not reach Plex. Please try again.')}</div>
           )}
           {error === 'no_access' && (
-            <div className="error-banner">Your account doesn't have access to this Plex server.</div>
+            <div className="error-banner">{t("Your account doesn't have access to this Plex server.")}</div>
           )}
           <button className="btn-plex" onClick={handlePlexLogin} disabled={loading}>
             {PLEX_ICON}
-            <span>{loading ? 'Connecting...' : 'Sign in with Plex'}</span>
+            <span>{loading ? t('Connecting...') : t('Sign in with Plex')}</span>
           </button>
           <p className="login-footer">
-            Recommendations are built from your personal watch history.<br />
-            No data is shared or stored externally.
+            {t('Recommendations are built from your personal watch history.')}<br />
+            {t('No data is shared or stored externally.')}
           </p>
         </div>
       </div>

@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect, useCallback } from 'react'
 import { useToast } from '../context/ToastContext'
 import { publicReviewsApi } from '../services/api'
 import { buildTargets, mastodonHref } from '../utils/shareTargets'
+import { useTranslation } from 'react-i18next'
 
 // Compact brand glyphs (simple-icons paths), 24×24, drawn in white on a brand chip.
 const ICONS = {
@@ -49,6 +50,7 @@ function ActionTile({ icon, label, onClick }) {
 const ic = (d) => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{d}</svg>
 
 export default function ShareModal({ reviewId, review = {}, onClose }) {
+  const { t } = useTranslation()
   const { success: toastSuccess, error: toastError } = useToast() || {}
   const [commentary, setCommentary] = useState('')
   const [working, setWorking] = useState(false)
@@ -146,21 +148,21 @@ export default function ShareModal({ reviewId, review = {}, onClose }) {
 
   return (
     <div className="modal-backdrop open" onClick={onClose}>
-      <div className="modal-card" role="dialog" aria-modal="true" aria-label="Share review"
+      <div className="modal-card" role="dialog" aria-modal="true" aria-label={t('Share review')}
         onClick={e => e.stopPropagation()} style={{ maxWidth: '460px', padding: '24px' }}>
-        <button className="modal-close" onClick={onClose} aria-label="Close">✕</button>
+        <button className="modal-close" onClick={onClose} aria-label={t('Close')}>✕</button>
 
-        <h3 style={{ margin: '0 0 4px', fontSize: '1.15rem', color: 'var(--text-primary)' }}>Share review</h3>
+        <h3 style={{ margin: '0 0 4px', fontSize: '1.15rem', color: 'var(--text-primary)' }}>{t('Share review')}</h3>
         <p style={{ margin: '0 0 16px', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
           {review.title ? `${review.title}${review.username ? ` · ${review.username}` : ''}` : 'Spread the word'}
         </p>
 
         {/* Optional commentary — affects the outgoing share only, never the review */}
-        <label style={sectionLabel}>Add a comment to your share</label>
+        <label style={sectionLabel}>{t('Add a comment to your share')}</label>
         <textarea
           value={commentary}
           onChange={e => setCommentary(e.target.value)}
-          placeholder="e.g. Completely agree with this take…"
+          placeholder={t('e.g. Completely agree with this take…')}
           maxLength={280}
           rows={2}
           style={{
@@ -173,15 +175,15 @@ export default function ShareModal({ reviewId, review = {}, onClose }) {
         {/* Primary actions */}
         <div style={{ display: 'grid', gridTemplateColumns: `repeat(${supportsNativeShare ? 4 : 3}, 1fr)`, gap: '8px', marginBottom: '18px' }}>
           {supportsNativeShare && (
-            <ActionTile label="Share" onClick={nativeShare} icon={ic(<><circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" /><line x1="8.59" y1="13.51" x2="15.42" y2="17.49" /><line x1="15.41" y1="6.51" x2="8.59" y2="10.49" /></>)} />
+            <ActionTile label={t('Share')} onClick={nativeShare} icon={ic(<><circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" /><line x1="8.59" y1="13.51" x2="15.42" y2="17.49" /><line x1="15.41" y1="6.51" x2="8.59" y2="10.49" /></>)} />
           )}
-          <ActionTile label="Copy link" onClick={() => copy(url, 'Review link copied!')} icon={ic(<><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" /></>)} />
-          <ActionTile label="Copy text" onClick={() => copy(review.reviewText || textWithUrl, 'Review text copied!')} icon={ic(<><rect x="9" y="9" width="13" height="13" rx="2" ry="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></>)} />
-          <ActionTile label="Image" onClick={() => downloadImage(false)} icon={ic(<><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></>)} />
+          <ActionTile label={t('Copy link')} onClick={() => copy(url, 'Review link copied!')} icon={ic(<><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" /></>)} />
+          <ActionTile label={t('Copy text')} onClick={() => copy(review.reviewText || textWithUrl, 'Review text copied!')} icon={ic(<><rect x="9" y="9" width="13" height="13" rx="2" ry="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></>)} />
+          <ActionTile label={t('Image')} onClick={() => downloadImage(false)} icon={ic(<><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></>)} />
         </div>
 
         {/* Social platforms — URL-based targets need a publicly reachable instance */}
-        <label style={sectionLabel}>Share to</label>
+        <label style={sectionLabel}>{t('Share to')}</label>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px', margin: '8px 0 18px' }}>
           {shareCfg.external && targets.map(t => (
             <button key={t.id} onClick={() => openTarget(t)} title={t.label} aria-label={`Share to ${t.label}`}
@@ -198,7 +200,7 @@ export default function ShareModal({ reviewId, review = {}, onClose }) {
           {/* Instagram has no web post URL — the native share sheet (with the square
               image attached) is the only path in; falls back to download where the
               file-share API is unavailable so the user can post manually. */}
-          <button onClick={() => shareImage(true)} disabled={working} title="Instagram" aria-label="Share to Instagram"
+          <button onClick={() => shareImage(true)} disabled={working} title={t('Instagram')} aria-label={t('Share to Instagram')}
             style={{ ...tileStyle, opacity: working ? 0.6 : 1 }}
             onMouseEnter={e => { e.currentTarget.style.borderColor = '#d62976' }}
             onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)' }}
@@ -206,12 +208,12 @@ export default function ShareModal({ reviewId, review = {}, onClose }) {
             <span style={{ ...chipStyle, background: 'linear-gradient(45deg, #feda75, #fa7e1e, #d62976, #962fbf, #4f5bd5)' }}>
               <BrandIcon id="instagram" />
             </span>
-            Instagram
+            {t('Instagram')}
           </button>
         </div>
         {shareCfg.loaded && !shareCfg.external && (
           <p style={{ margin: '-8px 0 16px', fontSize: '0.74rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-            Social-network sharing needs a public URL — an admin can set one in Settings. Copy Link, Copy Text, Download Image and Instagram still work.
+            {t('Social-network sharing needs a public URL — an admin can set one in Settings. Copy Link, Copy Text, Download Image and Instagram still work.')}
           </p>
         )}
       </div>

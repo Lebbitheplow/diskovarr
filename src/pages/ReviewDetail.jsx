@@ -7,8 +7,10 @@ import ReviewPost from '../components/ReviewPost'
 import ShareButton from '../components/ShareButton'
 import DetailModal from '../components/DetailModal'
 import SkeletonLoader from '../components/SkeletonLoader'
+import { useTranslation } from 'react-i18next'
 
 export default function ReviewDetail() {
+  const { t } = useTranslation()
   const { id } = useParams()
   const navigate = useNavigate()
   const { error: toastError } = useToast()
@@ -33,14 +35,14 @@ export default function ReviewDetail() {
       } catch (e) {
         if (active) {
           if (e?.status === 404) setNotFound(true)
-          else toastError(e?.message || 'Failed to load review')
+          else toastError(e?.message || t('Failed to load review'))
         }
       } finally {
         if (active) setLoading(false)
       }
     })()
     return () => { active = false }
-  }, [id, user, toastError])
+  }, [id, user, toastError, t])
 
   const handleOpenMediaModal = useCallback(async ({ tmdbId, mediaType, title, year }) => {
     try {
@@ -87,10 +89,10 @@ export default function ReviewDetail() {
         }}>
           <div style={{ fontSize: '2.5rem', marginBottom: '16px' }}>🔍</div>
           <h3 style={{ margin: '0 0 8px', color: 'var(--text-primary)', fontSize: '1.1rem' }}>
-            Review not found
+            {t('Review not found')}
           </h3>
           <p style={{ margin: '0 0 20px', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
-            This review may have been deleted or is set to private.
+            {t('This review may have been deleted or is set to private.')}
           </p>
           <button
             className="btn-page"
@@ -123,7 +125,7 @@ export default function ReviewDetail() {
               <circle cx="15" cy="9" r="5" stroke="var(--accent)" strokeWidth="2" fill="none" />
               <line x1="18.5" y1="12.5" x2="22" y2="16" stroke="var(--accent)" strokeWidth="2.5" strokeLinecap="round" />
             </svg>
-            <span style={{ fontWeight: 700, fontSize: '1.15rem', color: 'var(--text-primary)' }}>Diskovarr</span>
+            <span style={{ fontWeight: 700, fontSize: '1.15rem', color: 'var(--text-primary)' }}>{t('Diskovarr')}</span>
           </Link>
 
           <img
@@ -146,7 +148,7 @@ export default function ReviewDetail() {
                 padding: '10px 22px', borderRadius: '10px', fontSize: '0.9rem',
               }}
             >
-              Sign in to react & comment
+              {t('Sign in to react & comment')}
             </Link>
             <ShareButton reviewId={id} review={review || {}} />
           </div>
@@ -171,7 +173,7 @@ export default function ReviewDetail() {
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M19 12H5" /><polyline points="12 19 5 12 12 5" />
           </svg>
-          Back
+          {t('Back')}
         </button>
 
         {review && (

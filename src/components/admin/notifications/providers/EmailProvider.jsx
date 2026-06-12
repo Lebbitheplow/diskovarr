@@ -1,6 +1,7 @@
 import React, { useState, useCallback } from 'react'
 import { adminNotifications } from '../../../../services/adminApi'
 import { SHARED_NOTIFICATION_TYPES, DEFAULT_AGENT_TYPES, SMTP_PORTS } from '../constants'
+import { useTranslation } from 'react-i18next'
 
 function Checkbox({ checked, onChange, children }) {
   return (
@@ -12,6 +13,7 @@ function Checkbox({ checked, onChange, children }) {
 }
 
 export default function EmailProvider({ initial, onToast, onOpenAgentInfo }) {
+  const { t } = useTranslation()
   const [enabled, setEnabled] = useState(initial?.enabled || false)
   const [emailFrom, setEmailFrom] = useState(initial?.emailFrom || '')
   const [smtpHost, setSmtpHost] = useState(initial?.smtpHost || '')
@@ -58,50 +60,50 @@ export default function EmailProvider({ initial, onToast, onOpenAgentInfo }) {
       <div className="admin-section-header">
         <h2 className="section-title">
           Email (SMTP)
-          <button type="button" className="agent-info-btn" onClick={() => onOpenAgentInfo?.('email')} title="How to configure" style={{ marginLeft: 8, background: 'none', border: 'none', cursor: 'pointer', fontSize: 'inherit', color: 'inherit', padding: 0, verticalAlign: 'middle' }}>&#9432;</button>
+          <button type="button" className="agent-info-btn" onClick={() => onOpenAgentInfo?.('email')} title={t('How to configure')} style={{ marginLeft: 8, background: 'none', border: 'none', cursor: 'pointer', fontSize: 'inherit', color: 'inherit', padding: 0, verticalAlign: 'middle' }}>&#9432;</button>
         </h2>
         <label className="slide-toggle" style={{ flexShrink: 0 }}>
           <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
           <span className="slide-track" />
         </label>
       </div>
-      <p className="section-desc" style={{ marginBottom: 16 }}>Send email notifications via SMTP to users who have email addresses on file.</p>
+      <p className="section-desc" style={{ marginBottom: 16 }}>{t('Send email notifications via SMTP to users who have email addresses on file.')}</p>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 20 }}>
         <div>
-          <label className="conn-label">Sender Email</label>
-          <input type="email" className="conn-input" placeholder="diskovarr@example.com" value={emailFrom} onChange={(e) => setEmailFrom(e.target.value)} />
+          <label className="conn-label">{t('Sender Email')}</label>
+          <input type="email" className="conn-input" placeholder={t('diskovarr@example.com')} value={emailFrom} onChange={(e) => setEmailFrom(e.target.value)} />
         </div>
         <div>
-          <label className="conn-label">Sender Name</label>
-          <input type="text" className="conn-input" placeholder="Diskovarr" value={senderName} onChange={(e) => setSenderName(e.target.value)} />
+          <label className="conn-label">{t('Sender Name')}</label>
+          <input type="text" className="conn-input" placeholder={t('Diskovarr')} value={senderName} onChange={(e) => setSenderName(e.target.value)} />
         </div>
         <div style={{ display: 'flex', gap: 12 }}>
           <div style={{ flex: 2 }}>
-            <label className="conn-label">SMTP Host</label>
-            <input type="text" className="conn-input" placeholder="smtp.example.com" value={smtpHost} onChange={(e) => setSmtpHost(e.target.value)} />
+            <label className="conn-label">{t('SMTP Host')}</label>
+            <input type="text" className="conn-input" placeholder={t('smtp.example.com')} value={smtpHost} onChange={(e) => setSmtpHost(e.target.value)} />
           </div>
           <div style={{ flex: 1 }}>
-            <label className="conn-label">SMTP Port</label>
+            <label className="conn-label">{t('SMTP Port')}</label>
             <select className="conn-input" value={smtpPort} onChange={(e) => setSmtpPort(Number(e.target.value))}>
               {SMTP_PORTS.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
             </select>
           </div>
         </div>
         <div>
-          <label className="conn-label">SMTP Username <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(optional)</span></label>
-          <input type="text" className="conn-input" placeholder="Username" value={authUser} onChange={(e) => setAuthUser(e.target.value)} />
+          <label className="conn-label">{t('SMTP Username')} <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(optional)</span></label>
+          <input type="text" className="conn-input" placeholder={t('Username')} value={authUser} onChange={(e) => setAuthUser(e.target.value)} />
         </div>
         <div>
-          <label className="conn-label">SMTP Password <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(optional)</span></label>
-          <input type="password" className="conn-input" placeholder="Password" value={authPass} onChange={(e) => setAuthPass(e.target.value)} autoComplete="off" />
+          <label className="conn-label">{t('SMTP Password')} <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(optional)</span></label>
+          <input type="password" className="conn-input" placeholder={t('Password')} value={authPass} onChange={(e) => setAuthPass(e.target.value)} autoComplete="off" />
         </div>
         <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
           <Checkbox checked={secure} onChange={(e) => setSecure(e.target.checked)}>Use implicit TLS (port 465)</Checkbox>
-          <Checkbox checked={requireTls} onChange={(e) => setRequireTls(e.target.checked)}>Require STARTTLS</Checkbox>
-          <Checkbox checked={allowSelfSigned} onChange={(e) => setAllowSelfSigned(e.target.checked)}>Allow self-signed certs</Checkbox>
+          <Checkbox checked={requireTls} onChange={(e) => setRequireTls(e.target.checked)}>{t('Require STARTTLS')}</Checkbox>
+          <Checkbox checked={allowSelfSigned} onChange={(e) => setAllowSelfSigned(e.target.checked)}>{t('Allow self-signed certs')}</Checkbox>
         </div>
         <div>
-          <p style={{ fontSize: '0.72rem', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-secondary)', margin: '0 0 8px' }}>Notification Types</p>
+          <p style={{ fontSize: '0.72rem', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-secondary)', margin: '0 0 8px' }}>{t('Notification Types')}</p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
             {SHARED_NOTIFICATION_TYPES.map(t => (
               <Checkbox key={'em-'+t.value} checked={notifTypes.includes(t.value)} onChange={() => toggleType(setNotifTypes, t.value)}>
@@ -111,7 +113,7 @@ export default function EmailProvider({ initial, onToast, onOpenAgentInfo }) {
           </div>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
-          <button className="btn-admin btn-primary" onClick={handleSave}>Save</button>
+          <button className="btn-admin btn-primary" onClick={handleSave}>{t('Save')}</button>
           <button className="btn-admin" onClick={handleTest} disabled={testing}>{testing ? 'Sending...' : 'Send Test'}</button>
         </div>
       </div>

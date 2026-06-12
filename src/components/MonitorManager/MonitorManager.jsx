@@ -2,8 +2,10 @@ import React, { useState, useCallback, useEffect } from 'react'
 import { monitorsApi } from '../../services/monitorsApi'
 import MonitorEditor from './MonitorEditor'
 import { useToast } from '../../context/ToastContext'
+import { useTranslation } from 'react-i18next'
 
 export default function MonitorManager() {
+  const { t } = useTranslation()
   const toast = useToast()
   const [monitors, setMonitors] = useState([])
   const [loading, setLoading] = useState(true)
@@ -50,20 +52,20 @@ export default function MonitorManager() {
     return d.toLocaleDateString()
   }
 
-  if (loading) return <div className="monitor-manager">Loading...</div>
+  if (loading) return <div className="monitor-manager">{t('Loading...')}</div>
 
   return (
     <div className="monitor-manager">
       <div className="monitor-manager-header">
-        <h3>Content Monitors</h3>
+        <h3>{t('Content Monitors')}</h3>
         <button className="btn-admin btn-primary" onClick={() => setCreating(true)}>
-          + Create Monitor
+          {t('+ Create Monitor')}
         </button>
       </div>
 
       {monitors.length === 0 ? (
         <div className="monitor-empty">
-          <p>No monitors yet. Create one to get notified when new content matching your interests becomes available.</p>
+          <p>{t('No monitors yet. Create one to get notified when new content matching your interests becomes available.')}</p>
         </div>
       ) : (
         <div className="monitor-list">
@@ -104,13 +106,13 @@ export default function MonitorManager() {
                     className="chip-sm"
                     onClick={() => setEditingMonitor(m)}
                   >
-                    Edit
+                    {t('Edit')}
                   </button>
                   <button
                     className="chip-sm chip-danger"
                     onClick={() => handleDelete(m.id, m.name)}
                   >
-                    Delete
+                    {t('Delete')}
                   </button>
                 </div>
               </div>

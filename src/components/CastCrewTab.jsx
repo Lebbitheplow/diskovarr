@@ -1,10 +1,12 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react'
+import { useTranslation } from 'react-i18next'
 
 // Horizontal scroller with edge navigation arrows, reusing the site-wide
 // `.carousel-wrap`/`.carousel-arrow` styling (as on the Diskovarr home rows).
 // Wraps a flex scroll row (the cast/crew rows) rather than the 2-row card grid,
 // so it can't share the grid-based <Carousel> component directly.
 function ScrollCarousel({ className, children }) {
+  const { t } = useTranslation()
   const scrollRef = useRef(null)
   const [canScrollLeft, setCanScrollLeft] = useState(false)
   const [canScrollRight, setCanScrollRight] = useState(false)
@@ -42,7 +44,7 @@ function ScrollCarousel({ className, children }) {
         className="carousel-arrow carousel-arrow-prev"
         onClick={() => scrollByPage(-1)}
         disabled={!canScrollLeft}
-        aria-label="Previous"
+        aria-label={t('Previous')}
       >❮</button>
       <div className={className} ref={scrollRef}>
         {children}
@@ -51,7 +53,7 @@ function ScrollCarousel({ className, children }) {
         className="carousel-arrow carousel-arrow-next"
         onClick={() => scrollByPage(1)}
         disabled={!canScrollRight}
-        aria-label="Next"
+        aria-label={t('Next')}
       >❯</button>
     </div>
   )
@@ -207,15 +209,16 @@ function sortCrewByPriority(crew) {
 }
 
 export default function CastCrewTab({ cast, crew, loading, mediaType, onPersonClick, onMonitorCast }) {
+  const { t } = useTranslation()
   if (loading) {
     return (
       <div className="cast-crew-content">
         <div className="cast-crew-section">
-          <div className="cast-crew-section-title">Cast</div>
+          <div className="cast-crew-section-title">{t('Cast')}</div>
           <CastSkeleton />
         </div>
         <div className="cast-crew-section">
-          <div className="cast-crew-section-title">Crew</div>
+          <div className="cast-crew-section-title">{t('Crew')}</div>
           <CrewSkeleton />
         </div>
       </div>
@@ -227,7 +230,7 @@ export default function CastCrewTab({ cast, crew, loading, mediaType, onPersonCl
   if (!hasCast && !hasCrew) {
     return (
       <div className="cast-crew-empty">
-        No cast or crew information available.
+        {t('No cast or crew information available.')}
       </div>
     )
   }
@@ -238,7 +241,7 @@ export default function CastCrewTab({ cast, crew, loading, mediaType, onPersonCl
     <div className="cast-crew-content">
       {hasCast && (
         <div className="cast-crew-section">
-          <div className="cast-crew-section-title">Cast</div>
+          <div className="cast-crew-section-title">{t('Cast')}</div>
           <ScrollCarousel className="cast-scroll-row">
            {cast.map(member => (
                 <CastCard key={member.id} member={member} onClick={onPersonClick} onMonitor={onMonitorCast} />

@@ -1,11 +1,13 @@
 import React from 'react'
 import { PROVIDERS } from '../admin/notifications/constants'
+import { useTranslation } from 'react-i18next'
 
 const ICON_MAP = Object.fromEntries(PROVIDERS.map(p => [p.id, p.icon]))
 
 export default function UserProviderSidebar({ providers, active, onChange, providerEnabled }) {
+  const { t } = useTranslation()
   return (
-    <nav className="notif-sidebar" aria-label="Notification providers">
+    <nav className="notif-sidebar" aria-label={t('Notification providers')}>
       <button
         className={`notif-sidebar-item ${active === 'types' ? 'active' : ''}`}
         onClick={() => onChange('types')}
@@ -14,8 +16,8 @@ export default function UserProviderSidebar({ providers, active, onChange, provi
           <use href="/icons.svg#notif-types-icon" />
         </svg>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <span style={{ fontSize: '0.88rem', fontWeight: active === 'types' ? 600 : 500 }}>Types</span>
-          <span className="notif-sidebar-sub">What to receive</span>
+          <span style={{ fontSize: '0.88rem', fontWeight: active === 'types' ? 600 : 500 }}>{t('Types')}</span>
+          <span className="notif-sidebar-sub">{t('What to receive')}</span>
         </div>
       </button>
       {providers.map(p => (
@@ -40,7 +42,7 @@ export default function UserProviderSidebar({ providers, active, onChange, provi
       ))}
       {providers.length === 0 && (
         <div style={{ padding: '12px 0', color: 'var(--text-muted)', fontSize: '0.82rem' }}>
-          No providers available. Contact your admin.
+          {t('No providers available. Contact your admin.')}
         </div>
       )}
     </nav>

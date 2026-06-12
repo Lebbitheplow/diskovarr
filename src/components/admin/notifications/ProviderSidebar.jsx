@@ -1,9 +1,11 @@
 import React from 'react'
 import { PROVIDERS } from './constants'
+import { useTranslation } from 'react-i18next'
 
 export default function ProviderSidebar({ active, onChange, providerEnabled }) {
+  const { t } = useTranslation()
   return (
-    <nav className="notif-sidebar" aria-label="Notification providers">
+    <nav className="notif-sidebar" aria-label={t('Notification providers')}>
       {PROVIDERS.map((p) => {
         if (p.id === 'broadcast') return (
           <button
@@ -16,7 +18,7 @@ export default function ProviderSidebar({ active, onChange, providerEnabled }) {
             </svg>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
               <span style={{ fontSize: '0.88rem', fontWeight: active === p.id ? 600 : 500 }}>{p.label}</span>
-              <span className="notif-sidebar-sub">All users</span>
+              <span className="notif-sidebar-sub">{t('All users')}</span>
             </div>
           </button>
         )

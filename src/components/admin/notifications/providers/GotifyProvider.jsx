@@ -1,6 +1,7 @@
 import React, { useState, useCallback } from 'react'
 import { adminNotifications } from '../../../../services/adminApi'
 import { SHARED_NOTIFICATION_TYPES, DEFAULT_AGENT_TYPES, GOTIFY_PRIORITIES } from '../constants'
+import { useTranslation } from 'react-i18next'
 
 function Checkbox({ checked, onChange, children }) {
   return (
@@ -12,6 +13,7 @@ function Checkbox({ checked, onChange, children }) {
 }
 
 export default function GotifyProvider({ initial, onToast, onOpenAgentInfo }) {
+  const { t } = useTranslation()
   const [enabled, setEnabled] = useState(initial?.enabled || false)
   const [url, setUrl] = useState(initial?.url || '')
   const [token, setToken] = useState(initial?.token || '')
@@ -48,32 +50,32 @@ export default function GotifyProvider({ initial, onToast, onOpenAgentInfo }) {
     <section className="admin-section">
       <div className="admin-section-header">
         <h2 className="section-title">
-          Gotify
-          <button type="button" className="agent-info-btn" onClick={() => onOpenAgentInfo?.('gotify')} title="How to configure" style={{ marginLeft: 8, background: 'none', border: 'none', cursor: 'pointer', fontSize: 'inherit', color: 'inherit', padding: 0, verticalAlign: 'middle' }}>&#9432;</button>
+          {t('Gotify')}
+          <button type="button" className="agent-info-btn" onClick={() => onOpenAgentInfo?.('gotify')} title={t('How to configure')} style={{ marginLeft: 8, background: 'none', border: 'none', cursor: 'pointer', fontSize: 'inherit', color: 'inherit', padding: 0, verticalAlign: 'middle' }}>&#9432;</button>
         </h2>
         <label className="slide-toggle" style={{ flexShrink: 0 }}>
           <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
           <span className="slide-track" />
         </label>
       </div>
-      <p className="section-desc" style={{ marginBottom: 16 }}>Send notifications through your self-hosted Gotify server.</p>
+      <p className="section-desc" style={{ marginBottom: 16 }}>{t('Send notifications through your self-hosted Gotify server.')}</p>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 20 }}>
         <div>
-          <label className="conn-label">Gotify Server URL</label>
-          <input type="url" className="conn-input" placeholder="https://gotify.example.com" value={url} onChange={(e) => setUrl(e.target.value)} />
+          <label className="conn-label">{t('Gotify Server URL')}</label>
+          <input type="url" className="conn-input" placeholder={t('https://gotify.example.com')} value={url} onChange={(e) => setUrl(e.target.value)} />
         </div>
         <div>
-          <label className="conn-label">Application Token</label>
-          <input type="password" className="conn-input" placeholder="Application token" value={token} onChange={(e) => setToken(e.target.value)} autoComplete="off" />
+          <label className="conn-label">{t('Application Token')}</label>
+          <input type="password" className="conn-input" placeholder={t('Application token')} value={token} onChange={(e) => setToken(e.target.value)} autoComplete="off" />
         </div>
         <div>
-          <label className="conn-label">Priority</label>
+          <label className="conn-label">{t('Priority')}</label>
           <select className="conn-input" value={priority} onChange={(e) => setPriority(Number(e.target.value))}>
             {GOTIFY_PRIORITIES.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
           </select>
         </div>
         <div>
-          <p style={{ fontSize: '0.72rem', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-secondary)', margin: '0 0 8px' }}>Notification Types</p>
+          <p style={{ fontSize: '0.72rem', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-secondary)', margin: '0 0 8px' }}>{t('Notification Types')}</p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
             {SHARED_NOTIFICATION_TYPES.map(t => (
               <Checkbox key={'gf-'+t.value} checked={notifTypes.includes(t.value)} onChange={() => toggleType(setNotifTypes, t.value)}>
@@ -83,7 +85,7 @@ export default function GotifyProvider({ initial, onToast, onOpenAgentInfo }) {
           </div>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
-          <button className="btn-admin btn-primary" onClick={handleSave}>Save</button>
+          <button className="btn-admin btn-primary" onClick={handleSave}>{t('Save')}</button>
           <button className="btn-admin" onClick={handleTest} disabled={testing}>{testing ? 'Sending...' : 'Send Test'}</button>
         </div>
       </div>

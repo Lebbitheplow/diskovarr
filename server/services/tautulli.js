@@ -326,4 +326,37 @@ async function syncWatchHistory({ length = 10000 } = {}) {
   return count;
 }
 
-module.exports = { getWatchedMovieKeys, getWatchedShowKeys, getFullHistory, getViewStats, getPopularItems, syncWatchHistory };
+/**
+ * Cross-user view stats from the locally cached watch_history table (synced from
+ * Tautulli every 15 min): { ratingKey: { lastPlayedAt, plays } }, movies keyed by
+ * their own rating_key and shows by the show (grandparent) key — matching
+ * library_items. Used by deletion profiles for last-played / never-played
+ * criteria, so it deliberately reads the DB instead of hitting Tautulli live.
+ */
+function getGlobalViewStats() {
+  const stats = {};
+  for (const row of db.prepare(`
+    SELECT rating_key AS key, MAX(watched_at) AS last, COUNT(*) AS plays
+    FROM watch_history WHERE media_type = 'movie' AND rating_key IS NOT NULL
+    GROUP BY rating_key
+  `).all()) {
+    stats[String(row.key)] = { lastPlayedAt: row.last || 0, plays: row.plays || 0 };
+  }
+  for (const row of db.prepare(`
+    SELECT grandparent_rating_key AS key, MAX(watched_at) AS last, COUNT(*) AS plays
+    FROM watch_history WHERE media_type = 'episode' AND grandparent_rating_key IS NOT NULL
+    GROUP BY grandparent_rating_key
+  `).all()) {
+    stats[String(row.key)] = { lastPlayedAt: row.last || 0, plays: row.plays || 0 };
+  }
+  return stats;
+}
+
+// Whether watch history has ever synced. Deletion profiles that use watch-based
+// criteria must refuse to run without it — an empty history would make
+// "never played" match the entire library.
+function hasWatchHistoryData() {
+  return (db.getWatchHistoryCount() || 0) > 0;
+}
+
+module.exports = { getWatchedMovieKeys, getWatchedShowKeys, getFullHistory, getViewStats, getPopularItems, syncWatchHistory, getGlobalViewStats, hasWatchHistoryData };

@@ -2,8 +2,10 @@ import React, { useState, useCallback, useEffect, useRef } from 'react'
 import { profileApi, discoverApi, searchApi } from '../services/api'
 import { useToast } from '../context/ToastContext'
 import { posterUrl } from '../utils/media'
+import { useTranslation } from 'react-i18next'
 
 export default function ProfileEditForm({ profile, onCancel, onUpdated }) {
+  const { t } = useTranslation()
   const { error: toastError } = useToast()
   const [bio, setBio] = useState(profile.bio || '')
   const [selectedGenres, setSelectedGenres] = useState(profile.favoriteGenres || [])
@@ -111,7 +113,7 @@ export default function ProfileEditForm({ profile, onCancel, onUpdated }) {
       })
       onUpdated(data)
     } catch (e) {
-      toastError(e?.message || 'Failed to update profile')
+      toastError(e?.message || t('Failed to update profile'))
     } finally {
       setSaving(false)
     }
@@ -121,13 +123,13 @@ export default function ProfileEditForm({ profile, onCancel, onUpdated }) {
     <div className="profile-edit-form">
       <div className="profile-section">
         <label className="profile-section-title" htmlFor="profile-bio">
-          Bio <span style={{ color: 'var(--text-muted)', fontWeight: '400' }}>({bio.length}/500)</span>
+          {t('Bio')} <span style={{ color: 'var(--text-muted)', fontWeight: '400' }}>({bio.length}/500)</span>
         </label>
         <textarea
           id="profile-bio"
           value={bio}
           onChange={e => setBio(e.target.value.substring(0, 500))}
-          placeholder="Tell us about yourself..."
+          placeholder={t('Tell us about yourself...')}
           rows={3}
           style={{
             width: '100%', padding: '10px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border)',
@@ -139,10 +141,10 @@ export default function ProfileEditForm({ profile, onCancel, onUpdated }) {
 
       <div className="profile-section">
         <label className="profile-section-title">
-          Favorite Genres <span style={{ color: 'var(--text-muted)', fontWeight: '400' }}>({selectedGenres.length}/5)</span>
+          {t('Favorite Genres')} <span style={{ color: 'var(--text-muted)', fontWeight: '400' }}>({selectedGenres.length}/5)</span>
         </label>
         {loadingGenres ? (
-          <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Loading genres...</div>
+          <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>{t('Loading genres...')}</div>
         ) : (() => {
           const atMax = selectedGenres.length >= 5
           const matches = allGenres.filter(g =>
@@ -206,7 +208,7 @@ export default function ProfileEditForm({ profile, onCancel, onUpdated }) {
 
       <div className="profile-section">
         <label className="profile-section-title">
-          Favorite Media <span style={{ color: 'var(--text-muted)', fontWeight: '400' }}>({selectedMedia.length}/5)</span>
+          {t('Favorite Media')} <span style={{ color: 'var(--text-muted)', fontWeight: '400' }}>({selectedMedia.length}/5)</span>
         </label>
         <div style={{ position: 'relative' }}>
           <input
@@ -214,7 +216,7 @@ export default function ProfileEditForm({ profile, onCancel, onUpdated }) {
             type="text"
             value={mediaQuery}
             onChange={e => setMediaQuery(e.target.value)}
-            placeholder="Search movies & shows..."
+            placeholder={t('Search movies & shows...')}
             disabled={selectedMedia.length >= 5}
             style={{
               width: '100%', padding: '10px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border)',
@@ -251,14 +253,14 @@ export default function ProfileEditForm({ profile, onCancel, onUpdated }) {
                         {[item.year, item.mediaType === 'tv' ? 'TV' : 'Movie'].filter(Boolean).join(' · ')}
                       </div>
                     </div>
-                    {already && <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Added</span>}
+                    {already && <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{t('Added')}</span>}
                   </div>
                 )
               })}
             </div>
           )}
         </div>
-        {searchingMedia && <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem', marginTop: '6px' }}>Searching...</div>}
+        {searchingMedia && <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem', marginTop: '6px' }}>{t('Searching...')}</div>}
         {selectedMedia.length > 0 && (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '10px' }}>
             {selectedMedia.map(item => (
@@ -284,7 +286,7 @@ export default function ProfileEditForm({ profile, onCancel, onUpdated }) {
 
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '8px' }}>
         <button className="btn-page" onClick={onCancel} disabled={saving} style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-secondary)', padding: '8px 20px', borderRadius: '8px', cursor: saving ? 'not-allowed' : 'pointer' }}>
-          Cancel
+          {t('Cancel')}
         </button>
         <button
           className="btn-page"

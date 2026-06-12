@@ -5,10 +5,12 @@ import { useToast } from '../context/ToastContext'
 import ReviewPost from '../components/ReviewPost'
 import DetailModal from '../components/DetailModal'
 import SkeletonLoader from '../components/SkeletonLoader'
+import { useTranslation } from 'react-i18next'
 
 const PER_PAGE = 20
 
 export default function Reviews() {
+  const { t } = useTranslation()
   const navigate = useNavigate()
   const { error: toastError } = useToast()
   const [reviews, setReviews] = useState([])
@@ -32,9 +34,9 @@ export default function Reviews() {
       setError(false)
     } catch (e) {
       if (!append) setError(true)
-      toastError(e?.message || 'Failed to load reviews')
+      toastError(e?.message || t('Failed to load reviews'))
     }
-  }, [toastError])
+  }, [toastError, t])
 
   const initFollows = useCallback(async () => {
     try {
@@ -115,7 +117,7 @@ export default function Reviews() {
     return (
       <div className="main-content">
         <div style={{ textAlign: 'center', padding: '60px 20px' }}>
-          <div style={{ fontSize: '1.2rem', color: 'var(--text-secondary)', marginBottom: '24px' }}>Loading reviews...</div>
+          <div style={{ fontSize: '1.2rem', color: 'var(--text-secondary)', marginBottom: '24px' }}>{t('Loading reviews...')}</div>
           <SkeletonLoader count={6} />
         </div>
       </div>
@@ -127,10 +129,10 @@ export default function Reviews() {
       {/* Hero */}
       <div className="hero" style={{ marginBottom: '28px' }}>
         <h1 className="hero-title">
-          <span className="accent">Reviews</span>
+          <span className="accent">{t('Reviews')}</span>
         </h1>
         <p className="hero-sub">
-          A community feed of reviews from your server
+          {t('A community feed of reviews from your server')}
         </p>
         <div className="hero-controls" style={{ marginTop: '12px' }}>
           <button
@@ -142,7 +144,7 @@ export default function Reviews() {
               fontSize: '0.9rem', display: 'inline-flex', alignItems: 'center', gap: '6px',
             }}
           >
-            <span>✍️</span> Review Watched Content
+            <span>✍️</span> {t('Review Watched Content')}
           </button>
         </div>
       </div>
@@ -159,7 +161,7 @@ export default function Reviews() {
               Couldn't load reviews
             </h3>
             <p style={{ margin: '0 0 20px', color: 'var(--text-secondary)', fontSize: '0.9rem', maxWidth: '360px', marginLeft: 'auto', marginRight: 'auto' }}>
-              Something went wrong fetching the feed. Please try again.
+              {t('Something went wrong fetching the feed. Please try again.')}
             </p>
             <button
               className="btn-page"
@@ -170,7 +172,7 @@ export default function Reviews() {
                 fontSize: '0.9rem',
               }}
             >
-              Retry
+              {t('Retry')}
             </button>
           </div>
         ) : reviews.length === 0 ? (
@@ -180,10 +182,10 @@ export default function Reviews() {
           }}>
             <div style={{ fontSize: '2.5rem', marginBottom: '16px' }}>📝</div>
             <h3 style={{ margin: '0 0 8px', color: 'var(--text-primary)', fontSize: '1.1rem' }}>
-              No reviews yet
+              {t('No reviews yet')}
             </h3>
             <p style={{ margin: '0 0 20px', color: 'var(--text-secondary)', fontSize: '0.9rem', maxWidth: '360px', marginLeft: 'auto', marginRight: 'auto' }}>
-              Be the first to review something from your watch history!
+              {t('Be the first to review something from your watch history!')}
             </p>
             <button
               className="btn-page"
@@ -194,7 +196,7 @@ export default function Reviews() {
                 fontSize: '0.9rem',
               }}
             >
-              Go to Watch History
+              {t('Go to Watch History')}
             </button>
           </div>
         ) : (
@@ -213,7 +215,7 @@ export default function Reviews() {
         {/* Loading more indicator */}
         {loadingMore && (
           <div style={{ textAlign: 'center', padding: '20px', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-            Loading more reviews...
+            {t('Loading more reviews...')}
           </div>
         )}
 

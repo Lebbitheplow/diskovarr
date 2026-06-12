@@ -5,6 +5,7 @@ import { notificationsApi, searchApi } from '../services/api'
 import Modal from './Modal'
 import ChangelogModal from './ChangelogModal'
 import { renderTextWithLinks } from '../utils/renderRichText'
+import { useTranslation } from 'react-i18next'
 
 const LOGO_SVG = 'M7.5 17.5h13M3 8.5h2.5v9M7 11h3v6.5M11 10h2.5v7.5M15 9a5 5 0 1 0 0 0 5 5 0 1 0 0 0M18.5 12.5l3.5 3.5'
 
@@ -22,6 +23,7 @@ function LogoIcon() {
 }
 
 export default function NavigationBar() {
+  const { t } = useTranslation()
   const { user, logout, discoverAvailable } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
@@ -66,9 +68,9 @@ export default function NavigationBar() {
 
   const navTabs = [
     { path: '/', label: 'Diskovarr' },
-    ...(discoverAvailable ? [{ path: '/explore', label: 'Diskovarr Requests' }] : []),
-    { path: '/discover', label: 'Filter', icon: true },
-    { path: '/reviews', label: 'Reviews' },
+    ...(discoverAvailable ? [{ path: '/explore', label: t('Diskovarr Requests') }] : []),
+    { path: '/discover', label: t('Filter'), icon: true },
+    { path: '/reviews', label: t('Reviews') },
   ]
 
   // Close all menus when the route changes. Render-phase adjustment (React's
@@ -222,7 +224,7 @@ export default function NavigationBar() {
   const agoString = (created_at) => {
     // eslint-disable-next-line react-hooks/purity
     const ago = Math.floor((Date.now() / 1000 - created_at) / 60)
-    return ago < 60 ? `${ago}m ago` : `${Math.floor(ago / 60)}h ago`
+    return ago < 60 ? t('{{n}}m ago', { n: ago }) : t('{{n}}h ago', { n: Math.floor(ago / 60) })
   }
 
   return (
@@ -258,7 +260,7 @@ export default function NavigationBar() {
               <button
                 className="nav-search-toggle"
                 onClick={() => { setSearchOpen(true); setTimeout(() => searchInputRef.current?.focus(), 0) }}
-                aria-label="Search"
+                aria-label={t('Search')}
               >
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" width="16" height="16" fill="none" aria-hidden="true">
                   <circle cx="8.5" cy="8.5" r="5.5" stroke="currentColor" strokeWidth="1.8" />
@@ -274,7 +276,7 @@ export default function NavigationBar() {
                   ref={searchInputRef}
                   type="search"
                   className="nav-search-input"
-                  placeholder="Search movies & shows..."
+                  placeholder={t('Search movies & shows...')}
                   autoComplete="off"
                   spellCheck="false"
                   value={searchQuery}
@@ -302,7 +304,7 @@ export default function NavigationBar() {
                   }}
                 />
                 {searchQuery && (
-                  <button type="button" className="nav-search-clear" onClick={() => { setSearchQuery(''); searchInputRef.current?.focus() }} aria-label="Clear">✕</button>
+                  <button type="button" className="nav-search-clear" onClick={() => { setSearchQuery(''); searchInputRef.current?.focus() }} aria-label={t('Clear')}>✕</button>
                 )}
               </div>
               <div className={`nav-search-dropdown${searchResults.length > 0 ? ' open' : ''}`} ref={searchDropdownRef}>
@@ -322,7 +324,7 @@ export default function NavigationBar() {
                     <div className="hero-suggest-text">
                       <span className="hero-suggest-title">{item.title}</span>
                       <span className="hero-suggest-meta">
-                        {[item.year, item.mediaType === 'movie' ? 'Movie' : 'TV Show'].filter(Boolean).join(' · ')}
+                        {[item.year, item.mediaType === 'movie' ? t('Movie') : t('TV Show')].filter(Boolean).join(' · ')}
                       </span>
                     </div>
                   </div>
@@ -332,7 +334,7 @@ export default function NavigationBar() {
                     className="hero-suggest-row hero-suggest-all"
                     onMouseDown={(e) => { e.preventDefault(); navigateToSearch(searchQuery.trim()) }}
                   >
-                    See all results for "{searchQuery.trim()}"
+                    {t('See all results for \u201c{{query}}\u201d', { query: searchQuery.trim() })}
                   </div>
                 )}
               </div>
@@ -343,7 +345,7 @@ export default function NavigationBar() {
                 ref={bellBtnRef}
                 className="nav-bell-btn"
                 onClick={handleBellClick}
-                aria-label="Notifications"
+                aria-label={t('Notifications')}
                 style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px 6px', borderRadius: '6px', color: 'var(--text-secondary)', fontSize: '1.1rem', display: 'flex', alignItems: 'center', gap: '4px', transition: 'color 0.15s' }}
                 onMouseOver={(e) => { e.currentTarget.style.color = 'var(--accent)' }}
                 onMouseOut={(e) => { e.currentTarget.style.color = 'var(--text-secondary)' }}
@@ -361,11 +363,11 @@ export default function NavigationBar() {
               {bellOpen && (
                 <div ref={bellDropdownRef} className="nav-bell-dropdown">
                   <div className="nav-bell-header">
-                    <span>Notifications</span>
-                    <button onClick={markAllRead}>Mark all read</button>
+                    <span>{t('Notifications')}</span>
+                    <button onClick={markAllRead}>{t('Mark all read')}</button>
                   </div>
                   {notifications.length === 0 ? (
-                    <div className="nav-bell-empty">No notifications</div>
+                    <div className="nav-bell-empty">{t('No notifications')}</div>
                   ) : (
                     <div className="nav-bell-list">
                       {notifications.map((n) => (
@@ -376,7 +378,7 @@ export default function NavigationBar() {
                         >
                           <div className="nav-bell-title">{n.title}</div>
                           {n.body && <div className="nav-bell-body">{renderTextWithLinks(n.body)}</div>}
-                          <div className="nav-bell-time">{agoString(n.created_at)}{n.read ? ' · read' : ''}</div>
+                          <div className="nav-bell-time">{agoString(n.created_at)}{n.read ? ' · ' + t('read') : ''}</div>
                         </div>
                       ))}
                     </div>
@@ -389,7 +391,7 @@ export default function NavigationBar() {
               ref={userBtnRef}
               className="nav-user-btn"
               onClick={() => setFabOpen(!fabOpen)}
-              aria-label="Open menu"
+              aria-label={t('Open menu')}
               aria-expanded={fabOpen}
             >
               {user?.thumb ? (
@@ -404,7 +406,7 @@ export default function NavigationBar() {
       </nav>
 
       {/* FAB for mobile */}
-      <button className="nav-fab" onClick={() => setFabOpen(!fabOpen)} aria-label="Open menu" aria-expanded={fabOpen}>
+      <button className="nav-fab" onClick={() => setFabOpen(!fabOpen)} aria-label={t('Open menu')} aria-expanded={fabOpen}>
         {user?.thumb ? (
           <img src={user.thumb} alt={user.username}
             onError={(e) => { e.currentTarget.outerHTML = `<span class="nav-fab-initial">${user.username.charAt(0).toUpperCase()}</span>` }} />
@@ -424,15 +426,15 @@ export default function NavigationBar() {
               ) : (
                 <div className="nav-fab-menu-avatar-placeholder">{user?.username?.charAt(0).toUpperCase() || '?'}</div>
               )}
-              <span className="nav-fab-menu-username">{user?.username || 'User'}</span>
+              <span className="nav-fab-menu-username">{user?.username || t('User')}</span>
             </a>
-            <a href="/settings" className="nav-fab-menu-link" onClick={() => setFabOpen(false)}>⚙ Settings</a>
-            <a href="/queue" className="nav-fab-menu-link" onClick={() => setFabOpen(false)}>☑ Queue</a>
-            <a href="/history" className="nav-fab-menu-link" onClick={() => setFabOpen(false)}>◷ Watch History</a>
-            <a href="/issues" className="nav-fab-menu-link" onClick={() => setFabOpen(false)}>⚠ Issues</a>
-            <a href="/admin" className="nav-fab-menu-link" onClick={() => setFabOpen(false)}>⚙ Admin</a>
-            <button className="nav-fab-menu-link nav-fab-menu-info" onClick={() => { setInfoOpen(true); setFabOpen(false) }}>ℹ About</button>
-            <button className="nav-fab-menu-link nav-fab-menu-signout" onClick={handleSignOut}>Sign out</button>
+            <a href="/settings" className="nav-fab-menu-link" onClick={() => setFabOpen(false)}>⚙ {t('Settings')}</a>
+            <a href="/queue" className="nav-fab-menu-link" onClick={() => setFabOpen(false)}>☑ {t('Queue')}</a>
+            <a href="/history" className="nav-fab-menu-link" onClick={() => setFabOpen(false)}>◷ {t('Watch History')}</a>
+            <a href="/issues" className="nav-fab-menu-link" onClick={() => setFabOpen(false)}>⚠ {t('Issues')}</a>
+            <a href="/admin" className="nav-fab-menu-link" onClick={() => setFabOpen(false)}>⚙ {t('Admin')}</a>
+            <button className="nav-fab-menu-link nav-fab-menu-info" onClick={() => { setInfoOpen(true); setFabOpen(false) }}>ℹ {t('About')}</button>
+            <button className="nav-fab-menu-link nav-fab-menu-signout" onClick={handleSignOut}>{t('Sign out')}</button>
           </div>
           <div className="nav-overlay open" onClick={() => setFabOpen(false)} />
         </>
@@ -442,47 +444,47 @@ export default function NavigationBar() {
       {infoOpen && (
         <div className="info-modal-backdrop open" onClick={() => setInfoOpen(false)}>
           <div className="info-modal-card" role="dialog" aria-modal="true" onClick={e => e.stopPropagation()}>
-            <button className="info-modal-close" onClick={() => setInfoOpen(false)} aria-label="Close">✕</button>
+            <button className="info-modal-close" onClick={() => setInfoOpen(false)} aria-label={t('Close')}>✕</button>
             <div className="info-modal-logo">
               <span className="logo-icon"><LogoIcon /></span>
               <span className="logo-text">Diskovarr</span>
-              <button className="info-modal-version" onClick={() => { setInfoOpen(false); setChangelogOpen(true) }}>v{import.meta.env.VITE_APP_VERSION || '2.2.2'}</button>
+              <button className="info-modal-version" onClick={() => { setInfoOpen(false); setChangelogOpen(true) }}>v{import.meta.env.VITE_APP_VERSION || '2.3.0'}</button>
             </div>
-            <p className="info-modal-tagline">Your personalized Plex discovery and content management platform. Diskovarr combines recommendations, requests, watch history, reviews, and community features into a single experience. It learns from your viewing habits to help you discover new content, track what you've watched, and share your thoughts with other users.</p>
+            <p className="info-modal-tagline">{t("Your personalized Plex discovery and content management platform. Diskovarr combines recommendations, requests, watch history, reviews, and community features into a single experience. It learns from your viewing habits to help you discover new content, track what you've watched, and share your thoughts with other users.")}</p>
             <div className="info-modal-sections">
               <div className="info-modal-section">
                 <div className="info-modal-section-title">Diskovarr</div>
-                <p>Your personalized recommendation feed. Diskovarr analyzes your Plex watch history, ratings, genres, actors, directors, and studios to surface movies and shows you're likely to enjoy. Dismiss anything you're not interested in and it won't be recommended again.</p>
+                <p>{t("Your personalized recommendation feed. Diskovarr analyzes your Plex watch history, ratings, genres, actors, directors, and studios to surface movies and shows you're likely to enjoy. Dismiss anything you're not interested in and it won't be recommended again.")}</p>
               </div>
               {discoverAvailable && (
                 <div className="info-modal-section">
-                  <div className="info-modal-section-title">Diskovarr Requests</div>
-                  <p>Recommendations for content not currently available in the library. Browse suggested titles based on your interests or search for any movie or show and request it directly. Requested items are tracked automatically so you won't be prompted to request the same title twice.</p>
+                  <div className="info-modal-section-title">{t('Diskovarr Requests')}</div>
+                  <p>{t("Recommendations for content not currently available in the library. Browse suggested titles based on your interests or search for any movie or show and request it directly. Requested items are tracked automatically so you won't be prompted to request the same title twice.")}</p>
                 </div>
               )}
               <div className="info-modal-section">
-                <div className="info-modal-section-title">Filter</div>
-                <p>Browse the entire library with powerful filters for media type, genre, decade, rating, and more. Sort results by recommendation score, release date, rating, recently added content, and other criteria to quickly find something to watch.</p>
+                <div className="info-modal-section-title">{t('Filter')}</div>
+                <p>{t('Browse the entire library with powerful filters for media type, genre, decade, rating, and more. Sort results by recommendation score, release date, rating, recently added content, and other criteria to quickly find something to watch.')}</p>
               </div>
               <div className="info-modal-section">
-                <div className="info-modal-section-title">Profile</div>
-                <p>Your personal profile within Diskovarr. Showcase your favorite movies, shows, and genres, write a short bio, and share your reviews with the community. Your profile also includes your watch history, where you can review previously watched content and share reviews with the community, along with your watchlist and blacklist for viewing and managing saved or excluded titles.</p>
+                <div className="info-modal-section-title">{t('Profile')}</div>
+                <p>{t('Your personal profile within Diskovarr. Showcase your favorite movies, shows, and genres, write a short bio, and share your reviews with the community. Your profile also includes your watch history, where you can review previously watched content and share reviews with the community, along with your watchlist and blacklist for viewing and managing saved or excluded titles.')}</p>
               </div>
               <div className="info-modal-section">
-                <div className="info-modal-section-title">Reviews</div>
-                <p>A social-media-style feed of community reviews. Reviews are created from the Watch History section after a user has watched a movie or show in Plex, allowing them to share their thoughts and ratings with the community. Discover what other users are watching, comment on reviews, discuss content, and find new recommendations through other users' experiences. Reviews marked as spoilers are hidden by default and can be revealed when desired.</p>
+                <div className="info-modal-section-title">{t('Reviews')}</div>
+                <p>{t("A social-media-style feed of community reviews. Reviews are created from the Watch History section after a user has watched a movie or show in Plex, allowing them to share their thoughts and ratings with the community. Discover what other users are watching, comment on reviews, discuss content, and find new recommendations through other users' experiences. Reviews marked as spoilers are hidden by default and can be revealed when desired.")}</p>
               </div>
               <div className="info-modal-section">
-                <div className="info-modal-section-title">Queue</div>
-                <p>Track the status of your requests from submission to availability. View pending, approved, downloaded, and denied requests in one place. Administrators can also review requests, leave notes, and manage request settings.</p>
+                <div className="info-modal-section-title">{t('Queue')}</div>
+                <p>{t('Track the status of your requests from submission to availability. View pending, approved, downloaded, and denied requests in one place. Administrators can also review requests, leave notes, and manage request settings.')}</p>
               </div>
               <div className="info-modal-section">
-                <div className="info-modal-section-title">Issues</div>
-                <p>Report problems with content in the library, including missing episodes, subtitle issues, incorrect files, metadata problems, or other concerns. Users and administrators can discuss issues, track progress, and receive updates when problems are resolved.</p>
+                <div className="info-modal-section-title">{t('Issues')}</div>
+                <p>{t('Report problems with content in the library, including missing episodes, subtitle issues, incorrect files, metadata problems, or other concerns. Users and administrators can discuss issues, track progress, and receive updates when problems are resolved.')}</p>
               </div>
             </div>
             <div className="info-modal-footer">
-              Created by{' '}
+              {t('Created by')}{' '}
               <a href="https://github.com/Lebbitheplow" target="_blank" rel="noopener" style={{ color: 'var(--accent)', textDecoration: 'none' }}>Lebbitheplow</a>
               {' '}&amp;{' '}
               <a href="https://github.com/gage117" target="_blank" rel="noopener" style={{ color: 'var(--accent)', textDecoration: 'none' }}>gage117</a>
