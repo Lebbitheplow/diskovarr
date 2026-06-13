@@ -2,15 +2,58 @@
 
 # <img src="public/favicon.svg" width="48" height="48" alt="" valign="middle"> Diskovarr
 
-**Personalized Plex recommendations powered by your watch history**
+**Personalized media discovery and management platform for Plex**
 
-Sign in with Plex · Browse curated picks · Request missing titles · Manage your library
+Discover what to watch next · Review and rate content · Request missing titles · Automate your library
+
+Sign in with Plex · Browse personalized feeds · Manage content lifecycle · Integrate with your stack
 
 </div>
 
 ![Diskovarr home screen](docs/screenshots/home-v2.png)
 
 > **v2.0.0 — React Edition** is now the default release. The user-facing UI has been fully rewritten as a React SPA backed by the existing Express API. Existing Docker users can upgrade with a single `docker compose pull && docker compose up -d` — **all SQLite data, sessions, watch history, and admin settings are preserved**. See [Upgrading from v1.x](#upgrading-from-v1x) for details.
+
+---
+
+## Why Diskovarr
+
+Diskovarr is the central hub for discovering, managing, and automating your Plex media library. It learns what you enjoy from your watch history, surfaces personalized recommendations, and gives you the tools to request, review, and automate content acquisition and retention.
+
+### Personalized Discovery
+
+* **Smart recommendations** — scored from your Tautulli watch history across genre, director, cast, studio, decade, and star ratings
+* **Personalized feeds** — four curated carousels (Top Picks, Movies, TV Shows, Anime) that adapt as you watch
+* **Recommendation context** — every suggestion includes reason tags so you understand why a title made the cut
+* **Blacklists** — exclude genres, franchises, or specific titles to refine what surfaces in your feeds
+
+### Reviews & Social
+
+* **Ratings and reviews** — rate and write reviews for any title in your library
+* **Social engagement** — comment on and react to other users' reviews
+* **Shareable review cards** — generate share-ready cards with open graph images
+* **Plex sync** — ratings sync back to your Plex profile
+
+### Requests & Acquisition
+
+* **Request workflows** — request missing content with full queue management, approvals, and status tracking
+* **Overseerr-compatible API** — connect Agregarr, DUMB, Homarr, and any Overseerr-compatible tool
+* **DUMB/Riven integration** — browse Torrentio results, check Real-Debrid cache status, and inject torrents directly
+* **Auto-request automation** — set profiles that automatically request content matching your criteria
+
+### Automation & Monitoring
+
+* **Auto-request profiles** — define rules that automatically request content from your watchlist, recommendations, or other sources
+* **Auto-delete profiles** — set criteria-based deletion rules for content no longer needed
+* **Monitoring profiles** — track specific content, genres, or franchises and trigger actions when conditions are met
+* **Library lifecycle management** — automate the full content lifecycle from discovery through acquisition to removal
+
+### Administration
+
+* **User management** — per-user settings, request limits, auto-approve overrides, and bulk actions
+* **Notifications** — multi-channel delivery via Discord, Pushover, Telegram, Slack, Email, and more
+* **Broadcasts** — compose rich-text announcements to all users from the admin panel
+* **Connection management** — configure all integrations from the UI with no file edits or restarts
 
 ---
 
@@ -34,8 +77,20 @@ Request queue for all users. Users view and manage their own requests. Admins an
 ### Issues
 Report problems with library items directly from any detail modal — broken file, wrong metadata, audio sync, etc. TV shows include a scope selector: Entire Series, Specific Season, or Specific Episode. Submitted issues appear at `/issues`; admins resolve or close them with an optional note delivered back to the reporter as a notification. **v2.0.0** adds the same server-side search, filtering, and bulk-select tooling as the Queue page.
 
+### Reviews
+Write reviews and assign star ratings for any title in your library. Review the work of other users with threaded comments and reactions. Share standout reviews with generated open graph cards that render beautifully in chat apps and social feeds. Your ratings sync back to Plex, and your review history is available for browsing at any time.
+
+### Watch History
+Your watch history syncs from Tautulli and powers every recommendation Diskovarr makes. Browse what you've watched, track viewing statistics, and see how your preferences shape your personalized feeds. The more you watch, the better Diskovarr understands what you'll enjoy next.
+
+### Blacklists
+Fine-tune your recommendations by blacklisting genres, franchises, or specific titles you never want to see again. Blacklisted content is excluded from your recommendation feeds, request suggestions, and automated profiles, ensuring your discovery experience stays relevant.
+
+### Automations
+Set and forget your library management. Create auto-request profiles that automatically request content matching your criteria, auto-delete profiles that remove content no longer needed, and monitoring profiles that watch for specific conditions and trigger actions. Automations give admins full lifecycle control over content acquisition and retention without manual intervention.
+
 ### User Settings
-Each user can configure: region, language, notification preferences (per event type), personal Discord User ID or Pushover key, and auto-request-from-watchlist options.
+Each user can configure: region, language, notification preferences (per event type), personal Discord User ID or Pushover key, auto-request-from-watchlist options, blacklist preferences, review settings, and personal monitoring profiles.
 
 ### Admin Panel
 Two-tab panel at `/admin`:
@@ -46,6 +101,7 @@ Two-tab panel at `/admin`:
 - **DUMB request polling** — enable in Admin → Connections → DUMB/Riven → DUMB Integration. Enter your Diskovarr URL and the Overseerr Compat Key (Admin → General) in DUMB as its Overseerr connection. In Pull mode DUMB polls `/api/v1/request?filter=approved` and marks content available when downloaded. In Push mode Diskovarr pushes IMDB IDs directly to Riven on approval (original behaviour).
 - **Overseerr-compatible API** — Diskovarr exposes a full Overseerr-compatible API at `/api/v1/`. Any app that supports Overseerr — including **Agregarr**, **DUMB**, and **Homarr** — can connect using your Diskovarr URL and the Overseerr Compat Key from Admin → General. Agregarr service accounts are created automatically; their requests appear in the queue with a bot badge. v2.0.0 significantly expanded this compatibility surface (40+ new endpoints).
 - **Broadcast notifications (v2.0.0)** — a rich-text editor in the admin panel lets you compose announcements with bold, italic, strikethrough, and inline code. Markdown is automatically stripped or translated per-channel for Discord and Pushover.
+- **Automation management** — create, edit, and monitor auto-request profiles, auto-delete profiles, and content monitoring rules from the admin panel. Configure triggers, criteria, and action targets without touching configuration files.
 
 ---
 
@@ -59,13 +115,17 @@ Configure from **Admin → Notifications**. Multiple events of the same type wit
 
 **Pushover** — enter your Pushover app token and user/group key; per-user keys can be set in each user's settings for individual delivery.
 
-**Event types:** request pending · auto-approved · approved · denied · available in library · processing failed · issue reported · issue status updated
+**Additional channels** — Telegram, Pushbullet, Email, WebPush, Webhook, Slack, Ntfy, and Gotify are also supported for broad notification coverage.
+
+**Event types:** request pending · auto-approved · approved · denied · available in library · processing failed · issue reported · issue status updated · automation triggered · monitoring alert
 
 > v2.0.0 adds Plex Server-Sent Events (SSE) for recently-added media detection, complementing the WebSocket sync introduced in v1.17.11.
 
 ---
 
 ## Requirements
+
+Diskovarr integrates with your existing media stack to deliver personalized discovery, request management, and library automation. At minimum you need a Plex server and Tautulli for watch history. Optional integrations extend the platform into content acquisition, collection management, and torrent automation.
 
 - **[Docker](https://docs.docker.com/get-docker/)** (recommended) or Node.js ≥ 23.4.0
 - **[Plex Media Server](https://www.plex.tv/media-server-downloads/)** — local network access required
