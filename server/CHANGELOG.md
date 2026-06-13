@@ -4,6 +4,18 @@ All notable changes are documented here. Versioning follows [Semantic Versioning
 
 ---
 
+## v2.3.1 — 2026-06-12
+
+A patch release with UI fixes.
+
+### Fixed
+
+- **Theme color persistence** — the accent color no longer reverts to the default when you return to the app from the admin panel. The saved color is now applied before first paint (no flash), and the theme request is cache-busted so a stale cached response can't override a fresh change.
+- **Notification dropdown** — was rendering nearly transparent; it now uses the same frosted-glass treatment as the user menu (it's rendered outside the nav so its blur samples the page correctly).
+- **Settings page on mobile** — the section tabs now scroll horizontally instead of overflowing the viewport, and tab/section spacing is tuned for small screens. Desktop layout is unchanged.
+
+---
+
 ## v2.3.0 — 2026-06-12
 
 ### Added

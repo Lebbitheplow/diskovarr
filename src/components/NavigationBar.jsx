@@ -46,6 +46,7 @@ export default function NavigationBar() {
   const bellBtnRef = useRef(null)
   const userBtnRef = useRef(null)
   const [menuRight, setMenuRight] = useState(null)
+  const [bellPos, setBellPos] = useState(null)
 
   // Align the dropdown menu's right edge with the desktop user button.
   // The menu is rendered outside <nav> (to avoid the nav's z-index stacking context),
@@ -109,6 +110,15 @@ export default function NavigationBar() {
 
   const handleBellClick = async () => {
     if (!bellOpen) {
+      // Position the dropdown under the button before it renders (it lives
+      // outside <nav> with position:fixed — see the bell dropdown JSX)
+      if (bellBtnRef.current) {
+        const rect = bellBtnRef.current.getBoundingClientRect()
+        setBellPos({
+          top: Math.round(rect.bottom + 8),
+          right: Math.round(window.innerWidth - rect.right),
+        })
+      }
       await loadNotifications()
     }
     setBellOpen(!bellOpen)
@@ -360,31 +370,6 @@ export default function NavigationBar() {
                   </span>
                 )}
               </button>
-              {bellOpen && (
-                <div ref={bellDropdownRef} className="nav-bell-dropdown">
-                  <div className="nav-bell-header">
-                    <span>{t('Notifications')}</span>
-                    <button onClick={markAllRead}>{t('Mark all read')}</button>
-                  </div>
-                  {notifications.length === 0 ? (
-                    <div className="nav-bell-empty">{t('No notifications')}</div>
-                  ) : (
-                    <div className="nav-bell-list">
-                      {notifications.map((n) => (
-                        <div
-                          key={n.id}
-                          className={`nav-bell-item ${n.read ? 'read' : 'unread'}`}
-                          onClick={() => handleBellItemClick(n)}
-                        >
-                          <div className="nav-bell-title">{n.title}</div>
-                          {n.body && <div className="nav-bell-body">{renderTextWithLinks(n.body)}</div>}
-                          <div className="nav-bell-time">{agoString(n.created_at)}{n.read ? ' · ' + t('read') : ''}</div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
             </div>
 
             <button
@@ -438,6 +423,37 @@ export default function NavigationBar() {
           </div>
           <div className="nav-overlay open" onClick={() => setFabOpen(false)} />
         </>
+      )}
+
+      {/* Bell dropdown — rendered outside <nav> so its glass effect works (see bellPos effect) */}
+      {bellOpen && (
+        <div
+          ref={bellDropdownRef}
+          className="nav-bell-dropdown"
+          style={{ position: 'fixed', top: bellPos?.top, right: bellPos?.right }}
+        >
+          <div className="nav-bell-header">
+            <span>{t('Notifications')}</span>
+            <button onClick={markAllRead}>{t('Mark all read')}</button>
+          </div>
+          {notifications.length === 0 ? (
+            <div className="nav-bell-empty">{t('No notifications')}</div>
+          ) : (
+            <div className="nav-bell-list">
+              {notifications.map((n) => (
+                <div
+                  key={n.id}
+                  className={`nav-bell-item ${n.read ? 'read' : 'unread'}`}
+                  onClick={() => handleBellItemClick(n)}
+                >
+                  <div className="nav-bell-title">{n.title}</div>
+                  {n.body && <div className="nav-bell-body">{renderTextWithLinks(n.body)}</div>}
+                  <div className="nav-bell-time">{agoString(n.created_at)}{n.read ? ' · ' + t('read') : ''}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       )}
 
       {/* Info modal */}

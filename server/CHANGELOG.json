@@ -1,5 +1,14 @@
 [
   {
+    "version": "2.3.1",
+    "date": "2026-06-12",
+    "changes": [
+      "Fixed the accent color reverting to the default when returning to the app from the admin panel — your saved color now applies instantly on every page load with no flash, and a cached theme response can no longer override a fresh change.",
+      "Fixed the notification dropdown appearing nearly transparent — it now uses the same frosted-glass effect as the user menu.",
+      "Fixed the Settings page on mobile — the section tabs now scroll horizontally instead of overflowing the screen, with spacing tuned for small screens."
+    ]
+  },
+  {
     "version": "2.3.0",
     "date": "2026-06-12",
     "changes": [

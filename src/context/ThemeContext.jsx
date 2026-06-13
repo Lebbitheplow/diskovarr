@@ -20,6 +20,14 @@ function applyTheme(color) {
   document.documentElement.style.setProperty('--accent-glow', `rgba(${r}, ${g}, ${b}, 0.08)`)
   document.documentElement.style.setProperty('--accent-border', `rgba(${r}, ${g}, ${b}, 0.4)`)
   document.documentElement.style.setProperty('--accent-shadow', `rgba(${r}, ${g}, ${b}, 0.4)`)
+  // Lighten by 15% for the hover shade — must match the server's /theme.css,
+  // otherwise hover states keep the stale default accent.
+  const hex2 = (n) => Math.min(255, Math.round(n + (255 - n) * 0.15)).toString(16).padStart(2, '0')
+  document.documentElement.style.setProperty('--accent-hover', `#${hex2(r)}${hex2(g)}${hex2(b)}`)
+
+  // Cache for the pre-paint inline-style script in index.html, so a full page
+  // load (e.g. returning from /admin) shows the saved accent with no flash.
+  try { localStorage.setItem('dk-accent', color) } catch { /* ignore */ }
 
   let styleEl = document.getElementById('diskovarr-bg-gradient')
   if (!styleEl) {
@@ -34,16 +42,19 @@ export function ThemeProvider({ children }) {
   const [themeColor, setThemeColor] = useState('#e5a00d')
 
   useEffect(() => {
-    fetch('/theme.css')
+    // Cache-bust + no-store: a proxy or browser cache must not serve a stale
+    // accent right after it's changed in admin (e.g. still green after pink).
+    fetch(`/theme.css?ts=${Date.now()}`, { cache: 'no-store' })
       .then(r => r.text())
       .then(css => {
         const match = css.match(/--accent:\s*([^;}\s]+)/)
-        const color = match ? match[1] : '#e5a00d'
-        setThemeColor(color)
-        applyTheme(color)
+        if (!match) return // leave the color the inline pre-paint script applied
+        setThemeColor(match[1])
+        applyTheme(match[1])
       })
       .catch(() => {
-        applyTheme('#e5a00d')
+        // Network error — keep whatever the inline script already applied
+        // rather than clobbering it back to the default accent.
       })
   }, [])
 

@@ -160,68 +160,33 @@ export default function Settings() {
         </div>
 
         {/* Internal tabs */}
-        <div className="settings-tabs" style={{ display: 'flex', gap: 4, marginBottom: 24 }}>
+        <div className="settings-tabs">
           <button
             className={`settings-tab ${activeTab === 'content' ? 'active' : ''}`}
-            style={{
-              padding: '10px 22px', background: 'none', border: 'none',
-              borderBottom: activeTab === 'content' ? '2px solid var(--accent)' : '2px solid transparent',
-              color: activeTab === 'content' ? 'var(--accent)' : 'var(--text-secondary)',
-              fontSize: '0.9rem', fontWeight: 500, fontFamily: 'inherit', cursor: 'pointer',
-              marginBottom: '-1px', transition: 'color 0.15s, border-color 0.15s',
-            }}
             onClick={() => setActiveTab('content')}
           >
             {t('Content Preferences')}
           </button>
           <button
             className={`settings-tab ${activeTab === 'notifications' ? 'active' : ''}`}
-            style={{
-              padding: '10px 22px', background: 'none', border: 'none',
-              borderBottom: activeTab === 'notifications' ? '2px solid var(--accent)' : '2px solid transparent',
-              color: activeTab === 'notifications' ? 'var(--accent)' : 'var(--text-secondary)',
-              fontSize: '0.9rem', fontWeight: 500, fontFamily: 'inherit', cursor: 'pointer',
-              marginBottom: '-1px', transition: 'color 0.15s, border-color 0.15s',
-            }}
             onClick={() => setActiveTab('notifications')}
           >
             {t('Notifications')}
           </button>
           <button
             className={`settings-tab ${activeTab === 'accounts' ? 'active' : ''}`}
-            style={{
-              padding: '10px 22px', background: 'none', border: 'none',
-              borderBottom: activeTab === 'accounts' ? '2px solid var(--accent)' : '2px solid transparent',
-              color: activeTab === 'accounts' ? 'var(--accent)' : 'var(--text-secondary)',
-              fontSize: '0.9rem', fontWeight: 500, fontFamily: 'inherit', cursor: 'pointer',
-              marginBottom: '-1px', transition: 'color 0.15s, border-color 0.15s',
-            }}
             onClick={() => setActiveTab('accounts')}
           >
             {t('Connected Accounts')}
           </button>
           <button
             className={`settings-tab ${activeTab === 'privacy' ? 'active' : ''}`}
-            style={{
-              padding: '10px 22px', background: 'none', border: 'none',
-              borderBottom: activeTab === 'privacy' ? '2px solid var(--accent)' : '2px solid transparent',
-              color: activeTab === 'privacy' ? 'var(--accent)' : 'var(--text-secondary)',
-              fontSize: '0.9rem', fontWeight: 500, fontFamily: 'inherit', cursor: 'pointer',
-              marginBottom: '-1px', transition: 'color 0.15s, border-color 0.15s',
-            }}
             onClick={() => setActiveTab('privacy')}
           >
             {t('Privacy')}
           </button>
           <button
             className={`settings-tab ${activeTab === 'monitors' ? 'active' : ''}`}
-            style={{
-              padding: '10px 22px', background: 'none', border: 'none',
-              borderBottom: activeTab === 'monitors' ? '2px solid var(--accent)' : '2px solid transparent',
-              color: activeTab === 'monitors' ? 'var(--accent)' : 'var(--text-secondary)',
-              fontSize: '0.9rem', fontWeight: 500, fontFamily: 'inherit', cursor: 'pointer',
-              marginBottom: '-1px', transition: 'color 0.15s, border-color 0.15s',
-            }}
             onClick={() => setActiveTab('monitors')}
           >
             {t('Monitors')}
