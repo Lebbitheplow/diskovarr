@@ -639,19 +639,22 @@ export default function Explore() {
             {(() => {
               const hasOverseerr = services.overseerr
               const hasRiven = services.riven
+              // Radarr only handles movies, Sonarr only handles shows — pick the one for this media type
               const hasDirect = requestItem.mediaType === 'movie' ? services.radarr : services.sonarr
               const directName = requestItem.mediaType === 'movie' ? 'Radarr' : 'Sonarr'
               const directSvc = requestItem.mediaType === 'movie' ? 'radarr' : 'sonarr'
-              const hasAggregator = hasOverseerr || hasRiven
-              const defaultAggregator = hasOverseerr ? 'overseerr' : (hasRiven ? 'riven' : null)
-              const hasBothSides = hasAggregator && hasDirect
-              const defaultSvc = !hasOverseerr && !hasRiven && !hasDirect ? 'none'
-                : hasBothSides
-                  ? (services.defaultService === 'direct' ? directSvc : defaultAggregator)
-                  : hasAggregator ? defaultAggregator : directSvc
+              // Services actually available for THIS media type
+              const available = { overseerr: hasOverseerr, riven: hasRiven, [directSvc]: hasDirect }
+              // Resolve the admin-configured default into a concrete, available service
+              const rawDefault = services.defaultService === 'direct' ? directSvc : services.defaultService
+              const defaultSvc = available[rawDefault] ? rawDefault
+                : hasOverseerr ? 'overseerr'
+                : hasRiven ? 'riven'
+                : hasDirect ? directSvc
+                : 'none'
               const altOptions = []
               if (defaultSvc !== 'overseerr' && hasOverseerr) altOptions.push({ svc: 'overseerr', name: 'Overseerr' })
-              if (defaultSvc !== 'riven' && hasRiven) altOptions.push({ svc: 'riven', name: 'Riven' })
+              if (defaultSvc !== 'riven' && hasRiven) altOptions.push({ svc: 'riven', name: 'DUMB' })
               if (defaultSvc !== directSvc && hasDirect && (services.directRequestAccess !== '1' || isAdmin)) altOptions.push({ svc: directSvc, name: directName })
               return (
                 <>

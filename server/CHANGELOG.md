@@ -4,6 +4,19 @@ All notable changes are documented here. Versioning follows [Semantic Versioning
 
 ---
 
+## v2.3.2 — 2026-06-15
+
+A patch release fixing request-app routing.
+
+### Fixed
+
+- **Default request app honored** — the default app chosen in Admin → Connections (Overseerr, DUMB, or Sonarr/Radarr) was being overridden to DUMB whenever DUMB was enabled in pull mode. Pull-vs-push is only a delivery mode; it no longer forces the default. Your configured default is now always respected.
+- **Alternate request app actually submits** — picking an alternate app from the Advanced option (Radarr, Sonarr, or Overseerr) was silently coerced to DUMB under pull mode, so the request never reached the chosen app. Explicit selections are now submitted to the app you picked.
+- **Media-type-correct app list** — the request app options no longer offer services that can't handle the title: Radarr is hidden for shows and Sonarr is hidden for movies, both in the request dialog and the admin Edit Request dialog.
+- **DUMB naming** — DUMB is now labeled "DUMB" instead of "Riven" wherever it appears as a request option.
+
+---
+
 ## v2.3.1 — 2026-06-12
 
 A patch release with UI fixes.

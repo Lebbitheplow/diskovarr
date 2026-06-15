@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import {
   queueApi,
   searchApi,
+  exploreApi,
 } from '../services/api'
 import DetailModal from '../components/DetailModal'
 import Modal from '../components/Modal'
@@ -62,6 +63,13 @@ export default function Queue() {
   const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false)
   const [bulkDeleteLoading, setBulkDeleteLoading] = useState(false)
   const [selectedItem, setSelectedItem] = useState(null)
+  const [services, setServices] = useState({})
+
+  useEffect(() => {
+    exploreApi.getServices()
+      .then(({ data }) => setServices(data || {}))
+      .catch(() => {})
+  }, [])
 
   const toggleSelect = useCallback((id) => {
     setSelectedIds(prev => {
@@ -521,9 +529,11 @@ export default function Queue() {
               <label className="edit-field-label">{t('Service')}</label>
               <select className="edit-select" value={editService} onChange={e => setEditService(e.target.value)}>
                 <option value="">{t('Default')}</option>
-                <option value="overseerr">Overseerr</option>
-                <option value="radarr">Radarr</option>
-                <option value="sonarr">Sonarr</option>
+                {services.overseerr && <option value="overseerr">Overseerr</option>}
+                {services.riven && <option value="riven">DUMB</option>}
+                {/* Radarr only handles movies, Sonarr only handles shows */}
+                {editRequest.media_type === 'movie' && services.radarr && <option value="radarr">Radarr</option>}
+                {editRequest.media_type === 'tv' && services.sonarr && <option value="sonarr">Sonarr</option>}
               </select>
             </div>
             {editRequest.media_type === 'tv' && editSeasons.length > 0 && (

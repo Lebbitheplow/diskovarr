@@ -1585,12 +1585,12 @@ router.get('/explore/services', (req, res) => {
   const hasRadarr    = c.radarrEnabled    && !!c.radarrUrl;
   const hasSonarr    = c.sonarrEnabled    && !!c.sonarrUrl;
   const hasRiven     = c.rivenEnabled && !!c.rivenUrl;
-  // Default only applies when both sides are configured; otherwise the available service wins
-  const hasBothSides = (hasOverseerr || hasRiven) && (hasRadarr || hasSonarr);
-  const dumbPullActive = db.getSetting('dumb_request_mode', 'pull') === 'pull' && hasRiven;
-  const defaultService = dumbPullActive
-    ? 'riven'
-    : (hasBothSides ? (c.defaultRequestService || 'overseerr') : null);
+  // The admin chooses the default request app in Admin → Connections ('overseerr' | 'riven' | 'direct').
+  // Honor that choice — the client resolves it to a concrete service for the media type and falls back
+  // if it isn't available. DUMB pull-vs-push is only a delivery mode and must NOT override the default.
+  // Surface the default only when ≥2 request "sides" exist (mirrors when the admin selector is shown).
+  const sideCount = [hasOverseerr, hasRiven, hasRadarr || hasSonarr].filter(Boolean).length;
+  const defaultService = sideCount >= 2 ? (c.defaultRequestService || 'overseerr') : null;
   const directRequestAccess = db.getDirectRequestAccess();
   res.json({ overseerr: hasOverseerr, radarr: hasRadarr, sonarr: hasSonarr, riven: hasRiven, defaultService, directRequestAccess });
 });
@@ -1891,9 +1891,11 @@ router.post('/request', async (req, res) => {
     const cachedItem = db.getTmdbCache(tmdbId, mediaType);
     const storedPosterUrl = cachedItem?.posterUrl || null;
 
-    // When DUMB pull mode is active, route to riven so submitRequestToService early-returns cleanly.
-    const dumbPullActive = db.getSetting('dumb_request_mode', 'pull') === 'pull' && ['1', 'true'].includes(db.getSetting('riven_enabled', '0'));
-    const effectiveService = dumbPullActive ? 'riven' : service;
+    // Honor the service the user explicitly selected. When DUMB pull mode is active the client
+    // resolves the *default* to 'riven' (which submitRequestToService early-returns on so DUMB
+    // can poll for it) — but an explicit Radarr/Sonarr/Overseerr pick must NOT be coerced to riven,
+    // otherwise the alternate-app selection silently never reaches the chosen service.
+    const effectiveService = service;
 
     if (!autoApprove) {
       // Store as pending — do NOT submit to service

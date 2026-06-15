@@ -18,7 +18,7 @@ const DATE_STYLE = { fontWeight: '400', color: 'var(--text-secondary)', fontSize
 export default function ChangelogModal({ open, onClose }) {
   const { t } = useTranslation()
   if (!open) return null
-  const currentVersion = import.meta.env.VITE_APP_VERSION || '2.3.0'
+  const currentVersion = import.meta.env.VITE_APP_VERSION || '2.3.2'
 
   return (
     <div className="info-modal-backdrop open" onClick={onClose}>
@@ -31,6 +31,30 @@ export default function ChangelogModal({ open, onClose }) {
           <div className="info-modal-section">
             <div className="info-modal-section-title">
               v{currentVersion}{' '}
+              <span style={DATE_STYLE}>2026-06-15</span>
+            </div>
+            <p style={SECTION_LABEL_STYLE}>{t('Fixes')}</p>
+            <ul style={LIST_STYLE_LAST}>
+              <li style={ITEM_STYLE}>Fixed the default request app chosen in Admin → Connections being ignored — your selected default (Overseerr, DUMB, or Sonarr/Radarr) is now always honored</li>
+              <li style={ITEM_STYLE}>Fixed choosing an alternate request app from the Advanced option — the request now reaches the app you picked instead of being silently dropped</li>
+              <li style={ITEM_STYLE}>Fixed the request app list offering services that can't handle the title — Radarr no longer appears for shows and Sonarr no longer appears for movies, including in the admin Edit Request dialog</li>
+            </ul>
+          </div>
+          <div className="info-modal-section">
+            <div className="info-modal-section-title">
+              v2.3.1{' '}
+              <span style={DATE_STYLE}>2026-06-12</span>
+            </div>
+            <p style={SECTION_LABEL_STYLE}>{t('Fixes')}</p>
+            <ul style={LIST_STYLE_LAST}>
+              <li style={ITEM_STYLE}>Fixed the accent color reverting to the default when returning from the admin panel — your saved color now applies instantly on every page load with no flash</li>
+              <li style={ITEM_STYLE}>Fixed the notification dropdown appearing nearly transparent — it now uses the same frosted-glass effect as the user menu</li>
+              <li style={ITEM_STYLE}>Fixed the Settings page on mobile — section tabs now scroll horizontally instead of overflowing the screen</li>
+            </ul>
+          </div>
+          <div className="info-modal-section">
+            <div className="info-modal-section-title">
+              v2.3.0{' '}
               <span style={DATE_STYLE}>2026-06-12</span>
             </div>
             <p style={SECTION_LABEL_STYLE}>{t('Additions')}</p>
@@ -43,35 +67,6 @@ export default function ChangelogModal({ open, onClose }) {
               <li style={ITEM_STYLE}>Added /health endpoint for external monitoring, load balancers, and orchestrators</li>
               <li style={ITEM_STYLE}>Added graceful shutdown — active connections are drained and pending writes flushed before exit</li>
               <li style={ITEM_STYLE}>Added automated DB backups with configurable schedules and retention policies</li>
-            </ul>
-          </div>
-          <div className="info-modal-section">
-            <div className="info-modal-section-title">
-              v2.2.2{' '}
-              <span style={DATE_STYLE}>2026-06-11</span>
-            </div>
-            <p style={SECTION_LABEL_STYLE}>{t('Security')}</p>
-            <ul style={LIST_STYLE}>
-              <li style={ITEM_STYLE}>Session cookies are now marked Secure over HTTPS, and API keys no longer create persistent sessions</li>
-              <li style={ITEM_STYLE}>Hardened the poster proxy against path traversal and added rate limiting to compute-heavy endpoints</li>
-            </ul>
-            <p style={SECTION_LABEL_STYLE}>{t('Fixes & Improvements')}</p>
-            <ul style={LIST_STYLE_LAST}>
-              <li style={ITEM_STYLE}>Fixed stale results when changing filters mid-search or while recommendations were still building</li>
-              <li style={ITEM_STYLE}>Faster Requests page rendering, new database indexes, and cached Plex device lookups</li>
-              <li style={ITEM_STYLE}>Internal code health improvements — shared utilities, removed dead code, and a new automated test suite</li>
-            </ul>
-          </div>
-          <div className="info-modal-section">
-            <div className="info-modal-section-title">
-              v2.2.1{' '}
-              <span style={DATE_STYLE}>2026-06-09</span>
-            </div>
-            <p style={SECTION_LABEL_STYLE}>{t('Fixes')}</p>
-            <ul style={LIST_STYLE_LAST}>
-              <li style={ITEM_STYLE}>Fixed queue page filters that were resetting unexpectedly due to broken URL-based filter state</li>
-              <li style={ITEM_STYLE}>Fixed bulk delete of multiple requests and issues — transaction handling was preventing deletes from completing</li>
-              <li style={ITEM_STYLE}>Fixed Plex SSE integration — message parsing now handles both SSE eventsource and WebSocket endpoint shapes, restoring real-time new-content detection</li>
             </ul>
           </div>
         </div>

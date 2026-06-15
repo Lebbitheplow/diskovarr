@@ -1,5 +1,15 @@
 [
   {
+    "version": "2.3.2",
+    "date": "2026-06-15",
+    "changes": [
+      "Fixed the default request app chosen in Admin → Connections being ignored when DUMB is enabled in pull mode — your selected default (Overseerr, DUMB, or Sonarr/Radarr) is now always honored.",
+      "Fixed choosing an alternate request app from the Advanced option — selecting Radarr, Sonarr, or Overseerr now actually submits to that app instead of being silently dropped under DUMB pull mode.",
+      "Fixed the alternate request app list offering services that can't handle the title — Radarr no longer appears for shows and Sonarr no longer appears for movies, including in the admin Edit Request dialog.",
+      "DUMB is now labeled 'DUMB' instead of 'Riven' wherever it appears as a request option."
+    ]
+  },
+  {
     "version": "2.3.1",
     "date": "2026-06-12",
     "changes": [
