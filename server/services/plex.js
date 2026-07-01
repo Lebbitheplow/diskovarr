@@ -251,46 +251,7 @@ async function fetchAndUpsertItem(ratingKey, sectionId) {
   // Check if this item fulfills any approved requests
   if (parsed.tmdbId) {
     try {
-      const libraryTmdbIds = db.getLibraryTmdbIds();
-      const fulfilled = db.getUnnotifiedFulfilledRequests(libraryTmdbIds);
-      if (fulfilled.length > 0) {
-        const notifiedIds = [];
-        for (const req of fulfilled) {
-          const prefs = db.getUserNotificationPrefs(req.user_id);
-          if (prefs.notify_available) {
-            const title = req.title || 'Unknown';
-            const notifId = db.createOrBundleNotification({
-              userId: req.user_id,
-              type: 'request_available',
-              title: `"${title}" is now available`,
-              body: 'Your requested content has been added to the library.',
-              data: { requestId: req.id, tmdbId: req.tmdb_id, mediaType: req.media_type, title },
-            });
-            db.enqueueNotification({
-              notificationId: notifId, agent: 'discord', userId: req.user_id,
-              payload: { type: 'request_available', title: `"${title}" is now available`, body: 'Your requested content has been added to the library.', posterUrl: req.poster_url },
-            });
-            db.enqueueNotification({
-              notificationId: notifId, agent: 'pushover', userId: req.user_id,
-              payload: { type: 'request_available', title: `"${title}" is now available`, body: 'Your requested content has been added to the library.', posterUrl: req.poster_url },
-            });
-            try {
-              const failedNotifs = db.prepare(
-                "SELECT id FROM notifications WHERE type = 'request_process_failed' AND (user_id = ? OR user_id IS NULL)"
-              ).all(String(req.user_id));
-              for (const n of failedNotifs) {
-                const nData = typeof n.data === 'string' ? JSON.parse(n.data) : n.data;
-                if (nData && nData.tmdbId === req.tmdb_id) {
-                  db.prepare('DELETE FROM notifications WHERE id = ?').run(n.id);
-                }
-              }
-            } catch {}
-          }
-          notifiedIds.push(req.id);
-        }
-        db.markRequestsNotifiedAvailable(notifiedIds);
-        console.log(`[plex] Fulfilled ${notifiedIds.length} requests via Plex item detection`);
-      }
+      require('./requestFulfillment').checkAndNotifyFulfilled('plex sse');
     } catch (err) {
       console.warn('[plex] Fulfillment check failed:', err.message);
     }
@@ -399,9 +360,10 @@ function invalidateCache(sectionId) {
 /**
  * Sync watched status for a user into the local DB.
  *
- * Uses two sources and takes the UNION for best coverage:
- *   Plex (admin token + accountID) — accurate viewCount for movies; fully-watched shows
- *   Tautulli per-user history       — shows where ANY episode watched; catches plays Plex misses
+ * Uses three sources and takes the UNION for best coverage:
+ *   Plex sections/onDeck (user token) — accurate viewCount for movies; fully-watched shows
+ *   PMS per-account history (admin token) — works even when user tokens are rejected
+ *   Tautulli per-user history — shows where ANY episode watched; catches plays Plex misses
  *
  * Also extracts Plex star ratings for recommendation weighting.
  */
@@ -410,7 +372,13 @@ async function syncUserWatched(userId, userToken) {
   try {
     const safeFetch = (url, timeoutMs) =>
       fetch(url, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(timeoutMs) })
-        .then(r => r.ok ? r.json() : { MediaContainer: {} })
+        .then(r => {
+          if (!r.ok) {
+            console.warn(`syncUserWatched fetch HTTP ${r.status}: ${url.split('?')[0]} (user ${userId})`);
+            return { MediaContainer: {} };
+          }
+          return r.json();
+        })
         .catch(err => {
           console.warn(`syncUserWatched fetch failed (${err.message}): ${url.split('?')[0]}`);
           return { MediaContainer: {} };
@@ -436,11 +404,19 @@ async function syncUserWatched(userId, userToken) {
     const fetchToken = resolvedToken;
     const accountParam = usingAccountParam ? `&accountID=${userId}` : '';
 
+    // PMS per-account watch history (admin token). This is the only per-user
+    // Plex source that doesn't need the user's own token — stored plex.tv
+    // tokens are often rejected by the server (401), which left the Plex side
+    // of this union permanently empty and the watched counts frozen.
+    // In PMS history the server owner is accountID 1, not their plex.tv id.
+    const historyAccountId = String(userId) === String(db.getOwnerUserId() || '') ? '1' : String(userId);
+
     // Fetch Plex + Tautulli in parallel
-    const [plexMoviesJson, plexTVJson, deckJson, tautulliMovieKeys, tautulliShowKeys] = await Promise.all([
+    const [plexMoviesJson, plexTVJson, deckJson, historyJson, tautulliMovieKeys, tautulliShowKeys] = await Promise.all([
       safeFetch(`${getPlexUrl()}/library/sections/${getMoviesSection()}/all?unwatched=0${accountParam}&X-Plex-Container-Size=99999&X-Plex-Token=${fetchToken}`, 45000),
       safeFetch(`${getPlexUrl()}/library/sections/${getTvSection()}/all?unwatched=0${accountParam}&X-Plex-Container-Size=99999&X-Plex-Token=${fetchToken}`, 45000),
       safeFetch(`${getPlexUrl()}/library/onDeck?${accountParam}&X-Plex-Container-Size=9999&X-Plex-Token=${fetchToken}`, 20000),
+      safeFetch(`${getPlexUrl()}/status/sessions/history/all?accountID=${historyAccountId}&X-Plex-Container-Size=99999&X-Plex-Token=${getPlexToken()}`, 45000),
       tautulliService.getWatchedMovieKeys(userId),
       tautulliService.getWatchedShowKeys(userId),
     ]);
@@ -466,6 +442,18 @@ async function syncUserWatched(userId, userToken) {
       }
     }
 
+    // PMS history: movies by ratingKey; episodes roll up to their show
+    let historyCount = 0;
+    for (const item of (historyJson.MediaContainer?.Metadata || [])) {
+      if (item.type === 'movie' && item.ratingKey) {
+        watchedKeys.add(String(item.ratingKey));
+        historyCount++;
+      } else if (item.type === 'episode' && item.grandparentKey) {
+        const m = String(item.grandparentKey).match(/(\d+)$/);
+        if (m) { watchedKeys.add(m[1]); historyCount++; }
+      }
+    }
+
     // Tautulli: union in movie + show keys (catches plays Plex misses + shows with any episode watched)
     for (const k of tautulliMovieKeys) watchedKeys.add(k);
     for (const k of tautulliShowKeys) watchedKeys.add(k);
@@ -487,7 +475,7 @@ async function syncUserWatched(userId, userToken) {
 
     const plexMovieCount = (plexMoviesJson.MediaContainer?.Metadata || []).length;
     const plexTVCount = (plexTVJson.MediaContainer?.Metadata || []).length;
-    console.log(`Synced ${watchedKeys.size} watched items for user ${userId} (Plex movies: ${plexMovieCount}, Plex TV: ${plexTVCount}, Tautulli movies: ${tautulliMovieKeys.size}, Tautulli shows: ${tautulliShowKeys.size})`);
+    console.log(`Synced ${watchedKeys.size} watched items for user ${userId} (Plex movies: ${plexMovieCount}, Plex TV: ${plexTVCount}, Plex history: ${historyCount}, Tautulli movies: ${tautulliMovieKeys.size}, Tautulli shows: ${tautulliShowKeys.size})`);
   } catch (err) {
     console.warn(`syncUserWatched(${userId}) error:`, err.message);
   } finally {
@@ -970,11 +958,14 @@ function startWebSocket(onNewItem) {
           try {
             const msg = JSON.parse(line.slice(5).trim());
             const container = msg.NotificationContainer || msg; // handle both shapes
-            const entries = container.TimelineEntry;
-            if (!Array.isArray(entries)) continue;              // not a timeline event
+            // The eventsource endpoint delivers TimelineEntry as a single object
+            // (one SSE event per entry); the websocket endpoint sends an array.
+            let entries = container.TimelineEntry;
+            if (entries && !Array.isArray(entries)) entries = [entries];
+            if (!entries) continue;                             // not a timeline event
             for (const entry of entries) {
               if (entry.identifier !== 'com.plexapp.plugins.library') continue;
-              if (entry.state !== 5) continue;
+              if (Number(entry.state) !== 5) continue;
               const ratingKey = String(entry.itemID || '');
               const sectionId = String(entry.sectionID || entry.librarySectionID || '');
               if (!ratingKey) continue;

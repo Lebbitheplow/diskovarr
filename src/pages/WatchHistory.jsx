@@ -224,6 +224,11 @@ export default function WatchHistory() {
     </td>
   )
 
+  // Mirror of the backend eligibility rule: movies need >10% watched (or a
+  // completed play) to review; shows qualify with any episode in history.
+  const canReview = (it) => !!it.review || it.mediaType !== 'movie'
+    || it.watchedStatus === 'complete' || (it.percentComplete || 0) > 10
+
   // Combined Review/Action cell: a single button that writes, or edits/views an
   // existing review (showing its rating).
   const renderReviewCell = (it) => (
@@ -232,6 +237,8 @@ export default function WatchHistory() {
         <button
           className="btn-page"
           onClick={(e) => { e.stopPropagation(); setReviewModalItem(it) }}
+          disabled={!canReview(it)}
+          title={canReview(it) ? undefined : t('Watch at least 10% to review')}
           style={{ fontSize: '0.82rem', padding: '4px 10px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
         >
           {it.review ? (<><StarBadge rating={it.review.rating} /> {t('Edit')}</>) : 'Write Review'}
@@ -241,7 +248,7 @@ export default function WatchHistory() {
   )
 
   const renderSingleRow = (item) => (
-    <tr key={item.historyId} className="history-row" style={{ cursor: item.isOwnWatch ? 'pointer' : 'default' }} onClick={() => { if (item.isOwnWatch) setReviewModalItem(item) }}>
+    <tr key={item.historyId} className="history-row" style={{ cursor: item.isOwnWatch && canReview(item) ? 'pointer' : 'default' }} onClick={() => { if (item.isOwnWatch && canReview(item)) setReviewModalItem(item) }}>
       <td>
         <div className="queue-title-cell">
           {item.posterUrl ? (

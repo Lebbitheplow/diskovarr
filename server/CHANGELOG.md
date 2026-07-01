@@ -4,6 +4,22 @@ All notable changes are documented here. Versioning follows [Semantic Versioning
 
 ---
 
+## v2.3.3 — 2026-07-01
+
+A patch release fixing real-time library detection and availability notifications, and relaxing review eligibility.
+
+### Fixed
+
+- **Real-time Plex detection** — newly added items are now detected the moment Plex finishes processing them. The live Plex event stream was silently discarding every library event (Plex delivers them one at a time, not as a list), so new content only appeared after the periodic library rescan. Requested titles are now marked available and join the library within seconds.
+- **"Now available" notifications** — users are now notified when a title they requested is added to the library. A mismatch in how requests were matched against the library meant these notifications never fired from any library scan; approval/denial notifications were unaffected.
+- **Admin Users page watched counts** — the "Watched" item count never updated. The per-user Plex watched lookup was silently failing (the Plex server rejects the stored user tokens with a 401), leaving only Tautulli data, which rarely moved the numbers. Watched syncs now also pull each user's watch history directly from the Plex server using the admin token (with the owner correctly mapped to Plex's internal account), and failed Plex lookups are logged instead of swallowed. Counts may jump once after updating as historical plays are counted for the first time.
+
+### Changed
+
+- **Review partially-watched movies** — a movie can now be reviewed from your watch history once you've watched more than 10% of it, instead of needing to be nearly finished. Shows are unchanged — any watched episode qualifies. History rows under 10% show a disabled Write Review button with a hint.
+
+---
+
 ## v2.3.2 — 2026-06-15
 
 A patch release fixing request-app routing.

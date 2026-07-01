@@ -45,7 +45,8 @@ async function tautulliGet(cmd, params = {}) {
 }
 
 /**
- * Returns Set of movie rating_keys the user has watched (≥90% completion)
+ * Returns Set of movie rating_keys the user has watched enough to review
+ * (>10% completion, or Tautulli watched_status ≥ 1)
  */
 async function getWatchedMovieKeys(userId) {
   try {
@@ -59,8 +60,8 @@ async function getWatchedMovieKeys(userId) {
     const rows = data.data || [];
     const keys = new Set();
     for (const row of rows) {
-      // watched_status: 1 = fully watched, also check percent_complete
-      if (row.watched_status >= 1 || (row.percent_complete && row.percent_complete >= 90)) {
+      // watched_status: 1 = fully watched; partial watches past 10% also qualify
+      if (row.watched_status >= 1 || (row.percent_complete && row.percent_complete > 10)) {
         if (row.rating_key) keys.add(String(row.rating_key));
       }
     }

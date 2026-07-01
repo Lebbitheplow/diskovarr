@@ -18,7 +18,7 @@ const DATE_STYLE = { fontWeight: '400', color: 'var(--text-secondary)', fontSize
 export default function ChangelogModal({ open, onClose }) {
   const { t } = useTranslation()
   if (!open) return null
-  const currentVersion = import.meta.env.VITE_APP_VERSION || '2.3.2'
+  const currentVersion = import.meta.env.VITE_APP_VERSION || '2.3.3'
 
   return (
     <div className="info-modal-backdrop open" onClick={onClose}>
@@ -31,6 +31,22 @@ export default function ChangelogModal({ open, onClose }) {
           <div className="info-modal-section">
             <div className="info-modal-section-title">
               v{currentVersion}{' '}
+              <span style={DATE_STYLE}>2026-07-01</span>
+            </div>
+            <p style={SECTION_LABEL_STYLE}>{t('Fixes')}</p>
+            <ul style={LIST_STYLE}>
+              <li style={ITEM_STYLE}>Fixed real-time Plex detection — newly added items are picked up the moment Plex finishes processing them, so requested titles are marked available and join the library within seconds instead of waiting for the next library rescan</li>
+              <li style={ITEM_STYLE}>Fixed "now available" notifications — you're now notified when a title you requested is added to the library; a matching bug meant these never fired from library scans</li>
+              <li style={ITEM_STYLE}>Fixed the Watched count on the admin Users page never updating — watched syncs now pull each user's watch history directly from the Plex server, so counts move as users watch (they may jump once as historical plays are counted)</li>
+            </ul>
+            <p style={SECTION_LABEL_STYLE}>{t('Improvements')}</p>
+            <ul style={LIST_STYLE_LAST}>
+              <li style={ITEM_STYLE}>Movies can now be reviewed from your watch history once you've watched more than 10% — no need to finish them first; shows are unchanged, any watched episode qualifies</li>
+            </ul>
+          </div>
+          <div className="info-modal-section">
+            <div className="info-modal-section-title">
+              v2.3.2{' '}
               <span style={DATE_STYLE}>2026-06-15</span>
             </div>
             <p style={SECTION_LABEL_STYLE}>{t('Fixes')}</p>
@@ -50,23 +66,6 @@ export default function ChangelogModal({ open, onClose }) {
               <li style={ITEM_STYLE}>Fixed the accent color reverting to the default when returning from the admin panel — your saved color now applies instantly on every page load with no flash</li>
               <li style={ITEM_STYLE}>Fixed the notification dropdown appearing nearly transparent — it now uses the same frosted-glass effect as the user menu</li>
               <li style={ITEM_STYLE}>Fixed the Settings page on mobile — section tabs now scroll horizontally instead of overflowing the screen</li>
-            </ul>
-          </div>
-          <div className="info-modal-section">
-            <div className="info-modal-section-title">
-              v2.3.0{' '}
-              <span style={DATE_STYLE}>2026-06-12</span>
-            </div>
-            <p style={SECTION_LABEL_STYLE}>{t('Additions')}</p>
-            <ul style={LIST_STYLE}>
-              <li style={ITEM_STYLE}>Added UI localization — Spanish, French, German, and Portuguese translations with user-selectable language</li>
-              <li style={ITEM_STYLE}>Added Automation tab in admin panel — auto-request content by genre, rating, or keyword; maintain Plex collections on a schedule; and clean up stale or unwatched requests automatically</li>
-            </ul>
-            <p style={SECTION_LABEL_STYLE}>{t('Improvements')}</p>
-            <ul style={LIST_STYLE_LAST}>
-              <li style={ITEM_STYLE}>Added /health endpoint for external monitoring, load balancers, and orchestrators</li>
-              <li style={ITEM_STYLE}>Added graceful shutdown — active connections are drained and pending writes flushed before exit</li>
-              <li style={ITEM_STYLE}>Added automated DB backups with configurable schedules and retention policies</li>
             </ul>
           </div>
         </div>

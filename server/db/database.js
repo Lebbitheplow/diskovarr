@@ -2409,13 +2409,15 @@ function deleteIssueComment(commentId, requesterId, isAdmin) {
 
 // ── Request fulfillment notifications ─────────────────────────────────────────
 
-function getUnnotifiedFulfilledRequests(libraryTmdbIds) {
+function getUnnotifiedFulfilledRequests() {
+  const lib = db.prepare('SELECT tmdb_id, type FROM library_items WHERE tmdb_id IS NOT NULL').all();
+  const ids = new Set(lib.map(r => `${r.tmdb_id}:${r.type === 'show' ? 'tv' : 'movie'}`));
   const rows = db.prepare(`
     SELECT * FROM discover_requests
     WHERE status != 'denied'
     AND notified_available_at IS NULL
   `).all();
-  return rows.filter(r => libraryTmdbIds.has(`${r.tmdb_id}:${r.media_type}`));
+  return rows.filter(r => ids.has(`${r.tmdb_id}:${r.media_type}`));
 }
 
 function markRequestsNotifiedAvailable(ids) {

@@ -385,47 +385,7 @@ const server = app.listen(PORT, '0.0.0.0', () => {
 
     // One-shot fulfillment check on startup — catches requests fulfilled while server was down
     try {
-      const libraryTmdbIds = db.getLibraryTmdbIds();
-      const fulfilled = db.getUnnotifiedFulfilledRequests(libraryTmdbIds);
-      if (fulfilled.length > 0) {
-        const notifiedIds = [];
-        for (const req of fulfilled) {
-          const prefs = db.getUserNotificationPrefs(req.user_id);
-          if (prefs.notify_available) {
-            const title = req.title || 'Unknown';
-            const notifId = db.createOrBundleNotification({
-              userId: req.user_id,
-              type: 'request_available',
-              title: `"${title}" is now available`,
-              body: 'Your requested content has been added to the library.',
-              data: { requestId: req.id, tmdbId: req.tmdb_id, mediaType: req.media_type, title },
-            });
-            db.enqueueNotification({
-              notificationId: notifId, agent: 'discord', userId: req.user_id,
-              payload: { type: 'request_available', title: `"${title}" is now available`, body: 'Your requested content has been added to the library.', posterUrl: req.poster_url },
-            });
-            db.enqueueNotification({
-              notificationId: notifId, agent: 'pushover', userId: req.user_id,
-              payload: { type: 'request_available', title: `"${title}" is now available`, body: 'Your requested content has been added to the library.', posterUrl: req.poster_url },
-            });
-            // Clean up stale failure notifications
-            try {
-              const failedNotifs = db.prepare(
-                "SELECT id FROM notifications WHERE type = 'request_process_failed' AND (user_id = ? OR user_id IS NULL)"
-              ).all(String(req.user_id));
-              for (const n of failedNotifs) {
-                const nData = typeof n.data === 'string' ? JSON.parse(n.data) : n.data;
-                if (nData && nData.tmdbId === req.tmdb_id) {
-                  db.prepare('DELETE FROM notifications WHERE id = ?').run(n.id);
-                }
-              }
-            } catch {}
-          }
-          notifiedIds.push(req.id);
-        }
-        db.markRequestsNotifiedAvailable(notifiedIds);
-        logger.info(`Startup fulfilled ${notifiedIds.length} requests detected in library`);
-      }
+      require('./services/requestFulfillment').checkAndNotifyFulfilled('startup')
     } catch (fulfillErr) {
       logger.warn('Startup fulfillment check failed:', fulfillErr.message);
     }

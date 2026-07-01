@@ -181,47 +181,7 @@ router.post('/sync/library', requireAdmin, async (req, res) => {
 
     // After sync: check for newly fulfilled requests and notify their requesters
     try {
-      const libraryTmdbIds = db.getLibraryTmdbIds();
-      const fulfilled = db.getUnnotifiedFulfilledRequests(libraryTmdbIds);
-      if (fulfilled.length > 0) {
-        const notifiedIds = [];
-        for (const req of fulfilled) {
-          const prefs = db.getUserNotificationPrefs(req.user_id);
-          if (prefs.notify_available) {
-            const title = req.title || 'Unknown';
-            const notifId = db.createOrBundleNotification({
-              userId: req.user_id,
-              type: 'request_available',
-              title: `"${title}" is now available`,
-              body: 'Your requested content has been added to the library.',
-              data: { requestId: req.id, tmdbId: req.tmdb_id, mediaType: req.media_type, title },
-            });
-            db.enqueueNotification({
-              notificationId: notifId, agent: 'discord', userId: req.user_id,
-              payload: { type: 'request_available', title: `"${title}" is now available`, body: 'Your requested content has been added to the library.', posterUrl: req.poster_url },
-            });
-            db.enqueueNotification({
-              notificationId: notifId, agent: 'pushover', userId: req.user_id,
-              payload: { type: 'request_available', title: `"${title}" is now available`, body: 'Your requested content has been added to the library.', posterUrl: req.poster_url },
-            });
-            // Remove any stale request_process_failed notifications for this tmdbId
-            try {
-              const failedNotifs = db.prepare(
-                "SELECT id FROM notifications WHERE type = 'request_process_failed' AND (user_id = ? OR user_id IS NULL)"
-              ).all(String(req.user_id));
-              for (const n of failedNotifs) {
-                const nData = typeof n.data === 'string' ? JSON.parse(n.data) : n.data;
-                if (nData && nData.tmdbId === req.tmdb_id) {
-                  db.prepare('DELETE FROM notifications WHERE id = ?').run(n.id);
-                }
-              }
-            } catch {}
-          }
-          notifiedIds.push(req.id);
-        }
-        db.markRequestsNotifiedAvailable(notifiedIds);
-        console.log(`[Admin] Fulfilled ${notifiedIds.length} requests detected by library sync`);
-      }
+      require('../services/requestFulfillment').checkAndNotifyFulfilled('admin sync');
     } catch (fulfillErr) {
       console.warn('[Admin] Fulfillment check after sync failed:', fulfillErr.message);
     }

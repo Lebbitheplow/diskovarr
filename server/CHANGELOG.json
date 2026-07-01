@@ -1,5 +1,15 @@
 [
   {
+    "version": "2.3.3",
+    "date": "2026-07-01",
+    "changes": [
+      "Fixed real-time Plex detection — newly added items are now picked up the moment Plex finishes processing them, so requested titles are marked available and join the library within seconds instead of waiting for the next periodic library rescan.",
+      "Fixed 'now available' notifications — users are now notified when a title they requested is added to the library; a request-matching bug meant these notifications never fired from library scans.",
+      "Fixed the Watched count on the admin Users page never updating — the per-user Plex watched lookup was silently failing when the server rejected stored user tokens, so counts only reflected Tautulli data. Watched syncs now also pull each user's watch history directly from the Plex server, and counts update as users watch.",
+      "Movies can now be reviewed from your watch history once you've watched more than 10% of them — no need to finish first. Shows are unchanged: any watched episode qualifies. Rows under 10% show a disabled Write Review button with a hint."
+    ]
+  },
+  {
     "version": "2.3.2",
     "date": "2026-06-15",
     "changes": [
