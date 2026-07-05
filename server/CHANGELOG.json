@@ -1,5 +1,20 @@
 [
   {
+    "version": "2.5.0",
+    "date": "2026-07-05",
+    "changes": [
+      "Added YouTube series support through Sonarr via Tuberr, a new companion service included in the repo: it presents itself to Sonarr as a Torznab indexer plus a qBittorrent-compatible download client and downloads the actual videos with yt-dlp, so Sonarr handles quality, naming, and import exactly like any other release. Series added this way are tagged 'yt' in Sonarr, keeping the YouTube indexer and downloader away from your normal shows.",
+      "Added a 'Download via' choice to the request dialog — TV requests going to Sonarr can pick Torrent (default) or YouTube; picking YouTube suggests source channels for the show via YouTube search, and also accepts a pasted channel or video URL.",
+      "Added TVDB-only shows to search — text search now merges Sonarr's TVDB lookup with TMDB results, so web series that never made it onto TMDB (most YouTube shows) appear in results and can be requested. Library items are also matched by their TVDB id, so YouTube shows already in Plex are recognized as In Library.",
+      "Added automatic episode matching — Tuberr fetches the mapped channel's uploads through the YouTube Data API and scores each video against TVDB episode titles, air dates, episode numbers, and durations; confident matches are used automatically and the rest wait for review.",
+      "Added an Admin → YouTube tab to review and correct matches: per-episode confidence badges, a ranked candidate list, paste-a-URL overrides, unmatching, re-running auto-match after a channel change, and a 'Search in Sonarr' button to re-grab an episode after fixing its match.",
+      "Added a YouTube (Tuberr) section to Admin → Connections with an enable/disable toggle that gates the whole feature (search results, request option, and admin tab), the YouTube Data API key, a connection test, and step-by-step setup instructions behind an info icon — including one-click copy of the Tuberr API key needed by Sonarr's indexer. Sonarr credentials and the YouTube key are pushed to Tuberr automatically on save.",
+      "Tuberr manages yt-dlp itself — the official standalone binary is downloaded on first start and self-updates daily, so there is nothing to install or keep current (set YTDLP_PATH to opt out and manage your own).",
+      "Monitored YouTube series stay current automatically — every 6 hours Tuberr re-syncs episode lists from Sonarr and re-matches new channel uploads, and newly matched episodes flow to Sonarr through its normal RSS sync, so new episodes download without any manual action.",
+      "Tuberr writes its API key to data/api_key.txt on boot so first-time setup never requires digging through logs; failed video downloads mark the match as broken so Sonarr blocklists the release and the review UI flags it."
+    ]
+  },
+  {
     "version": "2.4.0",
     "date": "2026-07-04",
     "changes": [

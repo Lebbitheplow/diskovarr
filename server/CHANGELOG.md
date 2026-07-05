@@ -4,6 +4,23 @@ All notable changes are documented here. Versioning follows [Semantic Versioning
 
 ---
 
+## v2.5.0 — 2026-07-05
+
+A feature release adding YouTube series support — search, request, and automatically download YouTube web series through Sonarr.
+
+### Added
+
+- **Tuberr companion service** (`tuberr/` in the repo) — lets Sonarr download YouTube series with yt-dlp. Tuberr presents itself to Sonarr as a **Torznab indexer** plus a **qBittorrent-compatible download client**; Sonarr grabs releases, watches live download progress in its queue, and imports/renames episodes exactly like any other source. Series added this way carry a `yt` tag in Sonarr, so the YouTube indexer and downloader never touch your normal shows. On boot Tuberr writes its API key to `data/api_key.txt` — no log spelunking during setup.
+- **Download via YouTube** — TV requests going to Sonarr get a Torrent / YouTube choice in the request dialog. Picking YouTube suggests source channels for the show (via YouTube search) and accepts a pasted channel or video URL. The chosen channel is registered with Tuberr and episode matching starts immediately.
+- **TVDB-only search** — text search merges Sonarr's TVDB lookup with TMDB results, so web series missing from TMDB (most YouTube shows) appear in results and can be requested. Plex library items are now also matched by their `tvdb://` guid, so YouTube shows already in your library are recognized as In Library.
+- **Automatic episode matching** — Tuberr pulls the channel's uploads through the YouTube Data API and scores each video against TVDB episode titles, air dates, explicit episode numbers, and durations (Shorts are filtered out). Confident matches are used automatically; uncertain ones keep their ranked candidates for review. Unmatched episodes simply return no releases, so Sonarr keeps them wanted and retries later.
+- **Admin → YouTube tab** — per-series match review: confidence badges, candidate lists, paste-a-URL overrides, unmatch, re-run auto-match, and a "Search in Sonarr" button that re-grabs an episode after you correct its match. Failed downloads (deleted/private videos) mark the match as broken so Sonarr blocklists the release and the UI flags it.
+- **Admin → Connections → YouTube (Tuberr)** — an enable/disable toggle gating the entire feature (search merge, request option, and admin tab), the YouTube Data API key, Tuberr address/key with a connection test, and step-by-step setup instructions behind an ⓘ icon, including one-click copy of the Tuberr API key for Sonarr's indexer. Saving pushes Sonarr credentials and the YouTube key to Tuberr automatically.
+- **Self-managed yt-dlp** — Tuberr downloads the official standalone yt-dlp binary into its data dir on first start and self-updates it daily, so admins never install or update it (distro packages go stale and get rejected by YouTube). `YTDLP_PATH` overrides for anyone who prefers their own binary.
+- **Hands-off new episodes** — every 6 hours Tuberr re-syncs each series' episode list from Sonarr and re-matches fresh channel uploads (manual corrections are never overwritten); newly matched episodes surface in the Torznab RSS feed, which Sonarr's RSS sync polls, so monitored series download new episodes automatically.
+
+---
+
 ## v2.4.0 — 2026-07-04
 
 A feature release introducing Diskovarr Wrapped — a Spotify-Wrapped-style yearly recap.

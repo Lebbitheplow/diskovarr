@@ -1,0 +1,17 @@
+[Unit]
+Description=Tuberr - YouTube downloader for Sonarr
+After=network.target
+
+[Service]
+Type=simple
+User=lebbi
+WorkingDirectory=/home/lebbi/Diskovarr-react/tuberr
+ExecStart=/usr/bin/node server.js
+Environment=TUBERR_DOWNLOADS_DIR=/NAS/Temp Download/tuberr
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

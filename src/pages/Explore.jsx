@@ -3,17 +3,14 @@ import { Link } from 'react-router-dom'
 import {
   exploreApi,
   watchlistApi,
-  searchApi,
-  queueApi,
 } from '../services/api'
 import Carousel from '../components/Carousel'
 import ExploreSection from '../components/ExploreSection'
 import DetailModal from '../components/DetailModal'
 import SkeletonLoader from '../components/SkeletonLoader'
 import ToggleSwitch from '../components/ToggleSwitch'
-import Modal from '../components/Modal'
+import RequestModal from '../components/RequestModal'
 import { useToast } from '../context/ToastContext'
-import { useAuth } from '../context/AuthContext'
 import { useTranslation } from 'react-i18next'
 
 const GENRE_META = {
@@ -43,8 +40,6 @@ const MATURE_RATINGS = new Set(['r', 'tv-ma', 'nc-17', 'x', 'nr'])
 export default function Explore() {
   const { t } = useTranslation()
   const { error: toastError, success: toastSuccess } = useToast()
-  const { user } = useAuth()
-  const isAdmin = !!(user?.isAdmin)
 
   const [recommendations, setRecommendations] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -53,8 +48,6 @@ export default function Explore() {
   const [services, setServices] = useState({})
   const [selectedItem, setSelectedItem] = useState(null)
   const [requestItem, setRequestItem] = useState(null)
-  const [seasons, setSeasons] = useState([])
-  const [selectedSeasons, setSelectedSeasons] = useState(['all'])
   const [watchlistCache, setWatchlistCache] = useState({})
   const [building, setBuilding] = useState(false)
   const [, setPolling] = useState(false)
@@ -264,71 +257,27 @@ export default function Explore() {
     setSelectedItem(null)
   }, [])
 
-  const handleSeasonToggle = useCallback((season) => {
-    setSelectedSeasons(prev => {
-      if (prev[0] === 'all' && prev.length === 1) {
-        return [String(season)]
+  const handleRequestSubmitted = useCallback((item) => {
+    setRecommendations(prev => {
+      if (!prev) return prev
+      const updateItem = (items) => items.map(i => {
+        if (i.tmdbId === item.tmdbId && i.mediaType === item.mediaType) {
+          return { ...i, isMyRequest: true, badgeRequested: true }
+        }
+        return i
+      })
+      return {
+        topPicks: updateItem(prev.topPicks || []),
+        movies: updateItem(prev.movies || []),
+        tvShows: updateItem(prev.tvShows || []),
+        anime: updateItem(prev.anime || []),
+        trendingMovies: updateItem(prev.trendingMovies || []),
+        trendingTV: updateItem(prev.trendingTV || []),
+        upcomingMovies: updateItem(prev.upcomingMovies || []),
+        upcomingTV: updateItem(prev.upcomingTV || []),
       }
-      if (prev.includes(String(season))) {
-        const next = prev.filter(s => String(s) !== String(season))
-        return next.length === 0 ? ['all'] : next
-      }
-      return [...prev, String(season)]
     })
   }, [])
-
-  const handleSubmitRequest = useCallback(async (service) => {
-    if (!requestItem) return
-    const seasons = selectedSeasons[0] === 'all' || selectedSeasons.length === 0 ? null : selectedSeasons.map(Number)
-
-    try {
-      await queueApi.createRequest({
-        tmdbId: requestItem.tmdbId,
-        mediaType: requestItem.mediaType,
-        title: requestItem.title,
-        year: requestItem.year || null,
-        service: service || services.defaultService || 'overseerr',
-        seasons: seasons,
-      })
-      toastSuccess(t('Request submitted for {{title}}', { title: requestItem.title }))
-      setRequestItem(null)
-      setSelectedSeasons(['all'])
-      setRecommendations(prev => {
-        if (!prev) return prev
-        const updateItem = (items) => items.map(i => {
-          if (i.tmdbId === requestItem.tmdbId && i.mediaType === requestItem.mediaType) {
-            return { ...i, isMyRequest: true, badgeRequested: true }
-          }
-          return i
-        })
-        return {
-          topPicks: updateItem(prev.topPicks || []),
-          movies: updateItem(prev.movies || []),
-          tvShows: updateItem(prev.tvShows || []),
-          anime: updateItem(prev.anime || []),
-          trendingMovies: updateItem(prev.trendingMovies || []),
-          trendingTV: updateItem(prev.trendingTV || []),
-          upcomingMovies: updateItem(prev.upcomingMovies || []),
-          upcomingTV: updateItem(prev.upcomingTV || []),
-        }
-      })
-    } catch (e) {
-      const msg = e.response?.data?.error || e.response?.data?.message || e.message || 'Request failed'
-      toastError(msg)
-    }
-  }, [requestItem, selectedSeasons, toastSuccess, toastError, services, t])
-
-  const handleSeasonsFetch = useCallback(async (tmdbId) => {
-    try {
-      const { data } = await searchApi.getSeasons(tmdbId)
-      setSeasons(data.seasons || [])
-    } catch { /* ignore */ }
-  }, [])
-
-  useEffect(() => {
-    if (!requestItem) return
-    ;(async () => { await handleSeasonsFetch(requestItem.tmdbId) })()
-  }, [requestItem, handleSeasonsFetch])
 
   const filteredRecommendations = useMemo(() => {
     if (!recommendations) return null
@@ -601,109 +550,12 @@ export default function Explore() {
         />
       )}
 
-      <Modal isOpen={!!requestItem} onClose={() => setRequestItem(null)}>
-        {requestItem && (
-          <div>
-            <h3 style={{ margin: '0 0 16px', fontSize: '1rem', fontWeight: '600' }}>
-              {t('Request \u201c{{title}}\u201d?', { title: requestItem.title })}
-            </h3>
-            <p style={{ color: 'var(--text-secondary)', fontSize: '0.88rem' }}>
-              {requestItem.year} · {requestItem.mediaType === 'movie' ? t('Movie') : t('TV Show')}
-            </p>
-            {requestItem.mediaType === 'tv' && seasons.length > 0 && (
-              <div style={{ marginBottom: '16px' }}>
-                <label style={{ display: 'block', fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: '5px' }}>{t('Seasons')}</label>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                  <button
-                    type="button"
-                    className={'chip-sm' + (selectedSeasons[0] === 'all' ? ' active' : '')}
-                    style={{ border: '1px solid var(--border)', cursor: 'pointer' }}
-                    onClick={() => setSelectedSeasons(['all'])}
-                  >
-                    {t('All')}
-                  </button>
-                  {seasons.map(s => (
-                    <button
-                      type="button"
-                      key={s}
-                      className={'chip-sm' + (!selectedSeasons.includes('all') && selectedSeasons.includes(String(s)) ? ' active' : '')}
-                      style={{ border: '1px solid var(--border)', cursor: 'pointer' }}
-                      onClick={() => handleSeasonToggle(s)}
-                    >
-                      {s}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-            {(() => {
-              const hasOverseerr = services.overseerr
-              const hasRiven = services.riven
-              // Radarr only handles movies, Sonarr only handles shows — pick the one for this media type
-              const hasDirect = requestItem.mediaType === 'movie' ? services.radarr : services.sonarr
-              const directName = requestItem.mediaType === 'movie' ? 'Radarr' : 'Sonarr'
-              const directSvc = requestItem.mediaType === 'movie' ? 'radarr' : 'sonarr'
-              // Services actually available for THIS media type
-              const available = { overseerr: hasOverseerr, riven: hasRiven, [directSvc]: hasDirect }
-              // Resolve the admin-configured default into a concrete, available service
-              const rawDefault = services.defaultService === 'direct' ? directSvc : services.defaultService
-              const defaultSvc = available[rawDefault] ? rawDefault
-                : hasOverseerr ? 'overseerr'
-                : hasRiven ? 'riven'
-                : hasDirect ? directSvc
-                : 'none'
-              const altOptions = []
-              if (defaultSvc !== 'overseerr' && hasOverseerr) altOptions.push({ svc: 'overseerr', name: 'Overseerr' })
-              if (defaultSvc !== 'riven' && hasRiven) altOptions.push({ svc: 'riven', name: 'DUMB' })
-              if (defaultSvc !== directSvc && hasDirect && (services.directRequestAccess !== '1' || isAdmin)) altOptions.push({ svc: directSvc, name: directName })
-              return (
-                <>
-                  {altOptions.length > 0 && (
-                    <div style={{ marginBottom: '12px' }}>
-                      <button
-                        type="button"
-                        className="chip-sm"
-                        style={{ border: '1px solid var(--border)', cursor: 'pointer', width: '100%', textAlign: 'center' }}
-                        onClick={() => {
-                          const panel = document.getElementById('request-adv-panel')
-                          const toggle = document.getElementById('request-adv-toggle')
-                          if (panel) {
-                            const isOpen = panel.style.display !== 'none'
-                            panel.style.display = isOpen ? 'none' : ''
-                            toggle.textContent = isOpen ? t('Advanced') + ' ▸' : t('Advanced') + ' ▾'
-                          }
-                        }}
-                        id="request-adv-toggle"
-                      >
-                        {t('Advanced')} ▸
-                      </button>
-                      <div id="request-adv-panel" style={{ display: 'none', marginTop: '8px' }}>
-                        {altOptions.map(opt => (
-                          <button
-                            key={opt.svc}
-                            type="button"
-                            className="chip-sm"
-                            style={{ border: '1px solid var(--border)', cursor: 'pointer', width: '100%', marginBottom: '6px', textAlign: 'left' }}
-                            onClick={() => handleSubmitRequest(opt.svc)}
-                          >
-                            {t('Send to {{name}} instead', { name: opt.name })}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '16px' }}>
-                    <button className="chip-sm" onClick={() => setRequestItem(null)}>{t('Cancel')}</button>
-                    <button className="chip-sm" style={{ background: 'var(--accent)', color: '#000', fontWeight: '600', border: 'none' }} onClick={() => handleSubmitRequest(defaultSvc)}>
-                      {t('Request')}
-                    </button>
-                  </div>
-                </>
-              )
-            })()}
-          </div>
-        )}
-      </Modal>
+      <RequestModal
+        item={requestItem}
+        services={services}
+        onClose={() => setRequestItem(null)}
+        onSubmitted={handleRequestSubmitted}
+      />
     </>
   )
 }

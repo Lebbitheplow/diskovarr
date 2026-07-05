@@ -877,6 +877,172 @@ function SonarrSection({ sonarrUrl, sonarrApiKey, sonarrEnabled, sonarrQualityPr
   )
 }
 
+function YoutubeSection({ youtubeEnabled, youtubeApiKey, tuberrUrl, tuberrApiKey, sonarrEnabled, onUpdate, onToast }) {
+  const { t } = useTranslation()
+  const [host, setHost] = useState(parseHost(tuberrUrl))
+  const [port, setPort] = useState(parsePort(tuberrUrl))
+  const [serviceKey, setServiceKey] = useState(tuberrApiKey ? MASKED : '')
+  const [serviceKeyVisible, setServiceKeyVisible] = useState(false)
+  const [ytKey, setYtKey] = useState(youtubeApiKey ? MASKED : '')
+  const [ytKeyVisible, setYtKeyVisible] = useState(false)
+  const [testLoading, setTestLoading] = useState(false)
+  const [enabled, setEnabled] = useState(!!youtubeEnabled)
+  const [infoOpen, setInfoOpen] = useState(false)
+  const realServiceKey = serviceKey === MASKED ? '' : serviceKey
+
+  // Sync local fields from props (render-phase adjustment).
+  const [prevConn, setPrevConn] = useState(`${tuberrUrl} ${tuberrApiKey} ${youtubeApiKey}`)
+  if (`${tuberrUrl} ${tuberrApiKey} ${youtubeApiKey}` !== prevConn) {
+    setPrevConn(`${tuberrUrl} ${tuberrApiKey} ${youtubeApiKey}`)
+    setHost(parseHost(tuberrUrl))
+    setPort(parsePort(tuberrUrl))
+    setServiceKey(tuberrApiKey ? MASKED : '')
+    setYtKey(youtubeApiKey ? MASKED : '')
+  }
+  const [prevEnabled, setPrevEnabled] = useState(youtubeEnabled)
+  if (youtubeEnabled !== prevEnabled) {
+    setPrevEnabled(youtubeEnabled)
+    setEnabled(!!youtubeEnabled)
+  }
+
+  const hasFields = !!host && (serviceKey === MASKED || !!serviceKey)
+  const canEnable = hasFields && (ytKey === MASKED || !!ytKey) && sonarrEnabled
+
+  const handleBlur = useCallback(() => {
+    const patch = { tuberr_url: buildUrl(host, port) }
+    if (serviceKey !== MASKED) patch.tuberr_api_key = serviceKey
+    if (ytKey !== MASKED) patch.youtube_api_key = ytKey
+    onUpdate?.(patch)
+  }, [host, port, serviceKey, ytKey, onUpdate])
+
+  const handleEnabledToggle = async (checked) => {
+    setEnabled(checked)
+    onUpdate?.({ youtube_enabled: checked })
+    try { await adminConnections.save({ youtube_enabled: checked }) } catch { /* ignore */ }
+  }
+
+  const handleTest = async () => {
+    if (!hasFields) return
+    setTestLoading(true)
+    try {
+      const res = await adminConnections.test('tuberr', { url: buildUrl(host, port), apiKey: realServiceKey })
+      if (res.data?.ok) onToast?.(res.data.message || 'Tuberr connection successful')
+      else onToast?.(res.data?.message || 'Tuberr test failed', 'error')
+    } catch (err) {
+      onToast?.(err.message || 'Tuberr test failed', 'error')
+    } finally { setTestLoading(false) }
+  }
+
+  // The same Tuberr key authenticates Sonarr's Torznab indexer — offer it for
+  // copy so admins never have to dig it out of Tuberr's log or data dir.
+  const copyableKey = realServiceKey || tuberrApiKey || ''
+  const handleCopyKey = async () => {
+    if (!copyableKey) return
+    try {
+      await navigator.clipboard.writeText(copyableKey)
+      onToast?.(t('Tuberr API key copied — paste it into Sonarr’s Torznab indexer'))
+    } catch {
+      onToast?.(t('Copy failed — reveal the key field and copy it manually'), 'error')
+    }
+  }
+
+  const torznabUrl = (buildUrl(host, port) || 'http://<tuberr-host>:9832') + '/torznab'
+  const stepStyle = { margin: '0 0 8px', fontSize: '0.82rem', color: 'var(--text-secondary)', lineHeight: 1.5 }
+  const codeStyle = { background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 4, padding: '1px 5px', fontSize: '0.78rem', fontFamily: 'monospace' }
+
+  return (
+    <div className="conn-block">
+      <div className="conn-block-header">
+        <div className="conn-block-meta">
+          <span className="conn-block-name">
+            {t('YouTube (Tuberr)')}
+            <button type="button" className="agent-info-btn" title={t('Setup instructions')}
+              onClick={() => setInfoOpen(o => !o)} style={{ marginLeft: 6 }}>&#9432;</button>
+          </span>
+          <span className="conn-block-desc">{t('Search and request YouTube series through Sonarr — requires the Tuberr companion service')}</span>
+        </div>
+        <div className="conn-toggle-wrap">
+          <span className="conn-toggle-label">{enabled ? 'Enabled' : 'Disabled'}</span>
+          <label className="slide-toggle" title={!canEnable && !enabled ? 'Configure Tuberr, a YouTube API key, and enable Sonarr first' : ''}>
+            <input type="checkbox" checked={enabled} disabled={!enabled && !canEnable}
+              onChange={(e) => handleEnabledToggle(e.target.checked)} />
+            <span className="slide-track" />
+          </label>
+        </div>
+      </div>
+      {infoOpen && (
+        <div style={{ margin: '12px 0', padding: '12px 14px', border: '1px solid var(--border)', borderRadius: 8, background: 'var(--bg-secondary)' }}>
+          <p style={{ ...stepStyle, fontWeight: 600, color: 'var(--text)' }}>{t('Setup — one time, in this order')}</p>
+          <p style={stepStyle}>
+            <strong>1. Start Tuberr.</strong> {t('It ships in the Diskovarr repo under')} <code style={codeStyle}>tuberr/</code> — {t('run it with')} <code style={codeStyle}>node server.js</code> {t('or the included systemd unit. On first boot it generates its API key, prints it to the log, and saves it to')} <code style={codeStyle}>tuberr/data/api_key.txt</code>.
+          </p>
+          <p style={stepStyle}>
+            <strong>2. {t('Connect Diskovarr')}.</strong> {t('Enter the Tuberr address and that API key below, add a free YouTube Data API v3 key (Google Cloud Console), and hit Test. After saving, the key stays available on this page — use the eye icon or the Copy button, no need to touch the log again.')}
+          </p>
+          <p style={stepStyle}>
+            <strong>3. {t('Wire up Sonarr')}</strong> ({t('both entries tagged')} <code style={codeStyle}>yt</code> {t('so only YouTube series use them')}):
+          </p>
+          <p style={{ ...stepStyle, paddingLeft: 16 }}>
+            • {t('Download client → add qBittorrent: host/port of Tuberr, any username/password, category')} <code style={codeStyle}>tv-youtube</code>, {t('tag')} <code style={codeStyle}>yt</code><br />
+            • {t('Indexer → add Torznab: URL')} <code style={codeStyle}>{torznabUrl}</code>, {t('API key = the Tuberr key')}, {t('tag')} <code style={codeStyle}>yt</code>
+          </p>
+          <p style={stepStyle}>
+            <strong>4. {t('Flip the toggle above.')}</strong> {t('TV requests gain a “Download via YouTube” option, TVDB-only shows appear in search, and matches are reviewed in Admin → YouTube.')}
+          </p>
+          <button type="button" className="btn-admin" onClick={handleCopyKey} disabled={!copyableKey}
+            title={!copyableKey ? t('Enter or save the Tuberr API key first') : ''}>
+            {t('Copy Tuberr API key for Sonarr')}
+          </button>
+        </div>
+      )}
+      <div className="conn-block-fields">
+        <div className="conn-field-group conn-field-host">
+          <span className="conn-field-label">{t('Tuberr Address')}</span>
+          <input type="text" className="conn-input" placeholder={t('http://localhost')}
+            value={host} onChange={(e) => setHost(e.target.value)} onBlur={handleBlur} />
+        </div>
+        <div className="conn-field-group conn-field-port">
+          <span className="conn-field-label">{t('Port')} <span className="conn-field-optional">{t('optional')}</span></span>
+          <input type="number" className="conn-input conn-input-port" placeholder="9832" min="1" max="65535"
+            value={port} onChange={(e) => setPort(e.target.value.replace(/[^0-9]/g, ''))} onBlur={handleBlur} />
+        </div>
+        <div className="conn-field-group conn-field-key">
+          <span className="conn-field-label">{t('Tuberr API Key')}</span>
+          <div className="conn-input-wrap">
+            <input type={serviceKeyVisible ? 'text' : 'password'} className="conn-input" placeholder={t('API Key')}
+              value={serviceKeyVisible && serviceKey === MASKED ? tuberrApiKey : serviceKey}
+              onChange={(e) => setServiceKey(e.target.value)} onBlur={handleBlur} autoComplete="new-password" />
+            <div className="conn-input-btns">
+              <button type="button" className="conn-input-icon-btn"
+                onClick={() => setServiceKeyVisible(!serviceKeyVisible)} title={t('Show / hide')} />
+            </div>
+          </div>
+        </div>
+        <button className="btn-admin conn-action-btn" onClick={handleTest} disabled={testLoading || !hasFields}>
+          {testLoading ? 'Testing...' : 'Test'}
+        </button>
+      </div>
+      <div className="conn-block-fields" style={{ marginTop: 10 }}>
+        <div className="conn-field-group conn-field-key">
+          <span className="conn-field-label">{t('YouTube Data API Key')}</span>
+          <div className="conn-input-wrap">
+            <input type={ytKeyVisible ? 'text' : 'password'} className="conn-input" placeholder={t('AIza…')}
+              value={ytKeyVisible && ytKey === MASKED ? youtubeApiKey : ytKey}
+              onChange={(e) => setYtKey(e.target.value)} onBlur={handleBlur} autoComplete="new-password" />
+            <div className="conn-input-btns">
+              <button type="button" className="conn-input-icon-btn"
+                onClick={() => setYtKeyVisible(!ytKeyVisible)} title={t('Show / hide')} />
+            </div>
+          </div>
+          <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: '6px 0 0' }}>
+            {t('Used for channel search and episode matching. Free key from Google Cloud Console (YouTube Data API v3).')}
+          </p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function RivenSection({ rivenEnabled, rivenUrl, rivenApiKey, dumbRequestMode, compatKey,
   onUpdate, onSave, onToast }) {
   const { t } = useTranslation()
@@ -1085,6 +1251,8 @@ export default function ConnectionSettings({ onDataLoaded, onToast }) {
         overseerr_api_key: r.overseerrApiKey,
         radarr_api_key:    r.radarrApiKey,
         sonarr_api_key:    r.sonarrApiKey,
+        youtube_api_key:   r.youtubeApiKey,
+        tuberr_api_key:    r.tuberrApiKey,
         diskovarr_api_key: r.diskovarrApiKey,
         agregarr_api_key:  r.agregarrApiKey,
         dumb_api_key:      r.dumbApiKey,
@@ -1256,6 +1424,16 @@ export default function ConnectionSettings({ onDataLoaded, onToast }) {
           sonarrQualityProfileId={fields.sonarr_quality_profile_id}
           sonarrQualityProfileName={fields.sonarr_quality_profile_name}
           profiles={sonarrProfiles}
+          onUpdate={handleSonarrUpdate}
+          onToast={onToast}
+        />
+
+        <YoutubeSection
+          youtubeEnabled={fields.youtube_enabled}
+          youtubeApiKey={fields.youtube_api_key}
+          tuberrUrl={fields.tuberr_url}
+          tuberrApiKey={fields.tuberr_api_key}
+          sonarrEnabled={fields.sonarr_enabled}
           onUpdate={handleSonarrUpdate}
           onToast={onToast}
         />

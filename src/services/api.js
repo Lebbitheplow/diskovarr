@@ -158,6 +158,11 @@ export const exploreApi = {
   followRecommendation: (tmdbId, mediaType) => api.post('/explore/follow', { tmdbId, mediaType }),
 }
 
+/** Tuberr (YouTube downloader) */
+export const tuberrApi = {
+  searchChannels: (q) => api.get('/tuberr/channels', { params: { q } }),
+}
+
 /** User Settings */
 export const userApi = {
   updateSettings: (data) => api.post('/user/settings', data),

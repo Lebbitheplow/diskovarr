@@ -105,6 +105,20 @@ export const adminConnections = {
   setDirectRequestAccess: (adminOnly) => adminApi.post('/connections/save', { direct_request_access: adminOnly ? '1' : '0' }),
 }
 
+/** Tuberr (YouTube downloader) — proxied through /admin/tuberr/* */
+export const adminTuberr = {
+  health: () => adminApi.get('/tuberr/health'),
+  getMappings: () => adminApi.get('/tuberr/mappings'),
+  getMapping: (id) => adminApi.get(`/tuberr/mappings/${id}`),
+  createMapping: (data) => adminApi.post('/tuberr/mappings', data),
+  deleteMapping: (id) => adminApi.delete(`/tuberr/mappings/${id}`),
+  refreshMapping: (id) => adminApi.post(`/tuberr/mappings/${id}/refresh`),
+  setMatch: (id, season, episode, videoId) => adminApi.put(`/tuberr/mappings/${id}/matches/${season}/${episode}`, { videoId }),
+  searchEpisode: (id, season, episode) => adminApi.post(`/tuberr/mappings/${id}/search-episode`, { season, episode }),
+  searchChannels: (q) => adminApi.get('/tuberr/youtube/channels', { params: { q } }),
+  getDownloads: () => adminApi.get('/tuberr/downloads'),
+}
+
 /** Plex OAuth */
 export const adminPlex = {
   getAuthUrl: () => adminApi.get('/plex/auth-url'),

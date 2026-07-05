@@ -8,7 +8,7 @@ export default defineConfig([
   globalIgnores(['dist', 'server/node_modules/**', '**/node_modules/**']),
   {
     files: ['**/*.{js,jsx}'],
-    ignores: ['server/**'],
+    ignores: ['server/**', 'tuberr/**'],
     extends: [
       js.configs.recommended,
       reactHooks.configs.flat.recommended,
@@ -37,6 +37,19 @@ export default defineConfig([
   {
     files: ['server/**/*.js'],
     ignores: ['server/public/**'],
+    extends: [js.configs.recommended],
+    languageOptions: {
+      ecmaVersion: 'latest',
+      sourceType: 'commonjs',
+      globals: { ...globals.node },
+    },
+    rules: {
+      'no-unused-vars': ['error', { varsIgnorePattern: '^[A-Z_]', argsIgnorePattern: '^_', caughtErrors: 'none' }],
+      'no-empty': ['error', { allowEmptyCatch: true }],
+    },
+  },
+  {
+    files: ['tuberr/**/*.js'],
     extends: [js.configs.recommended],
     languageOptions: {
       ecmaVersion: 'latest',

@@ -301,6 +301,8 @@ db.exec(`
   "ALTER TABLE library_items ADD COLUMN audience_rating_image TEXT DEFAULT ''",
   "ALTER TABLE library_items ADD COLUMN studio TEXT DEFAULT ''",
   'ALTER TABLE library_items ADD COLUMN tmdb_id TEXT DEFAULT NULL',
+  // TVDB guid — YouTube web series often have TVDB entries but no TMDB one
+  'ALTER TABLE library_items ADD COLUMN tvdb_id TEXT DEFAULT NULL',
   'ALTER TABLE library_items ADD COLUMN art TEXT DEFAULT NULL',
   'ALTER TABLE library_items ADD COLUMN leaf_count INTEGER DEFAULT NULL',
   // Expanded filter/sort fields (Plex parity)
@@ -318,6 +320,10 @@ db.exec(`
   // element of the bulk listing. Movies only — shows carry per-episode media.
   'ALTER TABLE library_items ADD COLUMN video_resolution TEXT DEFAULT NULL',
   'ALTER TABLE library_items ADD COLUMN file_size INTEGER DEFAULT NULL',
+  // YouTube-series support: TVDB-only requests (no TMDB entry) + downloader choice
+  'ALTER TABLE discover_requests ADD COLUMN tvdb_id INTEGER DEFAULT NULL',
+  'ALTER TABLE discover_requests ADD COLUMN downloader TEXT DEFAULT NULL',
+  'ALTER TABLE discover_requests ADD COLUMN youtube_json TEXT DEFAULT NULL',
   'ALTER TABLE discover_requests ADD COLUMN seasons_count INTEGER DEFAULT 1',
   "ALTER TABLE discover_requests ADD COLUMN status TEXT NOT NULL DEFAULT 'approved'",
   'ALTER TABLE discover_requests ADD COLUMN denial_note TEXT',
@@ -805,10 +811,10 @@ const stmtUpsertItem = db.prepare(`
   INSERT INTO library_items
     (rating_key, section_id, title, year, thumb, art, type, genres, directors, cast,
      audience_rating, content_rating, added_at, summary, synced_at,
-     rating, rating_image, audience_rating_image, studio, tmdb_id, leaf_count,
+     rating, rating_image, audience_rating_image, studio, tmdb_id, tvdb_id, leaf_count,
      writers, countries, collections, edition, release_date, duration,
      video_resolution, file_size)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   ON CONFLICT(rating_key) DO UPDATE SET
     section_id=excluded.section_id, title=excluded.title, year=excluded.year,
     thumb=excluded.thumb, art=excluded.art, type=excluded.type, genres=excluded.genres,
@@ -816,7 +822,7 @@ const stmtUpsertItem = db.prepare(`
     content_rating=excluded.content_rating, added_at=excluded.added_at, summary=excluded.summary,
     synced_at=excluded.synced_at, rating=excluded.rating, rating_image=excluded.rating_image,
     audience_rating_image=excluded.audience_rating_image, studio=excluded.studio,
-    tmdb_id=excluded.tmdb_id, leaf_count=excluded.leaf_count, writers=excluded.writers,
+    tmdb_id=excluded.tmdb_id, tvdb_id=excluded.tvdb_id, leaf_count=excluded.leaf_count, writers=excluded.writers,
     countries=excluded.countries, collections=excluded.collections, edition=excluded.edition,
     release_date=excluded.release_date, duration=excluded.duration,
     video_resolution=excluded.video_resolution, file_size=excluded.file_size
@@ -831,7 +837,7 @@ function upsertManyItems(items) {
         item.audienceRating, item.contentRating, item.addedAt, item.summary,
         Math.floor(Date.now() / 1000),
         item.rating, item.ratingImage, item.audienceRatingImage, item.studio,
-        item.tmdbId || null, item.leafCount ?? null,
+        item.tmdbId || null, item.tvdbId || null, item.leafCount ?? null,
         JSON.stringify(item.writers || []), JSON.stringify(item.countries || []),
         JSON.stringify(item.collections || []), item.edition || '',
         item.releaseDate || '', item.duration || 0,
@@ -909,6 +915,7 @@ function rowToItem(r) {
     audienceRatingImage: r.audience_rating_image || '',
     studio: r.studio || '',
     tmdbId: r.tmdb_id || null,
+    tvdbId: r.tvdb_id || null,
     leafCount: r.leaf_count ?? null,
     writers: JSON.parse(r.writers || '[]'),
     producers: JSON.parse(r.producers || '[]'),
@@ -1513,6 +1520,10 @@ function getConnectionSettings() {
     rivenEnabled: ['1', 'true'].includes(getSetting('riven_enabled', '0')),
     dumbEnabled: ['1', 'true'].includes(getSetting('dumb_enabled', '0')),
     dumbRequestMode: getSetting('dumb_request_mode', 'pull'),
+    youtubeEnabled: getSetting('youtube_enabled', '0') === '1',
+    youtubeApiKey: getSetting('youtube_api_key', ''),
+    tuberrUrl: getSetting('tuberr_url', ''),
+    tuberrApiKey: getSetting('tuberr_api_key', ''),
   };
 }
 
@@ -1610,14 +1621,25 @@ function addDiscoverRequest(userId, tmdbId, mediaType, title, service, seasonsCo
          Math.floor(Date.now() / 1000));
 }
 
+// Sets include `tvdb:<id>:<type>` keys alongside `<tmdbId>:<type>` so TVDB-only
+// requests (tmdb_id sentinel 0) can be recognized by tvdb-sourced search results
+function requestKeysOf(rows) {
+  const set = new Set();
+  for (const r of rows) {
+    if (r.tmdb_id) set.add(`${r.tmdb_id}:${r.media_type}`);
+    if (r.tvdb_id) set.add(`tvdb:${r.tvdb_id}:${r.media_type}`);
+  }
+  return set;
+}
+
 function getRequestedTmdbIds(userId) {
-  const rows = db.prepare('SELECT tmdb_id, media_type FROM discover_requests WHERE user_id = ?').all(String(userId));
-  return new Set(rows.map(r => `${r.tmdb_id}:${r.media_type}`));
+  const rows = db.prepare('SELECT tmdb_id, tvdb_id, media_type FROM discover_requests WHERE user_id = ?').all(String(userId));
+  return requestKeysOf(rows);
 }
 
 function getAllRequestedTmdbIds() {
-  const rows = db.prepare('SELECT tmdb_id, media_type FROM discover_requests').all();
-  return new Set(rows.map(r => `${r.tmdb_id}:${r.media_type}`));
+  const rows = db.prepare('SELECT tmdb_id, tvdb_id, media_type FROM discover_requests').all();
+  return requestKeysOf(rows);
 }
 
 function getRecentRequests(userId, limit = 20) {
@@ -1863,16 +1885,20 @@ function saveUserSettings(userId, settings) {
   }
 }
 
-function addDiscoverRequestWithStatus(userId, tmdbId, mediaType, title, service, seasonsCount, status = 'approved', seasonsArray = null, posterUrl = null) {
+function addDiscoverRequestWithStatus(userId, tmdbId, mediaType, title, service, seasonsCount, status = 'approved', seasonsArray = null, posterUrl = null, extra = {}) {
+  // tmdb_id is NOT NULL; TVDB-only items (YouTube shows absent from TMDB) use sentinel 0 + tvdb_id
   db.prepare(`
-    INSERT INTO discover_requests (user_id, tmdb_id, media_type, title, service, seasons_count, requested_at, status, seasons_json, poster_url)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(String(userId), Number(tmdbId), mediaType, title, service,
+    INSERT INTO discover_requests (user_id, tmdb_id, media_type, title, service, seasons_count, requested_at, status, seasons_json, poster_url, tvdb_id, downloader, youtube_json)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(String(userId), Number(tmdbId) || 0, mediaType, title, service,
          (typeof seasonsCount === 'number' && seasonsCount > 0) ? seasonsCount : 1,
          Math.floor(Date.now() / 1000),
          status,
          seasonsArray ? JSON.stringify(seasonsArray) : null,
-         posterUrl || null);
+         posterUrl || null,
+         extra.tvdbId ? Number(extra.tvdbId) : null,
+         extra.downloader || null,
+         extra.youtube ? JSON.stringify(extra.youtube) : null);
 }
 
 function updateRequest(id, { service, seasonsJson, seasonsCount }) {

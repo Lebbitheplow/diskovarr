@@ -43,10 +43,13 @@ function parseMediaItem(video) {
   const directors = tags(video.Director);
   const cast = (video.Role || []).slice(0, 10).map(r => r.tag).filter(Boolean);
   const year = video.year || parseInt((video.originallyAvailableAt || '').slice(0, 4)) || 0;
-  // Extract TMDB ID from Guid array (present when includeGuids=1 is passed)
+  // Extract TMDB/TVDB IDs from Guid array (present when includeGuids=1 is passed).
+  // TVDB matters for YouTube web series, which often have a TVDB entry but no TMDB one.
   const guids = video.Guid || [];
   const tmdbGuid = guids.find(g => g.id && g.id.startsWith('tmdb://'));
   const tmdbId = tmdbGuid ? tmdbGuid.id.replace('tmdb://', '') : null;
+  const tvdbGuid = guids.find(g => g.id && g.id.startsWith('tvdb://'));
+  const tvdbId = tvdbGuid ? tvdbGuid.id.replace('tvdb://', '') : null;
   // Media is only present on movies in the bulk listing (shows carry per-episode
   // media), so resolution/size stay null for shows.
   const media = video.Media || [];
@@ -73,6 +76,7 @@ function parseMediaItem(video) {
     audienceRatingImage: video.audienceRatingImage || '',
     studio: video.studio || '',
     tmdbId,
+    tvdbId,
     leafCount: video.type === 'show' ? (parseInt(video.leafCount) || null) : null,
     // Expanded filter/sort fields. Writers/Country/Collection are in the bulk listing;
     // Producer/Label only appear on /library/metadata detail payloads (empty on bulk).
