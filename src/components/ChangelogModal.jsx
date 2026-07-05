@@ -18,7 +18,7 @@ const DATE_STYLE = { fontWeight: '400', color: 'var(--text-secondary)', fontSize
 export default function ChangelogModal({ open, onClose }) {
   const { t } = useTranslation()
   if (!open) return null
-  const currentVersion = import.meta.env.VITE_APP_VERSION || '2.4.0'
+  const currentVersion = import.meta.env.VITE_APP_VERSION || '2.5.0'
 
   return (
     <div className="info-modal-backdrop open" onClick={onClose}>
@@ -31,6 +31,21 @@ export default function ChangelogModal({ open, onClose }) {
           <div className="info-modal-section">
             <div className="info-modal-section-title">
               v{currentVersion}{' '}
+              <span style={DATE_STYLE}>2026-07-05</span>
+            </div>
+            <p style={SECTION_LABEL_STYLE}>{t('New')}</p>
+            <ul style={LIST_STYLE_LAST}>
+              <li style={ITEM_STYLE}>YouTube series through Sonarr — the new Tuberr companion service lets Sonarr search and download YouTube web series with yt-dlp, with proper episode naming and live download progress in Sonarr's queue. Series added this way carry a "yt" tag so your normal shows are untouched</li>
+              <li style={ITEM_STYLE}>Download via YouTube — TV requests headed to Sonarr get a Torrent / YouTube choice; picking YouTube suggests source channels for the show, or takes a pasted channel URL</li>
+              <li style={ITEM_STYLE}>Find shows that aren't on TMDB — search now also checks Sonarr's TVDB lookup, so YouTube-only series show up in results and can be requested; shows already in Plex are recognized by their TVDB id too</li>
+              <li style={ITEM_STYLE}>Admin → YouTube — review how episodes were matched to videos, fix a match from the candidate list or a pasted URL, and tell Sonarr to re-grab an episode after correcting it</li>
+              <li style={ITEM_STYLE}>Admin → Connections gains a YouTube (Tuberr) section — an enable/disable toggle for the whole feature, YouTube API key, connection test, and step-by-step setup instructions behind the ⓘ icon (including one-click copy of the Tuberr key for Sonarr)</li>
+              <li style={ITEM_STYLE}>Zero maintenance — Tuberr downloads and keeps yt-dlp updated by itself, and monitored series re-check for new episodes and new uploads every 6 hours, so new episodes download automatically with no manual steps</li>
+            </ul>
+          </div>
+          <div className="info-modal-section">
+            <div className="info-modal-section-title">
+              v2.4.0{' '}
               <span style={DATE_STYLE}>2026-07-04</span>
             </div>
             <p style={SECTION_LABEL_STYLE}>{t('New')}</p>

@@ -434,6 +434,7 @@ const CONNECTION_KEYS = [
   'radarr_url', 'radarr_api_key', 'radarr_enabled', 'radarr_quality_profile_id', 'radarr_quality_profile_name',
   'sonarr_url', 'sonarr_api_key', 'sonarr_enabled', 'sonarr_quality_profile_id', 'sonarr_quality_profile_name',
   'riven_url', 'riven_api_key', 'riven_rdkey', 'riven_enabled', 'dumb_request_mode',
+  'youtube_enabled', 'youtube_api_key', 'tuberr_url', 'tuberr_api_key',
   'default_request_service',
   'individual_seasons_enabled',
   'direct_request_access',
@@ -466,6 +467,8 @@ router.get('/connections/settings', requireAdmin, (req, res) => {
     riven_url:                   rivenUrl,
     riven_enabled:               !!rivenUrl && ['1', 'true'].includes(db.getSetting('riven_enabled', '0')),
     dumb_request_mode:           db.getSetting('dumb_request_mode', 'pull'),
+    youtube_enabled:             db.getSetting('youtube_enabled', '0') === '1',
+    tuberr_url:                  db.getSetting('tuberr_url', ''),
     default_request_service:     db.getSetting('default_request_service', 'overseerr'),
     direct_request_access:       db.getSetting('direct_request_access', '0'),
   });
@@ -473,7 +476,7 @@ router.get('/connections/settings', requireAdmin, (req, res) => {
 
 router.post('/connections/save', requireAdmin, (req, res) => {
   const body = req.body;
-  const BOOL_KEYS = new Set(['discover_enabled','overseerr_enabled','radarr_enabled','sonarr_enabled','riven_enabled','individual_seasons_enabled','direct_request_access']);
+  const BOOL_KEYS = new Set(['discover_enabled','overseerr_enabled','radarr_enabled','sonarr_enabled','riven_enabled','youtube_enabled','individual_seasons_enabled','direct_request_access']);
   // Booleans may arrive as true/false, '1'/'0', or 'true'/'false' depending on caller — normalize to '1'/'0'
   // so downstream readers using strict `=== '1'` checks don't silently treat 'true' as disabled.
   const toBool01 = (v) => (v === true || v === 1 || v === '1' || v === 'true') ? '1' : '0';
@@ -484,6 +487,15 @@ router.post('/connections/save', requireAdmin, (req, res) => {
   }
   // Invalidate discover cache when settings change
   discoverRecommender.invalidateAllCaches();
+  // Keep Tuberr's config in sync (it needs Sonarr creds + the YouTube key for matching)
+  if (db.getSetting('tuberr_url', '') && db.getSetting('tuberr_api_key', '')) {
+    const tuberrService = require('../services/tuberr');
+    tuberrService.pushConfig({
+      sonarrUrl: db.getSetting('sonarr_url', ''),
+      sonarrApiKey: db.getSetting('sonarr_api_key', ''),
+      youtubeApiKey: db.getSetting('youtube_api_key', ''),
+    }).catch(e => console.warn('[tuberr] config push failed:', e.message));
+  }
   res.json({ success: true });
 });
 
@@ -502,6 +514,8 @@ router.get('/connections/reveal', requireAdmin, (req, res) => {
     overseerrApiKey: db.getSetting('overseerr_api_key', '') || '',
     radarrApiKey:    db.getSetting('radarr_api_key', '')    || '',
     sonarrApiKey:    db.getSetting('sonarr_api_key', '')    || '',
+    youtubeApiKey:   db.getSetting('youtube_api_key', '')   || '',
+    tuberrApiKey:    db.getSetting('tuberr_api_key', '')    || '',
     diskovarrApiKey: db.getSetting('diskovarr_api_key', '') || '',
     agregarrApiKey:  (() => { const a = db.listApiApps().find(x => x.type === 'agregarr'); return a ? a.api_key : ''; })(),
     dumbApiKey:      (() => { const a = db.listApiApps().find(x => x.type === 'dumb');      return a ? a.api_key : ''; })(),
@@ -566,6 +580,31 @@ router.post('/connections/test/sonarr', requireAdmin, async (req, res) => {
     if (!r.ok) return res.json({ ok: false, message: `Sonarr returned ${r.status}` });
     const data = await r.json();
     res.json({ ok: true, message: `Connected to Sonarr v${data.version || '?'}` });
+  } catch (err) {
+    res.json({ ok: false, message: err.message });
+  }
+});
+
+router.post('/connections/test/tuberr', requireAdmin, async (req, res) => {
+  const { url, apiKey } = req.body;
+  const effectiveUrl = url || db.getSetting('tuberr_url', '');
+  const effectiveKey = apiKey || db.getSetting('tuberr_api_key', '');
+  if (!effectiveUrl || !effectiveKey) return res.json({ ok: false, message: 'URL and API key required' });
+  try {
+    const r = await fetch(`${effectiveUrl.replace(/\/$/, '')}/manage/health`, {
+      headers: { 'X-Api-Key': effectiveKey, 'Accept': 'application/json' },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!r.ok) return res.json({ ok: false, message: `Tuberr returned ${r.status}` });
+    const data = await r.json();
+    const warnings = [];
+    if (!data.sonarr) warnings.push('Sonarr not configured in Tuberr');
+    if (!data.youtubeKey) warnings.push('YouTube API key missing');
+    if (data.ytDlp === 'missing') warnings.push('yt-dlp not found');
+    res.json({
+      ok: true,
+      message: `Connected to Tuberr v${data.version}` + (warnings.length ? ` — ${warnings.join(', ')}` : ` (yt-dlp ${data.ytDlp})`),
+    });
   } catch (err) {
     res.json({ ok: false, message: err.message });
   }
@@ -752,10 +791,14 @@ router.put('/requests/:id', requireAdmin, (req, res) => {
   if (request.status !== 'pending') return res.status(400).json({ error: 'Request is not pending' });
 
   const { service, seasons } = req.body;
+  // YouTube requests only work through Sonarr + Tuberr — block reassignment
+  if (request.downloader === 'youtube' && service && service !== 'sonarr') {
+    return res.status(400).json({ error: 'YouTube requests can only be handled by Sonarr' });
+  }
   const seasonsJson = Array.isArray(seasons) && seasons.length > 0 ? JSON.stringify(seasons.map(Number)) : null;
   const seasonsCount = Array.isArray(seasons) && seasons.length > 0 ? seasons.length : 1;
   db.updateRequest(request.id, {
-    service: service || request.service,
+    service: request.downloader === 'youtube' ? 'sonarr' : (service || request.service),
     seasonsJson,
     seasonsCount,
   });
@@ -770,9 +813,11 @@ router.post('/requests/:id/approve', requireAdmin, async (req, res) => {
     if (request.status !== 'pending') return res.status(400).json({ error: 'Request is not pending' });
 
     const storedSeasons = request.seasons_json ? JSON.parse(request.seasons_json) : null;
-    // If service is 'none', pick the best available service now
+    // If service is 'none', pick the best available service now.
+    // YouTube requests always route to Sonarr — no other service can handle them.
     const dumbPullActive = db.getSetting('dumb_request_mode', 'pull') === 'pull' && ['1', 'true'].includes(db.getSetting('riven_enabled', '0'));
-    const service = (!request.service || request.service === 'none')
+    const service = request.downloader === 'youtube' ? 'sonarr'
+      : (!request.service || request.service === 'none')
       ? (dumbPullActive ? 'riven'
         : (request.media_type === 'movie'
             ? (db.getConnectionSettings().radarrEnabled ? 'radarr' : db.getConnectionSettings().overseerrEnabled ? 'overseerr' : 'riven')
@@ -785,6 +830,9 @@ router.post('/requests/:id/approve', requireAdmin, async (req, res) => {
         title: request.title,
         service,
         seasons: storedSeasons,
+        tvdbId: request.tvdb_id || null,
+        downloader: request.downloader || undefined,
+        youtube: request.youtube_json ? JSON.parse(request.youtube_json) : null,
       });
     }
 
@@ -1446,6 +1494,24 @@ router.post('/compat/regenerate-key', requireAdmin, (req, res) => {
     db.updateApiApp(legacy.id, { enabled: false });
   }
   res.json({ ok: true, apiKey: newKey });
+});
+
+// ── Tuberr (YouTube downloader) management proxy ──────────────────────────────
+// The review UI talks to Tuberr's /manage API exclusively through this proxy so
+// the Tuberr API key never reaches the browser.
+router.all('/tuberr/*', requireAdmin, async (req, res) => {
+  const tuberrService = require('../services/tuberr');
+  const subPath = req.path.replace(/^\/tuberr/, '');
+  try {
+    const data = await tuberrService.manageFetch(subPath + (req.originalUrl.includes('?') ? '?' + req.originalUrl.split('?')[1] : ''), {
+      method: req.method,
+      ...(req.method !== 'GET' && req.method !== 'HEAD' ? { body: JSON.stringify(req.body || {}) } : {}),
+      timeoutMs: 30000,
+    });
+    res.json(data);
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
 });
 
 module.exports = router;

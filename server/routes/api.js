@@ -1193,6 +1193,44 @@ router.get('/search', async (req, res) => {
           allMatches.map(r => ({ tmdbId: r.id, mediaType: r.media_type }))
         );
         externalResults = enriched.filter(item => item !== null);
+
+        // Merge Sonarr's TVDB lookup so shows absent from TMDB (YouTube web
+        // series, mostly) are still findable. Only for text search, only when
+        // YouTube requests are enabled, and always failure-tolerant.
+        const conn = db.getConnectionSettings();
+        if (conn.youtubeEnabled && conn.sonarrEnabled && conn.sonarrUrl && conn.sonarrApiKey) {
+          try {
+            const lookupRes = await fetch(
+              `${conn.sonarrUrl.replace(/\/$/, '')}/api/v3/series/lookup?term=${encodeURIComponent(q)}`,
+              { headers: { 'X-Api-Key': conn.sonarrApiKey }, signal: AbortSignal.timeout(8000) }
+            );
+            const lookup = lookupRes.ok ? await lookupRes.json() : [];
+            const normTitle = (t) => String(t || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+            const seen = new Set(externalResults.map(i => `${normTitle(i.title)}|${i.year || ''}`));
+            for (const s of lookup.slice(0, 20)) {
+              if (!s.tvdbId) continue;
+              const key = `${normTitle(s.title)}|${s.year || ''}`;
+              if (seen.has(key) || seen.has(`${normTitle(s.title)}|`)) continue;
+              seen.add(key);
+              externalResults.push({
+                tmdbId: null,
+                tvdbId: s.tvdbId,
+                mediaType: 'tv',
+                title: s.title,
+                year: s.year || null,
+                overview: s.overview || '',
+                posterUrl: (s.images || []).find(i => i.coverType === 'poster')?.remoteUrl || null,
+                voteAverage: s.ratings?.value || 0,
+                genres: s.genres || [],
+                contentRating: s.certification || null,
+                seasons: (s.seasons || []).map(x => x.seasonNumber).filter(n => n > 0),
+                source: 'tvdb',
+              });
+            }
+          } catch (e) {
+            logger.warn('sonarr lookup merge failed:', e.message);
+          }
+        }
       }
 
       setSearchPool(poolKey, externalResults);
@@ -1202,8 +1240,10 @@ router.get('/search', async (req, res) => {
 
     // Common path: enrich, filter, paginate (works for both genre and text search)
     const libraryByTmdb = new Map();
+    const libraryByTvdb = new Map();
     for (const item of [...movies, ...tv]) {
       if (item.tmdbId) libraryByTmdb.set(String(item.tmdbId), item);
+      if (item.tvdbId) libraryByTvdb.set(String(item.tvdbId), item);
     }
 
     // For genre search we historically hide items already in library; preserve that.
@@ -1229,10 +1269,18 @@ router.get('/search', async (req, res) => {
       : filteredPool;
 
     const results = pageItems.map(item => {
-      const libItem = libraryByTmdb.get(String(item.tmdbId));
+      const libItem = item.tmdbId
+        ? libraryByTmdb.get(String(item.tmdbId))
+        : (item.tvdbId ? libraryByTvdb.get(String(item.tvdbId)) : null);
       const inLibrary = isGenreSearch ? false : !!libItem;
+      const requestKey = item.tmdbId
+        ? `${item.tmdbId}:${item.mediaType}`
+        : `tvdb:${item.tvdbId}:${item.mediaType}`;
       return {
         tmdbId: item.tmdbId,
+        tvdbId: item.tvdbId || null,
+        source: item.source || 'tmdb',
+        seasons: item.seasons || undefined,
         mediaType: item.mediaType,
         title: item.title,
         year: item.year,
@@ -1248,7 +1296,7 @@ router.get('/search', async (req, res) => {
         plexAppLink: inLibrary ? plexService.getAppLink(libItem.ratingKey) : null,
         isInWatchlist: inLibrary ? watchlistKeys.has(libItem.ratingKey) : false,
         isWatched: inLibrary ? watchedKeys.has(libItem.ratingKey) : false,
-        isRequested: !inLibrary && requestedIds.has(`${item.tmdbId}:${item.mediaType}`),
+        isRequested: !inLibrary && requestedIds.has(requestKey),
       };
     });
 
@@ -1592,7 +1640,24 @@ router.get('/explore/services', (req, res) => {
   const sideCount = [hasOverseerr, hasRiven, hasRadarr || hasSonarr].filter(Boolean).length;
   const defaultService = sideCount >= 2 ? (c.defaultRequestService || 'overseerr') : null;
   const directRequestAccess = db.getDirectRequestAccess();
-  res.json({ overseerr: hasOverseerr, radarr: hasRadarr, sonarr: hasSonarr, riven: hasRiven, defaultService, directRequestAccess });
+  const tuberr = c.youtubeEnabled && hasSonarr && !!c.tuberrUrl && !!c.tuberrApiKey;
+  res.json({ overseerr: hasOverseerr, radarr: hasRadarr, sonarr: hasSonarr, riven: hasRiven, tuberr, defaultService, directRequestAccess });
+});
+
+// GET /api/tuberr/channels?q= — channel suggestions for the YouTube downloader
+// picker in the request modal (session-authed; requesters need it, not just admins)
+router.get('/tuberr/channels', async (req, res) => {
+  const c = db.getConnectionSettings();
+  if (!c.youtubeEnabled) return res.status(403).json({ error: 'YouTube requests not enabled' });
+  const q = String(req.query.q || '').trim();
+  if (!q) return res.json([]);
+  try {
+    const tuberrService = require('../services/tuberr');
+    res.json(await tuberrService.searchChannels(q));
+  } catch (e) {
+    logger.warn('tuberr/channels error:', e.message);
+    res.status(502).json({ error: e.message });
+  }
 });
 
 // GET /api/explore/recommendations
@@ -1649,7 +1714,7 @@ router.post('/explore/follow', async (req, res) => {
 // ── Reusable request submission function ─────────────────────────────────────
 
 async function submitRequestToService(requestData) {
-  const { tmdbId, mediaType, title, service, seasons } = requestData;
+  const { tmdbId, mediaType, title, service, seasons, downloader, youtube } = requestData;
   const c = db.getConnectionSettings();
 
   if (service === 'overseerr') {
@@ -1747,10 +1812,32 @@ async function submitRequestToService(requestData) {
     if (!qualityProfileId || !rootFolderPath) {
       throw new Error('Could not determine Sonarr quality profile or root folder');
     }
-    const externalIds = await tmdbService.tmdbFetchPublic(`/tv/${tmdbId}/external_ids`).catch(() => ({}));
-    const tvdbId = externalIds?.tvdb_id;
+    // TVDB-sourced items (YouTube shows found via Sonarr lookup) carry the id directly;
+    // TMDB items still resolve through external_ids
+    let tvdbId = Number(requestData.tvdbId) || null;
+    if (!tvdbId) {
+      const externalIds = await tmdbService.tmdbFetchPublic(`/tv/${tmdbId}/external_ids`).catch(() => ({}));
+      tvdbId = externalIds?.tvdb_id;
+    }
     if (!tvdbId) {
       throw new Error('Could not resolve TVDB ID for this show. TMDB may not have a TVDB mapping yet.');
+    }
+
+    // YouTube downloader routing: the yt tag confines the series to the Tuberr
+    // indexer + download client configured with that tag in Sonarr
+    let ytTagId = null;
+    if (downloader === 'youtube') {
+      const sonarrFetch = (path, opts = {}) => fetch(`${c.sonarrUrl.replace(/\/$/, '')}/api/v3${path}`, {
+        headers: { 'X-Api-Key': c.sonarrApiKey, 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(8000),
+        ...opts,
+      });
+      const tags = await (await sonarrFetch('/tag')).json();
+      ytTagId = tags.find(t => t.label === 'yt')?.id;
+      if (!ytTagId) {
+        const created = await (await sonarrFetch('/tag', { method: 'POST', body: JSON.stringify({ label: 'yt' }) })).json();
+        ytTagId = created.id;
+      }
     }
     let seasonsPayload = undefined;
     if (Array.isArray(seasons) && seasons.length > 0) {
@@ -1781,6 +1868,7 @@ async function submitRequestToService(requestData) {
       addOptions: { searchForMissingEpisodes: true },
     };
     if (seasonsPayload) sonarrBody.seasons = seasonsPayload;
+    if (ytTagId) sonarrBody.tags = [ytTagId];
 
     const r = await fetch(`${c.sonarrUrl.replace(/\/$/, '')}/api/v3/series`, {
       method: 'POST',
@@ -1788,9 +1876,48 @@ async function submitRequestToService(requestData) {
       body: JSON.stringify(sonarrBody),
       signal: AbortSignal.timeout(10000),
     });
-    if (!r.ok) {
+    let sonarrSeries = null;
+    if (r.ok) {
+      sonarrSeries = await r.json().catch(() => null);
+    } else {
       const body = await r.text();
-      throw new Error(`Sonarr error: ${body}`);
+      // A YouTube-routed request for a series already in Sonarr shouldn't fail:
+      // reuse the existing series and make sure it carries the yt tag
+      if (downloader === 'youtube') {
+        const existing = await fetch(`${c.sonarrUrl.replace(/\/$/, '')}/api/v3/series?tvdbId=${tvdbId}`, {
+          headers: { 'X-Api-Key': c.sonarrApiKey }, signal: AbortSignal.timeout(8000),
+        }).then(x => x.ok ? x.json() : []).catch(() => []);
+        sonarrSeries = existing[0] || null;
+        if (sonarrSeries && ytTagId && !(sonarrSeries.tags || []).includes(ytTagId)) {
+          sonarrSeries.tags = [...(sonarrSeries.tags || []), ytTagId];
+          await fetch(`${c.sonarrUrl.replace(/\/$/, '')}/api/v3/series/${sonarrSeries.id}`, {
+            method: 'PUT',
+            headers: { 'X-Api-Key': c.sonarrApiKey, 'Content-Type': 'application/json' },
+            body: JSON.stringify(sonarrSeries),
+            signal: AbortSignal.timeout(10000),
+          }).catch(() => {});
+        }
+      }
+      if (!sonarrSeries) throw new Error(`Sonarr error: ${body}`);
+    }
+
+    // Create the Tuberr series↔channel mapping so episodes can be matched and
+    // grabbed. A failure here must not roll back the Sonarr add — the mapping
+    // can be created later from the admin review UI.
+    if (downloader === 'youtube') {
+      try {
+        const tuberrService = require('../services/tuberr');
+        await tuberrService.createMapping({
+          tvdbId,
+          title: title || sonarrSeries?.title || '',
+          channelId: youtube?.channelId || null,
+          channelTitle: youtube?.channelTitle || null,
+          playlistIds: youtube?.playlistIds || [],
+          sonarrSeriesId: sonarrSeries?.id || null,
+        });
+      } catch (e) {
+        logger.warn(`Tuberr mapping creation failed (Sonarr add succeeded): tvdb=${tvdbId} error=${e.message}`);
+      }
     }
   } else if (service === 'riven') {
     // DUMB pull mode: skip the push — DUMB polls /api/v1/request?filter=approved instead
@@ -1844,9 +1971,17 @@ router.post('/request', async (req, res) => {
   if (!db.isDiscoverEnabled() || !db.hasTmdbKey()) {
     return res.status(403).json({ error: 'Discover feature not enabled' });
   }
-  const { tmdbId, mediaType, title, year, service, seasons } = req.body;
-  if (!tmdbId || !mediaType || !service) {
-    return res.status(400).json({ error: 'tmdbId, mediaType, and service are required' });
+  const { tmdbId, mediaType, title, year, service, seasons, downloader, youtube } = req.body;
+  const tvdbId = Number(req.body.tvdbId) || null;
+  // TVDB-only items (YouTube shows absent from TMDB) are valid TV requests
+  if ((!tmdbId && !(tvdbId && mediaType === 'tv')) || !mediaType || !service) {
+    return res.status(400).json({ error: 'tmdbId (or tvdbId for TV), mediaType, and service are required' });
+  }
+  if (downloader !== undefined && !['torrent', 'youtube'].includes(downloader)) {
+    return res.status(400).json({ error: 'Invalid downloader' });
+  }
+  if (downloader === 'youtube' && service !== 'sonarr') {
+    return res.status(400).json({ error: 'YouTube downloader is only available for Sonarr requests' });
   }
   if (!['overseerr', 'radarr', 'sonarr', 'riven', 'none'].includes(service)) {
     return res.status(400).json({ error: 'Invalid service' });
@@ -1897,9 +2032,11 @@ router.post('/request', async (req, res) => {
     // otherwise the alternate-app selection silently never reaches the chosen service.
     const effectiveService = service;
 
+    const requestExtras = { tvdbId, downloader, youtube };
+
     if (!autoApprove) {
       // Store as pending — do NOT submit to service
-      db.addDiscoverRequestWithStatus(userId, tmdbId, mediaType, title || '', effectiveService, seasonsCount, 'pending', seasons || null, storedPosterUrl);
+      db.addDiscoverRequestWithStatus(userId, tmdbId, mediaType, title || '', effectiveService, seasonsCount, 'pending', seasons || null, storedPosterUrl, requestExtras);
       logger.info(`Request queued (pending approval): user=${userId} tmdbId=${tmdbId} type=${mediaType} title="${title}" service=${service}`);
       // Notify admins of new pending request
       try {
@@ -1924,9 +2061,9 @@ router.post('/request', async (req, res) => {
     }
 
     // Auto-approve: submit to service immediately (skip if no service configured)
-    if (effectiveService !== 'none') await submitRequestToService({ tmdbId, mediaType, title, service: effectiveService, seasons });
+    if (effectiveService !== 'none') await submitRequestToService({ tmdbId, mediaType, title, service: effectiveService, seasons, tvdbId, downloader, youtube });
 
-    db.addDiscoverRequestWithStatus(userId, tmdbId, mediaType, title || '', effectiveService, seasonsCount, 'approved', seasons || null, storedPosterUrl);
+    db.addDiscoverRequestWithStatus(userId, tmdbId, mediaType, title || '', effectiveService, seasonsCount, 'approved', seasons || null, storedPosterUrl, requestExtras);
     logger.info(`Request submitted: user=${userId} tmdbId=${tmdbId} type=${mediaType} title="${title}" service=${effectiveService}`);
 
 
@@ -2126,10 +2263,15 @@ router.put('/queue/:id', async (req, res) => {
   }
 
   const { service, seasons } = req.body;
+  // YouTube-downloader requests only work through Sonarr + Tuberr — reassigning
+  // them to Overseerr/DUMB/etc. would silently break the download path
+  if (request.downloader === 'youtube' && service && service !== 'sonarr') {
+    return res.status(400).json({ error: 'YouTube requests can only be handled by Sonarr' });
+  }
   const seasonsJson = Array.isArray(seasons) && seasons.length > 0 ? JSON.stringify(seasons.map(Number)) : null;
   const seasonsCount = Array.isArray(seasons) && seasons.length > 0 ? seasons.length : 1;
   db.updateRequest(request.id, {
-    service: service || request.service,
+    service: request.downloader === 'youtube' ? 'sonarr' : (service || request.service),
     seasonsJson,
     seasonsCount,
   });
@@ -2137,7 +2279,9 @@ router.put('/queue/:id', async (req, res) => {
   // For approved requests, re-submit to the service with updated configuration
   if (request.status === 'approved') {
     const dumbPullActive = db.getSetting('dumb_request_mode', 'pull') === 'pull' && ['1', 'true'].includes(db.getSetting('riven_enabled', '0'));
-    const effectiveService = (service && service !== 'none')
+    // YouTube requests always route to Sonarr — never the DUMB/Overseerr fallbacks
+    const effectiveService = request.downloader === 'youtube' ? 'sonarr'
+      : (service && service !== 'none')
       ? service
       : (dumbPullActive ? 'riven'
         : (request.media_type === 'movie'
@@ -2152,6 +2296,9 @@ router.put('/queue/:id', async (req, res) => {
         title: request.title,
         service: effectiveService,
         seasons: effectiveSeasons,
+        tvdbId: request.tvdb_id || null,
+        downloader: request.downloader || undefined,
+        youtube: request.youtube_json ? JSON.parse(request.youtube_json) : null,
       });
       logger.info(`Request re-submitted after edit: id=${request.id} tmdbId=${request.tmdb_id}`);
     } catch (e) {
@@ -2172,8 +2319,10 @@ router.post('/queue/:id/approve', requirePrivileged, async (req, res) => {
     const storedSeasons = request.seasons_json ? JSON.parse(request.seasons_json) : null;
     // If service is 'none' (e.g. queued via shim), pick the best available service now.
     // When DUMB pull mode is active, prefer riven so submitRequestToService early-returns cleanly.
+    // YouTube requests always route to Sonarr — no other service can handle them.
     const dumbPullActive = db.getSetting('dumb_request_mode', 'pull') === 'pull' && ['1', 'true'].includes(db.getSetting('riven_enabled', '0'));
-    const service = (!request.service || request.service === 'none')
+    const service = request.downloader === 'youtube' ? 'sonarr'
+      : (!request.service || request.service === 'none')
       ? (dumbPullActive ? 'riven'
         : (request.media_type === 'movie'
             ? (db.getConnectionSettings().radarrEnabled ? 'radarr' : db.getConnectionSettings().overseerrEnabled ? 'overseerr' : 'riven')
@@ -2185,6 +2334,9 @@ router.post('/queue/:id/approve', requirePrivileged, async (req, res) => {
       title: request.title,
       service,
       seasons: storedSeasons,
+      tvdbId: request.tvdb_id || null,
+      downloader: request.downloader || undefined,
+      youtube: request.youtube_json ? JSON.parse(request.youtube_json) : null,
     });
 
     db.updateRequestStatus(request.id, 'approved', null);

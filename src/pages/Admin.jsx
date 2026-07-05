@@ -4,6 +4,7 @@ import UserManagement from '../components/admin/UserManagement'
 import ConnectionSettings from '../components/admin/ConnectionSettings'
 import AdminNotifications from '../components/admin/notifications/AdminNotifications'
 import AutomationTab from '../components/admin/automation/AutomationTab'
+import YoutubeMappings from '../components/admin/YoutubeMappings'
 import UserSettingsModal from '../components/admin/UserSettingsModal'
 import BulkSettingsModal from '../components/admin/BulkSettingsModal'
 import AgentInfoModal from '../components/admin/AgentInfoModal'
@@ -11,7 +12,7 @@ import { adminStatus, adminNotifications, adminUpdate } from '../services/adminA
 import ChangelogModal from '../components/ChangelogModal'
 import { useTranslation } from 'react-i18next'
 
-const APP_VERSION = import.meta.env.VITE_APP_VERSION || '2.4.0'
+const APP_VERSION = import.meta.env.VITE_APP_VERSION || '2.5.0'
 
 const LOGO_SVG = (
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="1em" height="1em" fill="none" aria-hidden="true">
@@ -29,6 +30,7 @@ const TABS = [
   { id: 'users', label: 'Users' },
   { id: 'connections', label: 'Connections' },
   { id: 'automation', label: 'Automation' },
+  { id: 'youtube', label: 'YouTube' },
   { id: 'notifications', label: 'Notifications' },
 ]
 
@@ -350,6 +352,12 @@ export default function Admin() {
         {activeTab === 'automation' && (
           <div className="admin-tab-panel" id="panel-automation" hidden={activeTab !== 'automation'}>
             <AutomationTab onToast={showToast} />
+          </div>
+        )}
+
+        {activeTab === 'youtube' && (
+          <div className="admin-tab-panel" id="panel-youtube" hidden={activeTab !== 'youtube'}>
+            <YoutubeMappings onToast={showToast} />
           </div>
         )}
 

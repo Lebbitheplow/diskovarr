@@ -242,7 +242,9 @@ export default function Queue() {
     if (!editRequest) return
     const seasons = editAllSeasons ? null : editSeasons.filter(s => s.selected).map(s => s.number) || null
     try {
-      await queueApi.updateRequest(editRequest.id, { service: editService, seasons })
+      // YouTube requests are pinned to Sonarr — never send a stale service pick
+      const service = editRequest.downloader === 'youtube' ? 'sonarr' : editService
+      await queueApi.updateRequest(editRequest.id, { service, seasons })
       toastSuccess(t('Request updated'))
       setEditRequest(null)
       loadQueue(currentFilter, page)
@@ -527,14 +529,24 @@ export default function Queue() {
             <h3 style={{ margin: '0 0 16px', fontSize: '1rem', fontWeight: '600' }}>{t('Edit Request')}</h3>
             <div style={{ marginBottom: '14px' }}>
               <label className="edit-field-label">{t('Service')}</label>
-              <select className="edit-select" value={editService} onChange={e => setEditService(e.target.value)}>
-                <option value="">{t('Default')}</option>
-                {services.overseerr && <option value="overseerr">Overseerr</option>}
-                {services.riven && <option value="riven">DUMB</option>}
-                {/* Radarr only handles movies, Sonarr only handles shows */}
-                {editRequest.media_type === 'movie' && services.radarr && <option value="radarr">Radarr</option>}
-                {editRequest.media_type === 'tv' && services.sonarr && <option value="sonarr">Sonarr</option>}
-              </select>
+              {editRequest.downloader === 'youtube' ? (
+                // YouTube requests only work through Sonarr + Tuberr — no alternatives
+                <div className="edit-select" style={{ opacity: 0.8, cursor: 'default' }}>
+                  Sonarr · YouTube
+                  <span style={{ display: 'block', fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+                    {t('Downloads via the YouTube downloader — other apps can’t handle this request')}
+                  </span>
+                </div>
+              ) : (
+                <select className="edit-select" value={editService} onChange={e => setEditService(e.target.value)}>
+                  <option value="">{t('Default')}</option>
+                  {services.overseerr && <option value="overseerr">Overseerr</option>}
+                  {services.riven && <option value="riven">DUMB</option>}
+                  {/* Radarr only handles movies, Sonarr only handles shows */}
+                  {editRequest.media_type === 'movie' && services.radarr && <option value="radarr">Radarr</option>}
+                  {editRequest.media_type === 'tv' && services.sonarr && <option value="sonarr">Sonarr</option>}
+                </select>
+              )}
             </div>
             {editRequest.media_type === 'tv' && editSeasons.length > 0 && (
               <div id="edit-season-section" style={{ marginBottom: '14px' }}>

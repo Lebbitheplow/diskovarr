@@ -572,9 +572,14 @@ router.get('/request', (req, res) => {
     : filter === 'declined' ? 'denied'
     : null;
   const { rows, total } = db.getAllRequests(limit, offset, statusFilter);
+  // Hide YouTube-downloader requests (Sonarr+Tuberr only — DUMB polling this
+  // endpoint in pull mode must not try to fetch them via debrid) and TVDB-only
+  // rows (tmdb_id sentinel 0 is meaningless to Overseerr-compatible consumers).
+  const visible = rows.filter(r => r.downloader !== 'youtube' && r.tmdb_id);
+  const hidden = rows.length - visible.length;
   res.json({
-    pageInfo: { pages: Math.ceil(total / limit), pageSize: limit, results: total, page: Math.floor(offset / limit) + 1 },
-    results: rows.map(toOverseerrRequest),
+    pageInfo: { pages: Math.ceil(Math.max(0, total - hidden) / limit), pageSize: limit, results: Math.max(0, total - hidden), page: Math.floor(offset / limit) + 1 },
+    results: visible.map(toOverseerrRequest),
   });
 });
 
@@ -583,11 +588,22 @@ router.post('/request/:id/approve', async (req, res) => {
   const request = db.getRequestById(req.params.id);
   if (!request) return res.status(404).json({ message: 'Request not found' });
   try {
-    const service = request.service || pickService(request.media_type);
+    // YouTube requests always route to Sonarr and must keep their downloader payload
+    const service = request.downloader === 'youtube' ? 'sonarr'
+      : (request.service || pickService(request.media_type));
     if (service !== 'none') {
       const { submitRequestToService } = require('./api');
       const seasons = request.seasons_json ? JSON.parse(request.seasons_json) : null;
-      await submitRequestToService({ tmdbId: request.tmdb_id, mediaType: request.media_type, title: request.title, service, seasons });
+      await submitRequestToService({
+        tmdbId: request.tmdb_id,
+        mediaType: request.media_type,
+        title: request.title,
+        service,
+        seasons,
+        tvdbId: request.tvdb_id || null,
+        downloader: request.downloader || undefined,
+        youtube: request.youtube_json ? JSON.parse(request.youtube_json) : null,
+      });
     }
     db.updateRequestStatus(request.id, 'approved');
     res.json(toOverseerrRequest(db.getRequestById(request.id)));
