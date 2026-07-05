@@ -5,8 +5,13 @@ services:
     restart: unless-stopped
     ports:
       - "3232:3232"
+      # Tuberr (bundled YouTube downloader for Sonarr) — expose so Sonarr can reach it
+      - "9832:9832"
     volumes:
       - ./data:/app/data
+      # Completed YouTube downloads — mount at the SAME path Sonarr sees so imports work,
+      # then set TUBERR_DOWNLOADS_DIR below to match.
+      # - /path/to/downloads/tuberr:/downloads/tuberr
     environment:
       # ── Required ──────────────────────────────────────────────────
       - PLEX_URL=http://192.168.1.x:32400
@@ -25,3 +30,8 @@ services:
       # - TMDB_API_KEY=your_tmdb_api_key
       # - RIVEN_SETTINGS_PATH=/opt/riven/settings.json
       # - APP_URL=https://diskovarr.example.com
+      # ── Tuberr (bundled YouTube→Sonarr downloader, v2.5.0) ─────────
+      # Starts automatically and pairs itself in Admin → Connections.
+      # - TUBERR_ENABLED=false                      # opt out (e.g. Tuberr runs elsewhere)
+      # - TUBERR_DOWNLOADS_DIR=/downloads/tuberr    # match the downloads volume above
+      # - TUBERR_URL=http://192.168.1.x:9832        # address Sonarr uses to reach Tuberr

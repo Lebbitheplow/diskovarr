@@ -158,6 +158,18 @@ router.put('/mappings/:id/matches/:season/:episode', (req, res) => {
   res.json({ ok: true, sonarrEpisodeId: row.sonarr_episode_id });
 });
 
+// Manual trigger for channel auto-detection (also runs on the scheduler)
+router.post('/mappings/:id/detect-channel', async (req, res) => {
+  const mapping = mappings.getMapping(req.params.id);
+  if (!mapping) return res.status(404).json({ error: 'not found' });
+  try {
+    const channelDetect = require('../lib/channelDetect');
+    res.json(await channelDetect.detectChannel(mapping.id));
+  } catch (e) {
+    res.status(502).json({ error: e.message });
+  }
+});
+
 router.post('/mappings/:id/search-episode', async (req, res) => {
   const mapping = mappings.getMapping(req.params.id);
   if (!mapping) return res.status(404).json({ error: 'not found' });

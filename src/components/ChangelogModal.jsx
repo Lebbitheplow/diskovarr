@@ -15,10 +15,12 @@ const LIST_STYLE_LAST = { ...LIST_STYLE, margin: '0' }
 const ITEM_STYLE = { fontSize: '0.84rem' }
 const DATE_STYLE = { fontWeight: '400', color: 'var(--text-secondary)', fontSize: '0.78rem' }
 
+// Shows the current release plus the two before it — older history lives in
+// server/CHANGELOG.md.
 export default function ChangelogModal({ open, onClose }) {
   const { t } = useTranslation()
   if (!open) return null
-  const currentVersion = import.meta.env.VITE_APP_VERSION || '2.5.0'
+  const currentVersion = import.meta.env.VITE_APP_VERSION || '2.5.1'
 
   return (
     <div className="info-modal-backdrop open" onClick={onClose}>
@@ -34,12 +36,31 @@ export default function ChangelogModal({ open, onClose }) {
               <span style={DATE_STYLE}>2026-07-05</span>
             </div>
             <p style={SECTION_LABEL_STYLE}>{t('New')}</p>
+            <ul style={LIST_STYLE}>
+              <li style={ITEM_STYLE}>Tuberr comes bundled with Docker — it starts with the Diskovarr container and pairs itself in Admin → Connections automatically; nothing to install or configure by hand</li>
+              <li style={ITEM_STYLE}>One-click Sonarr wiring — the Set up Sonarr button creates the tagged indexer and download client in Sonarr for you. Full setup is now: enable the toggle, add a YouTube API key, click Set up Sonarr</li>
+              <li style={ITEM_STYLE}>Manage Series moved into the Connections page — YouTube series management opens as a modal from the YouTube (Tuberr) box instead of its own admin tab</li>
+              <li style={ITEM_STYLE}>Optional YouTube root folder — send new YouTube series to a dedicated library folder (like /NAS/YT Videos) while regular shows stay where they are</li>
+              <li style={ITEM_STYLE}>Tag a series "yt" directly in Sonarr and Tuberr picks it up automatically — it even detects the right source channel by verifying candidate channels against the episode list, and flags anything it can't verify for a manual pick</li>
+              <li style={ITEM_STYLE}>Smarter matching for series whose TVDB episodes are just "Episode 11" — numbers and air dates take over when titles carry no signal</li>
+            </ul>
+            <p style={SECTION_LABEL_STYLE}>{t('Fixes')}</p>
+            <ul style={LIST_STYLE_LAST}>
+              <li style={ITEM_STYLE}>YouTube requests are locked to Sonarr — they can no longer be rerouted to Overseerr or DUMB from the request dialog, queue edits, or approvals, and DUMB's pull-mode polling no longer sees them</li>
+            </ul>
+          </div>
+          <div className="info-modal-section">
+            <div className="info-modal-section-title">
+              v2.5.0{' '}
+              <span style={DATE_STYLE}>2026-07-05</span>
+            </div>
+            <p style={SECTION_LABEL_STYLE}>{t('New')}</p>
             <ul style={LIST_STYLE_LAST}>
               <li style={ITEM_STYLE}>YouTube series through Sonarr — the new Tuberr companion service lets Sonarr search and download YouTube web series with yt-dlp, with proper episode naming and live download progress in Sonarr's queue. Series added this way carry a "yt" tag so your normal shows are untouched</li>
               <li style={ITEM_STYLE}>Download via YouTube — TV requests headed to Sonarr get a Torrent / YouTube choice; picking YouTube suggests source channels for the show, or takes a pasted channel URL</li>
               <li style={ITEM_STYLE}>Find shows that aren't on TMDB — search now also checks Sonarr's TVDB lookup, so YouTube-only series show up in results and can be requested; shows already in Plex are recognized by their TVDB id too</li>
-              <li style={ITEM_STYLE}>Admin → YouTube — review how episodes were matched to videos, fix a match from the candidate list or a pasted URL, and tell Sonarr to re-grab an episode after correcting it</li>
-              <li style={ITEM_STYLE}>Admin → Connections gains a YouTube (Tuberr) section — an enable/disable toggle for the whole feature, YouTube API key, connection test, and step-by-step setup instructions behind the ⓘ icon (including one-click copy of the Tuberr key for Sonarr)</li>
+              <li style={ITEM_STYLE}>Manage Series — review how episodes were matched to videos, fix a match from the candidate list or a pasted URL, and tell Sonarr to re-grab an episode after correcting it</li>
+              <li style={ITEM_STYLE}>Admin → Connections gains a YouTube (Tuberr) section — an enable/disable toggle for the whole feature, YouTube API key, connection test, and step-by-step setup instructions behind the ⓘ icon</li>
               <li style={ITEM_STYLE}>Zero maintenance — Tuberr downloads and keeps yt-dlp updated by itself, and monitored series re-check for new episodes and new uploads every 6 hours, so new episodes download automatically with no manual steps</li>
             </ul>
           </div>
@@ -64,46 +85,6 @@ export default function ChangelogModal({ open, onClose }) {
               <li style={ITEM_STYLE}>Show deletions no longer bypass Sonarr when a lookup briefly fails — the deletion retries on the next run instead of leaving Sonarr monitoring a deleted show</li>
               <li style={ITEM_STYLE}>Auto-request lists retry a failed sync within about an hour instead of waiting out the full sync interval</li>
               <li style={ITEM_STYLE}>Fixed the search suggestions dropdown appearing nearly transparent — it now uses the same frosted glass as the user menu</li>
-            </ul>
-          </div>
-          <div className="info-modal-section">
-            <div className="info-modal-section-title">
-              v2.3.3{' '}
-              <span style={DATE_STYLE}>2026-07-01</span>
-            </div>
-            <p style={SECTION_LABEL_STYLE}>{t('Fixes')}</p>
-            <ul style={LIST_STYLE}>
-              <li style={ITEM_STYLE}>Fixed real-time Plex detection — newly added items are picked up the moment Plex finishes processing them, so requested titles are marked available and join the library within seconds instead of waiting for the next library rescan</li>
-              <li style={ITEM_STYLE}>Fixed "now available" notifications — you're now notified when a title you requested is added to the library; a matching bug meant these never fired from library scans</li>
-              <li style={ITEM_STYLE}>Fixed the Watched count on the admin Users page never updating — watched syncs now pull each user's watch history directly from the Plex server, so counts move as users watch (they may jump once as historical plays are counted)</li>
-            </ul>
-            <p style={SECTION_LABEL_STYLE}>{t('Improvements')}</p>
-            <ul style={LIST_STYLE_LAST}>
-              <li style={ITEM_STYLE}>Movies can now be reviewed from your watch history once you've watched more than 10% — no need to finish them first; shows are unchanged, any watched episode qualifies</li>
-            </ul>
-          </div>
-          <div className="info-modal-section">
-            <div className="info-modal-section-title">
-              v2.3.2{' '}
-              <span style={DATE_STYLE}>2026-06-15</span>
-            </div>
-            <p style={SECTION_LABEL_STYLE}>{t('Fixes')}</p>
-            <ul style={LIST_STYLE_LAST}>
-              <li style={ITEM_STYLE}>Fixed the default request app chosen in Admin → Connections being ignored — your selected default (Overseerr, DUMB, or Sonarr/Radarr) is now always honored</li>
-              <li style={ITEM_STYLE}>Fixed choosing an alternate request app from the Advanced option — the request now reaches the app you picked instead of being silently dropped</li>
-              <li style={ITEM_STYLE}>Fixed the request app list offering services that can't handle the title — Radarr no longer appears for shows and Sonarr no longer appears for movies, including in the admin Edit Request dialog</li>
-            </ul>
-          </div>
-          <div className="info-modal-section">
-            <div className="info-modal-section-title">
-              v2.3.1{' '}
-              <span style={DATE_STYLE}>2026-06-12</span>
-            </div>
-            <p style={SECTION_LABEL_STYLE}>{t('Fixes')}</p>
-            <ul style={LIST_STYLE_LAST}>
-              <li style={ITEM_STYLE}>Fixed the accent color reverting to the default when returning from the admin panel — your saved color now applies instantly on every page load with no flash</li>
-              <li style={ITEM_STYLE}>Fixed the notification dropdown appearing nearly transparent — it now uses the same frosted-glass effect as the user menu</li>
-              <li style={ITEM_STYLE}>Fixed the Settings page on mobile — section tabs now scroll horizontally instead of overflowing the screen</li>
             </ul>
           </div>
         </div>

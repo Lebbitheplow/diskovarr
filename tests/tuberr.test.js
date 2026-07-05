@@ -132,4 +132,24 @@ describe('matcher scoring', () => {
     expect(matcher.stripNoise('My Web Series - The Pilot (Episode 1)', 'My Web Series', 'MyChannel'))
       .toBe('the pilot')
   })
+
+  it('matches generic TVDB titles ("Episode N") on number + date signals', () => {
+    // e.g. FF7 Machinabridged: TVDB titles are just "Episode 1"…
+    const ep = episode({ episode_title: 'Episode 5', episode: 5 })
+    const rightVideo = video({ title: 'Final Fantasy 7: Machinabridged (FF7MA) - Ep. 5 - TeamFourStar' })
+    const wrongNumber = video({ title: 'Final Fantasy 7: Machinabridged (FF7MA) - Ep. 9 - TeamFourStar' })
+    const noNumber = video({ title: 'FF7MA Movie Bloopers - TeamFourStar' })
+    expect(matcher.scorePair(ep, rightVideo, ctx)).toBeGreaterThan(matcher.AUTO_THRESHOLD)
+    expect(matcher.scorePair(ep, wrongNumber, ctx)).toBeLessThan(matcher.AUTO_THRESHOLD)
+    expect(matcher.scorePair(ep, noNumber, ctx)).toBeLessThan(matcher.AUTO_THRESHOLD)
+  })
+
+  it('uses the absolute number from generic titles, not the per-season number', () => {
+    // TVDB S02E01 titled "Episode 11" must match "Ep. 11", not "Part 1"/"Part 2"
+    const ep = episode({ season: 2, episode: 1, episode_title: 'Episode 11' })
+    const absolute = video({ title: 'My Web Series - Ep. 11' })
+    const perSeason = video({ title: 'Some Other Thing (PART 1)' })
+    expect(matcher.scorePair(ep, absolute, ctx)).toBeGreaterThan(matcher.AUTO_THRESHOLD)
+    expect(matcher.scorePair(ep, perSeason, ctx)).toBeLessThan(matcher.AUTO_THRESHOLD)
+  })
 })

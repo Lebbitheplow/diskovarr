@@ -1807,7 +1807,15 @@ async function submitRequestToService(requestData) {
     const qualityProfileId = (savedSonarrProfileId && profiles.some(p => p.id === savedSonarrProfileId))
       ? savedSonarrProfileId
       : profiles[0]?.id;
-    const rootFolderPath = folders[0]?.path;
+    // Optional: admins with a dedicated YouTube library (e.g. /NAS/YT Videos) can
+    // route YouTube-downloader series there via youtube_root_folder. Unset (the
+    // default) means YouTube series use the same root folder as every other show.
+    let rootFolderPath = folders[0]?.path;
+    if (downloader === 'youtube' && c.youtubeRootFolder) {
+      const ytFolder = folders.find(f => f.path === c.youtubeRootFolder);
+      if (ytFolder) rootFolderPath = ytFolder.path;
+      else logger.warn(`YouTube root folder "${c.youtubeRootFolder}" not found in Sonarr — using default`);
+    }
     const languageProfileId = langs[0]?.id || 1;
     if (!qualityProfileId || !rootFolderPath) {
       throw new Error('Could not determine Sonarr quality profile or root folder');

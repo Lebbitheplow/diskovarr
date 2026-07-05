@@ -434,7 +434,7 @@ const CONNECTION_KEYS = [
   'radarr_url', 'radarr_api_key', 'radarr_enabled', 'radarr_quality_profile_id', 'radarr_quality_profile_name',
   'sonarr_url', 'sonarr_api_key', 'sonarr_enabled', 'sonarr_quality_profile_id', 'sonarr_quality_profile_name',
   'riven_url', 'riven_api_key', 'riven_rdkey', 'riven_enabled', 'dumb_request_mode',
-  'youtube_enabled', 'youtube_api_key', 'tuberr_url', 'tuberr_api_key',
+  'youtube_enabled', 'youtube_api_key', 'youtube_root_folder', 'tuberr_url', 'tuberr_api_key',
   'default_request_service',
   'individual_seasons_enabled',
   'direct_request_access',
@@ -468,6 +468,7 @@ router.get('/connections/settings', requireAdmin, (req, res) => {
     riven_enabled:               !!rivenUrl && ['1', 'true'].includes(db.getSetting('riven_enabled', '0')),
     dumb_request_mode:           db.getSetting('dumb_request_mode', 'pull'),
     youtube_enabled:             db.getSetting('youtube_enabled', '0') === '1',
+    youtube_root_folder:         db.getSetting('youtube_root_folder', ''),
     tuberr_url:                  db.getSetting('tuberr_url', ''),
     default_request_service:     db.getSetting('default_request_service', 'overseerr'),
     direct_request_access:       db.getSetting('direct_request_access', '0'),
@@ -580,6 +581,34 @@ router.post('/connections/test/sonarr', requireAdmin, async (req, res) => {
     if (!r.ok) return res.json({ ok: false, message: `Sonarr returned ${r.status}` });
     const data = await r.json();
     res.json({ ok: true, message: `Connected to Sonarr v${data.version || '?'}` });
+  } catch (err) {
+    res.json({ ok: false, message: err.message });
+  }
+});
+
+// Sonarr root folders — feeds the optional "YouTube root folder" picker
+router.get('/connections/root-folders/sonarr', requireAdmin, async (req, res) => {
+  const url = db.getSetting('sonarr_url', '');
+  const apiKey = db.getSetting('sonarr_api_key', '');
+  if (!url || !apiKey) return res.json({ ok: false, message: 'Sonarr not configured' });
+  try {
+    const r = await fetch(`${url.replace(/\/$/, '')}/api/v3/rootfolder`, {
+      headers: { 'X-Api-Key': apiKey, 'Accept': 'application/json' },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!r.ok) return res.json({ ok: false, message: `Sonarr returned ${r.status}` });
+    const folders = await r.json();
+    res.json({ ok: true, folders: folders.map(f => ({ path: f.path, accessible: f.accessible })) });
+  } catch (err) {
+    res.json({ ok: false, message: err.message });
+  }
+});
+
+// One-click Sonarr wiring for Tuberr (tag + indexer + download client)
+router.post('/connections/tuberr/setup-sonarr', requireAdmin, async (req, res) => {
+  try {
+    const tuberrService = require('../services/tuberr');
+    res.json(await tuberrService.setupSonarr());
   } catch (err) {
     res.json({ ok: false, message: err.message });
   }

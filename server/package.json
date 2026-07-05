@@ -1,6 +1,6 @@
 {
   "name": "diskovarr",
-  "version": "2.5.0",
+  "version": "2.5.1",
   "description": "Personalized Plex content recommendations powered by your watch history",
   "main": "server.js",
   "scripts": {

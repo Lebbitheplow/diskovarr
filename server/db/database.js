@@ -1522,6 +1522,7 @@ function getConnectionSettings() {
     dumbRequestMode: getSetting('dumb_request_mode', 'pull'),
     youtubeEnabled: getSetting('youtube_enabled', '0') === '1',
     youtubeApiKey: getSetting('youtube_api_key', ''),
+    youtubeRootFolder: getSetting('youtube_root_folder', ''),
     tuberrUrl: getSetting('tuberr_url', ''),
     tuberrApiKey: getSetting('tuberr_api_key', ''),
   };

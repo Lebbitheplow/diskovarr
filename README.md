@@ -254,10 +254,12 @@ How it fits together:
 
 1. You request a TV show in Diskovarr and pick **Download via: YouTube** (plus the source channel).
 2. Diskovarr adds the series to Sonarr with the `yt` tag and registers a series↔channel mapping in Tuberr.
-3. Tuberr matches TVDB episodes to channel videos (title/date/number/duration scoring, YouTube Data API). Review or correct matches in **Admin → YouTube**.
+3. Tuberr matches TVDB episodes to channel videos (title/date/number/duration scoring, YouTube Data API). Review or correct matches via **Manage Series** in *Admin → Connections → YouTube (Tuberr)*.
 4. Sonarr searches its `yt`-tagged indexer (Tuberr), grabs the fake "release", hands it to the Tuberr download client, yt-dlp downloads the video, and Sonarr imports it.
 
-Setup:
+Setup — **Docker (zero extra steps)**: Tuberr is bundled in the Diskovarr image and starts with the container, pairing itself in Admin → Connections automatically (disable with `TUBERR_ENABLED=false`). Expose port 9832 so Sonarr can reach it, and mount a downloads dir Sonarr also sees (set `TUBERR_DOWNLOADS_DIR` to that path — same-path mounts in both containers avoid remote path mappings). Then the whole setup is: set the Tuberr address to a LAN IP Sonarr can reach, paste a YouTube API key, click **Set up Sonarr** (creates the tagged indexer + download client in Sonarr for you), and flip the toggle.
+
+**Bare metal**:
 
 ```bash
 cd tuberr && npm install
@@ -265,7 +267,7 @@ TUBERR_DOWNLOADS_DIR=/path/sonarr/can/read node server.js   # port 9832
 # the API key is printed on first boot and saved to tuberr/data/api_key.txt
 ```
 
-The same key authenticates both Diskovarr and Sonarr's Torznab indexer. You only need to fetch it from `api_key.txt` (or the log) once — after pairing Diskovarr, the Connections page can reveal and copy it (the ⓘ icon on the YouTube section has the full step-by-step).
+The same key authenticates both Diskovarr and Sonarr's Torznab indexer. You only need to fetch it from `api_key.txt` (or the log) once — after pairing Diskovarr, the Connections page can reveal and copy it, and **Set up Sonarr** handles the Sonarr side (the ⓘ icon on the YouTube section has the full step-by-step).
 
 Requirements: Node ≥ 23.4 and a free YouTube Data API v3 key. **yt-dlp is self-managed** — Tuberr downloads the official standalone binary into `data/bin/` on first start and self-updates it daily (distro packages go stale and get 403'd by YouTube). Set `YTDLP_PATH` only if you want to manage your own binary. Mappings also refresh themselves every 6 hours (new TVDB episodes + new channel uploads are re-matched automatically), so monitored series pick up new episodes through Sonarr's regular RSS sync with no manual steps.
 
@@ -273,7 +275,7 @@ In **Sonarr** (both tagged `yt` so only YouTube series use them):
 * *Settings → Download Clients → add qBittorrent*: host/port of Tuberr (9832), any username/password, category `tv-youtube`, tag `yt`.
 * *Settings → Indexers → add Torznab*: URL `http://tuberr-host:9832/torznab`, API key = Tuberr's key, tag `yt`.
 
-In **Diskovarr** (*Admin → Connections → YouTube (Tuberr)*): Tuberr address + API key, your YouTube Data API key, then flip the toggle. The toggle gates everything — TVDB search results, the YouTube downloader option, and the Admin → YouTube tab — so admins who don't want it can leave it off. Sonarr credentials and the YouTube key are pushed to Tuberr automatically when you save.
+In **Diskovarr** (*Admin → Connections → YouTube (Tuberr)*): Tuberr address + API key, your YouTube Data API key, then flip the toggle. The toggle gates everything — TVDB search results, the YouTube downloader option, and the Manage Series view — so admins who don't want it can leave it off. Sonarr credentials and the YouTube key are pushed to Tuberr automatically when you save.
 
 <details>
 <summary>Run Tuberr as a systemd service</summary>

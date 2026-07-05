@@ -101,6 +101,8 @@ export const adminConnections = {
   reveal: () => adminApi.get('/connections/reveal'),
   test: (serviceName, data) => adminApi.post(`/connections/test/${serviceName}`, data),
   getQualityProfiles: (service, params = {}) => adminApi.get(`/connections/quality-profiles/${service}`, { params }),
+  getSonarrRootFolders: () => adminApi.get('/connections/root-folders/sonarr'),
+  setupTuberrSonarr: () => adminApi.post('/connections/tuberr/setup-sonarr'),
   setDefaultService: (service) => adminApi.post('/connections/save', { default_request_service: service }),
   setDirectRequestAccess: (adminOnly) => adminApi.post('/connections/save', { direct_request_access: adminOnly ? '1' : '0' }),
 }
@@ -113,6 +115,7 @@ export const adminTuberr = {
   createMapping: (data) => adminApi.post('/tuberr/mappings', data),
   deleteMapping: (id) => adminApi.delete(`/tuberr/mappings/${id}`),
   refreshMapping: (id) => adminApi.post(`/tuberr/mappings/${id}/refresh`),
+  detectChannel: (id) => adminApi.post(`/tuberr/mappings/${id}/detect-channel`),
   setMatch: (id, season, episode, videoId) => adminApi.put(`/tuberr/mappings/${id}/matches/${season}/${episode}`, { videoId }),
   searchEpisode: (id, season, episode) => adminApi.post(`/tuberr/mappings/${id}/search-episode`, { season, episode }),
   searchChannels: (q) => adminApi.get('/tuberr/youtube/channels', { params: { q } }),

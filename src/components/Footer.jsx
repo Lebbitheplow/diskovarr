@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 
 const REPO_URL = 'https://github.com/Lebbitheplow/diskovarr'
 const SITE_URL = 'https://diskovarr.com'
-const VERSION = import.meta.env.VITE_APP_VERSION || '2.5.0'
+const VERSION = import.meta.env.VITE_APP_VERSION || '2.5.1'
 const YEAR = new Date().getFullYear()
 
 // Diskovarr brand mark — mirrors the logo used in the navigation bar.

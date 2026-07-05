@@ -12,6 +12,14 @@ const CANDIDATES_KEPT = 5;
 const MIN_DURATION_SEC = 120; // filters Shorts/teasers
 
 const WEIGHTS = { title: 0.45, number: 0.20, date: 0.20, position: 0.10, duration: 0.05 };
+// Some TVDB series only have generic episode titles ("Episode 1", "Part 3").
+// Title similarity carries no signal there, so its weight shifts to the
+// explicit-number and date signals instead.
+const GENERIC_TITLE_WEIGHTS = { title: 0, number: 0.55, date: 0.30, position: 0.10, duration: 0.05 };
+
+function isGenericEpisodeTitle(title) {
+  return !normalize(title) || /^(?:episode|ep|part|pt|chapter)?\s*#?\d+$/.test(normalize(title));
+}
 
 function normalize(text) {
   return String(text || '')
@@ -94,17 +102,27 @@ function dateScore(publishedAt, airDate) {
 
 function scorePair(episode, video, ctx) {
   if (video.status !== 'ok') return 0;
+  const generic = isGenericEpisodeTitle(episode.episode_title);
+  const weights = generic ? GENERIC_TITLE_WEIGHTS : WEIGHTS;
   const cleanVideo = stripNoise(video.title, ctx.seriesTitle, ctx.channelTitle);
   const cleanEp = normalize(episode.episode_title);
-  const title = cleanEp
+  const title = (cleanEp && !generic)
     ? Math.max(tokenSetScore(cleanEp, cleanVideo), diceBigram(cleanEp, cleanVideo))
-    : 0.5;
+    : 0;
+
+  // Generic TVDB titles usually carry the series' absolute number ("Episode 11"
+  // for S02E01) — that, not the per-season number, is what video titles use.
+  let expectedEpisode = episode.episode;
+  if (generic) {
+    const titleNum = /(\d{1,4})$/.exec(normalize(episode.episode_title));
+    if (titleNum) expectedEpisode = Number(titleNum[1]);
+  }
 
   const extracted = extractEpisodeNumber(video.title, video.description);
   let number = 0.5;
   if (extracted) {
     if (extracted.season !== undefined && extracted.season !== episode.season) number = 0;
-    else number = extracted.episode === episode.episode ? 1 : 0;
+    else number = extracted.episode === expectedEpisode ? 1 : 0;
   }
 
   const date = dateScore(video.published_at, episode.air_date);
@@ -124,8 +142,8 @@ function scorePair(episode, video, ctx) {
     }
   }
 
-  return WEIGHTS.title * title + WEIGHTS.number * number + WEIGHTS.date * date +
-    WEIGHTS.position * position + WEIGHTS.duration * duration;
+  return weights.title * title + weights.number * number + weights.date * date +
+    weights.position * position + weights.duration * duration;
 }
 
 async function autoMatch(mappingId, { refresh = true } = {}) {
