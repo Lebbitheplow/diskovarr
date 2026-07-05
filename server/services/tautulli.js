@@ -328,29 +328,85 @@ async function syncWatchHistory({ length = 10000 } = {}) {
 }
 
 /**
+ * One-time deep backfill: page through Tautulli's ENTIRE history (not just the
+ * rolling window syncWatchHistory pulls) and upsert everything. Needed on fresh
+ * installs so Wrapped has full past years; idempotent thanks to the history_id
+ * primary key. Returns the number of rows upserted.
+ */
+async function syncFullWatchHistory({ pageSize = 1000 } = {}) {
+  let total = 0;
+  for (const type of ['movie', 'episode']) {
+    let start = 0;
+    for (;;) {
+      let page;
+      try {
+        const data = await tautulliGet('get_history', {
+          length: pageSize,
+          start,
+          media_type: type,
+          order_column: 'date',
+          order_dir: 'desc',
+        });
+        page = data.data || [];
+      } catch (err) {
+        console.warn(`syncFullWatchHistory (${type}, start=${start}) error:`, err.message);
+        break;
+      }
+      if (!page.length) break;
+      total += db.upsertWatchHistoryBatch(page.map(mapTautulliHistoryRow));
+      if (page.length < pageSize) break;
+      start += pageSize;
+    }
+  }
+  db.setSyncTime('watch_history');
+  return total;
+}
+
+/**
  * Cross-user view stats from the locally cached watch_history table (synced from
- * Tautulli every 15 min): { ratingKey: { lastPlayedAt, plays } }, movies keyed by
- * their own rating_key and shows by the show (grandparent) key — matching
- * library_items. Used by deletion profiles for last-played / never-played
- * criteria, so it deliberately reads the DB instead of hitting Tautulli live.
+ * Tautulli every 15 min). Movies are keyed by their own rating_key and shows by
+ * the show (grandparent) key — matching library_items. Used by deletion profiles
+ * for last-played / never-played criteria, so it deliberately reads the DB
+ * instead of hitting Tautulli live.
+ *
+ * Also returns title-keyed fallback maps: history rows keep the rating_key from
+ * watch time, so a deleted-then-re-added title gets a fresh Plex key its history
+ * never references — by key alone it looks never-played and becomes deletable.
+ * Titles can collide, but a collision only inflates plays, which suppresses
+ * deletion rather than causing one.
+ *
+ * Returns { byRatingKey, movieFallback ("title|year"), showFallback (show title) },
+ * each mapping to { lastPlayedAt, plays }.
  */
 function getGlobalViewStats() {
-  const stats = {};
+  const byRatingKey = {};
+  const movieFallback = {};
+  const showFallback = {};
+  const merge = (map, key, row) => {
+    if (!key) return;
+    const prev = map[key];
+    map[key] = prev
+      ? { lastPlayedAt: Math.max(prev.lastPlayedAt, row.last || 0), plays: prev.plays + (row.plays || 0) }
+      : { lastPlayedAt: row.last || 0, plays: row.plays || 0 };
+  };
   for (const row of db.prepare(`
-    SELECT rating_key AS key, MAX(watched_at) AS last, COUNT(*) AS plays
+    SELECT rating_key AS key, title, year, MAX(watched_at) AS last, COUNT(*) AS plays
     FROM watch_history WHERE media_type = 'movie' AND rating_key IS NOT NULL
     GROUP BY rating_key
   `).all()) {
-    stats[String(row.key)] = { lastPlayedAt: row.last || 0, plays: row.plays || 0 };
+    byRatingKey[String(row.key)] = { lastPlayedAt: row.last || 0, plays: row.plays || 0 };
+    const title = (row.title || '').toLowerCase().trim();
+    if (title) merge(movieFallback, `${title}|${row.year || ''}`, row);
   }
   for (const row of db.prepare(`
-    SELECT grandparent_rating_key AS key, MAX(watched_at) AS last, COUNT(*) AS plays
+    SELECT grandparent_rating_key AS key, parent_title, MAX(watched_at) AS last, COUNT(*) AS plays
     FROM watch_history WHERE media_type = 'episode' AND grandparent_rating_key IS NOT NULL
     GROUP BY grandparent_rating_key
   `).all()) {
-    stats[String(row.key)] = { lastPlayedAt: row.last || 0, plays: row.plays || 0 };
+    byRatingKey[String(row.key)] = { lastPlayedAt: row.last || 0, plays: row.plays || 0 };
+    merge(showFallback, (row.parent_title || '').toLowerCase().trim(), row);
   }
-  return stats;
+  return { byRatingKey, movieFallback, showFallback };
 }
 
 // Whether watch history has ever synced. Deletion profiles that use watch-based
@@ -360,4 +416,4 @@ function hasWatchHistoryData() {
   return (db.getWatchHistoryCount() || 0) > 0;
 }
 
-module.exports = { getWatchedMovieKeys, getWatchedShowKeys, getFullHistory, getViewStats, getPopularItems, syncWatchHistory, getGlobalViewStats, hasWatchHistoryData };
+module.exports = { getWatchedMovieKeys, getWatchedShowKeys, getFullHistory, getViewStats, getPopularItems, syncWatchHistory, syncFullWatchHistory, getGlobalViewStats, hasWatchHistoryData };

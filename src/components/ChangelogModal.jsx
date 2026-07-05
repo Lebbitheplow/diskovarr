@@ -18,7 +18,7 @@ const DATE_STYLE = { fontWeight: '400', color: 'var(--text-secondary)', fontSize
 export default function ChangelogModal({ open, onClose }) {
   const { t } = useTranslation()
   if (!open) return null
-  const currentVersion = import.meta.env.VITE_APP_VERSION || '2.3.3'
+  const currentVersion = import.meta.env.VITE_APP_VERSION || '2.4.0'
 
   return (
     <div className="info-modal-backdrop open" onClick={onClose}>
@@ -31,6 +31,29 @@ export default function ChangelogModal({ open, onClose }) {
           <div className="info-modal-section">
             <div className="info-modal-section-title">
               v{currentVersion}{' '}
+              <span style={DATE_STYLE}>2026-07-04</span>
+            </div>
+            <p style={SECTION_LABEL_STYLE}>{t('New')}</p>
+            <ul style={LIST_STYLE}>
+              <li style={ITEM_STYLE}>Diskovarr Wrapped — a story-style walkthrough of your year, one stat at a time: hours watched, top movie, top show, the oldest thing you watched, top genres, viewing patterns (month-by-month chart, most active day and hour, biggest binge, longest streak), percentile rankings, your taste age, your show buddy, your Diskovarr personality (an archetype based on what you watch, with trait badges), a critic slide if you wrote reviews, and your Diskovarr activity. Find it on your profile — each year unlocks December 1 and past years stay available; in December a banner on the home page takes you straight there</li>
+              <li style={ITEM_STYLE}>Server leaderboard — see how your watch time stacks up against everyone else, names and numbers included</li>
+              <li style={ITEM_STYLE}>Share any Wrapped stat as an image — the same share options as reviews, with a generated card per stat, addressed by a private link only you can hand out</li>
+              <li style={ITEM_STYLE}>One-click playlist — create a "Diskovarr Wrapped" playlist of your top content of the year in your own Plex account</li>
+              <li style={ITEM_STYLE}>Accurate by design — plays only count once you've watched at least 5 minutes and 20% of a title (or finished it), so accidental clicks never pollute your stats</li>
+            </ul>
+            <p style={SECTION_LABEL_STYLE}>{t('Fixes')}</p>
+            <ul style={LIST_STYLE_LAST}>
+              <li style={ITEM_STYLE}>Fixed editing a monitor duplicating its criteria on every save — saving now replaces the set in one step, removing a criterion actually sticks, and duplicates from the old bug are cleaned up automatically</li>
+              <li style={ITEM_STYLE}>Monitor criteria for keyword, language, and production company now match newly added Plex content, not just requestable titles</li>
+              <li style={ITEM_STYLE}>Deletion safety — titles deleted and re-added to Plex are no longer treated as never watched by deletion profiles, and watch-based profiles now protect items added in the last 14 days unless you set your own age cutoff</li>
+              <li style={ITEM_STYLE}>Show deletions no longer bypass Sonarr when a lookup briefly fails — the deletion retries on the next run instead of leaving Sonarr monitoring a deleted show</li>
+              <li style={ITEM_STYLE}>Auto-request lists retry a failed sync within about an hour instead of waiting out the full sync interval</li>
+              <li style={ITEM_STYLE}>Fixed the search suggestions dropdown appearing nearly transparent — it now uses the same frosted glass as the user menu</li>
+            </ul>
+          </div>
+          <div className="info-modal-section">
+            <div className="info-modal-section-title">
+              v2.3.3{' '}
               <span style={DATE_STYLE}>2026-07-01</span>
             </div>
             <p style={SECTION_LABEL_STYLE}>{t('Fixes')}</p>

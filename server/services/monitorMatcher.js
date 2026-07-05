@@ -137,11 +137,19 @@ function matchMonitor(monitor, criteria, content) {
   };
 }
 
-// Build a content object from a library item (Plex source)
+// Build a content object from a library item (Plex source). Plex metadata has
+// no keywords/language/production companies, so keyword, language and
+// production_company criteria would silently never match Plex adds — pull
+// those facets from the TMDB details cache when it has this title.
 function buildContentFromLibrary(item) {
+  const mediaType = item.type === 'show' ? 'tv' : 'movie';
+  let cached = null;
+  if (item.tmdbId) {
+    try { cached = db.getTmdbCache(item.tmdbId, mediaType); } catch { /* cache miss only costs facet matching */ }
+  }
   return {
     tmdbId: item.tmdbId,
-    mediaType: item.type === 'show' ? 'tv' : 'movie',
+    mediaType,
     title: item.title,
     genres: item.genres || [],
     cast: item.cast || [],
@@ -152,9 +160,13 @@ function buildContentFromLibrary(item) {
     networks: item.studio ? [item.studio] : [],
     collections: item.collections || [],
     countries: item.countries || [],
-    keywords: [],
-    language: '',
-    productionCompanies: [],
+    keywords: cached?.keywords || [],
+    language: cached?.language || cached?.originalLanguage || '',
+    // Movie cache entries store production companies comma-joined in `studio`
+    productionCompanies: cached?.productionCompanies
+      || (mediaType === 'movie' && cached?.studio
+        ? cached.studio.split(',').map(s => s.trim()).filter(Boolean)
+        : []),
   };
 }
 

@@ -192,6 +192,15 @@ export const historyApi = {
   getUsers: () => api.get('/history/users'),
 }
 
+/** Diskovarr Wrapped */
+export const wrappedApi = {
+  getYears: () => api.get('/wrapped/years'),
+  getWrapped: (year) => api.get(`/wrapped/${year}`),
+  createPlaylist: (year) => api.post(`/wrapped/${year}/playlist`),
+  recompute: (year) => api.post(`/wrapped/${year}/recompute`),
+  backfill: () => api.post('/wrapped/backfill'),
+}
+
 /** Reviews */
 export const reviewsApi = {
   getReviews: (params) => api.get('/reviews', { params }),

@@ -49,7 +49,10 @@ function ActionTile({ icon, label, onClick }) {
 
 const ic = (d) => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{d}</svg>
 
-export default function ShareModal({ reviewId, review = {}, onClose }) {
+// `share` (optional) repurposes the modal for non-review content (Wrapped):
+//   { path, imageBase, filenameBase, summary, subject, heading, subheading }
+// Defaults reproduce the original review behavior exactly.
+export default function ShareModal({ reviewId, review = {}, onClose, share = null }) {
   const { t } = useTranslation()
   const { success: toastSuccess, error: toastError } = useToast() || {}
   const [commentary, setCommentary] = useState('')
@@ -67,12 +70,19 @@ export default function ShareModal({ reviewId, review = {}, onClose }) {
   }, [])
 
   const origin = shareCfg.baseUrl || window.location.origin
-  const url = `${origin}/review/${reviewId}`
+  const url = `${origin}${share ? (share.path || '') : `/review/${reviewId}`}`
+  const imageBase = (share && share.imageBase) || `/og/review/${reviewId}`
+  const filenameBase = (share && share.filenameBase) || `diskovarr-review-${reviewId}`
+  const shareSummary = share && share.summary
+  const shareSubject = share && share.subject
   const supportsNativeShare = typeof navigator !== 'undefined' && !!navigator.share
 
   const { targets, text, textWithUrl } = useMemo(
-    () => buildTargets({ url, title: review.title, author: review.username, rating: review.rating, commentary }),
-    [url, review.title, review.username, review.rating, commentary]
+    () => buildTargets({
+      url, title: review.title, author: review.username, rating: review.rating, commentary,
+      summary: shareSummary, subject: shareSubject,
+    }),
+    [url, review.title, review.username, review.rating, commentary, shareSummary, shareSubject]
   )
 
   useEffect(() => {
@@ -87,11 +97,11 @@ export default function ShareModal({ reviewId, review = {}, onClose }) {
   }, [toastSuccess, toastError])
 
   const fetchImageBlob = useCallback(async (square) => {
-    const src = square ? `/og/review/${reviewId}/square.png` : `/og/review/${reviewId}.png`
+    const src = square ? `${imageBase}/square.png` : `${imageBase}.png`
     const res = await fetch(src)
     if (!res.ok) throw new Error('image fetch failed')
     return res.blob()
-  }, [reviewId])
+  }, [imageBase])
 
   const downloadImage = useCallback(async (square) => {
     setWorking(true)
@@ -100,18 +110,18 @@ export default function ShareModal({ reviewId, review = {}, onClose }) {
       const href = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = href
-      a.download = `diskovarr-review-${reviewId}${square ? '-square' : ''}.png`
+      a.download = `${filenameBase}${square ? '-square' : ''}.png`
       document.body.appendChild(a); a.click(); a.remove()
       URL.revokeObjectURL(href)
     } catch { toastError?.('Could not download image') }
     setWorking(false)
-  }, [fetchImageBlob, reviewId, toastError])
+  }, [fetchImageBlob, filenameBase, toastError])
 
   const shareImage = useCallback(async (square) => {
     setWorking(true)
     try {
       const blob = await fetchImageBlob(square)
-      const file = new File([blob], `diskovarr-review-${reviewId}.png`, { type: 'image/png' })
+      const file = new File([blob], `${filenameBase}.png`, { type: 'image/png' })
       if (navigator.canShare && navigator.canShare({ files: [file] })) {
         await navigator.share({ files: [file], text })
       } else {
@@ -119,12 +129,12 @@ export default function ShareModal({ reviewId, review = {}, onClose }) {
       }
     } catch (e) { if (e?.name !== 'AbortError') toastError?.('Could not share image') }
     setWorking(false)
-  }, [fetchImageBlob, reviewId, text, downloadImage, toastError])
+  }, [fetchImageBlob, filenameBase, text, downloadImage, toastError])
 
   const nativeShare = useCallback(async () => {
-    try { await navigator.share({ title: review.title, text, url }) }
+    try { await navigator.share({ title: shareSubject || review.title, text, url }) }
     catch (e) { if (e?.name !== 'AbortError') toastError?.('Sharing failed') }
-  }, [review.title, text, url, toastError])
+  }, [shareSubject, review.title, text, url, toastError])
 
   const openTarget = useCallback((t) => {
     if (t.kind === 'copy') { copy(t.copyText, 'Copied — paste into Discord'); return }
@@ -148,13 +158,13 @@ export default function ShareModal({ reviewId, review = {}, onClose }) {
 
   return (
     <div className="modal-backdrop open" onClick={onClose}>
-      <div className="modal-card" role="dialog" aria-modal="true" aria-label={t('Share review')}
+      <div className="modal-card" role="dialog" aria-modal="true" aria-label={share?.heading || t('Share review')}
         onClick={e => e.stopPropagation()} style={{ maxWidth: '460px', padding: '24px' }}>
         <button className="modal-close" onClick={onClose} aria-label={t('Close')}>✕</button>
 
-        <h3 style={{ margin: '0 0 4px', fontSize: '1.15rem', color: 'var(--text-primary)' }}>{t('Share review')}</h3>
+        <h3 style={{ margin: '0 0 4px', fontSize: '1.15rem', color: 'var(--text-primary)' }}>{share?.heading || t('Share review')}</h3>
         <p style={{ margin: '0 0 16px', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-          {review.title ? `${review.title}${review.username ? ` · ${review.username}` : ''}` : 'Spread the word'}
+          {share?.subheading || (review.title ? `${review.title}${review.username ? ` · ${review.username}` : ''}` : 'Spread the word')}
         </p>
 
         {/* Optional commentary — affects the outgoing share only, never the review */}

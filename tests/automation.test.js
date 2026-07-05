@@ -239,6 +239,75 @@ describe('deletion evaluator', () => {
     expect(evaluator.usesWatchData({ criteria: [{ field: 'never_played', op: 'eq', value: true }] })).toBe(true)
     expect(evaluator.usesWatchData({ criteria: [{ field: 'year', op: 'lt', value: 2000 }] })).toBe(false)
   })
+
+  // Regression: history rows keep the rating_key from watch time, so a
+  // deleted-then-re-added title (fresh key) must fall back to title-keyed
+  // stats instead of looking never-played and getting deleted.
+  it('rating_key drift: title fallback stops re-added items matching never_played', () => {
+    const ctx = {
+      ...baseCtx,
+      viewStats: {}, // new rating key → no key-join hit
+      viewStatsMovieFallback: { 'test movie|2015': { lastPlayedAt: NOW - 5 * 86400, plays: 3 } },
+      viewStatsShowFallback: { 'some show': { lastPlayedAt: NOW - 10 * 86400, plays: 8 } },
+    }
+    const movie = makeItem({ ratingKey: 'new-key-123' })
+    const neverPlayed = evaluator.evaluateProfile(
+      { mediaType: 'movie', criteria: [{ field: 'never_played', op: 'eq', value: true }], exclusions: {} },
+      [movie], ctx)
+    expect(neverPlayed.matches).toHaveLength(0)
+    const stale = evaluator.evaluateProfile(
+      { mediaType: 'movie', criteria: [{ field: 'last_played_days_ago', op: 'gt', value: 30 }], exclusions: {} },
+      [movie], ctx)
+    expect(stale.matches).toHaveLength(0)
+
+    const show = makeItem({ ratingKey: 'new-key-456', type: 'show', title: 'Some Show' })
+    const showStats = evaluator.statsFor(show, ctx)
+    expect(showStats.plays).toBe(8)
+
+    // No fallback entry either → still treated as never played (deletable)
+    const unknown = makeItem({ ratingKey: 'new-key-789', title: 'Truly Unwatched' })
+    const stillMatches = evaluator.evaluateProfile(
+      { mediaType: 'movie', criteria: [{ field: 'never_played', op: 'eq', value: true }], exclusions: {} },
+      [unknown], ctx)
+    expect(stillMatches.matches).toHaveLength(1)
+  })
+
+  it('getGlobalViewStats returns key-joined stats plus title fallback maps', () => {
+    const tautulliService = nodeRequire('../server/services/tautulli.js')
+    db.prepare('DELETE FROM watch_history').run()
+    db.upsertWatchHistoryBatch([
+      { historyId: 9001, userId: '1', ratingKey: 'old-100', title: 'Test Movie', year: 2015, mediaType: 'movie', watchedAt: NOW - 40 * 86400 },
+      { historyId: 9002, userId: '2', ratingKey: 'old-100', title: 'Test Movie', year: 2015, mediaType: 'movie', watchedAt: NOW - 20 * 86400 },
+      { historyId: 9003, userId: '1', ratingKey: 'ep-1', grandparentRatingKey: 'show-7', title: 'S1E1', parentTitle: 'Some Show', mediaType: 'episode', watchedAt: NOW - 3 * 86400 },
+    ])
+    const { byRatingKey, movieFallback, showFallback } = tautulliService.getGlobalViewStats()
+    expect(byRatingKey['old-100'].plays).toBe(2)
+    expect(movieFallback['test movie|2015'].plays).toBe(2)
+    expect(movieFallback['test movie|2015'].lastPlayedAt).toBe(NOW - 20 * 86400)
+    expect(byRatingKey['show-7'].plays).toBe(1)
+    expect(showFallback['some show'].plays).toBe(1)
+    db.prepare('DELETE FROM watch_history').run()
+  })
+
+  // Safety: watch-based profiles with no explicit min-age exclusion get a
+  // 14-day floor so a freshly added, not-yet-watched title can't be deleted.
+  it('applies a default min-age floor to watch-based profiles', () => {
+    const watchProfile = { mediaType: 'movie', criteria: [{ field: 'never_played', op: 'eq', value: true }], exclusions: {} }
+    const fresh = makeItem({ ratingKey: 'fresh', addedAt: NOW - 10 * 86400 })
+    const seasoned = makeItem({ ratingKey: 'seasoned', addedAt: NOW - 40 * 86400 })
+
+    const { matches, excluded } = evaluator.evaluateProfile(watchProfile, [fresh, seasoned], baseCtx)
+    expect(matches.map(m => m.item.ratingKey)).toEqual(['seasoned'])
+    expect(excluded).toBe(1)
+
+    // An explicit admin value always wins, even a smaller one
+    const explicit = { ...watchProfile, exclusions: { minAgeDays: 5 } }
+    expect(evaluator.evaluateProfile(explicit, [fresh], baseCtx).matches).toHaveLength(1)
+
+    // Non-watch profiles are unaffected by the floor
+    const yearProfile = { mediaType: 'movie', criteria: [{ field: 'year', op: 'eq', value: 2015 }], exclusions: {} }
+    expect(evaluator.evaluateProfile(yearProfile, [fresh], baseCtx).matches).toHaveLength(1)
+  })
 })
 
 // ── Candidate lifecycle ───────────────────────────────────────────────────────

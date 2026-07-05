@@ -2,6 +2,8 @@
 @import './admin.css';
 @import './discover.css';
 @import './effects.css';
+@import './wrapped.css';
+@import './wrapped-banner.css';
 
 .toast-container {
   position: fixed;

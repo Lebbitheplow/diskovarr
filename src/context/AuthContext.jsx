@@ -8,6 +8,7 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
   const [discoverAvailable, setDiscoverAvailable] = useState(false)
+  const [wrappedAvailable, setWrappedAvailable] = useState(false)
 
   const checkAuth = useCallback(async () => {
     try {
@@ -15,6 +16,7 @@ export function AuthProvider({ children }) {
       if (res.data && res.data.authenticated && res.data.user) {
         setUser(res.data.user)
         setDiscoverAvailable(!!res.data.discoverAvailable)
+        setWrappedAvailable(!!res.data.wrappedAvailable)
         // Apply the user's saved UI language (follows them across devices).
         // Fire-and-forget: localStorage already gave a fast first paint.
         axios.get('/api/user/settings', { withCredentials: true }).then(({ data }) => {
@@ -41,10 +43,11 @@ export function AuthProvider({ children }) {
     } catch { /* ignore */ }
     setUser(null)
     setDiscoverAvailable(false)
+    setWrappedAvailable(false)
     setLoading(false)
   }
 
-  const value = { user, loading, logout, checkAuth, discoverAvailable }
+  const value = { user, loading, logout, checkAuth, discoverAvailable, wrappedAvailable }
   return (
     <AuthContext.Provider value={value}>
       {children}

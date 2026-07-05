@@ -12,6 +12,11 @@ export function reviewSummary({ title, author, rating }) {
   return `${stars}review of ${title}${author ? ` by ${author}` : ''} on Diskovarr`
 }
 
+// Share text for a Wrapped stat card, e.g. "My 2025 Diskovarr Wrapped — 214 hours watched".
+export function wrappedSummary({ year, statLine }) {
+  return `My ${year} Diskovarr Wrapped${statLine ? ` — ${statLine}` : ''}`
+}
+
 export function composeText({ commentary, summary }) {
   const c = (commentary || '').trim()
   return c ? `${c}\n\n${summary}` : summary
@@ -21,14 +26,16 @@ const enc = encodeURIComponent
 
 /**
  * Build everything the share UI needs.
- * @param {{ url, title, author, rating, commentary }} opts
+ * @param {{ url, title, author, rating, commentary, summary?, subject? }} opts
+ *        `summary`/`subject` override the review-flavored defaults so other
+ *        features (Wrapped) can reuse the same target list.
  * @returns {{ text, textWithUrl, url, summary, targets: Array }}
  */
-export function buildTargets({ url, title, author, rating, commentary }) {
-  const summary = reviewSummary({ title, author, rating })
+export function buildTargets({ url, title, author, rating, commentary, summary: summaryOverride, subject: subjectOverride }) {
+  const summary = summaryOverride || reviewSummary({ title, author, rating })
   const text = composeText({ commentary, summary })
   const textWithUrl = `${text} ${url}`
-  const subject = `${title} — review on Diskovarr`
+  const subject = subjectOverride || `${title} — review on Diskovarr`
 
   const targets = [
     { id: 'facebook', label: 'Facebook', brand: '#1877F2', kind: 'url',

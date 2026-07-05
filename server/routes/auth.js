@@ -142,10 +142,15 @@ router.get('/check-auth', (req, res) => {
     const userId = String(req.session.plexUser.id);
     const isAdmin = !!(req.session.isAdmin || req.session.isPlexAdminUser);
     const isElevated = !isAdmin && db.getPrivilegedUserIds().includes(userId);
+    // Wrapped appears once any year has unlocked (Dec 1) and history exists;
+    // admins always get it so they can preview the in-progress year.
+    const wrappedStats = require('../services/wrappedStats');
+    const wrappedYears = wrappedStats.getAvailableYears(isAdmin || isElevated);
     return res.json({
       authenticated: true,
       user: { ...req.session.plexUser, isAdmin, isElevated },
       discoverAvailable: db.isDiscoverEnabled() && db.hasTmdbKey(),
+      wrappedAvailable: wrappedYears.years.length > 0 || wrappedYears.previewYear != null,
     });
   }
   res.json({ authenticated: false });

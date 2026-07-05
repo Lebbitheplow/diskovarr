@@ -13,6 +13,7 @@ const Search = lazy(() => import('./pages/Search'))
 const Queue = lazy(() => import('./pages/Queue'))
 const Issues = lazy(() => import('./pages/Issues'))
 const WatchHistory = lazy(() => import('./pages/WatchHistory'))
+const Wrapped = lazy(() => import('./pages/Wrapped'))
 const Reviews = lazy(() => import('./pages/Reviews'))
 const ReviewDetail = lazy(() => import('./pages/ReviewDetail'))
 const Settings = lazy(() => import('./pages/Settings'))
@@ -98,6 +99,11 @@ export default function App() {
           <Route path="/history" element={
             <ProtectedRoute>
               <WatchHistory />
+            </ProtectedRoute>
+          } />
+          <Route path="/wrapped/:year?" element={
+            <ProtectedRoute>
+              <Wrapped />
             </ProtectedRoute>
           } />
           <Route path="/reviews" element={

@@ -9,6 +9,7 @@ import {
 } from '../services/api'
 import MediaCard from '../components/MediaCard'
 import Carousel from '../components/Carousel'
+import WrappedBanner from '../components/wrapped/WrappedBanner'
 import DetailModal from '../components/DetailModal'
 import SkeletonLoader from '../components/SkeletonLoader'
 import ToggleSwitch from '../components/ToggleSwitch'
@@ -265,6 +266,8 @@ export default function Home() {
             </button>
           </div>
         </div>
+
+        <WrappedBanner />
 
         {loading ? (
           <>

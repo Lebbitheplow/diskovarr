@@ -4,6 +4,42 @@ All notable changes are documented here. Versioning follows [Semantic Versioning
 
 ---
 
+## v2.4.0 — 2026-07-04
+
+A feature release introducing Diskovarr Wrapped — a Spotify-Wrapped-style yearly recap.
+
+### Added
+
+- **Diskovarr Wrapped** — a personal year-in-review for every user, presented as a story-style walkthrough: one stat per slide, paged through like Spotify Wrapped, each with its own share button. Each year's Wrapped unlocks December 1 and remains viewable afterward as an archive (a year picker lets you revisit past years). It's reached from the Wrapped button on your own profile, and during December a wide banner tile on the home page takes you straight there. Admins can preview the in-progress year at any time.
+  - **Core stats** — total hours watched, plays, distinct titles, movie/show split, completion rate, and the oldest title you watched.
+  - **Top movies & shows** — ranked by watch time with posters and play counts.
+  - **Top genres** — a seconds-weighted genre mix from library metadata.
+  - **Viewing patterns** — month-by-month watch-time chart, most active weekday and hour, biggest binge day, and longest consecutive-day streak.
+  - **Percentile rankings** — "top X% of viewers on this server" and "top X% of fans" of your #1 show.
+  - **Fun extras** — a "taste age" estimated from the era of what you actually watch, a "show buddy" (the user whose watch time on your #1 show is closest to yours), a **Diskovarr personality** (a genre-derived archetype like The Adventurer or The Thrill Seeker, with behavioral trait chips such as Night Owl, Marathoner and Completionist), and a **critic slide** for anyone who wrote reviews (count, average rating, favorite, harshest take, most-loved review).
+  - **Your year on Diskovarr** — requests made, reviews written, average rating given, and reactions received.
+  - **Server leaderboard** — everyone's hours and plays, with real usernames (no anonymization).
+- **Wrapped stat sharing** — every stat section has a share button matching the review share flow: server-rendered share cards (standard and square variants) per category, native share/download/social targets. Cards are served from unguessable per-user links, so personal stats stay private until you choose to share them.
+- **Wrapped playlist** — one click creates a "Diskovarr Wrapped {year}" playlist of your top movies and shows in your own Plex account; re-running it rebuilds the playlist instead of duplicating it.
+- **Full watch-history backfill** — a new admin action pages through the entire Tautulli history (beyond the rolling sync window) so Wrapped has complete data on fresh installs.
+
+### Accuracy
+
+- Wrapped counts a play only if Tautulli marked it watched **or** the session ran at least 5 minutes **and** reached 20% completion — so accidental clicks and preview scrubs never inflate your stats (a common complaint with wrapperr-style recaps).
+- Titles that were deleted and re-added to Plex (rating-key drift) are matched back to the current library item by title, so their watch time merges into one entry and posters render instead of showing a placeholder.
+
+### Fixed
+
+- **Editing a monitor no longer duplicates its criteria** — every save of an existing monitor was silently re-adding its whole criteria list, so criteria multiplied with each edit. Saving now replaces the criteria set in one step, removing a criterion in the editor actually persists, and any duplicates created by the old bug are cleaned up automatically on update.
+- **Monitor criteria for keyword, language, and production company now match new Plex content** — these criterion types previously only ever fired for "available to request" matches because Plex metadata doesn't carry those fields. They're now filled in from cached TMDB details, so monitors like "Language: Japanese" notify on library additions too.
+- **Deletion safety: re-added titles are no longer treated as never watched** — watch history stays keyed to the Plex id a title had when it was watched, so a deleted-and-re-added item looked brand new to deletion profiles and could be swept up by "never played" or "not played in X days" rules. Watch stats now fall back to matching by title (and year for movies), and an ambiguous match can only make an item look *more* watched — it can prevent a deletion, never cause one.
+- **Deletion safety: watch-based profiles get a 14-day minimum age** — profiles using "never played", "not played in X days", or play-count criteria previously had no built-in protection for freshly added items, so new content could be deleted before anyone had a chance to watch it. If no "added less than X days ago" exclusion is set, a 14-day floor now applies (an explicit value you set always wins), and new profiles default the field to 14.
+- **Show deletions no longer bypass Sonarr on a transient lookup failure** — if the TMDB lookup used to find a show in Sonarr failed momentarily, the deletion fell through to a raw Plex file delete that left Sonarr still monitoring (and re-downloading) the show. The deletion is now marked failed and retried on the next run instead.
+- **Auto-request lists retry failed syncs sooner** — a list whose sync failed (source down, network blip) used to wait out its full sync interval (up to 24 hours) before trying again. Failed syncs now retry within about an hour, and the error still shows on the list until a sync succeeds.
+- **Search suggestions dropdown gets its frosted glass back** — the nav search dropdown rendered inside the nav bar, whose own glass effect silently disables nested blur in Chromium-based browsers, leaving the dropdown looking almost transparent over artwork. It now renders alongside the notification dropdown outside the nav bar with the same smokey glass as the user menu.
+
+---
+
 ## v2.3.3 — 2026-07-01
 
 A patch release fixing real-time library detection and availability notifications, and relaxing review eligibility.

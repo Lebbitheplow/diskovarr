@@ -11,9 +11,12 @@ const executor = require('./executor');
 const logger = require('../logger');
 
 function buildContext() {
+  const { byRatingKey, movieFallback, showFallback } = tautulliService.getGlobalViewStats();
   return {
     now: Math.floor(Date.now() / 1000),
-    viewStats: tautulliService.getGlobalViewStats(),
+    viewStats: byRatingKey,
+    viewStatsMovieFallback: movieFallback,
+    viewStatsShowFallback: showFallback,
     watchlistedKeys: new Set(
       db.prepare('SELECT DISTINCT rating_key FROM watchlist').all().map(r => String(r.rating_key))
     ),
@@ -30,7 +33,7 @@ function getAllLibraryItems() {
 }
 
 function candidateDetails(match, ctx) {
-  const stats = ctx.viewStats[String(match.item.ratingKey)] || null;
+  const stats = evaluator.statsFor(match.item, ctx);
   return {
     reasons: match.reasons,
     fileSize: match.item.fileSize || null,

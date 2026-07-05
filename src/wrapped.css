@@ -1,0 +1,525 @@
+/* Diskovarr Wrapped — story-style yearly recap: one stat per slide. Home-page
+   banner + profile entry-point styles live in wrapped-banner.css. */
+
+.wrapped-page {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: calc(var(--nav-height) + 32px) 20px 60px;
+}
+
+.wrapped-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-bottom: 20px;
+}
+
+.wrapped-header h1 {
+  margin: 0;
+  font-size: 1.7rem;
+  color: var(--text-primary);
+}
+
+.wrapped-header-year { color: var(--accent); }
+
+.wrapped-year-pills { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.wrapped-year-pill {
+  padding: 5px 14px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: all 0.15s;
+}
+
+.wrapped-year-pill:hover { border-color: var(--accent); color: var(--text-primary); }
+
+.wrapped-year-pill.active {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.wrapped-preview-badge {
+  margin-left: 6px;
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--accent);
+}
+
+/* ── Story stage ──────────────────────────────────────────────────────────── */
+
+.wrapped-stage {
+  display: flex;
+  flex-direction: column;
+  min-height: 66vh;
+  padding: 20px 26px 18px;
+  border-radius: var(--radius-lg, 16px);
+  background: var(--glass-bg, var(--bg-secondary));
+  border: 1px solid var(--border);
+  touch-action: pan-y;
+}
+
+/* Instagram-story-style progress segments; clickable to jump */
+.wrapped-progress { display: flex; gap: 5px; margin-bottom: 18px; }
+
+.wrapped-progress-seg {
+  flex: 1;
+  height: 4px;
+  padding: 0;
+  border: none;
+  border-radius: 2px;
+  background: var(--border);
+  cursor: pointer;
+  transition: background 0.25s;
+}
+
+.wrapped-progress-seg.filled { background: var(--accent); }
+
+.wrapped-slide-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.wrapped-slide-head h2 { margin: 0; font-size: 1.2rem; color: var(--text-primary); }
+
+.wrapped-slide {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 10px 0 18px;
+  animation: wrapped-slide-in 0.45s ease both;
+}
+
+@keyframes wrapped-slide-in {
+  from { opacity: 0; transform: translateY(18px) scale(0.985); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wrapped-slide { animation: none; }
+}
+
+.wrapped-stage-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.wrapped-nav-btn {
+  padding: 9px 20px;
+  border-radius: 22px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 500;
+  transition: all 0.15s;
+}
+
+.wrapped-nav-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--text-primary); }
+
+.wrapped-nav-btn.primary { background: var(--accent); border-color: var(--accent); color: #000; font-weight: 600; }
+
+.wrapped-nav-btn.primary:hover:not(:disabled) { filter: brightness(1.1); }
+
+.wrapped-nav-btn:disabled { opacity: 0.35; cursor: default; }
+
+.wrapped-stage-count { color: var(--text-muted); font-size: 0.82rem; }
+
+.wrapped-slide-lede { margin: 0 0 18px; text-align: center; font-size: 1.05rem; color: var(--text-secondary); }
+
+.wrapped-slide-lede strong { color: var(--accent); }
+
+.wrapped-center-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  text-align: center;
+}
+
+/* ── Hero / big numbers ───────────────────────────────────────────────────── */
+
+.wrapped-hero { text-align: center; }
+
+.wrapped-hero-number {
+  font-size: clamp(3.4rem, 12vw, 6.5rem);
+  font-weight: 700;
+  line-height: 1.05;
+  color: var(--accent);
+  text-shadow: 0 0 40px var(--accent-glow, transparent);
+}
+
+.wrapped-hero-label {
+  margin: 6px 0 22px;
+  font-size: 1.05rem;
+  color: var(--text-secondary);
+}
+
+/* Genre names are words, not numbers — cap the size so long ones fit */
+.wrapped-hero-number.genre { font-size: clamp(2.4rem, 8vw, 4.6rem); }
+
+.wrapped-center-stack .wrapped-hero-label { margin: 0; }
+
+.wrapped-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+}
+
+.wrapped-stats-grid.activity { max-width: 640px; margin: 0 auto; width: 100%; }
+
+.wrapped-stat-card {
+  padding: 16px 12px;
+  border-radius: 12px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  text-align: center;
+}
+
+.wrapped-stat-value { font-size: 1.6rem; font-weight: 700; color: var(--text-primary); }
+
+.wrapped-stat-label { margin-top: 4px; font-size: 0.76rem; color: var(--text-muted); }
+
+/* Binge / streak duo */
+.wrapped-duo {
+  display: flex;
+  justify-content: center;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.wrapped-big-fact {
+  flex: 1;
+  min-width: 220px;
+  max-width: 330px;
+  padding: 26px 20px;
+  border-radius: 14px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  text-align: center;
+}
+
+.wrapped-big-fact-value { font-size: 3rem; font-weight: 700; color: var(--accent); line-height: 1; }
+
+.wrapped-big-fact-label { margin-top: 4px; font-size: 0.95rem; color: var(--text-primary); }
+
+.wrapped-big-fact p { margin: 10px 0 0; font-size: 0.85rem; color: var(--text-secondary); }
+
+/* ── Feature slides (big #1 stat + supporting stats, Spotify-style) ────────── */
+
+.wrapped-feature {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 42px;
+}
+
+@media (max-width: 640px) {
+  .wrapped-feature { flex-direction: column; gap: 20px; text-align: center; }
+  .wrapped-feature-info { align-items: center; }
+}
+
+.wrapped-feature-poster {
+  width: clamp(140px, 24vw, 210px);
+  aspect-ratio: 2 / 3;
+  border-radius: 14px;
+  object-fit: cover;
+  flex-shrink: 0;
+  box-shadow: 0 14px 40px -16px rgba(0, 0, 0, 0.7);
+}
+
+.wrapped-feature-poster.placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 2rem;
+}
+
+.wrapped-feature-info { display: flex; flex-direction: column; gap: 6px; min-width: 0; max-width: 460px; }
+
+.wrapped-feature-rank { color: var(--accent); font-weight: 700; font-size: 1.3rem; }
+
+.wrapped-feature-kicker { color: var(--text-secondary); font-size: 1.05rem; }
+
+.wrapped-feature-big {
+  font-size: clamp(3rem, 10vw, 5.2rem);
+  font-weight: 700;
+  line-height: 1;
+  color: var(--accent);
+  text-shadow: 0 0 40px var(--accent-glow, transparent);
+}
+
+.wrapped-feature-title {
+  font-size: clamp(1.5rem, 4.5vw, 2.2rem);
+  font-weight: 700;
+  line-height: 1.15;
+  color: var(--text-primary);
+}
+
+.wrapped-feature-meta { font-size: 0.95rem; color: var(--text-secondary); }
+
+.wrapped-feature-total { margin-top: 10px; font-size: 0.85rem; color: var(--text-muted); }
+
+.wrapped-feature .wrapped-list { margin-top: 12px; }
+
+.wrapped-list { margin: 0; padding-left: 26px; display: flex; flex-direction: column; gap: 8px; }
+
+.wrapped-list li::marker { color: var(--accent); font-weight: 600; }
+
+.wrapped-list li { color: var(--text-secondary); font-size: 0.9rem; }
+
+.wrapped-list-title { color: var(--text-primary); }
+
+.wrapped-list-meta { float: right; color: var(--text-muted); font-size: 0.8rem; }
+
+/* ── Genre bars ───────────────────────────────────────────────────────────── */
+
+.wrapped-bars { display: flex; flex-direction: column; gap: 14px; max-width: 640px; margin: 0 auto; width: 100%; }
+
+.wrapped-bar-row { display: flex; align-items: center; gap: 14px; }
+
+.wrapped-bar-label { width: 110px; flex-shrink: 0; font-size: 0.9rem; color: var(--text-primary); text-align: right; }
+
+.wrapped-bar-track { flex: 1; height: 14px; border-radius: 7px; background: var(--bg-elevated); overflow: hidden; }
+
+.wrapped-bar-fill { height: 100%; border-radius: 7px; background: var(--accent); transition: width 0.8s ease; }
+
+.wrapped-bar-value { width: 44px; font-size: 0.8rem; color: var(--text-muted); }
+
+/* ── Months chart ─────────────────────────────────────────────────────────── */
+
+.wrapped-months {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  height: 200px;
+  padding: 0 4px;
+  max-width: 680px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.wrapped-month-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  height: 100%;
+}
+
+.wrapped-month-bar {
+  width: 100%;
+  max-width: 42px;
+  border-radius: 6px 6px 3px 3px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+}
+
+.wrapped-month-bar.peak { background: var(--accent); border-color: var(--accent); }
+
+.wrapped-month-label { font-size: 0.66rem; color: var(--text-muted); }
+
+.wrapped-caption { margin: 12px 0 0; text-align: center; color: var(--text-secondary); font-size: 0.95rem; }
+
+.wrapped-caption strong { color: var(--text-primary); }
+
+/* ── Decade / buddy ───────────────────────────────────────────────────────── */
+
+.wrapped-decade-dist { display: flex; align-items: flex-end; gap: 8px; margin-top: 8px; }
+
+.wrapped-decade-col { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 40px; }
+
+.wrapped-decade-col span { font-size: 0.66rem; color: var(--text-muted); }
+
+.wrapped-decade-bar { width: 100%; max-width: 28px; border-radius: 4px; background: var(--border); }
+
+.wrapped-decade-bar.peak { background: var(--accent); }
+
+.wrapped-buddy-avatars { display: flex; align-items: center; gap: 10px; }
+
+.wrapped-buddy-avatars.big { gap: 18px; margin-bottom: 6px; }
+
+.wrapped-buddy-plus { color: var(--accent); font-size: 1.8rem; font-weight: 700; }
+
+.wrapped-avatar-initial {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #000;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+/* ── Personality & reviews slides ─────────────────────────────────────────── */
+
+.wrapped-personality-blurb {
+  margin: 4px 0 0;
+  max-width: 560px;
+  text-align: center;
+  font-size: 1.02rem;
+  line-height: 1.55;
+  color: var(--text-secondary);
+}
+
+.wrapped-trait-chips { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; margin-top: 10px; }
+
+.wrapped-trait-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 10px 20px;
+  border-radius: 16px;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
+.wrapped-trait-chip em { font-style: normal; font-weight: 400; font-size: 0.72rem; color: var(--text-muted); }
+
+.wrapped-review-rows { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; width: 100%; max-width: 520px; }
+
+.wrapped-review-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border-radius: 12px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  text-align: left;
+}
+
+.wrapped-review-label { width: 110px; flex-shrink: 0; font-size: 0.78rem; color: var(--text-muted); }
+
+.wrapped-review-title { flex: 1; font-weight: 600; color: var(--text-primary); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.wrapped-review-rating { color: var(--accent); font-weight: 600; font-size: 0.92rem; }
+
+.wrapped-review-reactions { color: var(--text-secondary); font-size: 0.82rem; }
+
+/* ── Leaderboard ──────────────────────────────────────────────────────────── */
+
+.wrapped-leaderboard-wrap { max-width: 640px; margin: 0 auto; width: 100%; }
+
+.wrapped-leaderboard { display: flex; flex-direction: column; gap: 8px; max-height: 46vh; overflow-y: auto; padding-right: 4px; }
+
+.wrapped-leader-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 9px 16px;
+  border-radius: 12px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+}
+
+.wrapped-leader-row.me { border-color: var(--accent); background: var(--accent-dim, var(--bg-elevated)); }
+
+.wrapped-leader-rank { width: 26px; font-weight: 700; color: var(--accent); }
+
+.wrapped-leader-name { flex: 1; font-weight: 600; color: var(--text-primary); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.wrapped-leader-hours { color: var(--text-secondary); font-size: 0.9rem; }
+
+.wrapped-leader-plays { color: var(--text-muted); font-size: 0.8rem; width: 90px; text-align: right; }
+
+/* ── Share / playlist / admin ─────────────────────────────────────────────── */
+
+.wrapped-share-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 500;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+
+.wrapped-share-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+.wrapped-share-btn.compact { padding: 6px; border: none; }
+
+.wrapped-playlist { display: flex; flex-direction: column; align-items: center; gap: 10px; margin: 8px 0; }
+
+.wrapped-playlist-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 26px;
+  border-radius: 26px;
+  border: none;
+  background: var(--accent);
+  color: #000;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.wrapped-playlist-btn:hover:not(:disabled) { filter: brightness(1.1); }
+
+.wrapped-playlist-btn:disabled { opacity: 0.6; cursor: default; }
+
+.wrapped-playlist-open { color: var(--accent); font-size: 0.9rem; text-decoration: none; }
+
+.wrapped-playlist-open:hover { text-decoration: underline; }
+
+.wrapped-empty { text-align: center; padding: 50px 20px 30px; color: var(--text-secondary); }
+
+.wrapped-empty .wrapped-leaderboard-wrap { margin-top: 26px; text-align: left; }
+
+.wrapped-admin-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 18px;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+.wrapped-admin-row button {
+  padding: 6px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.wrapped-admin-row button:hover:not(:disabled) { border-color: var(--accent); color: var(--text-primary); }
+

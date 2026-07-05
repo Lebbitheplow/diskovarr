@@ -11,7 +11,7 @@ import { adminStatus, adminNotifications, adminUpdate } from '../services/adminA
 import ChangelogModal from '../components/ChangelogModal'
 import { useTranslation } from 'react-i18next'
 
-const APP_VERSION = import.meta.env.VITE_APP_VERSION || '2.3.3'
+const APP_VERSION = import.meta.env.VITE_APP_VERSION || '2.4.0'
 
 const LOGO_SVG = (
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="1em" height="1em" fill="none" aria-hidden="true">

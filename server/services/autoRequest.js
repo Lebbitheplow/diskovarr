@@ -172,8 +172,13 @@ async function runDueLists() {
       await syncList(listSource);
     } catch (e) {
       logger.warn(`[autorequest] "${listSource.name}" failed: ${e.message}`);
+      // Back-date last_synced_at so a transient failure retries in
+      // min(1h, interval/2) instead of waiting out the full sync interval —
+      // getDueListSources treats a list as due when last_synced_at + interval <= now.
+      const intervalSecs = (listSource.syncIntervalHours || 24) * 3600;
+      const retryDelay = Math.min(3600, Math.floor(intervalSecs / 2));
       automation.updateListSource(listSource.id, {
-        lastSyncedAt: Math.floor(Date.now() / 1000),
+        lastSyncedAt: Math.floor(Date.now() / 1000) - intervalSecs + retryDelay,
         lastStatus: 'error',
         lastError: e.message,
       });

@@ -45,10 +45,23 @@ function stringOp(actual, op, value) {
   }
 }
 
+// Watch stats for an item. History rows keep the rating_key from watch time,
+// so a deleted-then-re-added title (fresh Plex key) misses the key join and
+// would look never-played — fall back to the title-keyed maps in that case.
+function statsFor(item, ctx) {
+  const byKey = ctx.viewStats[String(item.ratingKey)];
+  if (byKey) return byKey;
+  if (item.type === 'movie') {
+    const key = `${String(item.title || '').toLowerCase().trim()}|${item.year || ''}`;
+    return (ctx.viewStatsMovieFallback || {})[key] || null;
+  }
+  return (ctx.viewStatsShowFallback || {})[String(item.title || '').toLowerCase().trim()] || null;
+}
+
 // Returns a human-readable reason string when the criterion matches, else null.
 function matchCriterion(item, ctx, { field, op, value }) {
   const now = ctx.now;
-  const stats = ctx.viewStats[String(item.ratingKey)] || null;
+  const stats = statsFor(item, ctx);
   const plays = stats ? stats.plays : 0;
   const lastPlayedAt = stats ? stats.lastPlayedAt : 0;
 
@@ -115,11 +128,16 @@ function matchCriterion(item, ctx, { field, op, value }) {
 
 const WATCH_FIELDS = new Set(['last_played_days_ago', 'never_played', 'plays']);
 
+// Watch-based profiles with no explicit min-age exclusion get this floor, so a
+// freshly added title can't be deleted before anyone had a chance to watch it.
+// An explicit admin-set minAgeDays (any value > 0) always wins.
+const DEFAULT_WATCH_MIN_AGE_DAYS = 14;
+
 function usesWatchData(profile) {
   return (profile.criteria || []).some(c => WATCH_FIELDS.has(c.field));
 }
 
-function isExcluded(item, ctx, exclusions) {
+function isExcluded(item, ctx, exclusions, minAge) {
   if (exclusions.watchlisted !== false && ctx.watchlistedKeys.has(String(item.ratingKey))) {
     return 'on a user watchlist';
   }
@@ -131,7 +149,6 @@ function isExcluded(item, ctx, exclusions) {
       && listOp(item.labels, 'contains', exclusions.labels)) {
     return 'has an excluded label';
   }
-  const minAge = Number(exclusions.minAgeDays) || 0;
   if (minAge > 0 && item.addedAt && (ctx.now - item.addedAt) / DAY < minAge) {
     return `added less than ${minAge}d ago`;
   }
@@ -150,6 +167,11 @@ function evaluateProfile(profile, items, ctx) {
   if (criteria.length === 0) return { matches, excluded };
 
   const wantType = profile.mediaType === 'show' ? 'show' : 'movie';
+  const exclusions = profile.exclusions || {};
+  const explicitMinAge = Number(exclusions.minAgeDays) || 0;
+  const minAge = explicitMinAge > 0
+    ? explicitMinAge
+    : (usesWatchData(profile) ? DEFAULT_WATCH_MIN_AGE_DAYS : 0);
   for (const item of items) {
     if (item.type !== wantType) continue;
     const reasons = [];
@@ -160,10 +182,10 @@ function evaluateProfile(profile, items, ctx) {
       reasons.push(reason);
     }
     if (!all) continue;
-    if (isExcluded(item, ctx, profile.exclusions || {})) { excluded++; continue; }
+    if (isExcluded(item, ctx, exclusions, minAge)) { excluded++; continue; }
     matches.push({ item, reasons });
   }
   return { matches, excluded };
 }
 
-module.exports = { evaluateProfile, usesWatchData, matchCriterion };
+module.exports = { evaluateProfile, usesWatchData, matchCriterion, statsFor, DEFAULT_WATCH_MIN_AGE_DAYS };

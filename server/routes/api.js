@@ -2717,8 +2717,17 @@ router.put('/monitors/:id', requireAuth, (req, res) => {
   const monitor = db.getMonitor(req.params.id, userId);
   if (!monitor) return res.status(404).json({ error: 'Monitor not found' });
 
-  const { name, enabled, matchMode, notifyPlex, notifyRequestable } = req.body;
+  const { name, enabled, matchMode, notifyPlex, notifyRequestable, criteria } = req.body;
   db.updateMonitor(monitor.id, userId, { name, enabled, matchMode, notifyPlex, notifyRequestable });
+
+  // Optional full criteria replace: the editor sends the complete set so
+  // removals persist and re-saves can't duplicate rows
+  if (Array.isArray(criteria)) {
+    const valid = criteria
+      .filter(c => c.type && c.entityName && monitorMatcher.VALID_CRITERION_TYPES.has(c.type))
+      .map(c => ({ type: c.type, entityId: c.entityId || null, entityName: c.entityName, metadata: c.metadata || null }));
+    db.replaceCriteria(monitor.id, valid);
+  }
 
   const updated = db.getMonitor(monitor.id, userId);
   updated.criteria = db.getCriteria(monitor.id);

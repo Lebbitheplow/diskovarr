@@ -56,7 +56,18 @@ async function deleteViaRadarr(item, profile, conn) {
 // Returns true when the show was found and deleted in Sonarr.
 async function deleteViaSonarr(item, profile, conn) {
   if (!conn.sonarrEnabled || !conn.sonarrUrl || !conn.sonarrApiKey || !item.tmdbId) return false;
-  const externalIds = await tmdbService.tmdbFetchPublic(`/tv/${item.tmdbId}/external_ids`).catch(() => null);
+  // A transient TMDB failure must abort the delete (candidate marked failed,
+  // retried next run) — falling through to a Plex file delete would leave
+  // Sonarr still monitoring the show. Only a definitive "no tvdb mapping"
+  // answer may fall through.
+  let externalIds;
+  try {
+    externalIds = await tmdbService.tmdbFetchPublic(`/tv/${item.tmdbId}/external_ids`);
+  } catch (e) {
+    const err = new Error(`TMDB external-ids lookup failed: ${e.message}`);
+    err.noFallback = true;
+    throw err;
+  }
   const tvdbId = externalIds?.tvdb_id;
   if (!tvdbId) return false;
   const found = await arrFetch(conn.sonarrUrl, conn.sonarrApiKey, `/api/v3/series?tvdbId=${Number(tvdbId)}`);
@@ -158,7 +169,7 @@ async function deleteItem(item, profile) {
 
   if (item.type === 'movie' && await deleteViaRadarr(item, profile, conn).catch(e => { notes.push(`radarr: ${e.message}`); return false; })) {
     method = 'radarr';
-  } else if (item.type === 'show' && await deleteViaSonarr(item, profile, conn).catch(e => { notes.push(`sonarr: ${e.message}`); return false; })) {
+  } else if (item.type === 'show' && await deleteViaSonarr(item, profile, conn).catch(e => { if (e.noFallback) throw e; notes.push(`sonarr: ${e.message}`); return false; })) {
     method = 'sonarr';
   } else {
     await deleteViaPlex(item);

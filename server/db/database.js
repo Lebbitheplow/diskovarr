@@ -738,6 +738,44 @@ db.exec(`CREATE TABLE IF NOT EXISTS migrations (name TEXT PRIMARY KEY, ran_at IN
         `);
       },
     },
+    {
+      // Precomputed yearly Wrapped payloads (per user + server-wide). share_slug is
+      // an unguessable capability for the public /og/wrapped image routes; it is
+      // generated once and preserved across recomputes so shared URLs never break.
+      name: 'wrapped_stats_table_v1',
+      sql: () => {
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS wrapped_stats (
+            user_id TEXT NOT NULL,
+            year INTEGER NOT NULL,
+            payload TEXT NOT NULL,
+            share_slug TEXT NOT NULL UNIQUE,
+            computed_at INTEGER NOT NULL,
+            PRIMARY KEY (user_id, year)
+          );
+          CREATE TABLE IF NOT EXISTS wrapped_global (
+            year INTEGER PRIMARY KEY,
+            payload TEXT NOT NULL,
+            computed_at INTEGER NOT NULL
+          );
+        `);
+      },
+    },
+    {
+      // The monitor editor used to re-POST its full criteria list on every
+      // save with no server-side replace, so each edit duplicated all rows.
+      // One-time dedupe; the editor now swaps criteria atomically via
+      // replaceCriteria so this can't recur.
+      name: 'monitor_criteria_dedupe_v1',
+      sql: () => {
+        db.exec(`
+          DELETE FROM monitor_criteria WHERE id NOT IN (
+            SELECT MIN(id) FROM monitor_criteria
+            GROUP BY monitor_id, type, entity_name, entity_id
+          );
+        `);
+      },
+    },
   ].forEach(({ name, sql }) => {
    const already = db.prepare('SELECT 1 FROM migrations WHERE name = ?').get(name);
    if (!already) {
@@ -3053,6 +3091,15 @@ function deleteCriteria(id, monitorId) {
   db.prepare('DELETE FROM monitor_criteria WHERE id = ? AND monitor_id = ?').run(Number(id), Number(monitorId));
 }
 
+// Atomically swap a monitor's criteria for a new set. PUT /monitors/:id uses
+// this so a single save persists removals and can never duplicate rows.
+function replaceCriteria(monitorId, criteria) {
+  withTransaction(() => {
+    db.prepare('DELETE FROM monitor_criteria WHERE monitor_id = ?').run(Number(monitorId));
+    for (const c of criteria) createCriteria({ ...c, monitorId });
+  });
+}
+
 function hasNotified(monitorId, contentTmdbId, contentType, notificationType) {
   const r = db.prepare(
     'SELECT 1 FROM monitor_notifications WHERE monitor_id = ? AND content_tmdb_id = ? AND content_type = ? AND notification_type = ?'
@@ -3129,7 +3176,7 @@ module.exports = {
   getSyncEnabledSections, setSyncEnabledSections, getEnabledSectionIds, getLibraryItemCount, deleteLibraryItems,
   // Monitors
   createMonitor, getMonitors, getMonitor, updateMonitor, deleteMonitor, toggleMonitor, getAllEnabledMonitors,
-  createCriteria, getCriteria, deleteCriteria,
+  createCriteria, getCriteria, deleteCriteria, replaceCriteria,
   hasNotified, recordNotification,
   // Raw prepare — used by overseerrShim for ad-hoc queries not worth a dedicated function
   prepare: (sql) => db.prepare(sql),

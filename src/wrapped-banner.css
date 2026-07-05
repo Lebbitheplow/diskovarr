@@ -1,0 +1,77 @@
+/* Diskovarr Wrapped — December home-page banner (carousel-row slot) and the
+   profile entry point. Story-page styles live in wrapped.css. */
+
+/* ── December home-page banner (sits in a carousel-row slot) ──────────────── */
+
+.wrapped-banner {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  width: 100%;
+  margin: 0 0 28px;
+  padding: 26px 30px;
+  border-radius: var(--radius-lg, 16px);
+  border: 1px solid var(--accent-border, var(--accent));
+  background:
+    linear-gradient(120deg, var(--accent-dim, rgba(255,255,255,0.06)) 0%, transparent 55%),
+    var(--bg-elevated);
+  text-decoration: none;
+  overflow: hidden;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.wrapped-banner:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 34px -14px var(--accent-glow, rgba(0,0,0,0.5));
+}
+
+/* one large soft glow, calm at rest */
+.wrapped-banner-glow {
+  position: absolute;
+  right: -60px;
+  top: 50%;
+  width: 340px;
+  height: 340px;
+  transform: translateY(-50%);
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--accent-glow, transparent) 0%, transparent 70%);
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.wrapped-banner-text { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+
+.wrapped-banner-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 1.45rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.wrapped-banner-year { color: var(--accent); }
+
+
+.wrapped-banner-sub { font-size: 0.92rem; color: var(--text-secondary); }
+
+.wrapped-banner-cta {
+  flex-shrink: 0;
+  padding: 10px 22px;
+  border-radius: 22px;
+  background: var(--accent);
+  color: #000;
+  font-size: 0.92rem;
+  font-weight: 600;
+  z-index: 1;
+}
+
+@media (max-width: 560px) {
+  .wrapped-banner { flex-direction: column; align-items: flex-start; padding: 20px; }
+  .wrapped-banner-cta { align-self: stretch; text-align: center; }
+}
+
+/* Profile entry point */
+.profile-wrapped-btn { text-decoration: none; }

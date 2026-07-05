@@ -117,6 +117,7 @@ app.use('/auth', require('./routes/auth'))
 app.use('/api/v1', require('./routes/overseerrShim'))
 // Public review reads — must precede the authenticated /api router
 app.use('/api/public', require('./routes/public'))
+app.use('/api/wrapped', require('./middleware/requireAuth'), require('./routes/wrapped'))
 app.use('/api', require('./routes/api'))
 app.use('/admin', require('./routes/admin'))
 app.use('/admin/riven', require('./routes/riven'))
@@ -494,6 +495,14 @@ const server = app.listen(PORT, '0.0.0.0', () => {
     .catch(err => logger.warn('Periodic watch-history sync failed:', err.message)),
     15 * 60 * 1000
   )
+
+  // During December, refresh the in-progress Wrapped year daily so first visits
+  // during the launch window are always fresh. No-op the other 11 months.
+  const wrappedStats = require('./services/wrappedStats')
+  setInterval(() => {
+    try { wrappedStats.refreshIfDecember() }
+    catch (err) { logger.warn('Wrapped December refresh failed:', err.message) }
+  }, 24 * 60 * 60 * 1000)
 
   // Automation: auto-request from monitored lists. The runner checks every
   // 15 min; each list honors its own sync_interval_hours. First pass ~2 min

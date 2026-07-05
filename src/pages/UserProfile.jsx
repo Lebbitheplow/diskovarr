@@ -205,6 +205,7 @@ function UserProfileView({ userId }) {
 
 function ProfileHeader({ profile, isOwn, editing, following, followingLoading, onFollowToggle, onEdit }) {
   const { t } = useTranslation()
+  const { wrappedAvailable } = useAuth()
   return (
     <div className="profile-header">
       <div className="profile-header-main">
@@ -217,7 +218,15 @@ function ProfileHeader({ profile, isOwn, editing, following, followingLoading, o
         </div>
         <div className="profile-header-actions">
           {isOwn ? (
-            !editing && <button className="btn-page profile-edit-btn" onClick={onEdit}>{t('Edit Profile')}</button>
+            !editing && (
+              <>
+                {/* Wrapped is personal — only your own profile links to it */}
+                {wrappedAvailable && (
+                  <a className="btn-page profile-wrapped-btn" href="/wrapped">✦ {t('Wrapped')}</a>
+                )}
+                <button className="btn-page profile-edit-btn" onClick={onEdit}>{t('Edit Profile')}</button>
+              </>
+            )
           ) : (
             <button
               className="btn-page"

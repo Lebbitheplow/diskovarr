@@ -1,5 +1,24 @@
 [
   {
+    "version": "2.4.0",
+    "date": "2026-07-04",
+    "changes": [
+      "Added Diskovarr Wrapped — a story-style walkthrough of your year, one stat per slide like Spotify Wrapped, each with its own share button: hours watched, top movies and shows, top genres, viewing patterns (month-by-month chart, most active day and hour, biggest binge day, longest streak), percentile rankings, your 'taste age', a 'show buddy', a Diskovarr personality (genre-derived archetype with trait badges), a critic slide for review writers, and your Diskovarr activity. Reached from your own profile; each year unlocks December 1 and stays viewable afterward as an archive, and during December a banner tile on the home page links straight to it. Admins can preview the in-progress year.",
+      "Added the Wrapped server leaderboard — everyone's watch hours and plays for the year, with real usernames.",
+      "Added Wrapped stat sharing — each stat section generates a share card image (standard and square) with the same share options as reviews, served from unguessable per-user links so stats stay private until shared.",
+      "Added a one-click 'Diskovarr Wrapped' Plex playlist built from your top content of the year; re-running it rebuilds the playlist instead of duplicating it.",
+      "Added an admin full watch-history backfill that pages through the entire Tautulli history so Wrapped has complete data on fresh installs.",
+      "Wrapped counts a play only if it was marked watched or ran at least 5 minutes and reached 20% completion, so accidental clicks never inflate the stats.",
+      "Fixed editing a monitor duplicating its criteria on every save — saving now replaces the criteria set in one step, removing a criterion actually persists, and duplicates created by the old bug are cleaned up automatically.",
+      "Fixed monitor criteria for keyword, language, and production company never matching newly added Plex content — they're now filled in from cached TMDB details, so those monitors notify on library additions too.",
+      "Deletion safety: titles that were deleted and re-added to Plex are no longer treated as never watched by deletion profiles — watch stats fall back to matching by title, and an ambiguous match can only prevent a deletion, never cause one.",
+      "Deletion safety: profiles using watch-based criteria (never played, not played in X days, play count) now apply a 14-day minimum age to newly added items when no 'added less than X days ago' exclusion is set, so fresh content can't be deleted before anyone has a chance to watch it. An explicit value you set always wins.",
+      "Fixed show deletions falling through to a raw Plex file delete when a transient TMDB lookup failure prevented finding the show in Sonarr — the deletion is now retried on the next run instead of leaving Sonarr monitoring a deleted show.",
+      "Auto-request lists now retry a failed sync within about an hour instead of waiting out the full sync interval; the error still shows on the list until a sync succeeds.",
+      "Fixed the search suggestions dropdown appearing nearly transparent — it now renders outside the nav bar (whose glass effect disables nested blur in Chromium) and uses the same frosted glass as the user menu."
+    ]
+  },
+  {
     "version": "2.3.3",
     "date": "2026-07-01",
     "changes": [

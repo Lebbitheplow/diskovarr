@@ -33,7 +33,7 @@ const FIELDS = [
   { value: 'director', label: 'Director', kind: 'list' },
   { value: 'writer', label: 'Writer', kind: 'list' },
   { value: 'producer', label: 'Producer', kind: 'list' },
-  { value: 'studio', label: 'Studio / Network', kind: 'text', defaultOp: 'contains' },
+  { value: 'studio', label: 'Studio', kind: 'text', defaultOp: 'contains' },
   { value: 'country', label: 'Country', kind: 'list' },
   { value: 'collection', label: 'Collection', kind: 'list' },
   { value: 'label', label: 'Label', kind: 'list' },
@@ -143,7 +143,7 @@ export default function ProfileEditorModal({ profile, onClose, onSaved, onToast 
     watchlisted: profile?.exclusions?.watchlisted !== false,
     collections: (profile?.exclusions?.collections || []).join(', '),
     labels: (profile?.exclusions?.labels || []).join(', '),
-    minAgeDays: profile?.exclusions?.minAgeDays || '',
+    minAgeDays: profile?.exclusions?.minAgeDays || (profile ? '' : 14),
   })
   const [preview, setPreview] = useState(null)
   const [previewing, setPreviewing] = useState(false)
@@ -264,6 +264,9 @@ export default function ProfileEditorModal({ profile, onClose, onSaved, onToast 
             <div className="conn-field-group">
               <label className="conn-field-label">{t('Added less than (days) ago')}</label>
               <input type="number" min="0" className="conn-input" style={{ maxWidth: 90 }} value={exclusions.minAgeDays} onChange={(e) => setExclusions(prev => ({ ...prev, minAgeDays: e.target.value }))} />
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4, maxWidth: 220 }}>
+                {t('Blank = 14 days for profiles using watch criteria')}
+              </div>
             </div>
           </div>
         </div>

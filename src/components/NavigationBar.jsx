@@ -47,6 +47,7 @@ export default function NavigationBar() {
   const userBtnRef = useRef(null)
   const [menuRight, setMenuRight] = useState(null)
   const [bellPos, setBellPos] = useState(null)
+  const [searchPos, setSearchPos] = useState(null)
 
   // Align the dropdown menu's right edge with the desktop user button.
   // The menu is rendered outside <nav> (to avoid the nav's z-index stacking context),
@@ -203,16 +204,41 @@ export default function NavigationBar() {
     }
   }, [navigate])
 
-  // Close search when clicking outside
+  // Close search when clicking outside (the dropdown lives outside <nav>, so
+  // it must be checked separately from the input wrap)
   useEffect(() => {
     const handler = (e) => {
-      if (searchWrapRef.current && !searchWrapRef.current.contains(e.target)) {
+      if (searchWrapRef.current && !searchWrapRef.current.contains(e.target) &&
+          (!searchDropdownRef.current || !searchDropdownRef.current.contains(e.target))) {
         setSearchOpen(false)
       }
     }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
   }, [])
+
+  // Position the search dropdown under the input. Like the bell dropdown, it
+  // renders outside <nav> with position:fixed — nesting it under the nav's
+  // backdrop-filter would silently disable its own glass blur in Chromium.
+  const searchDropdownOpen = searchResults.length > 0
+  useEffect(() => {
+    if (!searchDropdownOpen) return
+    const compute = () => {
+      if (!searchWrapRef.current) return
+      const rect = searchWrapRef.current.getBoundingClientRect()
+      // The dropdown has min-width 280px; keep it inside the viewport
+      const effectiveWidth = Math.max(rect.width, 280)
+      const left = Math.min(rect.left, Math.max(8, window.innerWidth - effectiveWidth - 8))
+      setSearchPos({
+        top: Math.round(rect.bottom + 6),
+        left: Math.round(left),
+        width: Math.round(rect.width),
+      })
+    }
+    compute()
+    window.addEventListener('resize', compute)
+    return () => window.removeEventListener('resize', compute)
+  }, [searchDropdownOpen, searchOpen])
 
   // Close bell when clicking outside
   useEffect(() => {
@@ -317,37 +343,7 @@ export default function NavigationBar() {
                   <button type="button" className="nav-search-clear" onClick={() => { setSearchQuery(''); searchInputRef.current?.focus() }} aria-label={t('Clear')}>✕</button>
                 )}
               </div>
-              <div className={`nav-search-dropdown${searchResults.length > 0 ? ' open' : ''}`} ref={searchDropdownRef}>
-                {searchResults.slice(0, 6).map((item, idx) => (
-                  <div
-                    key={item.id || item.tmdbId}
-                    className={`hero-suggest-row ${idx === searchActiveIdx ? 'active' : ''}`}
-                    onMouseDown={(e) => { e.preventDefault(); navigateToSearch(item) }}
-                  >
-                    <div className="hero-suggest-poster">
-                      {item.posterUrl ? (
-                        <img src={item.posterUrl} alt="" loading="lazy" />
-                      ) : (
-                        item.title?.charAt(0) || '?'
-                      )}
-                    </div>
-                    <div className="hero-suggest-text">
-                      <span className="hero-suggest-title">{item.title}</span>
-                      <span className="hero-suggest-meta">
-                        {[item.year, item.mediaType === 'movie' ? t('Movie') : t('TV Show')].filter(Boolean).join(' · ')}
-                      </span>
-                    </div>
-                  </div>
-                ))}
-                {searchResults.length > 0 && (
-                  <div
-                    className="hero-suggest-row hero-suggest-all"
-                    onMouseDown={(e) => { e.preventDefault(); navigateToSearch(searchQuery.trim()) }}
-                  >
-                    {t('See all results for \u201c{{query}}\u201d', { query: searchQuery.trim() })}
-                  </div>
-                )}
-              </div>
+              {/* moved: search dropdown renders outside <nav> (see below) */}
             </div>
 
             <div className="nav-bell-wrap" style={{ position: 'relative' }}>
@@ -425,6 +421,45 @@ export default function NavigationBar() {
         </>
       )}
 
+      {/* Search dropdown — rendered outside <nav> so its glass effect works
+          (a backdrop-filter nested under the nav's backdrop-filter doesn't
+          render in Chromium; see the searchPos effect) */}
+      {searchDropdownOpen && (
+        <div
+          className="nav-search-dropdown open"
+          ref={searchDropdownRef}
+          style={{ position: 'fixed', top: searchPos?.top, left: searchPos?.left, right: 'auto', width: searchPos?.width }}
+        >
+          {searchResults.slice(0, 6).map((item, idx) => (
+            <div
+              key={item.id || item.tmdbId}
+              className={`hero-suggest-row ${idx === searchActiveIdx ? 'active' : ''}`}
+              onMouseDown={(e) => { e.preventDefault(); navigateToSearch(item) }}
+            >
+              <div className="hero-suggest-poster">
+                {item.posterUrl ? (
+                  <img src={item.posterUrl} alt="" loading="lazy" />
+                ) : (
+                  item.title?.charAt(0) || '?'
+                )}
+              </div>
+              <div className="hero-suggest-text">
+                <span className="hero-suggest-title">{item.title}</span>
+                <span className="hero-suggest-meta">
+                  {[item.year, item.mediaType === 'movie' ? t('Movie') : t('TV Show')].filter(Boolean).join(' · ')}
+                </span>
+              </div>
+            </div>
+          ))}
+          <div
+            className="hero-suggest-row hero-suggest-all"
+            onMouseDown={(e) => { e.preventDefault(); navigateToSearch(searchQuery.trim()) }}
+          >
+            {t('See all results for “{{query}}”', { query: searchQuery.trim() })}
+          </div>
+        </div>
+      )}
+
       {/* Bell dropdown — rendered outside <nav> so its glass effect works (see bellPos effect) */}
       {bellOpen && (
         <div
@@ -464,7 +499,7 @@ export default function NavigationBar() {
             <div className="info-modal-logo">
               <span className="logo-icon"><LogoIcon /></span>
               <span className="logo-text">Diskovarr</span>
-              <button className="info-modal-version" onClick={() => { setInfoOpen(false); setChangelogOpen(true) }}>v{import.meta.env.VITE_APP_VERSION || '2.3.3'}</button>
+              <button className="info-modal-version" onClick={() => { setInfoOpen(false); setChangelogOpen(true) }}>v{import.meta.env.VITE_APP_VERSION || '2.4.0'}</button>
             </div>
             <p className="info-modal-tagline">{t("Your personalized Plex discovery and content management platform. Diskovarr combines recommendations, requests, watch history, reviews, and community features into a single experience. It learns from your viewing habits to help you discover new content, track what you've watched, and share your thoughts with other users.")}</p>
             <div className="info-modal-sections">

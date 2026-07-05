@@ -560,7 +560,7 @@ async function getLibraryMap() {
 // Watchlist / Playlist management
 // Always uses local Plex URL — the server validates Friend tokens against plex.tv locally.
 // Relay URLs are for external clients reaching the server, not server-to-server calls.
-async function getDiskovarrPlaylist(userToken) {
+async function findPlaylistByTitle(userToken, title) {
   const base = getPlexUrl();
   try {
     const res = await fetch(`${base}/playlists/all?playlistType=video&X-Plex-Token=${userToken}`, {
@@ -571,7 +571,7 @@ async function getDiskovarrPlaylist(userToken) {
     const json = await res.json();
 
     const playlists = json.MediaContainer?.Metadata || [];
-    const playlist = playlists.find(p => p.title === 'Diskovarr');
+    const playlist = playlists.find(p => p.title === title);
     if (!playlist) return null;
 
     const itemsRes = await fetch(`${base}/playlists/${playlist.ratingKey}/items?X-Plex-Token=${userToken}`, {
@@ -590,9 +590,75 @@ async function getDiskovarrPlaylist(userToken) {
       items,
     };
   } catch (err) {
-    console.warn('getDiskovarrPlaylist error:', err.message);
+    console.warn('findPlaylistByTitle error:', err.message);
     return null;
   }
+}
+
+function getDiskovarrPlaylist(userToken) {
+  return findPlaylistByTitle(userToken, 'Diskovarr');
+}
+
+/**
+ * Create (or replace) a playlist with the given title in the user's own Plex
+ * account, containing ratingKeys in order. Replace semantics keep re-clicks
+ * idempotent: an existing playlist of the same title is deleted and rebuilt so
+ * the contents deterministically match the latest data (used by Wrapped, whose
+ * top lists can shift while the year is still in progress).
+ * Returns { playlistId, count }.
+ */
+async function createPlaylistWithItems(userToken, title, ratingKeys) {
+  const base = getPlexUrl();
+  const headers = { ...PLEX_HEADERS, 'X-Plex-Token': userToken };
+
+  // Shows become their S01E01 so Plex doesn't expand entire series.
+  const keys = [];
+  for (const rk of ratingKeys) keys.push(await resolvePlaylistKey(rk));
+  if (!keys.length) throw new Error('No playlist items to add');
+
+  const existing = await findPlaylistByTitle(userToken, title);
+  if (existing) {
+    const del = await fetch(`${base}/playlists/${existing.playlistId}?X-Plex-Token=${userToken}`, {
+      method: 'DELETE', headers, signal: AbortSignal.timeout(10000),
+    });
+    if (!del.ok) throw new Error(`Failed to replace playlist: ${del.status}`);
+  }
+
+  const uriFor = (list) =>
+    `server://${getPlexServerId()}/com.plexapp.plugins.library/library/metadata/${list.join(',')}`;
+  const createUrl = (uri) =>
+    `${base}/playlists?type=video&title=${encodeURIComponent(title)}&smart=0&uri=${encodeURIComponent(uri)}&X-Plex-Token=${userToken}`;
+
+  // Plex accepts a comma-separated key list on create; fall back to
+  // create-with-first + iterative PUTs if a server rejects the multi-key form.
+  let res = await fetch(createUrl(uriFor(keys)), {
+    method: 'POST', headers, signal: AbortSignal.timeout(15000),
+  });
+  if (!res.ok) {
+    res = await fetch(createUrl(uriFor([keys[0]])), {
+      method: 'POST', headers, signal: AbortSignal.timeout(15000),
+    });
+    if (!res.ok) throw new Error(`Failed to create playlist: ${res.status}`);
+    const created = await res.json();
+    const playlistId = String(created.MediaContainer?.Metadata?.[0]?.ratingKey || '');
+    if (!playlistId) throw new Error('Playlist created but no id returned');
+    for (const key of keys.slice(1)) {
+      const put = await fetch(
+        `${base}/playlists/${playlistId}/items?uri=${encodeURIComponent(uriFor([key]))}&X-Plex-Token=${userToken}`,
+        { method: 'PUT', headers, signal: AbortSignal.timeout(10000) }
+      );
+      if (!put.ok) console.warn(`createPlaylistWithItems: failed to add ${key} (${put.status})`);
+    }
+    return { playlistId, count: keys.length };
+  }
+  const created = await res.json();
+  const playlistId = String(created.MediaContainer?.Metadata?.[0]?.ratingKey || '');
+  return { playlistId, count: keys.length };
+}
+
+// Web-app link straight to a playlist (getDeepLink targets library items).
+function getPlaylistDeepLink(playlistId) {
+  return `https://app.plex.tv/desktop#!/server/${getPlexServerId()}/playlist?key=${encodeURIComponent(`/playlists/${playlistId}`)}`;
 }
 
 async function getWatchlist(userToken) {
@@ -901,6 +967,9 @@ module.exports = {
   getWatchlist,
   addToWatchlist,
   removeFromWatchlist,
+  findPlaylistByTitle,
+  createPlaylistWithItems,
+  getPlaylistDeepLink,
   addToPlexTvWatchlist,
   addToPlexTvWatchlistByGuid,
   removeFromPlexTvWatchlist,

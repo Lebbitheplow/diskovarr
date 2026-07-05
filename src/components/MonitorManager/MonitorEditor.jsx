@@ -62,14 +62,12 @@ export default function MonitorEditor({ monitor, onSave, onCancel, prefillName, 
           matchMode,
           notifyPlex,
           notifyRequestable,
-        })
-        for (const c of validCriteria) {
-          await monitorsApi.addCriteria(monitor.id, {
+          criteria: validCriteria.map(c => ({
             type: c.type,
             entityId: c.entityId || null,
             entityName: c.entityName.trim(),
-          })
-        }
+          })),
+        })
       } else {
         await monitorsApi.createMonitor({
           name: name.trim(),
