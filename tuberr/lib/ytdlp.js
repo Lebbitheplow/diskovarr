@@ -23,6 +23,14 @@ const ASSETS = {
 const binDir = path.join(config.dataDir, 'bin');
 const managedPath = path.join(binDir, process.platform === 'win32' ? 'yt-dlp.exe' : 'yt-dlp');
 
+// PyInstaller release binaries are glibc-only; on musl (Alpine — the Docker
+// image) use the universal zipapp instead, which runs on the python3 the image
+// ships. Bare-metal glibc hosts keep the fully standalone binary.
+function assetName() {
+  if (process.platform === 'linux' && fs.existsSync('/etc/alpine-release')) return 'yt-dlp';
+  return ASSETS[`${process.platform}-${process.arch}`];
+}
+
 let lastUpdateCheck = 0;
 let updateError = null;
 
@@ -56,7 +64,7 @@ async function version() {
 }
 
 async function downloadBinary() {
-  const asset = ASSETS[`${process.platform}-${process.arch}`];
+  const asset = assetName();
   if (!asset) throw new Error(`no yt-dlp binary for ${process.platform}-${process.arch}`);
   console.log(`[ytdlp] downloading ${asset} …`);
   const res = await fetch(RELEASE_BASE + asset, { signal: AbortSignal.timeout(120000) });

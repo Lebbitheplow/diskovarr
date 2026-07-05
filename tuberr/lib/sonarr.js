@@ -29,6 +29,16 @@ function getEpisodes(seriesId) {
   return sonarrFetch(`/episode?seriesId=${Number(seriesId)}`);
 }
 
+// Series carrying a given tag label (e.g. 'yt') — used to discover shows the
+// admin tagged directly in Sonarr without going through Diskovarr's request flow
+async function seriesWithTag(label) {
+  const tags = await sonarrFetch('/tag');
+  const tag = tags.find(t => t.label === label);
+  if (!tag) return [];
+  const all = await sonarrFetch('/series');
+  return all.filter(s => (s.tags || []).includes(tag.id));
+}
+
 async function ensureTag(label) {
   const tags = await sonarrFetch('/tag');
   const existing = tags.find(t => t.label === label);
@@ -48,4 +58,4 @@ function systemStatus() {
   return sonarrFetch('/system/status');
 }
 
-module.exports = { sonarrFetch, getSeriesByTvdbId, getEpisodes, ensureTag, episodeSearch, systemStatus };
+module.exports = { sonarrFetch, getSeriesByTvdbId, getEpisodes, ensureTag, episodeSearch, systemStatus, seriesWithTag };

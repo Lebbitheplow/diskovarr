@@ -49,4 +49,101 @@ function isConfigured() {
   return c.youtubeEnabled && !!c.tuberrUrl && !!c.tuberrApiKey;
 }
 
-module.exports = { manageFetch, health, pushConfig, searchChannels, createMapping, isConfigured };
+// One-click Sonarr wiring: registers (or updates) the Tuberr Torznab indexer
+// and qBittorrent-compatible download client in Sonarr, both tagged `yt` and
+// linked, so YouTube series route exclusively through Tuberr. Idempotent —
+// entries are found by name and updated in place.
+const SONARR_ENTRY_NAME = 'Tuberr (YouTube)';
+
+async function setupSonarr() {
+  const c = db.getConnectionSettings();
+  if (!c.sonarrUrl || !c.sonarrApiKey) throw new Error('Sonarr is not configured');
+  if (!c.tuberrUrl || !c.tuberrApiKey) throw new Error('Tuberr is not configured');
+
+  const tuberr = new URL(c.tuberrUrl);
+  // A loopback Tuberr address only works if Sonarr runs on the same host —
+  // otherwise Sonarr can't reach it and the admin must enter a LAN address.
+  const sonarrHost = new URL(c.sonarrUrl).hostname;
+  const loopback = ['127.0.0.1', 'localhost', '::1'];
+  if (loopback.includes(tuberr.hostname) && !loopback.includes(sonarrHost)) {
+    throw new Error('Tuberr address is localhost, which Sonarr cannot reach — set the Tuberr address to this machine\'s LAN IP first');
+  }
+
+  const sonarrFetch = async (path, options = {}) => {
+    const res = await fetch(`${c.sonarrUrl.replace(/\/$/, '')}/api/v3${path}`, {
+      ...options,
+      headers: { 'X-Api-Key': c.sonarrApiKey, 'Content-Type': 'application/json' },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`Sonarr ${path} → ${res.status}: ${body.slice(0, 300)}`);
+    }
+    return res.status === 204 ? null : res.json();
+  };
+
+  // 1. yt tag
+  const tags = await sonarrFetch('/tag');
+  let ytTag = tags.find(t => t.label === 'yt');
+  if (!ytTag) ytTag = await sonarrFetch('/tag', { method: 'POST', body: JSON.stringify({ label: 'yt' }) });
+
+  // 2. download client (qBittorrent-compatible)
+  const clientBody = {
+    enable: true, protocol: 'torrent', priority: 1,
+    removeCompletedDownloads: true, removeFailedDownloads: true,
+    name: SONARR_ENTRY_NAME,
+    implementation: 'QBittorrent', configContract: 'QBittorrentSettings',
+    tags: [ytTag.id],
+    fields: [
+      { name: 'host', value: tuberr.hostname },
+      { name: 'port', value: Number(tuberr.port) || 9832 },
+      { name: 'useSsl', value: tuberr.protocol === 'https:' },
+      { name: 'urlBase', value: '' },
+      { name: 'username', value: 'tuberr' },
+      { name: 'password', value: 'tuberr' },
+      { name: 'tvCategory', value: 'tv-youtube' },
+      { name: 'recentTvPriority', value: 0 },
+      { name: 'olderTvPriority', value: 0 },
+      { name: 'initialState', value: 0 },
+      { name: 'sequentialOrder', value: false },
+      { name: 'firstAndLast', value: false },
+    ],
+  };
+  const clients = await sonarrFetch('/downloadclient');
+  const existingClient = clients.find(x => x.name === SONARR_ENTRY_NAME);
+  const client = existingClient
+    ? await sonarrFetch(`/downloadclient/${existingClient.id}`, { method: 'PUT', body: JSON.stringify({ ...clientBody, id: existingClient.id }) })
+    : await sonarrFetch('/downloadclient', { method: 'POST', body: JSON.stringify(clientBody) });
+
+  // 3. Torznab indexer, pinned to the download client
+  const indexerBody = {
+    enableRss: true, enableAutomaticSearch: true, enableInteractiveSearch: true,
+    name: SONARR_ENTRY_NAME, protocol: 'torrent', priority: 25,
+    implementation: 'Torznab', configContract: 'TorznabSettings',
+    downloadClientId: client.id,
+    tags: [ytTag.id],
+    fields: [
+      { name: 'baseUrl', value: `${c.tuberrUrl.replace(/\/$/, '')}/torznab` },
+      { name: 'apiPath', value: '/api' },
+      { name: 'apiKey', value: c.tuberrApiKey },
+      { name: 'categories', value: [5000] },
+      { name: 'animeCategories', value: [] },
+      { name: 'minimumSeeders', value: 1 },
+    ],
+  };
+  const indexers = await sonarrFetch('/indexer');
+  const existingIndexer = indexers.find(x => x.name === SONARR_ENTRY_NAME);
+  if (existingIndexer) {
+    await sonarrFetch(`/indexer/${existingIndexer.id}`, { method: 'PUT', body: JSON.stringify({ ...indexerBody, id: existingIndexer.id }) });
+  } else {
+    await sonarrFetch('/indexer', { method: 'POST', body: JSON.stringify(indexerBody) });
+  }
+
+  return {
+    ok: true,
+    updated: !!(existingClient || existingIndexer),
+    message: `Sonarr wired up: '${SONARR_ENTRY_NAME}' indexer + download client (tag 'yt', category tv-youtube)`,
+  };
+}
+
+module.exports = { manageFetch, health, pushConfig, searchChannels, createMapping, isConfigured, setupSonarr };

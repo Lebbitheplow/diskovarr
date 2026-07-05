@@ -2,7 +2,8 @@ import React, { useState, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { adminTuberr } from '../../services/adminApi'
 
-// Admin → YouTube: review and correct episode↔video matches for series that
+// YouTube series manager — a modal opened from Admin → Connections → YouTube
+// (Tuberr). Reviews and corrects episode↔video matches for series that
 // download through the Tuberr companion service.
 
 function confidenceBadge(match) {
@@ -116,6 +117,93 @@ function EpisodeRow({ mapping, match, onChanged, onToast }) {
   )
 }
 
+function ChannelPicker({ detail, onSet, onToast }) {
+  const { t } = useTranslation()
+  const [open, setOpen] = useState(!detail.channel_id)
+  const [query, setQuery] = useState(detail.title || '')
+  const [results, setResults] = useState([])
+  const [busy, setBusy] = useState(false)
+
+  const search = async () => {
+    if (!query.trim()) return
+    setBusy(true)
+    try {
+      const { data } = await adminTuberr.searchChannels(query.trim())
+      setResults(data || [])
+      if (!(data || []).length) onToast?.(t('No channels found'), 'error')
+    } catch (e) {
+      onToast?.(e.message || 'Channel search failed', 'error')
+    } finally { setBusy(false) }
+  }
+
+  const apply = async (ch) => {
+    setBusy(true)
+    try {
+      await adminTuberr.createMapping({
+        tvdbId: detail.tvdb_id,
+        title: detail.title,
+        channelId: ch.channelId,
+        channelTitle: ch.title,
+      })
+      onToast?.(t('Channel set — auto-match running'))
+      setOpen(false)
+      onSet?.()
+    } catch (e) {
+      onToast?.(e.message || 'Failed to set channel', 'error')
+    } finally { setBusy(false) }
+  }
+
+  const autoDetect = async () => {
+    setBusy(true)
+    try {
+      const { data } = await adminTuberr.detectChannel(detail.id)
+      if (data.detected) {
+        onToast?.(t('Channel detected: {{name}} — auto-match running', { name: data.channel.title }))
+        setOpen(false)
+        onSet?.()
+      } else {
+        onToast?.(data.reason || t('Could not confidently detect a channel — pick one manually'), 'error')
+      }
+    } catch (e) {
+      onToast?.(e.message || 'Detection failed', 'error')
+    } finally { setBusy(false) }
+  }
+
+  if (!open) {
+    return (
+      <button className="btn-admin" onClick={() => setOpen(true)}>
+        {detail.channel_id ? t('Change channel') : t('Set channel')}
+      </button>
+    )
+  }
+  return (
+    <div style={{ flexBasis: '100%', padding: '10px 12px', border: '1px solid var(--border)', borderRadius: 8 }}>
+      <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+        <input type="text" className="conn-input" style={{ flex: 1, fontSize: '0.82rem' }}
+          value={query} onChange={e => setQuery(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') search() }}
+          placeholder={t('Channel name, @handle, or URL…')} />
+        <button className="btn-admin" disabled={busy} onClick={search}>{t('Search')}</button>
+        {!detail.channel_id && (
+          <button className="btn-admin" disabled={busy} onClick={autoDetect}
+            title={t('Search candidate channels and verify them against the episode list')}>
+            {busy ? t('Detecting…') : t('Auto-detect')}
+          </button>
+        )}
+        <button className="btn-admin" onClick={() => setOpen(false)}>{t('Cancel')}</button>
+      </div>
+      {results.map(ch => (
+        <div key={ch.channelId} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '3px 0' }}>
+          <button className="btn-admin" style={{ fontSize: '0.75rem' }} disabled={busy} onClick={() => apply(ch)}>{t('Use')}</button>
+          {ch.thumbnail && <img src={ch.thumbnail} alt="" style={{ width: 20, height: 20, borderRadius: '50%' }} />}
+          <span style={{ fontSize: '0.84rem' }}>{ch.title}</span>
+          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ch.description}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function MappingDetail({ mappingId, onBack, onToast }) {
   const { t } = useTranslation()
   const [detail, setDetail] = useState(null)
@@ -152,11 +240,16 @@ function MappingDetail({ mappingId, onBack, onToast }) {
         <button className="btn-admin" onClick={onBack}>← {t('Back')}</button>
         <h3 style={{ margin: 0, fontSize: '1rem' }}>{detail.title}</h3>
         <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-          tvdb:{detail.tvdb_id}{detail.channel_title ? ` · ${detail.channel_title}` : ''}
+          tvdb:{detail.tvdb_id}{detail.channel_title ? ` · ${detail.channel_title}` : ` · ${t('no channel set')}`}
         </span>
-        <button className="btn-admin" style={{ marginLeft: 'auto' }} disabled={refreshing} onClick={handleRefresh}>
-          {refreshing ? t('Refreshing…') : t('Re-run auto-match')}
-        </button>
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <ChannelPicker detail={detail} onSet={() => setTimeout(load, 4000)} onToast={onToast} />
+          {detail.channel_id && (
+            <button className="btn-admin" disabled={refreshing} onClick={handleRefresh}>
+              {refreshing ? t('Refreshing…') : t('Re-run auto-match')}
+            </button>
+          )}
+        </div>
       </div>
       {(detail.matches || []).map(m => (
         <EpisodeRow key={`${m.season}-${m.episode}`} mapping={detail} match={m} onChanged={load} onToast={onToast} />
@@ -168,7 +261,7 @@ function MappingDetail({ mappingId, onBack, onToast }) {
   )
 }
 
-export default function YoutubeMappings({ onToast }) {
+function YoutubeMappingsBody({ onToast }) {
   const { t } = useTranslation()
   const [mappings, setMappings] = useState(null)
   const [health, setHealth] = useState(null)
@@ -189,14 +282,12 @@ export default function YoutubeMappings({ onToast }) {
 
   if (selectedId) {
     return (
-      <section className="admin-section">
-        <MappingDetail mappingId={selectedId} onBack={() => { setSelectedId(null); load() }} onToast={onToast} />
-      </section>
+      <MappingDetail mappingId={selectedId} onBack={() => { setSelectedId(null); load() }} onToast={onToast} />
     )
   }
 
   return (
-    <section className="admin-section">
+    <div>
       <p className="section-desc">
         {t('YouTube series downloading through Sonarr via Tuberr. Each series maps to a channel; episodes are auto-matched to videos and can be corrected here.')}
         {health && (
@@ -230,6 +321,48 @@ export default function YoutubeMappings({ onToast }) {
           <button className="btn-admin" onClick={() => setSelectedId(m.id)}>{t('Review')}</button>
         </div>
       ))}
-    </section>
+    </div>
+  )
+}
+
+// Modal wrapper (same overlay pattern as BulkSettingsModal) — opened from the
+// "Manage Series" button in the Connections page's YouTube (Tuberr) section.
+export default function YoutubeMappingsModal({ onClose, onToast }) {
+  const { t } = useTranslation()
+  const handleOverlayClick = useCallback((e) => {
+    if (e.target === e.currentTarget) onClose()
+  }, [onClose])
+
+  return (
+    <div
+      style={{
+        position: 'fixed', inset: 0, zIndex: 1000,
+        background: 'rgba(0,0,0,0.75)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}
+      onClick={handleOverlayClick}
+    >
+      <div
+        style={{
+          background: 'var(--bg-secondary)', borderRadius: '14px', padding: '28px',
+          width: 'min(820px, 94vw)', border: '1px solid var(--border)',
+          position: 'relative', maxHeight: '90vh', overflowY: 'auto',
+        }}
+      >
+        <button
+          onClick={onClose}
+          aria-label={t('Close')}
+          style={{
+            position: 'absolute', top: '14px', right: '16px',
+            background: 'none', border: 'none', color: 'var(--text-secondary)',
+            fontSize: '1.3rem', cursor: 'pointer',
+          }}
+        >
+          ✕
+        </button>
+        <h3 style={{ margin: '0 0 14px', fontSize: '1.05rem', fontWeight: 600 }}>{t('YouTube Series')}</h3>
+        <YoutubeMappingsBody onToast={onToast} />
+      </div>
+    </div>
   )
 }

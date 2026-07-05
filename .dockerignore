@@ -8,6 +8,10 @@ CLAUDE.md
 # Dependencies — installed in-image via `npm ci`
 node_modules
 server/node_modules
+tuberr/node_modules
+
+# Tuberr local state — never bake a live DB/API key into the image
+tuberr/data
 
 # Build output — Stage 1 produces a fresh build
 dist

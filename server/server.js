@@ -129,6 +129,30 @@ app.use('/og', require('./routes/og'))
 // Dynamic theme/icon routes (need Express)
 const db = require('./db/database')
 
+// Auto-pair a co-located Tuberr (the bundled Docker image sets TUBERR_URL and
+// TUBERR_API_KEY_FILE via its entrypoint). Only seeds empty settings, so an
+// admin's explicit configuration always wins. Retries until Tuberr has booted
+// and written its key file.
+if (process.env.TUBERR_URL) {
+  const seedTuberr = () => {
+    try {
+      if (!db.getSetting('tuberr_url', '')) db.setSetting('tuberr_url', process.env.TUBERR_URL)
+      if (!db.getSetting('tuberr_api_key', '') && process.env.TUBERR_API_KEY_FILE && fs.existsSync(process.env.TUBERR_API_KEY_FILE)) {
+        const key = fs.readFileSync(process.env.TUBERR_API_KEY_FILE, 'utf8').trim()
+        if (key) {
+          db.setSetting('tuberr_api_key', key)
+          console.log('[tuberr] auto-paired bundled Tuberr instance')
+        }
+      }
+      return !!db.getSetting('tuberr_api_key', '')
+    } catch { return false }
+  }
+  if (!seedTuberr()) {
+    const timer = setInterval(() => { if (seedTuberr()) clearInterval(timer) }, 15000)
+    timer.unref()
+  }
+}
+
 // Track last visit for logged-in users (throttled to once per 5 minutes per user)
 const _lastVisitTouch = new Map()
 app.use((req, res, next) => {

@@ -31,6 +31,10 @@ RUN npm run build
 FROM node:23-alpine
 WORKDIR /app
 
+# ffmpeg: yt-dlp needs it to merge 1080p video+audio streams.
+# python3: runs the universal yt-dlp zipapp (PyInstaller binaries are glibc-only).
+RUN apk add --no-cache ffmpeg python3
+
 # Install server runtime deps only
 COPY server/package.json server/package-lock.json* ./
 RUN npm ci --omit=dev
@@ -41,13 +45,23 @@ COPY server/. ./
 # React build from stage 1 — placed at /dist so server.js's `../dist` resolves
 COPY --from=frontend /build/dist /dist
 
+# Tuberr companion service (YouTube series through Sonarr) — bundled and started
+# by the entrypoint unless TUBERR_ENABLED=false. Its data lives under /app/data/tuberr
+# inside the existing volume, so no new mounts are required.
+COPY tuberr/package.json tuberr/package-lock.json* /tuberr/
+RUN cd /tuberr && npm ci --omit=dev
+COPY tuberr/. /tuberr/
+
 # Persistent data dir (SQLite DBs live here)
 RUN mkdir -p /app/data
 VOLUME ["/app/data"]
 
-EXPOSE 3232
+COPY docker-entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+EXPOSE 3232 9832
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD node -e "fetch('http://localhost:3232/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
 
-CMD ["node", "server.js"]
+CMD ["/entrypoint.sh"]

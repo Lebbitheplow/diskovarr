@@ -86,6 +86,13 @@ db.exec(`
   );
 `);
 
+// Migrations for columns added after first release
+for (const migration of [
+  'ALTER TABLE series_mappings ADD COLUMN detect_attempts INTEGER DEFAULT 0',
+]) {
+  try { db.exec(migration); } catch { /* column already exists */ }
+}
+
 function getSetting(key, defaultValue = '') {
   const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
   return row ? row.value : defaultValue;

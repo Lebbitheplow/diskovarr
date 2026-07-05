@@ -6,6 +6,7 @@ import {
   adminRiven,
   adminCompat,
 } from '../../services/adminApi'
+import YoutubeMappingsModal from './YoutubeMappings'
 
 const MASKED = String.fromCharCode(8226).repeat(8)
 
@@ -877,7 +878,7 @@ function SonarrSection({ sonarrUrl, sonarrApiKey, sonarrEnabled, sonarrQualityPr
   )
 }
 
-function YoutubeSection({ youtubeEnabled, youtubeApiKey, tuberrUrl, tuberrApiKey, sonarrEnabled, onUpdate, onToast }) {
+function YoutubeSection({ youtubeEnabled, youtubeApiKey, youtubeRootFolder, tuberrUrl, tuberrApiKey, sonarrEnabled, onUpdate, onToast }) {
   const { t } = useTranslation()
   const [host, setHost] = useState(parseHost(tuberrUrl))
   const [port, setPort] = useState(parsePort(tuberrUrl))
@@ -888,7 +889,33 @@ function YoutubeSection({ youtubeEnabled, youtubeApiKey, tuberrUrl, tuberrApiKey
   const [testLoading, setTestLoading] = useState(false)
   const [enabled, setEnabled] = useState(!!youtubeEnabled)
   const [infoOpen, setInfoOpen] = useState(false)
+  const [seriesOpen, setSeriesOpen] = useState(false)
+  const [rootFolder, setRootFolder] = useState(youtubeRootFolder || '')
+  const [rootFolders, setRootFolders] = useState([])
   const realServiceKey = serviceKey === MASKED ? '' : serviceKey
+
+  // Optional per-admin routing: only offered when Sonarr is reachable; unset
+  // means YouTube series share the default root folder like any other show.
+  useEffect(() => {
+    if (!sonarrEnabled) return
+    let cancelled = false
+    adminConnections.getSonarrRootFolders()
+      .then(({ data }) => { if (!cancelled && data?.ok) setRootFolders(data.folders || []) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [sonarrEnabled])
+
+  const [prevRootFolder, setPrevRootFolder] = useState(youtubeRootFolder)
+  if (youtubeRootFolder !== prevRootFolder) {
+    setPrevRootFolder(youtubeRootFolder)
+    setRootFolder(youtubeRootFolder || '')
+  }
+
+  const handleRootFolderChange = async (path) => {
+    setRootFolder(path)
+    onUpdate?.({ youtube_root_folder: path })
+    try { await adminConnections.save({ youtube_root_folder: path }) } catch { /* ignore */ }
+  }
 
   // Sync local fields from props (render-phase adjustment).
   const [prevConn, setPrevConn] = useState(`${tuberrUrl} ${tuberrApiKey} ${youtubeApiKey}`)
@@ -933,6 +960,18 @@ function YoutubeSection({ youtubeEnabled, youtubeApiKey, tuberrUrl, tuberrApiKey
     } finally { setTestLoading(false) }
   }
 
+  const [setupLoading, setSetupLoading] = useState(false)
+  const handleSetupSonarr = async () => {
+    setSetupLoading(true)
+    try {
+      const res = await adminConnections.setupTuberrSonarr()
+      if (res.data?.ok) onToast?.(res.data.message)
+      else onToast?.(res.data?.message || 'Sonarr setup failed', 'error')
+    } catch (err) {
+      onToast?.(err.message || 'Sonarr setup failed', 'error')
+    } finally { setSetupLoading(false) }
+  }
+
   // The same Tuberr key authenticates Sonarr's Torznab indexer — offer it for
   // copy so admins never have to dig it out of Tuberr's log or data dir.
   const copyableKey = realServiceKey || tuberrApiKey || ''
@@ -974,20 +1013,16 @@ function YoutubeSection({ youtubeEnabled, youtubeApiKey, tuberrUrl, tuberrApiKey
         <div style={{ margin: '12px 0', padding: '12px 14px', border: '1px solid var(--border)', borderRadius: 8, background: 'var(--bg-secondary)' }}>
           <p style={{ ...stepStyle, fontWeight: 600, color: 'var(--text)' }}>{t('Setup — one time, in this order')}</p>
           <p style={stepStyle}>
-            <strong>1. Start Tuberr.</strong> {t('It ships in the Diskovarr repo under')} <code style={codeStyle}>tuberr/</code> — {t('run it with')} <code style={codeStyle}>node server.js</code> {t('or the included systemd unit. On first boot it generates its API key, prints it to the log, and saves it to')} <code style={codeStyle}>tuberr/data/api_key.txt</code>.
+            <strong>1. Start Tuberr.</strong> {t('Docker installs already run it — the bundled Tuberr starts with the container and pairs itself here automatically (address + API key fill in on their own), so skip to step 2. Bare-metal installs run it from the repo under')} <code style={codeStyle}>tuberr/</code> ({t('with')} <code style={codeStyle}>node server.js</code> {t('or the included systemd unit) and copy the API key from')} <code style={codeStyle}>tuberr/data/api_key.txt</code> {t('into the field below.')}
           </p>
           <p style={stepStyle}>
-            <strong>2. {t('Connect Diskovarr')}.</strong> {t('Enter the Tuberr address and that API key below, add a free YouTube Data API v3 key (Google Cloud Console), and hit Test. After saving, the key stays available on this page — use the eye icon or the Copy button, no need to touch the log again.')}
+            <strong>2. {t('Add a YouTube API key')}.</strong> {t('Free from Google Cloud Console (YouTube Data API v3) — used for channel search and episode matching. Hit Test to confirm everything is reachable.')}
           </p>
           <p style={stepStyle}>
-            <strong>3. {t('Wire up Sonarr')}</strong> ({t('both entries tagged')} <code style={codeStyle}>yt</code> {t('so only YouTube series use them')}):
-          </p>
-          <p style={{ ...stepStyle, paddingLeft: 16 }}>
-            • {t('Download client → add qBittorrent: host/port of Tuberr, any username/password, category')} <code style={codeStyle}>tv-youtube</code>, {t('tag')} <code style={codeStyle}>yt</code><br />
-            • {t('Indexer → add Torznab: URL')} <code style={codeStyle}>{torznabUrl}</code>, {t('API key = the Tuberr key')}, {t('tag')} <code style={codeStyle}>yt</code>
+            <strong>3. {t('Wire up Sonarr')}.</strong> {t('Click Set up Sonarr above — it creates the Tuberr indexer and download client in Sonarr automatically (both tagged')} <code style={codeStyle}>yt</code>{t(', category')} <code style={codeStyle}>tv-youtube</code>{t(') so only YouTube series use them. Note: if Sonarr runs on a different machine or in Docker, the Tuberr address above must be one Sonarr can reach (LAN IP, not localhost). Prefer manual setup? Add a qBittorrent download client (host/port of Tuberr, any credentials) and a Torznab indexer:')} <code style={codeStyle}>{torznabUrl}</code> {t('with the Tuberr API key.')}
           </p>
           <p style={stepStyle}>
-            <strong>4. {t('Flip the toggle above.')}</strong> {t('TV requests gain a “Download via YouTube” option, TVDB-only shows appear in search, and matches are reviewed in Admin → YouTube.')}
+            <strong>4. {t('Flip the toggle above.')}</strong> {t('TV requests gain a “Download via YouTube” option, TVDB-only shows appear in search, and episode matches are reviewed via the Manage Series button in this section.')}
           </p>
           <button type="button" className="btn-admin" onClick={handleCopyKey} disabled={!copyableKey}
             title={!copyableKey ? t('Enter or save the Tuberr API key first') : ''}>
@@ -1021,7 +1056,16 @@ function YoutubeSection({ youtubeEnabled, youtubeApiKey, tuberrUrl, tuberrApiKey
         <button className="btn-admin conn-action-btn" onClick={handleTest} disabled={testLoading || !hasFields}>
           {testLoading ? 'Testing...' : 'Test'}
         </button>
+        <button className="btn-admin conn-action-btn" onClick={() => setSeriesOpen(true)} disabled={!hasFields}
+          title={!hasFields ? t('Configure Tuberr first') : t('Review series↔channel mappings and episode matches')}>
+          {t('Manage Series')}
+        </button>
+        <button className="btn-admin conn-action-btn" onClick={handleSetupSonarr} disabled={setupLoading || !hasFields || !sonarrEnabled}
+          title={t('Create the Tuberr indexer + download client in Sonarr automatically (tag yt, category tv-youtube)')}>
+          {setupLoading ? t('Setting up…') : t('Set up Sonarr')}
+        </button>
       </div>
+      {seriesOpen && <YoutubeMappingsModal onClose={() => setSeriesOpen(false)} onToast={onToast} />}
       <div className="conn-block-fields" style={{ marginTop: 10 }}>
         <div className="conn-field-group conn-field-key">
           <span className="conn-field-label">{t('YouTube Data API Key')}</span>
@@ -1038,6 +1082,23 @@ function YoutubeSection({ youtubeEnabled, youtubeApiKey, tuberrUrl, tuberrApiKey
             {t('Used for channel search and episode matching. Free key from Google Cloud Console (YouTube Data API v3).')}
           </p>
         </div>
+        {rootFolders.length > 0 && (
+          <div className="conn-field-group">
+            <span className="conn-field-label">{t('YouTube Root Folder')} <span className="conn-field-optional">{t('optional')}</span></span>
+            <select className="conn-select" value={rootFolder} onChange={(e) => handleRootFolderChange(e.target.value)}>
+              <option value="">{t('Same as other shows (Sonarr default)')}</option>
+              {rootFolders.map((f) => (
+                <option key={f.path} value={f.path}>{f.path}</option>
+              ))}
+              {rootFolder && !rootFolders.some(f => f.path === rootFolder) && (
+                <option value={rootFolder}>{rootFolder}</option>
+              )}
+            </select>
+            <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: '6px 0 0' }}>
+              {t('New YouTube series are added to Sonarr under this folder, keeping them apart from regular shows.')}
+            </p>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -1431,6 +1492,7 @@ export default function ConnectionSettings({ onDataLoaded, onToast }) {
         <YoutubeSection
           youtubeEnabled={fields.youtube_enabled}
           youtubeApiKey={fields.youtube_api_key}
+          youtubeRootFolder={fields.youtube_root_folder}
           tuberrUrl={fields.tuberr_url}
           tuberrApiKey={fields.tuberr_api_key}
           sonarrEnabled={fields.sonarr_enabled}
