@@ -11,9 +11,11 @@ const sonarr = require('./sonarr');
 // end to end. Manual matches are always preserved by autoMatch.
 
 const REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const DISCOVERY_INTERVAL_MS = 15 * 60 * 1000; // cheap: two Sonarr calls when idle
 const BOOT_DELAY_MS = 90 * 1000; // let Sonarr/network settle after a reboot
 
 let running = false;
+let discovering = false;
 
 // Admins sometimes tag a series 'yt' directly in Sonarr instead of requesting
 // through Diskovarr. Discover those and create channel-less mappings so they
@@ -38,17 +40,28 @@ async function discoverTaggedSeries() {
   }
 }
 
-// Channel-less mappings (from Sonarr-side tagging) get a few automatic
-// detection attempts; undetectable ones stay flagged for manual review.
-async function detectMissingChannels() {
+// Fast loop: notice newly yt-tagged Sonarr series and get them working without
+// waiting for the heavy 6-hour refresh. For each channel-less mapping: sync its
+// episodes from Sonarr first (detection scores channels against them), then try
+// channel detection — which runs a full auto-match itself on success.
+async function discoverAndDetect() {
+  await discoverTaggedSeries();
   const { getSetting } = require('../db');
-  if (!getSetting('youtube_api_key')) return;
   const channelDetect = require('./channelDetect');
   for (const row of channelDetect.detectableMappings()) {
+    const mapping = mappingsLib.getMapping(row.id);
+    if (!mapping) continue;
+    try {
+      await mappingsLib.syncEpisodesFromSonarr(mapping);
+    } catch (e) {
+      console.error(`[scheduler] episode sync failed for "${mapping.title}": ${e.message}`);
+      continue;
+    }
+    if (!getSetting('youtube_api_key')) continue;
     try {
       await channelDetect.detectChannel(row.id);
     } catch (e) {
-      console.error(`[scheduler] channel detection failed for mapping ${row.id}: ${e.message}`);
+      console.error(`[scheduler] channel detection failed for "${mapping.title}": ${e.message}`);
     }
   }
 }
@@ -57,8 +70,7 @@ async function refreshAll() {
   if (running) return;
   running = true;
   try {
-    await discoverTaggedSeries();
-    await detectMissingChannels();
+    await discoverAndDetect();
     const rows = db.prepare('SELECT id FROM series_mappings').all();
     for (const row of rows) {
       const mapping = mappingsLib.getMapping(row.id);
@@ -80,9 +92,20 @@ async function refreshAll() {
   }
 }
 
+async function discoverTick() {
+  if (running || discovering) return; // the full refresh already covers this
+  discovering = true;
+  try {
+    await discoverAndDetect();
+  } finally {
+    discovering = false;
+  }
+}
+
 function start() {
   setTimeout(refreshAll, BOOT_DELAY_MS).unref();
   setInterval(refreshAll, REFRESH_INTERVAL_MS).unref();
+  setInterval(discoverTick, DISCOVERY_INTERVAL_MS).unref();
 }
 
-module.exports = { start, refreshAll };
+module.exports = { start, refreshAll, discoverAndDetect };

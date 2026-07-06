@@ -48,7 +48,10 @@ async function detectChannel(mappingId) {
   if (!mapping) throw new Error(`mapping ${mappingId} not found`);
   if (mapping.channel_id) return { detected: false, reason: 'channel already set' };
   const episodes = db.prepare('SELECT * FROM episode_matches WHERE mapping_id = ?').all(mapping.id);
-  if (episodes.length === 0) return { detected: false, reason: 'no episodes synced from Sonarr yet' };
+  if (episodes.length === 0) {
+    console.log(`[detect] "${mapping.title}": skipped — no episodes synced from Sonarr yet`);
+    return { detected: false, reason: 'no episodes synced from Sonarr yet' };
+  }
 
   db.prepare('UPDATE series_mappings SET detect_attempts = detect_attempts + 1 WHERE id = ?').run(mapping.id);
 

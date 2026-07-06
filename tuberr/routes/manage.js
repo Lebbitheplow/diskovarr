@@ -18,12 +18,15 @@ router.use((req, res, next) => {
 
 router.get('/health', async (req, res) => {
   const ytdlp = require('../lib/ytdlp');
+  const fs = require('fs');
+  const path = require('path');
   const ytDlp = await downloader.ytdlpVersion();
   res.json({
     ok: true,
     version: require('../package.json').version,
     sonarr: !!(getSetting('sonarr_url') && getSetting('sonarr_api_key')),
     youtubeKey: !!getSetting('youtube_api_key'),
+    cookies: fs.existsSync(path.join(config.dataDir, 'cookies.txt')),
     ytDlp: ytDlp || 'missing',
     ytDlpStatus: ytdlp.status(),
     downloadsDir: config.downloadsDir,
@@ -40,10 +43,25 @@ router.get('/config', (req, res) => {
 });
 
 router.put('/config', (req, res) => {
-  const { sonarrUrl, sonarrApiKey, youtubeApiKey } = req.body || {};
+  const { sonarrUrl, sonarrApiKey, youtubeApiKey, cookies } = req.body || {};
   if (sonarrUrl !== undefined) setSetting('sonarr_url', String(sonarrUrl).replace(/\/$/, ''));
   if (sonarrApiKey !== undefined && sonarrApiKey !== '••••') setSetting('sonarr_api_key', sonarrApiKey);
   if (youtubeApiKey !== undefined && youtubeApiKey !== '••••') setSetting('youtube_api_key', youtubeApiKey);
+  // YouTube account cookies (Netscape cookies.txt) — unlock age-restricted
+  // videos. Empty string clears them. On set, un-break previously failed
+  // matches so the scheduler re-offers and re-searches them.
+  if (cookies !== undefined) {
+    const fs = require('fs');
+    const path = require('path');
+    const cookiesFile = path.join(config.dataDir, 'cookies.txt');
+    if (String(cookies).trim()) {
+      fs.writeFileSync(cookiesFile, String(cookies).trim() + '\n', { mode: 0o600 });
+      const { changes } = db.prepare('UPDATE episode_matches SET broken = 0 WHERE broken = 1').run();
+      console.log(`[manage] cookies saved; reset ${changes} broken match(es) for retry`);
+    } else {
+      try { fs.unlinkSync(cookiesFile); } catch { /* already gone */ }
+    }
+  }
   res.json({ ok: true });
 });
 
@@ -148,6 +166,11 @@ router.put('/mappings/:id/matches/:season/:episode', (req, res) => {
       UPDATE episode_matches SET video_id = ?, confidence = 1, source = 'manual', broken = 0
       WHERE mapping_id = ? AND season = ? AND episode = ?
     `).run(String(videoId), mapping.id, season, episode);
+    // Grab it right away if Sonarr wants it — no extra click needed
+    if (row.sonarr_episode_id) {
+      sonarr.episodeSearch([row.sonarr_episode_id])
+        .catch(e => console.error(`[manage] auto-search after manual match failed: ${e.message}`));
+    }
   } else {
     db.prepare(`
       UPDATE episode_matches SET video_id = NULL, confidence = 0, source = 'manual', broken = 0

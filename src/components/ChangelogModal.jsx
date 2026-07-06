@@ -20,7 +20,7 @@ const DATE_STYLE = { fontWeight: '400', color: 'var(--text-secondary)', fontSize
 export default function ChangelogModal({ open, onClose }) {
   const { t } = useTranslation()
   if (!open) return null
-  const currentVersion = import.meta.env.VITE_APP_VERSION || '2.5.1'
+  const currentVersion = import.meta.env.VITE_APP_VERSION || '2.5.2'
 
   return (
     <div className="info-modal-backdrop open" onClick={onClose}>
@@ -33,6 +33,23 @@ export default function ChangelogModal({ open, onClose }) {
           <div className="info-modal-section">
             <div className="info-modal-section-title">
               v{currentVersion}{' '}
+              <span style={DATE_STYLE}>2026-07-05</span>
+            </div>
+            <p style={SECTION_LABEL_STYLE}>{t('Fixes')}</p>
+            <ul style={LIST_STYLE_LAST}>
+              <li style={ITEM_STYLE}>Series tagged "yt" in Sonarr are now picked up by Tuberr within about 15 minutes instead of waiting for the 6-hour refresh cycle</li>
+              <li style={ITEM_STYLE}>Fixed channel auto-detection skipping brand-new series — episodes are synced from Sonarr first, so tagging a series goes from tag to detected channel and matched episodes in a single pass</li>
+              <li style={ITEM_STYLE}>Missing monitored episodes now download automatically — after matching, Tuberr tells Sonarr to search everything that's matched, monitored, and missing (Sonarr never searches back-catalog on its own). Fixing a match manually also triggers the search</li>
+              <li style={ITEM_STYLE}>Smarter matching when video titles carry extra noise like guest names or console suffixes — AVGN's "ToeJam & Earl" now matches its "ToeJam & Earl with Scott the Woz" video</li>
+              <li style={ITEM_STYLE}>Back-catalog searches are batched (25 per cycle) so a big new series no longer floods your regular indexers and bogs down Sonarr's Activity page — the rest queue up automatically</li>
+              <li style={ITEM_STYLE}>Download progress now shows live in Sonarr's Activity queue — a yt-dlp flag conflict had been suppressing it, leaving items at 0% until they finished</li>
+              <li style={ITEM_STYLE}>Failed downloads no longer clog Sonarr's queue at 0% — Sonarr now sees them as failed, removes them, and moves on</li>
+              <li style={ITEM_STYLE}>Age-restricted videos download too — paste YouTube cookies from a signed-in session into the new box in the YouTube settings; previously failed episodes retry on their own</li>
+            </ul>
+          </div>
+          <div className="info-modal-section">
+            <div className="info-modal-section-title">
+              v2.5.1{' '}
               <span style={DATE_STYLE}>2026-07-05</span>
             </div>
             <p style={SECTION_LABEL_STYLE}>{t('New')}</p>
@@ -62,29 +79,6 @@ export default function ChangelogModal({ open, onClose }) {
               <li style={ITEM_STYLE}>Manage Series — review how episodes were matched to videos, fix a match from the candidate list or a pasted URL, and tell Sonarr to re-grab an episode after correcting it</li>
               <li style={ITEM_STYLE}>Admin → Connections gains a YouTube (Tuberr) section — an enable/disable toggle for the whole feature, YouTube API key, connection test, and step-by-step setup instructions behind the ⓘ icon</li>
               <li style={ITEM_STYLE}>Zero maintenance — Tuberr downloads and keeps yt-dlp updated by itself, and monitored series re-check for new episodes and new uploads every 6 hours, so new episodes download automatically with no manual steps</li>
-            </ul>
-          </div>
-          <div className="info-modal-section">
-            <div className="info-modal-section-title">
-              v2.4.0{' '}
-              <span style={DATE_STYLE}>2026-07-04</span>
-            </div>
-            <p style={SECTION_LABEL_STYLE}>{t('New')}</p>
-            <ul style={LIST_STYLE}>
-              <li style={ITEM_STYLE}>Diskovarr Wrapped — a story-style walkthrough of your year, one stat at a time: hours watched, top movie, top show, the oldest thing you watched, top genres, viewing patterns (month-by-month chart, most active day and hour, biggest binge, longest streak), percentile rankings, your taste age, your show buddy, your Diskovarr personality (an archetype based on what you watch, with trait badges), a critic slide if you wrote reviews, and your Diskovarr activity. Find it on your profile — each year unlocks December 1 and past years stay available; in December a banner on the home page takes you straight there</li>
-              <li style={ITEM_STYLE}>Server leaderboard — see how your watch time stacks up against everyone else, names and numbers included</li>
-              <li style={ITEM_STYLE}>Share any Wrapped stat as an image — the same share options as reviews, with a generated card per stat, addressed by a private link only you can hand out</li>
-              <li style={ITEM_STYLE}>One-click playlist — create a "Diskovarr Wrapped" playlist of your top content of the year in your own Plex account</li>
-              <li style={ITEM_STYLE}>Accurate by design — plays only count once you've watched at least 5 minutes and 20% of a title (or finished it), so accidental clicks never pollute your stats</li>
-            </ul>
-            <p style={SECTION_LABEL_STYLE}>{t('Fixes')}</p>
-            <ul style={LIST_STYLE_LAST}>
-              <li style={ITEM_STYLE}>Fixed editing a monitor duplicating its criteria on every save — saving now replaces the set in one step, removing a criterion actually sticks, and duplicates from the old bug are cleaned up automatically</li>
-              <li style={ITEM_STYLE}>Monitor criteria for keyword, language, and production company now match newly added Plex content, not just requestable titles</li>
-              <li style={ITEM_STYLE}>Deletion safety — titles deleted and re-added to Plex are no longer treated as never watched by deletion profiles, and watch-based profiles now protect items added in the last 14 days unless you set your own age cutoff</li>
-              <li style={ITEM_STYLE}>Show deletions no longer bypass Sonarr when a lookup briefly fails — the deletion retries on the next run instead of leaving Sonarr monitoring a deleted show</li>
-              <li style={ITEM_STYLE}>Auto-request lists retry a failed sync within about an hour instead of waiting out the full sync interval</li>
-              <li style={ITEM_STYLE}>Fixed the search suggestions dropdown appearing nearly transparent — it now uses the same frosted glass as the user menu</li>
             </ul>
           </div>
         </div>

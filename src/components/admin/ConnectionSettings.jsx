@@ -892,7 +892,36 @@ function YoutubeSection({ youtubeEnabled, youtubeApiKey, youtubeRootFolder, tube
   const [seriesOpen, setSeriesOpen] = useState(false)
   const [rootFolder, setRootFolder] = useState(youtubeRootFolder || '')
   const [rootFolders, setRootFolders] = useState([])
+  const [cookiesOpen, setCookiesOpen] = useState(false)
+  const [cookiesText, setCookiesText] = useState('')
+  const [cookiesSaving, setCookiesSaving] = useState(false)
   const realServiceKey = serviceKey === MASKED ? '' : serviceKey
+
+  const handleSaveCookies = async () => {
+    setCookiesSaving(true)
+    try {
+      const { adminTuberr } = await import('../../services/adminApi')
+      await adminTuberr.setConfig({ cookies: cookiesText })
+      onToast?.(t('Cookies saved — previously failed age-restricted episodes will retry automatically'))
+      setCookiesText('')
+      setCookiesOpen(false)
+    } catch (err) {
+      onToast?.(err.message || 'Failed to save cookies', 'error')
+    } finally { setCookiesSaving(false) }
+  }
+
+  const handleClearCookies = async () => {
+    setCookiesSaving(true)
+    try {
+      const { adminTuberr } = await import('../../services/adminApi')
+      await adminTuberr.setConfig({ cookies: '' })
+      onToast?.(t('Cookies cleared'))
+      setCookiesText('')
+      setCookiesOpen(false)
+    } catch (err) {
+      onToast?.(err.message || 'Failed to clear cookies', 'error')
+    } finally { setCookiesSaving(false) }
+  }
 
   // Optional per-admin routing: only offered when Sonarr is reachable; unset
   // means YouTube series share the default root folder like any other show.
@@ -1080,6 +1109,38 @@ function YoutubeSection({ youtubeEnabled, youtubeApiKey, youtubeRootFolder, tube
           </div>
           <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: '6px 0 0' }}>
             {t('Used for channel search and episode matching. Free key from Google Cloud Console (YouTube Data API v3).')}
+          </p>
+        </div>
+        <div className="conn-field-group">
+          <span className="conn-field-label">{t('Age-Restricted Videos')} <span className="conn-field-optional">{t('optional')}</span></span>
+          {!cookiesOpen ? (
+            <button type="button" className="btn-admin" style={{ marginTop: 6 }} onClick={() => setCookiesOpen(true)}>
+              {t('Add YouTube cookies…')}
+            </button>
+          ) : (
+            <div style={{ marginTop: 6 }}>
+              <textarea
+                className="conn-input"
+                rows={4}
+                style={{ width: '100%', fontFamily: 'monospace', fontSize: '0.72rem', resize: 'vertical' }}
+                placeholder={t('# Netscape HTTP Cookie File — paste the exported youtube.com cookies here')}
+                value={cookiesText}
+                onChange={(e) => setCookiesText(e.target.value)}
+              />
+              <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                <button type="button" className="btn-admin btn-primary" disabled={!cookiesText.trim() || cookiesSaving}
+                  onClick={handleSaveCookies}>
+                  {cookiesSaving ? t('Saving…') : t('Save cookies')}
+                </button>
+                <button type="button" className="btn-admin" disabled={cookiesSaving} onClick={handleClearCookies}>
+                  {t('Clear cookies')}
+                </button>
+                <button type="button" className="btn-admin" onClick={() => setCookiesOpen(false)}>{t('Close')}</button>
+              </div>
+            </div>
+          )}
+          <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: '6px 0 0' }}>
+            {t('Age-restricted videos need a signed-in YouTube session. Important: export from a PRIVATE/incognito window (sign in, open youtube.com, export cookies.txt with an extension like “Get cookies.txt LOCALLY”, then close the window without signing out) — cookies exported from your everyday browser session get rotated by YouTube within minutes and stop working. Paste the file contents here; previously failed episodes retry automatically.')}
           </p>
         </div>
         {rootFolders.length > 0 && (

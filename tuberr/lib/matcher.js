@@ -58,6 +58,19 @@ function tokenSetScore(a, b) {
   return inter / (ta.size + tb.size - inter);
 }
 
+// When every token of the (short) episode title appears in the video title,
+// that's a strong match even if the video title carries extra noise ("with
+// Scott the Woz", console names, channel suffixes) that dilutes Jaccard/Dice.
+// Scaled by 0.95 so an exact title still wins ties, and skipped for one-word
+// titles where containment is too easy.
+function containmentScore(cleanEp, cleanVideo) {
+  const epTokens = cleanEp.split(' ').filter(Boolean);
+  if (epTokens.length < 2) return 0;
+  const videoTokens = new Set(cleanVideo.split(' '));
+  const hits = epTokens.filter(t => videoTokens.has(t)).length;
+  return (hits / epTokens.length) * 0.95;
+}
+
 function diceBigram(a, b) {
   const grams = (s) => {
     const out = new Map();
@@ -104,10 +117,13 @@ function scorePair(episode, video, ctx) {
   if (video.status !== 'ok') return 0;
   const generic = isGenericEpisodeTitle(episode.episode_title);
   const weights = generic ? GENERIC_TITLE_WEIGHTS : WEIGHTS;
+  // Strip series/channel branding from BOTH sides: TVDB episode titles often
+  // repeat it too ("… with Trixie and Katya"), and cleaning only the video
+  // side made those shared tokens count against the match.
   const cleanVideo = stripNoise(video.title, ctx.seriesTitle, ctx.channelTitle);
-  const cleanEp = normalize(episode.episode_title);
+  const cleanEp = stripNoise(episode.episode_title, ctx.seriesTitle, ctx.channelTitle);
   const title = (cleanEp && !generic)
-    ? Math.max(tokenSetScore(cleanEp, cleanVideo), diceBigram(cleanEp, cleanVideo))
+    ? Math.max(tokenSetScore(cleanEp, cleanVideo), diceBigram(cleanEp, cleanVideo), containmentScore(cleanEp, cleanVideo))
     : 0;
 
   // Generic TVDB titles usually carry the series' absolute number ("Episode 11"
@@ -229,7 +245,45 @@ async function autoMatch(mappingId, { refresh = true } = {}) {
   }
   const status = mappingsLib.refreshMatchStatus(mapping.id);
   console.log(`[matcher] mapping ${mapping.id} (${mapping.title}): ${matched}/${episodes.length} matched`);
-  return { matched, episodes: episodes.length, ...status };
+  const searched = await searchMissingInSonarr(mapping);
+  return { matched, episodes: episodes.length, searched, ...status };
 }
 
-module.exports = { autoMatch, scorePair, normalize, stripNoise, extractEpisodeNumber, dateScore, AUTO_THRESHOLD };
+// Sonarr never searches its back-catalog by itself — RSS sync only covers
+// newly published releases. So after every match run, ask Sonarr to search
+// every episode that is matched here AND monitored + missing there. Idempotent:
+// imported episodes drop out via hasFile, failed videos drop out via broken.
+// Capped per run: episode searches also fan out to the admin's untagged
+// regular indexers (Sonarr tags can't exclude them), so a 200-episode burst
+// rate-limits Prowlarr and clogs Sonarr's command queue. The remainder is
+// picked up by subsequent scheduler cycles.
+const SEARCH_BATCH_LIMIT = 25;
+
+async function searchMissingInSonarr(mapping) {
+  if (!mapping.sonarr_series_id) return 0;
+  try {
+    const sonarrEpisodes = await sonarr.getEpisodes(mapping.sonarr_series_id);
+    const byId = new Map(sonarrEpisodes.map(e => [e.id, e]));
+    const rows = db.prepare(`
+      SELECT sonarr_episode_id FROM episode_matches
+      WHERE mapping_id = ? AND video_id IS NOT NULL AND broken = 0 AND sonarr_episode_id IS NOT NULL
+      ORDER BY season DESC, episode DESC
+    `).all(mapping.id);
+    const searchIds = [];
+    for (const row of rows) {
+      const e = byId.get(row.sonarr_episode_id);
+      if (e && e.monitored && !e.hasFile) searchIds.push(e.id);
+    }
+    const batch = searchIds.slice(0, SEARCH_BATCH_LIMIT);
+    if (batch.length) {
+      await sonarr.episodeSearch(batch);
+      console.log(`[matcher] "${mapping.title}": asked Sonarr to search ${batch.length}/${searchIds.length} missing monitored episode(s)`);
+    }
+    return batch.length;
+  } catch (e) {
+    console.error(`[matcher] Sonarr search request failed for "${mapping.title}": ${e.message}`);
+    return 0;
+  }
+}
+
+module.exports = { autoMatch, searchMissingInSonarr, scorePair, normalize, stripNoise, extractEpisodeNumber, dateScore, AUTO_THRESHOLD };

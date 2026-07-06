@@ -290,7 +290,7 @@ Type=simple
 User=your-user
 WorkingDirectory=/path/to/diskovarr/tuberr
 ExecStart=/usr/bin/node server.js
-Environment=TUBERR_DOWNLOADS_DIR=/path/sonarr/can/read
+Environment="TUBERR_DOWNLOADS_DIR=/path/sonarr/can/read"
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal

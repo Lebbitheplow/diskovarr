@@ -80,24 +80,42 @@ router.get('/api', (req, res) => {
       .send('<?xml version="1.0" encoding="UTF-8"?><error code="203" description="Function not available"/>');
   }
 
-  let mappings = [];
-  if (tvdbid) {
-    const m = db.prepare('SELECT * FROM series_mappings WHERE tvdb_id = ?').get(Number(tvdbid));
-    if (m) mappings = [m];
-  } else if (q) {
-    mappings = db.prepare('SELECT * FROM series_mappings WHERE title LIKE ?').all(`%${String(q).slice(0, 100)}%`);
-  } else {
-    // RSS sync: recently matched episodes across all mappings
-    mappings = db.prepare('SELECT * FROM series_mappings').all();
-  }
-
   const items = [];
-  for (const mapping of mappings) {
-    for (const match of matchedRowsFor(mapping, season, ep)) {
-      items.push(itemXml(releases.buildRelease(mapping, match), baseUrlOf(req), req.query.apikey));
+  if (!tvdbid && !q) {
+    // RSS sync: the 50 most recently *uploaded* matched episodes across all
+    // mappings, so new videos surface fairly no matter which series they
+    // belong to (per-mapping iteration starved later mappings out of the feed)
+    const rows = db.prepare(`
+      SELECT em.*, m.id AS m_id
+      FROM episode_matches em
+      JOIN series_mappings m ON m.id = em.mapping_id
+      JOIN videos v ON v.video_id = em.video_id AND v.mapping_id = em.mapping_id
+      WHERE em.video_id IS NOT NULL AND em.broken = 0
+      ORDER BY v.published_at DESC
+      LIMIT 50
+    `).all();
+    const mappingCache = new Map();
+    for (const row of rows) {
+      if (!mappingCache.has(row.m_id)) {
+        mappingCache.set(row.m_id, db.prepare('SELECT * FROM series_mappings WHERE id = ?').get(row.m_id));
+      }
+      items.push(itemXml(releases.buildRelease(mappingCache.get(row.m_id), row), baseUrlOf(req), req.query.apikey));
+    }
+  } else {
+    let mappings = [];
+    if (tvdbid) {
+      const m = db.prepare('SELECT * FROM series_mappings WHERE tvdb_id = ?').get(Number(tvdbid));
+      if (m) mappings = [m];
+    } else {
+      mappings = db.prepare('SELECT * FROM series_mappings WHERE title LIKE ?').all(`%${String(q).slice(0, 100)}%`);
+    }
+    for (const mapping of mappings) {
+      for (const match of matchedRowsFor(mapping, season, ep)) {
+        items.push(itemXml(releases.buildRelease(mapping, match), baseUrlOf(req), req.query.apikey));
+        if (items.length >= 100) break;
+      }
       if (items.length >= 100) break;
     }
-    if (items.length >= 100) break;
   }
 
   res.type('application/xml').send(`<?xml version="1.0" encoding="UTF-8"?>

@@ -4,6 +4,27 @@ All notable changes are documented here. Versioning follows [Semantic Versioning
 
 ---
 
+## v2.5.2 — 2026-07-05
+
+### Fixed
+
+- **Sonarr-tagged series pick up fast** — discovery of `yt`-tagged series and channel auto-detection moved to their own 15-minute loop (two cheap Sonarr calls when idle) instead of riding the 6-hour refresh, so tagging a series in Sonarr gets it into Tuberr within minutes.
+- **Missing monitored episodes download automatically** — after every match run, Tuberr asks Sonarr to search all episodes that are matched, monitored, and missing. Sonarr's RSS sync only covers newly published releases and it never searches back-catalog on its own, so matched series previously sat idle until a manual search. Manual match corrections in Manage Series also trigger an immediate search.
+- **RSS feed no longer starves newer series** — the feed now returns the 50 most recently uploaded matched episodes across all series (ordered by upload date) instead of iterating series-by-series into a 100-item cap that early series exhausted.
+- **Containment title matching** — an episode title whose every word appears in the video title now scores as a strong match even when the video adds guests, console names, or channel branding (e.g. AVGN's "ToeJam & Earl (Sega Genesis)" vs "ToeJam & Earl with Scott the Woz (Sega Genesis) - Angry Video Game Nerd (AVGN)"); upload-date sanity keeps old lookalike uploads out.
+- **Search bursts are batched** — back-catalog searches go to Sonarr 25 episodes per cycle instead of all at once; a big burst also fans out to your regular untagged indexers (Sonarr tags can't exclude them), which rate-limited Prowlarr and bogged down Sonarr's Activity page. Later cycles pick up the remainder automatically.
+- **Age-restricted videos** — place a Netscape-format `cookies.txt` (exported from a signed-in YouTube session, per the yt-dlp wiki) in Tuberr's data dir and every download uses it.
+- **systemd unit quoting** — the sample unit's `Environment=` line is now quoted so downloads dirs containing spaces (e.g. `/NAS/Temp Download/tuberr`) aren't truncated at the first space.
+- **Download progress actually shows in Sonarr** — `--no-progress` was silently suppressing yt-dlp's progress template, so queue items sat at 0% until done. Live percentage, speed, and ETA now flow through the qBittorrent-compatible API.
+- **Failed downloads drain from Sonarr's queue** — errored items previously reported qBittorrent's `error` state, which Sonarr treats as a transient warning and leaves in the queue at 0% forever; they now report `missingFiles`, which Sonarr treats as failed (removed + blocklisted).
+- **Age-restricted videos via pasted cookies** — the YouTube (Tuberr) section gains an "Add YouTube cookies" box; paste a Netscape `cookies.txt` from a signed-in session and downloads authenticate with it (saved 0600 in Tuberr's data dir). Saving cookies automatically un-breaks previously failed matches so they retry; clear any Sonarr blocklist entries from the earlier failures.
+- **Six parallel downloads** — up from 2, so big back-catalogs drain much faster (tunable via `max_concurrent` setting or `TUBERR_MAX_CONCURRENT`; kept below the point where YouTube starts throttling parallel connections).
+- **Symmetric branding strip in title matching** — series/channel branding is now removed from the TVDB episode title as well as the video title before scoring; shows whose episode titles repeat the hosts ("… with Trixie and Katya") previously lost points for their own branding.
+- **Cookie jar safety** — every download uses a private temp copy of `cookies.txt` (yt-dlp writes rotated cookies back to the file it is given; parallel downloads sharing one jar corrupted the session), and the UI now instructs exporting from a private/incognito window so the browser never rotates the exported session.
+- **Detection no longer skips brand-new series** — channel auto-detection ran before a freshly discovered series had its episode list synced from Sonarr, so it silently did nothing until the next cycle. Episodes now sync first and detection (plus the full auto-match) runs in the same pass.
+
+---
+
 ## v2.5.1 — 2026-07-05
 
 A polish release making Tuberr effectively zero-setup, plus admin panel refinements.

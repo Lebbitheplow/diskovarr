@@ -17,7 +17,11 @@ const QBIT_STATE = {
   queued: 'queuedDL',
   downloading: 'downloading',
   completed: 'pausedUP',
-  error: 'error',
+  // 'missingFiles', not 'error': Sonarr treats qbit 'error' as a transient
+  // warning and leaves the item in its queue at 0% forever. 'missingFiles' is
+  // treated as failed, so Sonarr removes it, blocklists the release, and the
+  // queue drains. Tuberr stops offering the video via the broken flag anyway.
+  error: 'missingFiles',
 };
 
 function getCategories() {

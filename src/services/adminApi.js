@@ -110,6 +110,7 @@ export const adminConnections = {
 /** Tuberr (YouTube downloader) — proxied through /admin/tuberr/* */
 export const adminTuberr = {
   health: () => adminApi.get('/tuberr/health'),
+  setConfig: (data) => adminApi.put('/tuberr/config', data),
   getMappings: () => adminApi.get('/tuberr/mappings'),
   getMapping: (id) => adminApi.get(`/tuberr/mappings/${id}`),
   createMapping: (data) => adminApi.post('/tuberr/mappings', data),

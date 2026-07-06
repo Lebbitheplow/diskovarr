@@ -4,7 +4,16 @@ const fs = require('fs');
 const { db } = require('../db');
 const ytdlp = require('./ytdlp');
 
-const MAX_CONCURRENT = 2;
+// Parallel yt-dlp downloads. Each one also costs an ffmpeg merge at the end,
+// and too many parallel connections invites YouTube throttling/bot checks —
+// 6 is a safe sweet spot for a fast home connection. Tunable via the
+// max_concurrent setting or TUBERR_MAX_CONCURRENT env.
+function maxConcurrent() {
+  const { getSetting } = require('../db');
+  return Number(process.env.TUBERR_MAX_CONCURRENT)
+    || Number(getSetting('max_concurrent'))
+    || 6;
+}
 const PROGRESS_PREFIX = 'PROG|';
 
 // yt-dlp emits one parseable line per progress tick; values may be 'NA'
@@ -34,7 +43,7 @@ function enqueue(infoHash) {
 }
 
 function pump() {
-  while (active.size < MAX_CONCURRENT && queue.length > 0) {
+  while (active.size < maxConcurrent() && queue.length > 0) {
     const infoHash = queue.shift();
     const row = db.prepare('SELECT * FROM downloads WHERE info_hash = ?').get(infoHash);
     if (!row || row.state === 'completed') continue;
@@ -51,16 +60,33 @@ async function run(row) {
   fs.mkdirSync(outDir, { recursive: true });
   const outTemplate = path.join(outDir, `${row.release_title}.%(ext)s`);
   const url = `https://www.youtube.com/watch?v=${row.video_id}`;
+  // NOTE: no --no-progress here — it suppresses --progress-template output
+  // entirely, which silently kills live progress reporting.
+  // --js-runtimes node: yt-dlp needs a JS runtime for YouTube format extraction
+  // (some videos otherwise expose no downloadable formats); node is guaranteed
+  // present since it runs Tuberr itself.
   const args = [
+    '--js-runtimes', 'node',
     '-f', FORMAT,
     '--merge-output-format', 'mp4',
     '--no-playlist',
-    '--no-progress',
     '--newline',
     '--progress-template', PROGRESS_TEMPLATE,
     '-o', outTemplate,
     url,
   ];
+  // Age-restricted videos need YouTube account cookies. Each run gets its own
+  // temp COPY of the jar: yt-dlp writes rotated cookies back to the file it is
+  // given, so parallel downloads sharing the master file would clobber each
+  // other and corrupt the session.
+  const config = require('../config');
+  const cookiesFile = path.join(config.dataDir, 'cookies.txt');
+  let tempCookies = null;
+  if (fs.existsSync(cookiesFile)) {
+    tempCookies = path.join(config.dataDir, `.cookies-${row.info_hash.slice(0, 12)}.tmp`);
+    fs.copyFileSync(cookiesFile, tempCookies);
+    args.unshift('--cookies', tempCookies);
+  }
 
   stmtUpdateProgress.run(0, row.size_bytes, 0, 0, 'downloading', row.info_hash);
   console.log(`[downloader] starting ${row.video_id} → ${outDir}`);
@@ -92,6 +118,10 @@ async function run(row) {
     proc.on('close', resolve);
   });
 
+  if (tempCookies) {
+    try { fs.unlinkSync(tempCookies); } catch { /* already gone */ }
+  }
+
   if (exitCode === 0) {
     let finalSize = 0;
     try {
@@ -103,10 +133,14 @@ async function run(row) {
     console.log(`[downloader] completed ${row.video_id} (${finalSize} bytes)`);
   } else {
     const error = stderrTail.join('').trim().slice(-1000) || `yt-dlp exited with code ${exitCode}`;
-    stmtFinish.run('error', row.progress || 0, row.size_bytes, 0, error, row.info_hash);
-    // Stop offering this video for its episode so Sonarr can move on after blocklisting
+    // Mark the match broken so torznab stops offering this video, then drop the
+    // download row: a lingering errored item makes Sonarr treat the episode as
+    // "already in queue" and it never retries. With the row gone, Sonarr sees
+    // the download vanish, returns the episode to wanted, and a later re-match
+    // (or cookies fix) grabs it cleanly with no blocklist in the way.
     db.prepare('UPDATE episode_matches SET broken = 1 WHERE video_id = ?').run(row.video_id);
-    console.error(`[downloader] failed ${row.video_id}: ${error.split('\n').pop()}`);
+    db.prepare('DELETE FROM downloads WHERE info_hash = ?').run(row.info_hash);
+    console.error(`[downloader] failed ${row.video_id} (removed from queue): ${error.split('\n').pop()}`);
   }
 }
 

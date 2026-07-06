@@ -1,5 +1,25 @@
 [
   {
+    "version": "2.5.2",
+    "date": "2026-07-05",
+    "changes": [
+      "Series tagged 'yt' in Sonarr are now picked up by Tuberr within about 15 minutes — discovery and channel detection moved to their own fast loop instead of waiting for the 6-hour refresh cycle.",
+      "Fixed channel auto-detection silently skipping freshly discovered series — detection ran before the series' episode list had been synced from Sonarr, so new series sat without a channel until the next cycle. Episodes now sync first and detection runs in the same pass, so tagging a series in Sonarr goes from tag to matched episodes in one step.",
+      "Matched episodes that are monitored and missing in Sonarr are now searched automatically after every match run — Sonarr never searches back-catalog on its own, so previously a matched series sat idle until someone clicked search. Manual match corrections also trigger an immediate search.",
+      "Fixed the Torznab RSS feed starving newer series — it now returns the 50 most recently uploaded matched episodes across all series instead of iterating series-by-series into a cap.",
+      "Better title matching when video titles carry extra noise — an episode title fully contained in a video title (guest names, console suffixes, series branding) now scores as a strong match, with upload-date sanity keeping lookalike re-uploads out.",
+      "Back-catalog searches are now sent to Sonarr in batches of 25 per cycle — a single 200-episode burst also fans out to your regular indexers (Sonarr tags can't exclude untagged indexers from tagged series), which rate-limited Prowlarr and made Sonarr's Activity page crawl. The remainder is picked up by later cycles automatically.",
+      "Age-restricted videos can now download — drop a Netscape-format cookies.txt (exported from a signed-in YouTube session, see the yt-dlp wiki) into Tuberr's data dir and it's used for every download.",
+      "Fixed the sample systemd unit losing everything after the first space in TUBERR_DOWNLOADS_DIR — the Environment= line is now quoted, so paths like '/NAS/Temp Download/tuberr' work.",
+      "Fixed download progress never updating in Sonarr's Activity queue — a yt-dlp flag conflict silently suppressed all progress output, so items sat at 0% until they finished. Live percentage, speed, and ETA now report correctly.",
+      "Failed downloads no longer sit in Sonarr's queue at 0% forever — they now report a state Sonarr treats as failed, so Sonarr removes them, blocklists the release, and the queue drains.",
+      "Added a YouTube cookies box to the YouTube (Tuberr) section — paste a cookies.txt exported from a signed-in YouTube session to unlock age-restricted videos; previously failed episodes retry automatically once cookies are saved.",
+      "Raised parallel downloads from 2 to 6 (tunable via the max_concurrent setting or TUBERR_MAX_CONCURRENT env), so large back-catalogs drain much faster.",
+      "Fixed episode titles that repeat the show's branding scoring too low — branding is now stripped from both the episode title and the video title before comparing, so shows like The Bald and the Beautiful ('… with Trixie and Katya' in every TVDB title) match correctly.",
+      "Cookies are handled safely for parallel downloads — each download gets its own temporary copy of the cookie jar (yt-dlp writes rotated cookies back to the file it's given, so six downloads sharing one file corrupted the session), and the cookies box now explains to export from a private/incognito window so YouTube doesn't rotate the session out from under Tuberr."
+    ]
+  },
+  {
     "version": "2.5.1",
     "date": "2026-07-05",
     "changes": [

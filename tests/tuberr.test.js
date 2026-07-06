@@ -144,6 +144,30 @@ describe('matcher scoring', () => {
     expect(matcher.scorePair(ep, noNumber, ctx)).toBeLessThan(matcher.AUTO_THRESHOLD)
   })
 
+  it('strips branding from the episode title too, not just the video title', () => {
+    // B&B TVDB titles repeat the hosts: "The Dock of Dreams with Trixie and Katya"
+    const bbCtx = { ...ctx, seriesTitle: 'The Bald And The Beautiful', channelTitle: 'Trixie & Katya' }
+    const ep = episode({ episode_title: 'The Dock of Dreams with Trixie and Katya', air_date: '2023-04-11' })
+    const vid = video({
+      title: 'The Dock of Dreams with Trixie and Katya | The Bald and the Beautiful with Trixie and Katya Podcast',
+      published_at: '2023-04-11T17:15:11Z',
+      duration_sec: 3466,
+    })
+    expect(matcher.scorePair(ep, vid, bbCtx)).toBeGreaterThan(matcher.AUTO_THRESHOLD)
+  })
+
+  it('matches when the episode title is contained in a noisier video title', () => {
+    // AVGN "ToeJam & Earl (Sega Genesis)" vs the video with guest + series suffix
+    const ep = episode({ episode_title: 'ToeJam & Earl (Sega Genesis)', episode: 19 })
+    const noisy = video({ title: 'ToeJam & Earl with Scott the Woz (Sega Genesis) - Angry Video Game Nerd (AVGN)' })
+    expect(matcher.scorePair(ep, noisy, { ...ctx, seriesTitle: 'Angry Video Game Nerd', channelTitle: 'Cinemassacre' }))
+      .toBeGreaterThan(matcher.AUTO_THRESHOLD)
+    // same containment but a decade-old upload date must stay below threshold
+    const old = video({ title: 'ToeJam & Earl (Sega Genesis) James & Mike Mondays', published_at: '2014-03-24T15:00:00Z' })
+    expect(matcher.scorePair(ep, old, { ...ctx, seriesTitle: 'Angry Video Game Nerd', channelTitle: 'Cinemassacre' }))
+      .toBeLessThan(matcher.AUTO_THRESHOLD)
+  })
+
   it('uses the absolute number from generic titles, not the per-season number', () => {
     // TVDB S02E01 titled "Episode 11" must match "Ep. 11", not "Part 1"/"Part 2"
     const ep = episode({ season: 2, episode: 1, episode_title: 'Episode 11' })
