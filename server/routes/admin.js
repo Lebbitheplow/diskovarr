@@ -614,6 +614,16 @@ router.post('/connections/tuberr/setup-sonarr', requireAdmin, async (req, res) =
   }
 });
 
+// Rotate Tuberr's API key (e.g. after a leak) and propagate it to Sonarr
+router.post('/connections/tuberr/regenerate-key', requireAdmin, async (req, res) => {
+  try {
+    const tuberrService = require('../services/tuberr');
+    res.json(await tuberrService.regenerateKey());
+  } catch (err) {
+    res.status(502).json({ ok: false, message: err.message });
+  }
+});
+
 router.post('/connections/test/tuberr', requireAdmin, async (req, res) => {
   const { url, apiKey } = req.body;
   const effectiveUrl = url || db.getSetting('tuberr_url', '');

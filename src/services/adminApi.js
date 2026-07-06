@@ -103,6 +103,7 @@ export const adminConnections = {
   getQualityProfiles: (service, params = {}) => adminApi.get(`/connections/quality-profiles/${service}`, { params }),
   getSonarrRootFolders: () => adminApi.get('/connections/root-folders/sonarr'),
   setupTuberrSonarr: () => adminApi.post('/connections/tuberr/setup-sonarr'),
+  regenerateTuberrKey: () => adminApi.post('/connections/tuberr/regenerate-key'),
   setDefaultService: (service) => adminApi.post('/connections/save', { default_request_service: service }),
   setDirectRequestAccess: (adminOnly) => adminApi.post('/connections/save', { direct_request_access: adminOnly ? '1' : '0' }),
 }

@@ -25,6 +25,8 @@ dist-ssr
 *.db-wal
 *.bak
 server/data/
+# Tuberr local state — API key, YouTube session cookies, yt-dlp binary, sqlite db
+tuberr/data/
 
 # Internal planning / migration docs
 FINAL_PLAN_SUMMARY.md

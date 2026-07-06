@@ -1,4 +1,5 @@
 const express = require('express');
+const crypto = require('crypto');
 const { db, getSetting, setSetting } = require('../db');
 const config = require('../config');
 const naming = require('../lib/naming');
@@ -63,6 +64,22 @@ router.put('/config', (req, res) => {
     }
   }
   res.json({ ok: true });
+});
+
+// Rotate the management API key. Authenticated with the CURRENT key (the
+// route middleware already enforced that), so a compromised key can be
+// replaced from Diskovarr's Connections page. Persists to the DB + the
+// mirrored api_key.txt; the caller is responsible for updating anything that
+// stores the old key (Diskovarr's tuberr_api_key + Sonarr's indexer).
+router.post('/regenerate-key', (req, res) => {
+  const newKey = crypto.randomBytes(24).toString('hex');
+  setSetting('api_key', newKey);
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    fs.writeFileSync(path.join(config.dataDir, 'api_key.txt'), newKey + '\n', { mode: 0o600 });
+  } catch { /* non-fatal — key is still in the DB */ }
+  res.json({ ok: true, apiKey: newKey });
 });
 
 router.get('/mappings', (req, res) => {

@@ -44,6 +44,24 @@ function createMapping({ tvdbId, title, channelId, channelTitle, playlistIds, so
   });
 }
 
+// Rotate Tuberr's management API key end-to-end: ask Tuberr to mint a new key
+// (authenticated with the current one), persist it as Diskovarr's tuberr_api_key,
+// then re-run the Sonarr wiring so the Torznab indexer carries the new key. If
+// Sonarr isn't configured yet the rotation still succeeds — setupSonarr is best
+// effort and its outcome is surfaced to the caller.
+async function regenerateKey() {
+  const { apiKey } = await manageFetch('/regenerate-key', { method: 'POST' });
+  if (!apiKey) throw new Error('Tuberr did not return a new key');
+  db.setSetting('tuberr_api_key', apiKey);
+  let sonarr = null;
+  try {
+    sonarr = await setupSonarr();
+  } catch (e) {
+    sonarr = { ok: false, message: e.message };
+  }
+  return { ok: true, apiKey, sonarr };
+}
+
 function isConfigured() {
   const c = db.getConnectionSettings();
   return c.youtubeEnabled && !!c.tuberrUrl && !!c.tuberrApiKey;
@@ -146,4 +164,4 @@ async function setupSonarr() {
   };
 }
 
-module.exports = { manageFetch, health, pushConfig, searchChannels, createMapping, isConfigured, setupSonarr };
+module.exports = { manageFetch, health, pushConfig, searchChannels, createMapping, isConfigured, setupSonarr, regenerateKey };
