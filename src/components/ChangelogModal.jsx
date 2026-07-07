@@ -20,7 +20,7 @@ const DATE_STYLE = { fontWeight: '400', color: 'var(--text-secondary)', fontSize
 export default function ChangelogModal({ open, onClose }) {
   const { t } = useTranslation()
   if (!open) return null
-  const currentVersion = import.meta.env.VITE_APP_VERSION || '2.5.2'
+  const currentVersion = import.meta.env.VITE_APP_VERSION || '2.5.3'
 
   return (
     <div className="info-modal-backdrop open" onClick={onClose}>
@@ -33,6 +33,22 @@ export default function ChangelogModal({ open, onClose }) {
           <div className="info-modal-section">
             <div className="info-modal-section-title">
               v{currentVersion}{' '}
+              <span style={DATE_STYLE}>2026-07-06</span>
+            </div>
+            <p style={SECTION_LABEL_STYLE}>{t('New')}</p>
+            <ul style={LIST_STYLE}>
+              <li style={ITEM_STYLE}>Cast to your TV from anywhere — casting now works for users outside the server's household. Your browser sends the play command straight to your TV, so be on the same Wi-Fi as the TV and allow local network access if your browser asks. Chrome and Edge work best; iPhone/iPad browsers can't reach TVs yet, so use the Plex app there</li>
+            </ul>
+            <p style={SECTION_LABEL_STYLE}>{t('Fixes')}</p>
+            <ul style={LIST_STYLE_LAST}>
+              <li style={ITEM_STYLE}>Cast playback now streams from the server's public address instead of its LAN address, so TVs outside the server's network can actually play what you cast</li>
+              <li style={ITEM_STYLE}>Cast errors now say what went wrong — wrong network, Plex app closed, or a device that can't be remote-controlled — instead of a cryptic "operation was aborted" timeout</li>
+              <li style={ITEM_STYLE}>The device button shows "Casting…" while the command is being delivered</li>
+            </ul>
+          </div>
+          <div className="info-modal-section">
+            <div className="info-modal-section-title">
+              v2.5.2{' '}
               <span style={DATE_STYLE}>2026-07-05</span>
             </div>
             <p style={SECTION_LABEL_STYLE}>{t('Fixes')}</p>
@@ -64,21 +80,6 @@ export default function ChangelogModal({ open, onClose }) {
             <p style={SECTION_LABEL_STYLE}>{t('Fixes')}</p>
             <ul style={LIST_STYLE_LAST}>
               <li style={ITEM_STYLE}>YouTube requests are locked to Sonarr — they can no longer be rerouted to Overseerr or DUMB from the request dialog, queue edits, or approvals, and DUMB's pull-mode polling no longer sees them</li>
-            </ul>
-          </div>
-          <div className="info-modal-section">
-            <div className="info-modal-section-title">
-              v2.5.0{' '}
-              <span style={DATE_STYLE}>2026-07-05</span>
-            </div>
-            <p style={SECTION_LABEL_STYLE}>{t('New')}</p>
-            <ul style={LIST_STYLE_LAST}>
-              <li style={ITEM_STYLE}>YouTube series through Sonarr — the new Tuberr companion service lets Sonarr search and download YouTube web series with yt-dlp, with proper episode naming and live download progress in Sonarr's queue. Series added this way carry a "yt" tag so your normal shows are untouched</li>
-              <li style={ITEM_STYLE}>Download via YouTube — TV requests headed to Sonarr get a Torrent / YouTube choice; picking YouTube suggests source channels for the show, or takes a pasted channel URL</li>
-              <li style={ITEM_STYLE}>Find shows that aren't on TMDB — search now also checks Sonarr's TVDB lookup, so YouTube-only series show up in results and can be requested; shows already in Plex are recognized by their TVDB id too</li>
-              <li style={ITEM_STYLE}>Manage Series — review how episodes were matched to videos, fix a match from the candidate list or a pasted URL, and tell Sonarr to re-grab an episode after correcting it</li>
-              <li style={ITEM_STYLE}>Admin → Connections gains a YouTube (Tuberr) section — an enable/disable toggle for the whole feature, YouTube API key, connection test, and step-by-step setup instructions behind the ⓘ icon</li>
-              <li style={ITEM_STYLE}>Zero maintenance — Tuberr downloads and keeps yt-dlp updated by itself, and monitored series re-check for new episodes and new uploads every 6 hours, so new episodes download automatically with no manual steps</li>
             </ul>
           </div>
         </div>

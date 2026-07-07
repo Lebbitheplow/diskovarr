@@ -1,5 +1,15 @@
 [
   {
+    "version": "2.5.3",
+    "date": "2026-07-06",
+    "changes": [
+      "Cast to your TV from anywhere — casting now works for users outside the server's household. The play command is sent from your browser (which is on the same Wi-Fi as your TV) instead of from the server, which can never reach a device inside another home's network. Allow local network access if your browser asks; Chrome and Edge work best, while iPhone/iPad browsers can't reach TVs yet — use the Plex app there. Casting to devices on the server's own network still works from any browser.",
+      "Cast playback now streams from the server's public address instead of its LAN address, so TVs outside the server's network can actually play what you cast.",
+      "Cast errors now say what went wrong — wrong network, Plex app closed, or a device that can't be remote-controlled — instead of a cryptic 'The operation was aborted due to timeout'.",
+      "The device button shows 'Casting…' while the command is being delivered."
+    ]
+  },
+  {
     "version": "2.5.2",
     "date": "2026-07-05",
     "changes": [

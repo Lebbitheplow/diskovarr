@@ -12,6 +12,7 @@ import CastCrewTab from './CastCrewTab'
 import RatingBadges from './RatingBadges'
 import MonitorDropdown from './MonitorManager/MonitorDropdown'
 import { posterUrl } from '../utils/media'
+import { sendPlayMedia } from '../utils/castPlayer'
 import { useTranslation } from 'react-i18next'
 
 const CAST_ICON = (
@@ -20,53 +21,6 @@ const CAST_ICON = (
   </svg>
 )
 
-
-function CastPicker({ item, onClose }) {
-  const { t } = useTranslation()
-  const [clients, setClients] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
-  const { success, error: toastError } = useToast()
-
-  const handleCast = useCallback(async (client) => {
-    try {
-      await plexApi.castMedia({ ratingKey: item.ratingKey, clientId: client.machineIdentifier })
-      success('Playing on ' + client.name)
-      onClose()
-    } catch (e) {
-      toastError(e.message || t('Cast failed'))
-    }
-  }, [item.ratingKey, onClose, success, toastError, t])
-
-  useEffect(() => {
-    let active = true
-    ;(async () => {
-      try {
-        const { data } = await plexApi.getClients()
-        if (active) setClients(data.clients || [])
-      } catch (e) {
-        if (active) setError('Could not fetch clients')
-      } finally {
-        if (active) setLoading(false)
-      }
-    })()
-    return () => { active = false }
-  }, [])
-
-  if (loading) return <div className="modal-cast-picker"><span>…</span></div>
-  if (error) return <div className="modal-cast-picker"><span className="cast-no-clients">{error}</span></div>
-  if (clients.length === 0) return <div className="modal-cast-picker"><span className="cast-no-clients">{t('No Plex clients found.')}<br />{t('Open your Plex app on your TV first.')}</span></div>
-
-  return (
-    <div className="modal-cast-picker">
-      {clients.map(client => (
-        <button key={client.machineIdentifier} className="cast-client-btn" onClick={() => handleCast(client)}>
-          {client.name}{client.product ? ' · ' + client.product : ''}
-        </button>
-      ))}
-    </div>
-  )
-}
 
 function ReportIssueForm({ item }) {
   const { t } = useTranslation()
@@ -178,6 +132,7 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
   const [inWatchlist, setInWatchlist] = useState(item?.isInWatchlist || false)
   const [castOpen, setCastOpen] = useState(false)
   const [castLoading, setCastLoading] = useState(false)
+  const [castingId, setCastingId] = useState(null)
   const [clients, setClients] = useState([])
   const [activeTab, setActiveTab] = useState('overview')
   const [credits, setCredits] = useState(
@@ -289,13 +244,30 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
     }
   }, [success, toastError, t])
 
+  // Browser-first casting: the page delivers playMedia itself (it's on the
+  // same LAN as the user's TV; the server usually isn't), falling back to
+  // server-side delivery for players on the server's own LAN.
   const handleCastMedia = useCallback(async (client) => {
+    setCastingId(client.machineIdentifier)
     try {
-      await plexApi.castMedia({ ratingKey: item.ratingKey, clientId: client.machineIdentifier })
+      const { data: prep } = await plexApi.prepareCast({ ratingKey: item.ratingKey, clientId: client.machineIdentifier })
+      const result = await sendPlayMedia(prep)
+      if (!result.ok) {
+        try {
+          await plexApi.castMedia({ ratingKey: item.ratingKey, clientId: client.machineIdentifier })
+        } catch {
+          toastError(result.reason === 'rejected'
+            ? t('The device refused the playback command. Try restarting the Plex app on it.')
+            : t('Could not reach the device from this browser. Make sure you are on the same Wi-Fi network as your TV, and allow local network access if prompted (Chrome works best).'))
+          return
+        }
+      }
       success('Playing on ' + client.name)
       setCastOpen(false)
     } catch (e) {
       toastError(e.message || t('Cast failed'))
+    } finally {
+      setCastingId(null)
     }
   }, [item, success, toastError, t])
 
@@ -469,8 +441,10 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
                         <div className="modal-cast-picker">
                           {clients.length === 0 && <span className="cast-no-clients">{t('No Plex clients found.')}<br />{t('Open your Plex app on your TV first.')}</span>}
                           {clients.map(client => (
-                            <button key={client.machineIdentifier} className="cast-client-btn" onClick={() => handleCastMedia(client)}>
-                              {client.name}{client.product ? ' · ' + client.product : ''}
+                            <button key={client.machineIdentifier} className="cast-client-btn" onClick={() => handleCastMedia(client)} disabled={!!castingId}>
+                              {castingId === client.machineIdentifier
+                                ? t('Casting…')
+                                : client.name + (client.product ? ' · ' + client.product : '')}
                             </button>
                           ))}
                         </div>

@@ -4,6 +4,20 @@ All notable changes are documented here. Versioning follows [Semantic Versioning
 
 ---
 
+## v2.5.3 — 2026-07-06
+
+### Added
+
+- **Cast to Plex from anywhere** — casting now works for users outside the server's household. The playback command is delivered from the user's browser (which shares a Wi-Fi network with their TV) instead of from the server, which can never reach a player inside another home's network. A new `POST /api/cast/prepare` endpoint creates the PlayQueue and returns the player's connection candidates plus ready-made playMedia params; the browser sends the companion command directly (`src/utils/castPlayer.js`, all X-Plex headers as query params so the request needs no CORS preflight). Chromium 142+ asks once for local-network access (`targetAddressSpace: 'local'` exempts the players' http-only endpoints from mixed-content blocking); Firefox and iPhone/iPad browsers still block browser→LAN requests and get a clear message instead of a timeout. Server-side delivery remains as an automatic fallback for players on the server's own LAN.
+
+### Fixed
+
+- **Remote players can actually stream what you cast** — playMedia previously handed players the server's LAN address parsed from `PLEX_URL`, which TVs outside that network can't reach. Players now get the PMS's public `*.plex.direct` hostname with `protocol=https`, resolved from plex.tv resources (skipping unroutable IPv6 ULA entries that plex.tv lists as remote connections).
+- **No more raw "The operation was aborted due to timeout"** — cast failures now explain what happened (device not on the same Wi-Fi, device refused the command, device doesn't accept remote playback commands) instead of leaking transport errors into the toast, and cast logic moved out of the routes file into `server/services/plexCast.js` with unit coverage.
+- **Casting shows progress** — the device button displays a "Casting…" in-flight state, commandID increments per command as the Companion protocol expects, and the whole cast path uses one consistent client identifier so players correlate commands correctly.
+
+---
+
 ## v2.5.2 — 2026-07-05
 
 ### Fixed

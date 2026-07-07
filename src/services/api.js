@@ -144,6 +144,7 @@ export const notificationsApi = {
 /** Plex (clients, cast, dismiss, trailer) */
 export const plexApi = {
   getClients: () => api.get('/clients'),
+  prepareCast: (data) => api.post('/cast/prepare', data),
   castMedia: (data) => api.post('/cast', data),
   getTrailer: (tmdbId, mediaType) => api.get('/trailer', { params: { tmdbId, mediaType } }),
   dismissItem: (ratingKey) => api.post('/dismiss', { ratingKey }),

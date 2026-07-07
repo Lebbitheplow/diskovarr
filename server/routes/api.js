@@ -3,6 +3,7 @@ const router = express.Router();
 const rateLimit = require('express-rate-limit');
 const requireAuth = require('../middleware/requireAuth');
 const plexService = require('../services/plex');
+const plexCast = require('../services/plexCast');
 const recommender = require('../services/recommender');
 const discordAgent = require('../services/discordAgent');
 const pushoverAgent = require('../services/pushoverAgent');
@@ -657,9 +658,48 @@ router.get('/clients', async (req, res) => {
   }
 });
 
+// Casting is split in two: the browser delivers the playMedia command (it is
+// the only party on the same LAN as a remote user's player — the server can
+// never reach inside another household's network), while the server prepares
+// everything the browser needs. POST /api/cast remains as a server-side
+// fallback for players on the *server's* LAN.
+
+// POST /api/cast/prepare — body: { ratingKey, clientId }
+// Creates the PlayQueue and returns player connection candidates plus ready
+// playMedia params. The payload includes the user's own server access token —
+// their credential, going to their own browser (see note in plexCast.js).
+router.post('/cast/prepare', async (req, res) => {
+  try {
+    const { ratingKey, clientId } = req.body;
+    if (!ratingKey || !clientId) return res.status(400).json({ error: 'ratingKey and clientId required' });
+    if (!/^\d+$/.test(String(ratingKey))) return res.status(400).json({ error: 'Invalid ratingKey' });
+
+    const { serverToken, token: userToken } = req.session.plexUser;
+    const resources = await plexCast.fetchUserResources(userToken);
+    const player = plexCast.resolvePlayerConnections(resources, clientId);
+    if (!player) {
+      return res.status(400).json({ error: "This device doesn't accept remote playback commands. Open the Plex app on it and try again." });
+    }
+    const containerKey = await plexCast.createPlayQueue(ratingKey, serverToken || userToken);
+    const endpoint = plexCast.resolveServerEndpoint(resources);
+    const params = plexCast.buildPlayMediaParams({ ratingKey, containerKey, endpoint, serverToken: serverToken || userToken });
+    res.json({
+      player: { clientId, name: player.name, product: player.product },
+      connections: player.connections.map(c => c.uri),
+      params,
+      clientIdentifier: plexCast.CAST_CLIENT_ID,
+      targetClientIdentifier: clientId,
+    });
+  } catch (err) {
+    logger.error('/api/cast/prepare error:', err.message);
+    res.status(500).json({ error: plexCast.friendlyCastError(err) });
+  }
+});
+
 // POST /api/cast — body: { ratingKey, clientId }
-// Protocol: create PlayQueue on PMS, look up player relay via plex.tv resources, send playMedia.
-// Uses the user's own token throughout so commands reach the user's own devices.
+// Server-side fallback delivery: only works when the player is reachable from
+// the server (admin household LAN), but costs nothing to keep and covers
+// browsers that block local-network requests.
 router.post('/cast', async (req, res) => {
   try {
     const { ratingKey, clientId } = req.body;
@@ -667,92 +707,24 @@ router.post('/cast', async (req, res) => {
     if (!/^\d+$/.test(String(ratingKey))) return res.status(400).json({ error: 'Invalid ratingKey' });
 
     const { serverToken, token: userToken } = req.session.plexUser;
-    const plexUrl = plexService.getPlexUrl();
-    const serverId = plexService.getPlexServerId ? plexService.getPlexServerId() : process.env.PLEX_SERVER_ID;
-    const urlObj = new URL(plexUrl);
-    const pmsAddress = urlObj.hostname;
-    const pmsPort = urlObj.port || '32400';
-
-    // Step 1: Create a PlayQueue on the PMS (content lives here, use server token)
-    let containerKey = null;
-    try {
-      const pqParams = new URLSearchParams({
-        type: 'video',
-        uri: `server://${serverId}/com.plexapp.plugins.library/library/metadata/${ratingKey}`,
-        shuffle: '0', repeat: '0', continuous: '0', own: '1', includeChapters: '1',
-      });
-      const pqRes = await fetch(`${plexUrl}/playQueues?${pqParams}`, {
-        method: 'POST',
-        headers: { 'X-Plex-Token': serverToken || userToken, 'X-Plex-Client-Identifier': 'DISKOVARR', 'Accept': 'application/xml' },
-        signal: AbortSignal.timeout(8000),
-      });
-      if (pqRes.ok) {
-        const pqXml = await pqRes.text();
-        const m = pqXml.match(/playQueueID="(\d+)"/);
-        if (m) containerKey = `/playQueues/${m[1]}?window=200&own=1`;
-      }
-    } catch (e) {
-      logger.debug('/api/cast: PlayQueue creation failed, continuing without:', e.message);
-    }
-
-    // Step 2: Look up the player's connection URI via plex.tv resources (user's token)
-    // Relay connections work cross-network for all users; local connections are tried second
-    // as a fallback for users on the same LAN as their device.
-    let playerUri = null;
-    try {
-      const resRes = await fetch('https://plex.tv/api/v2/resources?includeHttps=1&includeRelay=1', {
-        headers: { 'X-Plex-Token': userToken, 'X-Plex-Client-Identifier': 'DISKOVARR', 'Accept': 'application/json' },
-        signal: AbortSignal.timeout(8000),
-      });
-      if (resRes.ok) {
-        const resources = await resRes.json().catch(() => []);
-        for (const r of (Array.isArray(resources) ? resources : [])) {
-          if (r.clientIdentifier === clientId && r.owned === true && Array.isArray(r.connections) && r.connections.length) {
-            // Relay first (works from any network), local second (same-LAN only)
-            const sorted = [...r.connections].sort((a, b) => (b.relay ? 1 : 0) - (a.relay ? 1 : 0));
-            playerUri = sorted[0].uri;
-            break;
-          }
-        }
-      }
-    } catch (e) {
-      logger.debug('/api/cast: resources lookup failed:', e.message);
-    }
-
-    if (!playerUri) {
+    const resources = await plexCast.fetchUserResources(userToken);
+    const player = plexCast.resolvePlayerConnections(resources, clientId);
+    if (!player) {
       return res.status(400).json({ error: 'Player not found. Make sure your Plex app is open on your TV.' });
     }
-
-    // Step 3: Send playMedia to the player using the user's token
-    const params = new URLSearchParams({
-      key: `/library/metadata/${ratingKey}`,
-      ratingKey: String(ratingKey),
-      machineIdentifier: serverId,
-      address: pmsAddress,
-      port: pmsPort,
-      offset: '0',
-      type: 'video',
-      commandID: '1',
+    const containerKey = await plexCast.createPlayQueue(ratingKey, serverToken || userToken);
+    const endpoint = plexCast.resolveServerEndpoint(resources);
+    const params = plexCast.buildPlayMediaParams({ ratingKey, containerKey, endpoint, serverToken: serverToken || userToken });
+    const result = await plexCast.sendPlayMediaFromServer({ connections: player.connections, clientId, params, userToken });
+    if (result.ok) return res.json({ success: true });
+    res.status(400).json({
+      error: result.status
+        ? `The player refused the command (status ${result.status}). Try restarting the Plex app on it.`
+        : 'Could not reach the player from the server.',
     });
-    if (containerKey) params.set('containerKey', containerKey);
-
-    const castUrl = `${playerUri}/player/playback/playMedia?${params}`;
-    const r = await fetch(castUrl, {
-      headers: {
-        'Accept': 'application/json',
-        'X-Plex-Token': userToken,
-        'X-Plex-Target-Client-Identifier': clientId,
-        'X-Plex-Client-Identifier': 'DISKOVARR',
-      },
-      signal: AbortSignal.timeout(10000),
-    });
-
-    logger.debug(`/api/cast: ${castUrl} → ${r.status}`);
-    if (r.ok) return res.json({ success: true });
-    res.status(400).json({ error: `Cast failed (status ${r.status})` });
   } catch (err) {
     logger.error('/api/cast error:', err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: plexCast.friendlyCastError(err) });
   }
 });
 
@@ -1823,9 +1795,22 @@ async function submitRequestToService(requestData) {
     // TVDB-sourced items (YouTube shows found via Sonarr lookup) carry the id directly;
     // TMDB items still resolve through external_ids
     let tvdbId = Number(requestData.tvdbId) || null;
-    if (!tvdbId) {
+    if (!tvdbId && tmdbId) {
       const externalIds = await tmdbService.tmdbFetchPublic(`/tv/${tmdbId}/external_ids`).catch(() => ({}));
       tvdbId = externalIds?.tvdb_id;
+    }
+    if (!tvdbId && downloader === 'youtube' && title) {
+      // YouTube web series are often found via TMDB but TMDB carries no TVDB
+      // cross-reference. Ask Sonarr's lookup, but only accept an EXACT title
+      // match — its fuzzy search returns unrelated shows for obscure titles
+      // (e.g. "Half in the Bag" → "What's In My Bag?"), and silently adding the
+      // wrong series is far worse than a clear error.
+      const norm = s => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+      const lookup = await fetch(`${c.sonarrUrl.replace(/\/$/, '')}/api/v3/series/lookup?term=${encodeURIComponent(title)}`, {
+        headers: { 'X-Api-Key': c.sonarrApiKey }, signal: AbortSignal.timeout(8000),
+      }).then(r => (r.ok ? r.json() : [])).catch(() => []);
+      const exact = lookup.find(s => s.tvdbId && norm(s.title) === norm(title));
+      tvdbId = exact?.tvdbId || null;
     }
     if (!tvdbId) {
       throw new Error('Could not resolve TVDB ID for this show. TMDB may not have a TVDB mapping yet.');
