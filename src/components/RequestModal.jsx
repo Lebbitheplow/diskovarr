@@ -6,19 +6,23 @@ import { useAuth } from '../context/AuthContext'
 import { useTranslation } from 'react-i18next'
 
 // Shared request dialog used by Explore, Search, and DetailModal flows.
-// Handles season selection, alternate-service choice, and (when the admin has
-// enabled YouTube requests) the Torrent/YouTube downloader picker with channel
-// suggestions for TV shows going to Sonarr.
+// Handles season selection and alternate-service choice. YouTube-sourced items
+// (TVDB-only shows, when the admin has enabled YouTube requests) default to the
+// YouTube downloader with channel suggestions; regular TMDB items never see it.
 export default function RequestModal({ item, services, onClose, onSubmitted }) {
   const { t } = useTranslation()
   const { error: toastError, success: toastSuccess } = useToast()
   const { user } = useAuth()
   const isAdmin = !!(user?.isAdmin)
 
+  // TVDB-only items can only go to Sonarr (other services key off TMDB ids);
+  // they are how YouTube series enter search results, so they get the YouTube flow
+  const tvdbOnly = !!item && !item.tmdbId && !!item.tvdbId
+  const isYoutubeItem = tvdbOnly && item.mediaType === 'tv' && !!services.tuberr && !!services.sonarr
+
   const [seasons, setSeasons] = useState([])
   const [selectedSeasons, setSelectedSeasons] = useState(['all'])
   const [advancedOpen, setAdvancedOpen] = useState(false)
-  const [downloader, setDownloader] = useState('torrent')
   const [channels, setChannels] = useState([])
   const [channelsLoading, setChannelsLoading] = useState(false)
   const [selectedChannel, setSelectedChannel] = useState(null)
@@ -31,7 +35,6 @@ export default function RequestModal({ item, services, onClose, onSubmitted }) {
   if (item !== prevItem) {
     setPrevItem(item)
     setSelectedSeasons(['all'])
-    setDownloader('torrent')
     setChannels([])
     setSelectedChannel(null)
     setChannelQuery('')
@@ -62,13 +65,10 @@ export default function RequestModal({ item, services, onClose, onSubmitted }) {
     }
   }, [])
 
-  // Fetch channel suggestions when the YouTube downloader is first chosen
-  const chooseDownloader = useCallback((value) => {
-    setDownloader(value)
-    if (value === 'youtube' && item && channels.length === 0 && !channelsLoading) {
-      searchChannels(item.title)
-    }
-  }, [item, channels.length, channelsLoading, searchChannels])
+  // YouTube items open straight into channel selection — fetch suggestions up front
+  useEffect(() => {
+    if (isYoutubeItem) searchChannels(item.title)
+  }, [item, isYoutubeItem, searchChannels])
 
   const handleSeasonToggle = useCallback((season) => {
     setSelectedSeasons(prev => {
@@ -81,9 +81,9 @@ export default function RequestModal({ item, services, onClose, onSubmitted }) {
     })
   }, [])
 
-  const handleSubmit = useCallback(async (service) => {
+  const handleSubmit = useCallback(async (service, dl = isYoutubeItem ? 'youtube' : 'torrent') => {
     if (!item || submitting) return
-    if (downloader === 'youtube' && !selectedChannel) {
+    if (dl === 'youtube' && !selectedChannel) {
       toastError(t('Pick a YouTube channel first'))
       return
     }
@@ -98,7 +98,7 @@ export default function RequestModal({ item, services, onClose, onSubmitted }) {
         year: item.year || null,
         service,
         seasons: seasonNums,
-        ...(downloader === 'youtube' ? {
+        ...(dl === 'youtube' ? {
           downloader: 'youtube',
           youtube: { channelId: selectedChannel.channelId, channelTitle: selectedChannel.title, playlistIds: [] },
         } : {}),
@@ -112,7 +112,7 @@ export default function RequestModal({ item, services, onClose, onSubmitted }) {
     } finally {
       setSubmitting(false)
     }
-  }, [item, submitting, downloader, selectedChannel, selectedSeasons, onSubmitted, onClose, toastSuccess, toastError, t])
+  }, [item, submitting, isYoutubeItem, selectedChannel, selectedSeasons, onSubmitted, onClose, toastSuccess, toastError, t])
 
   if (!item) return null
 
@@ -122,8 +122,6 @@ export default function RequestModal({ item, services, onClose, onSubmitted }) {
   const hasDirect = item.mediaType === 'movie' ? services.radarr : services.sonarr
   const directName = item.mediaType === 'movie' ? 'Radarr' : 'Sonarr'
   const directSvc = item.mediaType === 'movie' ? 'radarr' : 'sonarr'
-  // TVDB-only items can only go to Sonarr (other services key off TMDB ids)
-  const tvdbOnly = !item.tmdbId && !!item.tvdbId
   const available = tvdbOnly
     ? { [directSvc]: hasDirect }
     : { overseerr: hasOverseerr, riven: hasRiven, [directSvc]: hasDirect }
@@ -134,14 +132,15 @@ export default function RequestModal({ item, services, onClose, onSubmitted }) {
     : hasDirect ? directSvc
     : 'none'
   const altOptions = []
-  if (!tvdbOnly) {
+  if (isYoutubeItem) {
+    // TVDB-only items already go straight to Sonarr for everyone, so no directRequestAccess gate
+    altOptions.push({ svc: 'sonarr', name: 'Sonarr (Torrent)', dl: 'torrent' })
+  } else if (!tvdbOnly) {
     if (defaultSvc !== 'overseerr' && hasOverseerr) altOptions.push({ svc: 'overseerr', name: 'Overseerr' })
     if (defaultSvc !== 'riven' && hasRiven) altOptions.push({ svc: 'riven', name: 'DUMB' })
     if (defaultSvc !== directSvc && hasDirect && (services.directRequestAccess !== '1' || isAdmin)) altOptions.push({ svc: directSvc, name: directName })
   }
-  // The downloader picker applies when the request lands in Sonarr
-  const effectiveSvc = downloader === 'youtube' ? 'sonarr' : defaultSvc
-  const showYoutubeOption = services.tuberr && item.mediaType === 'tv' && services.sonarr
+  const effectiveSvc = isYoutubeItem ? 'sonarr' : defaultSvc
 
   return (
     <Modal isOpen={!!item} onClose={onClose}>
@@ -179,66 +178,43 @@ export default function RequestModal({ item, services, onClose, onSubmitted }) {
             </div>
           </div>
         )}
-        {showYoutubeOption && (
+        {isYoutubeItem && (
           <div style={{ marginBottom: '16px' }}>
-            <label style={{ display: 'block', fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: '5px' }}>{t('Download via')}</label>
-            <div style={{ display: 'flex', gap: '6px' }}>
+            <label style={{ display: 'block', fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: '5px' }}>{t('Source channel')}</label>
+            {channelsLoading && <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>{t('Searching channels…')}</p>}
+            {!channelsLoading && channels.map(ch => (
               <button
+                key={ch.channelId}
                 type="button"
-                className={'chip-sm' + (downloader === 'torrent' ? ' active' : '')}
-                style={{ border: '1px solid var(--border)', cursor: 'pointer' }}
-                onClick={() => chooseDownloader('torrent')}
+                className={'chip-sm' + (selectedChannel?.channelId === ch.channelId ? ' active' : '')}
+                style={{ border: '1px solid var(--border)', cursor: 'pointer', width: '100%', marginBottom: '5px', textAlign: 'left', display: 'flex', alignItems: 'center', gap: '8px' }}
+                onClick={() => setSelectedChannel(ch)}
               >
-                {t('Torrent')}
+                {ch.thumbnail && <img src={ch.thumbnail} alt="" style={{ width: 22, height: 22, borderRadius: '50%' }} />}
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ch.title}</span>
               </button>
+            ))}
+            <div style={{ display: 'flex', gap: '6px', marginTop: '4px' }}>
+              <input
+                type="text"
+                value={channelQuery}
+                onChange={e => setChannelQuery(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && channelQuery.trim()) searchChannels(channelQuery.trim()) }}
+                placeholder={t('Channel name or URL…')}
+                style={{ flex: 1, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: '6px', padding: '6px 10px', color: 'var(--text-primary)', fontSize: '0.82rem' }}
+              />
               <button
                 type="button"
-                className={'chip-sm' + (downloader === 'youtube' ? ' active' : '')}
+                className="chip-sm"
                 style={{ border: '1px solid var(--border)', cursor: 'pointer' }}
-                onClick={() => chooseDownloader('youtube')}
+                onClick={() => channelQuery.trim() && searchChannels(channelQuery.trim())}
               >
-                YouTube
+                {t('Search')}
               </button>
             </div>
-            {downloader === 'youtube' && (
-              <div style={{ marginTop: '10px' }}>
-                <label style={{ display: 'block', fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: '5px' }}>{t('Source channel')}</label>
-                {channelsLoading && <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>{t('Searching channels…')}</p>}
-                {!channelsLoading && channels.map(ch => (
-                  <button
-                    key={ch.channelId}
-                    type="button"
-                    className={'chip-sm' + (selectedChannel?.channelId === ch.channelId ? ' active' : '')}
-                    style={{ border: '1px solid var(--border)', cursor: 'pointer', width: '100%', marginBottom: '5px', textAlign: 'left', display: 'flex', alignItems: 'center', gap: '8px' }}
-                    onClick={() => setSelectedChannel(ch)}
-                  >
-                    {ch.thumbnail && <img src={ch.thumbnail} alt="" style={{ width: 22, height: 22, borderRadius: '50%' }} />}
-                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ch.title}</span>
-                  </button>
-                ))}
-                <div style={{ display: 'flex', gap: '6px', marginTop: '4px' }}>
-                  <input
-                    type="text"
-                    value={channelQuery}
-                    onChange={e => setChannelQuery(e.target.value)}
-                    onKeyDown={e => { if (e.key === 'Enter' && channelQuery.trim()) searchChannels(channelQuery.trim()) }}
-                    placeholder={t('Channel name or URL…')}
-                    style={{ flex: 1, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: '6px', padding: '6px 10px', color: 'var(--text-primary)', fontSize: '0.82rem' }}
-                  />
-                  <button
-                    type="button"
-                    className="chip-sm"
-                    style={{ border: '1px solid var(--border)', cursor: 'pointer' }}
-                    onClick={() => channelQuery.trim() && searchChannels(channelQuery.trim())}
-                  >
-                    {t('Search')}
-                  </button>
-                </div>
-              </div>
-            )}
           </div>
         )}
-        {altOptions.length > 0 && downloader !== 'youtube' && (
+        {altOptions.length > 0 && (
           <div style={{ marginBottom: '12px' }}>
             <button
               type="button"
@@ -256,7 +232,7 @@ export default function RequestModal({ item, services, onClose, onSubmitted }) {
                     type="button"
                     className="chip-sm"
                     style={{ border: '1px solid var(--border)', cursor: 'pointer', width: '100%', marginBottom: '6px', textAlign: 'left' }}
-                    onClick={() => handleSubmit(opt.svc)}
+                    onClick={() => handleSubmit(opt.svc, opt.dl)}
                   >
                     {t('Send to {{name}} instead', { name: opt.name })}
                   </button>

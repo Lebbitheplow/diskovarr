@@ -20,7 +20,7 @@ const DATE_STYLE = { fontWeight: '400', color: 'var(--text-secondary)', fontSize
 export default function ChangelogModal({ open, onClose }) {
   const { t } = useTranslation()
   if (!open) return null
-  const currentVersion = import.meta.env.VITE_APP_VERSION || '2.5.3'
+  const currentVersion = import.meta.env.VITE_APP_VERSION || '2.5.4'
 
   return (
     <div className="info-modal-backdrop open" onClick={onClose}>
@@ -33,6 +33,20 @@ export default function ChangelogModal({ open, onClose }) {
           <div className="info-modal-section">
             <div className="info-modal-section-title">
               v{currentVersion}{' '}
+              <span style={DATE_STYLE}>2026-07-12</span>
+            </div>
+            <p style={SECTION_LABEL_STYLE}>{t('New')}</p>
+            <ul style={LIST_STYLE}>
+              <li style={ITEM_STYLE}>Non-Chrome browsers now get a heads-up when opening the cast menu — casting needs local network access, which only Chrome and Edge support, so if casting fails, try Chrome. Shown once per session</li>
+            </ul>
+            <p style={SECTION_LABEL_STYLE}>{t('Fixes')}</p>
+            <ul style={LIST_STYLE_LAST}>
+              <li style={ITEM_STYLE}>Requesting a YouTube show no longer asks you to pick between Torrent and YouTube — YouTube series open straight into channel selection with the YouTube downloader preselected (Sonarr/torrent still available as an alternate), and regular shows never see the YouTube option anymore</li>
+            </ul>
+          </div>
+          <div className="info-modal-section">
+            <div className="info-modal-section-title">
+              v2.5.3{' '}
               <span style={DATE_STYLE}>2026-07-06</span>
             </div>
             <p style={SECTION_LABEL_STYLE}>{t('New')}</p>
@@ -61,25 +75,6 @@ export default function ChangelogModal({ open, onClose }) {
               <li style={ITEM_STYLE}>Download progress now shows live in Sonarr's Activity queue — a yt-dlp flag conflict had been suppressing it, leaving items at 0% until they finished</li>
               <li style={ITEM_STYLE}>Failed downloads no longer clog Sonarr's queue at 0% — Sonarr now sees them as failed, removes them, and moves on</li>
               <li style={ITEM_STYLE}>Age-restricted videos download too — paste YouTube cookies from a signed-in session into the new box in the YouTube settings; previously failed episodes retry on their own</li>
-            </ul>
-          </div>
-          <div className="info-modal-section">
-            <div className="info-modal-section-title">
-              v2.5.1{' '}
-              <span style={DATE_STYLE}>2026-07-05</span>
-            </div>
-            <p style={SECTION_LABEL_STYLE}>{t('New')}</p>
-            <ul style={LIST_STYLE}>
-              <li style={ITEM_STYLE}>Tuberr comes bundled with Docker — it starts with the Diskovarr container and pairs itself in Admin → Connections automatically; nothing to install or configure by hand</li>
-              <li style={ITEM_STYLE}>One-click Sonarr wiring — the Set up Sonarr button creates the tagged indexer and download client in Sonarr for you. Full setup is now: enable the toggle, add a YouTube API key, click Set up Sonarr</li>
-              <li style={ITEM_STYLE}>Manage Series moved into the Connections page — YouTube series management opens as a modal from the YouTube (Tuberr) box instead of its own admin tab</li>
-              <li style={ITEM_STYLE}>Optional YouTube root folder — send new YouTube series to a dedicated library folder (like /NAS/YT Videos) while regular shows stay where they are</li>
-              <li style={ITEM_STYLE}>Tag a series "yt" directly in Sonarr and Tuberr picks it up automatically — it even detects the right source channel by verifying candidate channels against the episode list, and flags anything it can't verify for a manual pick</li>
-              <li style={ITEM_STYLE}>Smarter matching for series whose TVDB episodes are just "Episode 11" — numbers and air dates take over when titles carry no signal</li>
-            </ul>
-            <p style={SECTION_LABEL_STYLE}>{t('Fixes')}</p>
-            <ul style={LIST_STYLE_LAST}>
-              <li style={ITEM_STYLE}>YouTube requests are locked to Sonarr — they can no longer be rerouted to Overseerr or DUMB from the request dialog, queue edits, or approvals, and DUMB's pull-mode polling no longer sees them</li>
             </ul>
           </div>
         </div>

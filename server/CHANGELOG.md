@@ -4,6 +4,18 @@ All notable changes are documented here. Versioning follows [Semantic Versioning
 
 ---
 
+## v2.5.4 — 2026-07-12
+
+### Added
+
+- **Cast heads-up for non-Chrome browsers** — opening the cast device menu in a browser without Local Network Access support (anything not Chromium-based: Firefox, Safari, iPhone/iPad browsers) shows a once-per-session toast explaining that casting needs local network access and works best in Chrome or Edge (`isChromiumBrowser()` in `src/utils/castPlayer.js`, preferring `navigator.userAgentData` brands with a UA-string fallback).
+
+### Fixed
+
+- **YouTube requests no longer show a downloader picker** — the request dialog dropped the manual Torrent/YouTube toggle, which previously appeared on any TV request whenever Tuberr was enabled. YouTube-sourced shows (TVDB-only items — how YouTube series enter search results) now default straight to the YouTube downloader and open directly into channel selection, with "Sonarr (Torrent)" as an alternate option; regular TMDB shows never see the YouTube option at all.
+
+---
+
 ## v2.5.3 — 2026-07-06
 
 ### Added

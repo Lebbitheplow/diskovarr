@@ -8,6 +8,14 @@
 // permission prompt exempts it. Firefox/Safari still block; those callers land
 // on the server-side fallback (which only helps on the server's own LAN).
 
+// The LNA mechanism above is Chromium-only, so every other browser can only
+// cast to players on the server's own LAN — used to warn users up front.
+// userAgentData is itself Chromium-only; the UA regex covers older builds.
+export function isChromiumBrowser() {
+  if (navigator.userAgentData?.brands?.some(b => b.brand === 'Chromium')) return true
+  return /Chrome|Chromium|Edg\//.test(navigator.userAgent) && !/Firefox/.test(navigator.userAgent)
+}
+
 // Controllers are expected to increment commandID per command.
 let commandID = 0
 

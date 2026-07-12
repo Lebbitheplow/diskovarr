@@ -12,7 +12,7 @@ import CastCrewTab from './CastCrewTab'
 import RatingBadges from './RatingBadges'
 import MonitorDropdown from './MonitorManager/MonitorDropdown'
 import { posterUrl } from '../utils/media'
-import { sendPlayMedia } from '../utils/castPlayer'
+import { sendPlayMedia, isChromiumBrowser } from '../utils/castPlayer'
 import { useTranslation } from 'react-i18next'
 
 const CAST_ICON = (
@@ -151,7 +151,7 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
     setFetchedRatings(null)
   }
   const trailerRef = useRef(null)
-  const { success, error: toastError } = useToast()
+  const { success, error: toastError, info } = useToast()
 
   const inLibrary = item?.inLibrary ?? !!item?.ratingKey
 
@@ -213,12 +213,16 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
       const { data } = await plexApi.getClients()
       setClients(data.clients || [])
       setCastOpen(true)
+      if (!isChromiumBrowser() && !sessionStorage.getItem('castLnaNoticeShown')) {
+        sessionStorage.setItem('castLnaNoticeShown', '1')
+        info(t('Heads up: casting from this browser may not reach your TV — it needs local network access, which only Chrome and Edge support. If casting fails, try Chrome.'))
+      }
     } catch (e) {
       toastError(t('Could not fetch clients'))
     } finally {
       setCastLoading(false)
     }
-  }, [castOpen, toastError, t])
+  }, [castOpen, toastError, info, t])
 
   // Jump to the search page's "More with X" browse for a cast/crew member.
   const handlePersonClick = useCallback((person) => {

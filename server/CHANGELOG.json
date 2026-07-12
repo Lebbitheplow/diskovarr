@@ -1,5 +1,13 @@
 [
   {
+    "version": "2.5.4",
+    "date": "2026-07-12",
+    "changes": [
+      "Non-Chrome browsers now get a heads-up when opening the cast menu — casting needs local network access, which only Chrome and Edge support, so if casting fails, try Chrome. Shown once per session.",
+      "Requesting a YouTube show no longer asks you to pick between Torrent and YouTube — YouTube series open straight into channel selection with the YouTube downloader preselected (Sonarr/torrent still available as an alternate), and regular shows never see the YouTube option anymore."
+    ]
+  },
+  {
     "version": "2.5.3",
     "date": "2026-07-06",
     "changes": [
