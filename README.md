@@ -1,16 +1,23 @@
 <div align="center">
 
-# <img src="public/favicon.svg" width="48" height="48" alt="" valign="middle"> Diskovarr
+<img src="docs/banner.png" width="840" alt="Diskovarr — personalized media discovery & management for Plex">
 
-**Personalized media discovery and management platform for Plex**
+<br>
 
-Discover what to watch next · Review and rate content · Request missing titles · Automate your library
+[![Version](https://img.shields.io/github/v/release/Lebbitheplow/diskovarr?style=for-the-badge&labelColor=0f0f0f&color=e5a00d&label=release)](https://github.com/Lebbitheplow/diskovarr/releases)
+[![Docker Pulls](https://img.shields.io/docker/pulls/lebbi/diskovarr?style=for-the-badge&logo=docker&logoColor=white&label=docker%20pulls&labelColor=0f0f0f&color=e5a00d)](https://hub.docker.com/r/lebbi/diskovarr)
+[![License](https://img.shields.io/badge/license-MIT-e5a00d?style=for-the-badge&labelColor=0f0f0f)](#license)
+[![Stars](https://img.shields.io/github/stars/Lebbitheplow/diskovarr?style=for-the-badge&logo=github&logoColor=white&labelColor=0f0f0f&color=e5a00d)](https://github.com/Lebbitheplow/diskovarr/stargazers)
 
-Sign in with Plex · Browse personalized feeds · Manage content lifecycle · Integrate with your stack
+**Discover what to watch next · Review and rate content · Request missing titles · Automate your library**
+
+<sub><a href="#why-diskovarr">Why</a> · <a href="#features">Features</a> · <a href="#notifications">Notifications</a> · <a href="#requirements">Requirements</a> · <a href="#installation">Installation</a> · <a href="#configuration">Configuration</a></sub>
+
+<br>
+
+<img src="docs/screenshots/home-v2.png" width="900" alt="Diskovarr home screen">
 
 </div>
-
-![Diskovarr home screen](docs/screenshots/home-v2.png)
 
 > **v2.0.0 — React Edition** is now the default release. The user-facing UI has been fully rewritten as a React SPA backed by the existing Express API. Existing Docker users can upgrade with a single `docker compose pull && docker compose up -d` — **all SQLite data, sessions, watch history, and admin settings are preserved**. See [Upgrading from v1.x](#upgrading-from-v1x) for details.
 
@@ -20,21 +27,58 @@ Sign in with Plex · Browse personalized feeds · Manage content lifecycle · In
 
 Diskovarr is the central hub for discovering, managing, and automating your Plex media library. It learns what you enjoy from your watch history, surfaces personalized recommendations, and gives you the tools to request, review, and automate content acquisition and retention.
 
-### Personalized Discovery
+<table>
+<tr>
+<td width="33%" valign="top" align="center">
+<img src="docs/icons/discovery.svg" width="42" alt=""><br><br>
+<b>Personalized Discovery</b><br>
+<sub>Recommendations scored from your Tautulli watch history across genre, director, cast, studio, decade, and star ratings.</sub>
+</td>
+<td width="33%" valign="top" align="center">
+<img src="docs/icons/reviews.svg" width="42" alt=""><br><br>
+<b>Reviews &amp; Social</b><br>
+<sub>Rate and review any title, engage with other users, and share review cards that sync back to your Plex profile.</sub>
+</td>
+<td width="33%" valign="top" align="center">
+<img src="docs/icons/requests.svg" width="42" alt=""><br><br>
+<b>Requests &amp; Acquisition</b><br>
+<sub>Request missing content with full queue management, and connect any Overseerr-compatible tool in your stack.</sub>
+</td>
+</tr>
+<tr>
+<td width="33%" valign="top" align="center">
+<img src="docs/icons/automation.svg" width="42" alt=""><br><br>
+<b>Automation &amp; Monitoring</b><br>
+<sub>Auto-request, auto-delete, and monitoring profiles automate the full content lifecycle without manual work.</sub>
+</td>
+<td width="33%" valign="top" align="center">
+<img src="docs/icons/admin.svg" width="42" alt=""><br><br>
+<b>Administration</b><br>
+<sub>Per-user settings, multi-channel notifications, broadcasts, and every integration configured from the UI.</sub>
+</td>
+<td width="33%" valign="top" align="center">
+<img src="docs/icons/notifications.svg" width="42" alt=""><br><br>
+<b>Notifications</b><br>
+<sub>Delivery via Discord, Telegram, Slack, Pushover, Email, and more — bundled, deduplicated, and per-user.</sub>
+</td>
+</tr>
+</table>
+
+### <img src="docs/icons/discovery.svg" width="20" alt=""> Personalized Discovery
 
 * **Smart recommendations** — scored from your Tautulli watch history across genre, director, cast, studio, decade, and star ratings
 * **Personalized feeds** — four curated carousels (Top Picks, Movies, TV Shows, Anime) that adapt as you watch
 * **Recommendation context** — every suggestion includes reason tags so you understand why a title made the cut
 * **Blacklists** — exclude genres, franchises, or specific titles to refine what surfaces in your feeds
 
-### Reviews & Social
+### <img src="docs/icons/reviews.svg" width="20" alt=""> Reviews &amp; Social
 
 * **Ratings and reviews** — rate and write reviews for any title in your library
 * **Social engagement** — comment on and react to other users' reviews
 * **Shareable review cards** — generate share-ready cards with open graph images
 * **Plex sync** — ratings sync back to your Plex profile
 
-### Requests & Acquisition
+### <img src="docs/icons/requests.svg" width="20" alt=""> Requests &amp; Acquisition
 
 * **Request workflows** — request missing content with full queue management, approvals, and status tracking
 * **Overseerr-compatible API** — connect Agregarr, DUMB, Homarr, and any Overseerr-compatible tool
@@ -42,14 +86,14 @@ Diskovarr is the central hub for discovering, managing, and automating your Plex
 * **YouTube series via Tuberr** — search TVDB-only web series, request them with a "Download via YouTube" option, and let Sonarr grab episodes through yt-dlp (see [Tuberr](#tuberr-youtube-series-through-sonarr))
 * **Auto-request automation** — set profiles that automatically request content matching your criteria
 
-### Automation & Monitoring
+### <img src="docs/icons/automation.svg" width="20" alt=""> Automation &amp; Monitoring
 
 * **Auto-request profiles** — define rules that automatically request content from your watchlist, recommendations, or other sources
 * **Auto-delete profiles** — set criteria-based deletion rules for content no longer needed
 * **Monitoring profiles** — track specific content, genres, or franchises and trigger actions when conditions are met
 * **Library lifecycle management** — automate the full content lifecycle from discovery through acquisition to removal
 
-### Administration
+### <img src="docs/icons/admin.svg" width="20" alt=""> Administration
 
 * **User management** — per-user settings, request limits, auto-approve overrides, and bulk actions
 * **Notifications** — multi-channel delivery via Discord, Pushover, Telegram, Slack, Email, and more
@@ -58,42 +102,42 @@ Diskovarr is the central hub for discovering, managing, and automating your Plex
 
 ---
 
-## Tabs & Features
+## Features
 
-### Diskovarr (Home)
+### <img src="docs/icons/discovery.svg" width="20" alt=""> Diskovarr (Home)
 Personalized recommendations in four carousels — **Top Picks, Movies, TV Shows, Anime** — scored from your Tautulli watch history. Each section is a paginated 2-row carousel with a ↺ shuffle button. Scores factor in genre, director, cast, studio, decade, and star ratings. Cards show reason tags ("Because you like Sci-Fi", "Directed by X") and open a full detail modal with poster, Rotten Tomatoes scores, cast/director credits, and watchlist/dismiss actions.
 
-### Requests
+### <img src="docs/icons/requests.svg" width="20" alt=""> Requests
 Content not yet in your Plex library, scored by the same preference engine. Requires a free TMDB API key and at least one request service (Overseerr, Radarr, or Sonarr). Cards show why each title was recommended; the Request button routes to whichever service is enabled. Unreleased titles are automatically excluded. When a requested title appears in the library, the requester gets a bell notification plus optional Discord and Pushover delivery.
 
-### Filter (Diskovarr View)
+### <img src="docs/icons/filter.svg" width="20" alt=""> Filter (Diskovarr View)
 Full library browser with filters for type, decade, genre, minimum rating, and sort order. Watched items are always included and shown with a green checkmark badge on their poster.
 
-### Watchlist
+### <img src="docs/icons/watchlist.svg" width="20" alt=""> Watchlist
 Syncs to the native **Plex.tv Watchlist** by default. Server owners can switch to **Playlist mode** (a private server-side playlist) — useful when the Plex Watchlist triggers download automation like pd_zurg.
 
-### Queue
+### <img src="docs/icons/queue.svg" width="20" alt=""> Queue
 Request queue for all users. Users view and manage their own requests. Admins and elevated users can approve, deny (with optional note), edit, or delete any request. Filter tabs include All, Pending, Requested, Approved, Available (requests whose content has arrived in the library), and Denied. Column headers are clickable to sort by title, user, type, age, or status. **v2.0.0** adds server-side search and user/date-range filters across the full result set, plus bulk-select checkboxes for batch actions. Admins can set per-user request limits and auto-approve overrides.
 
-### Issues
+### <img src="docs/icons/issues.svg" width="20" alt=""> Issues
 Report problems with library items directly from any detail modal — broken file, wrong metadata, audio sync, etc. TV shows include a scope selector: Entire Series, Specific Season, or Specific Episode. Submitted issues appear at `/issues`; admins resolve or close them with an optional note delivered back to the reporter as a notification. **v2.0.0** adds the same server-side search, filtering, and bulk-select tooling as the Queue page.
 
-### Reviews
+### <img src="docs/icons/reviews.svg" width="20" alt=""> Reviews
 Write reviews and assign star ratings for any title in your library. Review the work of other users with threaded comments and reactions. Share standout reviews with generated open graph cards that render beautifully in chat apps and social feeds. Your ratings sync back to Plex, and your review history is available for browsing at any time.
 
-### Watch History
+### <img src="docs/icons/history.svg" width="20" alt=""> Watch History
 Your watch history syncs from Tautulli and powers every recommendation Diskovarr makes. Browse what you've watched, track viewing statistics, and see how your preferences shape your personalized feeds. The more you watch, the better Diskovarr understands what you'll enjoy next.
 
-### Blacklists
+### <img src="docs/icons/blacklists.svg" width="20" alt=""> Blacklists
 Fine-tune your recommendations by blacklisting genres, franchises, or specific titles you never want to see again. Blacklisted content is excluded from your recommendation feeds, request suggestions, and automated profiles, ensuring your discovery experience stays relevant.
 
-### Automations
+### <img src="docs/icons/automation.svg" width="20" alt=""> Automations
 Set and forget your library management. Create auto-request profiles that automatically request content matching your criteria, auto-delete profiles that remove content no longer needed, and monitoring profiles that watch for specific conditions and trigger actions. Automations give admins full lifecycle control over content acquisition and retention without manual intervention.
 
-### User Settings
+### <img src="docs/icons/settings.svg" width="20" alt=""> User Settings
 Each user can configure: region, language, notification preferences (per event type), personal Discord User ID or Pushover key, auto-request-from-watchlist options, blacklist preferences, review settings, and personal monitoring profiles.
 
-### Admin Panel
+### <img src="docs/icons/admin.svg" width="20" alt=""> Admin Panel
 Two-tab panel at `/admin`:
 
 - **Settings** — library sync controls, per-user watch sync, cache management, server owner, watchlist/playlist mode, theme color (8 presets + color wheel), app public URL, and full per-user settings with action buttons (re-sync, clear watched, clear dismissals, clear requests)
@@ -104,11 +148,30 @@ Two-tab panel at `/admin`:
 - **Broadcast notifications (v2.0.0)** — a rich-text editor in the admin panel lets you compose announcements with bold, italic, strikethrough, and inline code. Markdown is automatically stripped or translated per-channel for Discord and Pushover.
 - **Automation management** — create, edit, and monitor auto-request profiles, auto-delete profiles, and content monitoring rules from the admin panel. Configure triggers, criteria, and action targets without touching configuration files.
 
+<div align="center">
+<img src="docs/screenshots/admin-panel.png" width="760" alt="Admin panel — Connections">
+</div>
+
 ---
 
 ## Notifications
 
 Configure from **Admin → Notifications**. Multiple events of the same type within an hour are bundled into a single message ("Dune approved and 2 other titles"), with the first title's poster embedded full-width. External sends are skipped if the user already read the bell notification in-app.
+
+<div align="center">
+
+![Discord](https://img.shields.io/badge/Discord-5865F2?style=flat-square&logo=discord&logoColor=white)
+![Telegram](https://img.shields.io/badge/Telegram-26A5E4?style=flat-square&logo=telegram&logoColor=white)
+![Slack](https://img.shields.io/badge/Slack-4A154B?style=flat-square&logo=slack&logoColor=white)
+![Pushover](https://img.shields.io/badge/Pushover-249DF1?style=flat-square&logoColor=white)
+![Pushbullet](https://img.shields.io/badge/Pushbullet-4AB367?style=flat-square&logo=pushbullet&logoColor=white)
+![Email](https://img.shields.io/badge/Email-e5a00d?style=flat-square&logo=maildotru&logoColor=white)
+![ntfy](https://img.shields.io/badge/ntfy-338574?style=flat-square&logo=ntfy&logoColor=white)
+![Gotify](https://img.shields.io/badge/Gotify-17A2B8?style=flat-square&logo=gotify&logoColor=white)
+![WebPush](https://img.shields.io/badge/WebPush-6b7280?style=flat-square)
+![Webhook](https://img.shields.io/badge/Webhook-6b7280?style=flat-square)
+
+</div>
 
 **Discord** — two modes:
 - *Webhook* — posts to a shared channel; users can optionally add a personal webhook for private delivery
@@ -161,7 +224,7 @@ A few things to know:
 - **Sign in once.** The session cookie name changed; some users may need to sign in again after the first upgrade.
 - **New optional env vars** — `TMDB_API_KEY` (Requests tab), `RIVEN_SETTINGS_PATH` (DUMB/Riven), and `APP_URL` (Plex OAuth callback URL when running behind a reverse proxy) are all optional. Set them only if you want the corresponding features.
 
-### Docker Hub (easiest)
+### <img src="docs/icons/install.svg" width="20" alt=""> Docker Hub (easiest)
 
 ```bash
 docker pull lebbi/diskovarr:latest
@@ -178,7 +241,7 @@ docker run -d --name diskovarr \
 
 **Update:** `docker pull lebbi/diskovarr:latest && docker restart diskovarr`
 
-### Docker Compose (recommended for production)
+### <img src="docs/icons/install.svg" width="20" alt=""> Docker Compose (recommended for production)
 
 ```bash
 curl -o docker-compose.yml https://raw.githubusercontent.com/Lebbitheplow/diskovarr/master/docker-compose.yml
@@ -192,7 +255,7 @@ Open `http://your-server:3232`. The library syncs from Plex on first startup (30
 
 > The `./data` volume contains the SQLite databases — don't delete it between updates.
 
-### Bare Metal (Node.js)
+### <img src="docs/icons/stack.svg" width="20" alt=""> Bare Metal (Node.js)
 
 v2.0.0 is a two-package layout: the React frontend at the repo root and the Express server under `server/`. Build the frontend once, then run the server.
 
@@ -246,7 +309,7 @@ sudo systemctl enable --now diskovarr
 ```
 </details>
 
-### Tuberr (YouTube series through Sonarr)
+### <img src="docs/icons/tuberr.svg" width="20" alt=""> Tuberr (YouTube series through Sonarr)
 
 Tuberr is an optional companion service (in `tuberr/`) that lets Sonarr search and download YouTube web series — shows that have TVDB entries but no torrent/usenet releases. It presents itself to Sonarr as a **Torznab indexer** plus a **qBittorrent-compatible download client**, and downloads the actual videos with `yt-dlp`. Sonarr handles naming/import as usual, so files land in your library with proper `Series - SxxEyy - Title` names.
 
@@ -301,7 +364,7 @@ WantedBy=multi-user.target
 ```
 </details>
 
-### Build the Docker image locally
+### <img src="docs/icons/install.svg" width="20" alt=""> Build the Docker image locally
 
 ```bash
 docker build -t diskovarr:dev .
@@ -319,7 +382,7 @@ The root `Dockerfile` is a multi-stage build: stage 1 builds the React frontend 
 
 All runtime settings are read by the Express server from environment variables. Bare-metal installs read them from `server/.env`; Docker users typically set them via `environment:` in `docker-compose.yml`. See `server/.env.example` for an annotated template.
 
-### Required
+### <img src="docs/icons/config.svg" width="20" alt=""> Required
 
 | Variable | Description |
 |---|---|
@@ -329,7 +392,7 @@ All runtime settings are read by the Express server from environment variables. 
 | `ADMIN_PASSWORD` | Password for the `/admin` panel |
 | `SESSION_SECRET` | Long random string used to sign session cookies (at least 32 chars recommended) |
 
-### Optional
+### <img src="docs/icons/settings.svg" width="20" alt=""> Optional
 
 | Variable | Description |
 |---|---|
@@ -350,3 +413,5 @@ All runtime settings are read by the Express server from environment variables. 
 ## License
 
 MIT
+
+<div align="center"><sub>Built for the Plex community · <a href="https://github.com/Lebbitheplow/diskovarr">github.com/Lebbitheplow/diskovarr</a></sub></div>
