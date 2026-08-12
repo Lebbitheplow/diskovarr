@@ -45,6 +45,14 @@ describe('resolvePlayerConnections', () => {
     ])
   })
 
+  it('dedupes and caps the connection list at 6 (Plex for Samsung publishes 16+)', () => {
+    const many = Array.from({ length: 14 }, (_, i) => conn(`https://172-${i}-0-1.hash.plex.direct:32400`, { local: true }))
+    many.push(conn(many[0].uri, { local: true })) // duplicate uri
+    const player = plexCast.resolvePlayerConnections([playerResource({ connections: many })], 'tv-1')
+    expect(player.connections.length).toBe(6)
+    expect(new Set(player.connections.map(c => c.uri)).size).toBe(6)
+  })
+
   it('returns null for unknown, unowned, or connection-less players', () => {
     expect(plexCast.resolvePlayerConnections([playerResource()], 'nope')).toBeNull()
     expect(plexCast.resolvePlayerConnections([playerResource({ owned: false })], 'tv-1')).toBeNull()
@@ -122,6 +130,21 @@ describe('buildPlayMediaParams', () => {
   it('omits containerKey when PlayQueue creation failed', () => {
     const params = plexCast.buildPlayMediaParams({ ratingKey: 42, containerKey: null, endpoint, serverToken: 't' })
     expect(params).not.toHaveProperty('containerKey')
+  })
+})
+
+describe('sendPlayMediaFromServer', () => {
+  it('stops before sending anything when shouldAbort reports the client hung up', async () => {
+    // No fetch mock needed: the abort check runs before the first request, so
+    // reaching a real fetch here would throw (invalid URI) and fail the test.
+    const result = await plexCast.sendPlayMediaFromServer({
+      connections: [{ uri: 'https://player.invalid:32500', local: true, relay: false }],
+      clientId: 'tv-1',
+      params: { key: '/library/metadata/1' },
+      userToken: 't',
+      shouldAbort: () => true,
+    })
+    expect(result).toEqual({ ok: false, aborted: true })
   })
 })
 

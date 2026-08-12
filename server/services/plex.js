@@ -277,8 +277,15 @@ async function warmCache(sectionIds = null) {
 // has, so this reconciles deletions and rating-key changes without a restart. Sections
 // run sequentially to avoid two large Plex fetches at once; each is guarded against
 // overlapping with an in-flight sync.
+//
+// Covers every *enabled* section, not just the two env-configured ones — extra
+// libraries (e.g. a YouTube-series section) are only reachable via fetchSection's
+// lazy path, which serves DB rows without pruning, so their deletions would never
+// be reconciled. Falls back to movies+TV if nothing is configured yet.
 async function resyncAllSections() {
-  for (const id of [getMoviesSection(), getTvSection()]) {
+  const enabled = db.getEnabledSectionIds();
+  const sectionIds = enabled.length > 0 ? enabled : [getMoviesSection(), getTvSection()];
+  for (const id of sectionIds) {
     const sid = String(id);
     if (libSyncInProgress.has(sid)) continue;
     const p = syncLibrarySection(sid)
@@ -903,7 +910,8 @@ async function syncPlexTvWatchlist(userId, userToken) {
         const tmdbGuid = guids.find(g => g.id?.startsWith('tmdb://'));
         if (!tmdbGuid) continue;
         const tmdbId = tmdbGuid.id.replace('tmdb://', '');
-        const libItem = db.getLibraryItemByTmdbId(tmdbId);
+        // Plex metadata type is 'movie' | 'show'; TMDB ids only disambiguate with it
+        const libItem = db.getLibraryItemByTmdbId(tmdbId, item.type === 'show' ? 'tv' : 'movie');
         if (libItem) keepKeys.add(String(libItem.rating_key));
       }
     } catch (err) {

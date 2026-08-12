@@ -20,7 +20,7 @@ const DATE_STYLE = { fontWeight: '400', color: 'var(--text-secondary)', fontSize
 export default function ChangelogModal({ open, onClose }) {
   const { t } = useTranslation()
   if (!open) return null
-  const currentVersion = import.meta.env.VITE_APP_VERSION || '2.5.4'
+  const currentVersion = import.meta.env.VITE_APP_VERSION || '2.5.5'
 
   return (
     <div className="info-modal-backdrop open" onClick={onClose}>
@@ -33,6 +33,18 @@ export default function ChangelogModal({ open, onClose }) {
           <div className="info-modal-section">
             <div className="info-modal-section-title">
               v{currentVersion}{' '}
+              <span style={DATE_STYLE}>2026-08-11</span>
+            </div>
+            <p style={SECTION_LABEL_STYLE}>{t('Fixes')}</p>
+            <ul style={LIST_STYLE_LAST}>
+              <li style={ITEM_STYLE}>Library items now use separate movie_id and tv_id columns instead of a single shared id — a show can no longer be misregistered in the library because it shared the same id value as a movie in a different context</li>
+              <li style={ITEM_STYLE}>Fixed the last sync date on libraries in the admin panel — the timestamp was broken and no longer reflected the actual sync time</li>
+              <li style={ITEM_STYLE}>Periodic reconciliation now includes all libraries — previously some libraries were skipped during the reconciliation process</li>
+            </ul>
+          </div>
+          <div className="info-modal-section">
+            <div className="info-modal-section-title">
+              v2.5.4{' '}
               <span style={DATE_STYLE}>2026-07-12</span>
             </div>
             <p style={SECTION_LABEL_STYLE}>{t('New')}</p>
@@ -58,23 +70,6 @@ export default function ChangelogModal({ open, onClose }) {
               <li style={ITEM_STYLE}>Cast playback now streams from the server's public address instead of its LAN address, so TVs outside the server's network can actually play what you cast</li>
               <li style={ITEM_STYLE}>Cast errors now say what went wrong — wrong network, Plex app closed, or a device that can't be remote-controlled — instead of a cryptic "operation was aborted" timeout</li>
               <li style={ITEM_STYLE}>The device button shows "Casting…" while the command is being delivered</li>
-            </ul>
-          </div>
-          <div className="info-modal-section">
-            <div className="info-modal-section-title">
-              v2.5.2{' '}
-              <span style={DATE_STYLE}>2026-07-05</span>
-            </div>
-            <p style={SECTION_LABEL_STYLE}>{t('Fixes')}</p>
-            <ul style={LIST_STYLE_LAST}>
-              <li style={ITEM_STYLE}>Series tagged "yt" in Sonarr are now picked up by Tuberr within about 15 minutes instead of waiting for the 6-hour refresh cycle</li>
-              <li style={ITEM_STYLE}>Fixed channel auto-detection skipping brand-new series — episodes are synced from Sonarr first, so tagging a series goes from tag to detected channel and matched episodes in a single pass</li>
-              <li style={ITEM_STYLE}>Missing monitored episodes now download automatically — after matching, Tuberr tells Sonarr to search everything that's matched, monitored, and missing (Sonarr never searches back-catalog on its own). Fixing a match manually also triggers the search</li>
-              <li style={ITEM_STYLE}>Smarter matching when video titles carry extra noise like guest names or console suffixes — AVGN's "ToeJam & Earl" now matches its "ToeJam & Earl with Scott the Woz" video</li>
-              <li style={ITEM_STYLE}>Back-catalog searches are batched (25 per cycle) so a big new series no longer floods your regular indexers and bogs down Sonarr's Activity page — the rest queue up automatically</li>
-              <li style={ITEM_STYLE}>Download progress now shows live in Sonarr's Activity queue — a yt-dlp flag conflict had been suppressing it, leaving items at 0% until they finished</li>
-              <li style={ITEM_STYLE}>Failed downloads no longer clog Sonarr's queue at 0% — Sonarr now sees them as failed, removes them, and moves on</li>
-              <li style={ITEM_STYLE}>Age-restricted videos download too — paste YouTube cookies from a signed-in session into the new box in the YouTube settings; previously failed episodes retry on their own</li>
             </ul>
           </div>
         </div>

@@ -43,10 +43,15 @@ function resolvePlayerConnections(resources, clientId) {
     if (c.relay) return 2;
     return c.local ? 0 : 1;
   };
+  const seen = new Set();
   const connections = r.connections
-    .filter(c => c.uri)
+    .filter(c => c.uri && !seen.has(c.uri) && seen.add(c.uri))
     .sort((a, b) => score(a) - score(b))
-    .map(c => ({ uri: c.uri, local: !!c.local, relay: !!c.relay }));
+    .map(c => ({ uri: c.uri, local: !!c.local, relay: !!c.relay }))
+    // Some players (Plex for Samsung) publish a dozen-plus connections, most
+    // of them the PMS's own docker-bridge addresses. Delivery tries these one
+    // by one with a timeout each, so an uncapped list can stall for minutes.
+    .slice(0, 6);
   return { name: r.name || clientId, product: r.product || '', connections };
 }
 
@@ -129,10 +134,17 @@ function buildPlayMediaParams({ ratingKey, containerKey, endpoint, serverToken }
 }
 
 // Server-side delivery for the fallback route. Only reaches players on the
-// server's LAN (or the rare player with a relay connection).
-async function sendPlayMediaFromServer({ connections, clientId, params, userToken }) {
+// server's LAN (or the rare player with a relay connection). shouldAbort is
+// checked before every send: the frontend races this route against browser
+// delivery and hangs up when the browser wins — without the check the player
+// would receive the command twice and restart playback.
+async function sendPlayMediaFromServer({ connections, clientId, params, userToken, shouldAbort }) {
   let lastStatus = null;
   for (const c of sortForServerDelivery(connections)) {
+    if (shouldAbort && shouldAbort()) {
+      logger.debug('plexCast: server delivery aborted — client hung up (browser delivery won)');
+      return { ok: false, aborted: true };
+    }
     const qs = new URLSearchParams({ ...params, commandID: '1' });
     const castUrl = `${c.uri}/player/playback/playMedia?${qs}`;
     try {

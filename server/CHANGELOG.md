@@ -4,6 +4,16 @@ All notable changes are documented here. Versioning follows [Semantic Versioning
 
 ---
 
+## v2.5.5 — 2026-08-11
+
+### Fixed
+
+- **Library items now use separate `movie_id` and `tv_id` columns** — previously a single shared `id` field was used for both movies and TV shows, which caused a show to be misregistered in the library if it happened to share the same id value as a movie in a different context. The new schema distinguishes the two, so each is always correctly identified by type.
+- **Last sync date on libraries in the admin panel** — the timestamp was broken and no longer reflected the actual sync time; it now correctly shows when each library was last synced.
+- **Periodic reconciliation now includes all libraries** — previously some libraries were skipped during the reconciliation process; all configured libraries are now reconciled on each cycle.
+
+---
+
 ## v2.5.4 — 2026-07-12
 
 ### Added

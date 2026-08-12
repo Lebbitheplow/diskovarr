@@ -622,7 +622,17 @@ router.get('/clients', async (req, res) => {
             && !provides.includes('server')
             && r.owned === true
             && r.clientIdentifier && !seenIds.has(r.clientIdentifier)) {
-          clients.push({ name: r.name, machineIdentifier: r.clientIdentifier, product: r.product || '', platform: r.platform || '' });
+          // probeUri lets the frontend fire a throwaway local-network request
+          // when the cast picker opens, so Chrome's Local Network Access
+          // prompt appears while the user is still choosing a device.
+          const player = plexCast.resolvePlayerConnections(resources, r.clientIdentifier);
+          clients.push({
+            name: r.name,
+            machineIdentifier: r.clientIdentifier,
+            product: r.product || '',
+            platform: r.platform || '',
+            probeUri: player?.connections[0]?.uri || null,
+          });
           seenIds.add(r.clientIdentifier);
         }
       }
@@ -706,6 +716,12 @@ router.post('/cast', async (req, res) => {
     if (!ratingKey || !clientId) return res.status(400).json({ error: 'ratingKey and clientId required' });
     if (!/^\d+$/.test(String(ratingKey))) return res.status(400).json({ error: 'Invalid ratingKey' });
 
+    // The frontend races this route against browser-side delivery and aborts
+    // it when the browser wins. Detect the hang-up so we never send the
+    // player a duplicate playMedia after the browser's command landed.
+    let clientGone = false;
+    res.on('close', () => { if (!res.writableEnded) clientGone = true; });
+
     const { serverToken, token: userToken } = req.session.plexUser;
     const resources = await plexCast.fetchUserResources(userToken);
     const player = plexCast.resolvePlayerConnections(resources, clientId);
@@ -715,7 +731,11 @@ router.post('/cast', async (req, res) => {
     const containerKey = await plexCast.createPlayQueue(ratingKey, serverToken || userToken);
     const endpoint = plexCast.resolveServerEndpoint(resources);
     const params = plexCast.buildPlayMediaParams({ ratingKey, containerKey, endpoint, serverToken: serverToken || userToken });
-    const result = await plexCast.sendPlayMediaFromServer({ connections: player.connections, clientId, params, userToken });
+    const result = await plexCast.sendPlayMediaFromServer({
+      connections: player.connections, clientId, params, userToken,
+      shouldAbort: () => clientGone,
+    });
+    if (result.aborted) return; // connection is gone; nothing to respond to
     if (result.ok) return res.json({ success: true });
     res.status(400).json({
       error: result.status
@@ -909,12 +929,9 @@ router.get('/search/details', async (req, res) => {
       plexService.getLibraryItems(plexService.MOVIES_SECTION),
       plexService.getLibraryItems(plexService.TV_SECTION),
     ]);
-    const libraryByTmdb = new Map();
-    for (const i of [...movies, ...tv]) {
-      if (i.tmdbId) libraryByTmdb.set(String(i.tmdbId), i);
-    }
+    const libraryIndex = buildLibraryIndex([...movies, ...tv]);
 
-    const libItem = libraryByTmdb.get(String(tmdbId));
+    const libItem = libraryIndex.lookup(tmdbId, null, type);
     const watchlistKeys = new Set(db.getWatchlistFromDb(userId));
     const requestedIds = db.getAllRequestedTmdbIds();
     const isRequested = requestedIds.has(`${tmdbId}:${type}`);
@@ -976,6 +993,41 @@ router.get('/search/seasons', async (req, res) => {
 const SEARCH_PAGE_SIZE = 40;
 const CONTENT_RATING_ORDER_SERVER = ['G','PG','PG-13','R','NC-17','TV-G','TV-PG','TV-14','TV-MA'];
 const TEXT_SEARCH_MAX_TMDB_PAGES = 3;
+
+// ── Library index ─────────────────────────────────────────────────────────────
+// TMDB and TVDB ids are only unique *within* a media type: TMDB movie 121 is
+// The Lord of the Rings: The Two Towers while TMDB tv 121 is Doctor Who (1963).
+// Keying the lookup maps by "<id>:<mediaType>" stops a colliding movie from
+// marking a show as already-in-library, which hides its Request button and makes
+// a deleted show impossible to re-request.
+function libKey(id, mediaType) {
+  return `${id}:${mediaType}`;
+}
+
+function buildLibraryIndex(items) {
+  const byTmdb = new Map();
+  const byTvdb = new Map();
+  for (const i of items) {
+    const mediaType = i.type === 'show' ? 'tv' : 'movie';
+    if (i.tmdbId) byTmdb.set(libKey(i.tmdbId, mediaType), i);
+    if (i.tvdbId) byTvdb.set(libKey(i.tvdbId, mediaType), i);
+  }
+  return {
+    byTmdb,
+    byTvdb,
+    lookup(tmdbId, tvdbId, mediaType) {
+      if (tmdbId) {
+        const hit = byTmdb.get(libKey(tmdbId, mediaType));
+        if (hit) return hit;
+      }
+      if (tvdbId) {
+        const hit = byTvdb.get(libKey(tvdbId, mediaType));
+        if (hit) return hit;
+      }
+      return null;
+    },
+  };
+}
 
 // In-memory cache of the TMDB-derived pool per (query, lang, region). Keeps
 // filter changes instant — they re-slice this pool instead of re-hitting TMDB.
@@ -1106,7 +1158,7 @@ router.get('/search', async (req, res) => {
       plexService.getLibraryItems(plexService.TV_SECTION),
     ]);
 
-    const libraryTmdbIds = new Set([...movies, ...tv].filter(i => i.tmdbId).map(i => String(i.tmdbId)));
+    const libraryIndex = buildLibraryIndex([...movies, ...tv]);
     const watchlistKeys = new Set(db.getWatchlistFromDb(userId));
     const watchedKeys = db.getWatchedKeysFromDb(String(userId));
     const requestedIds = db.getAllRequestedTmdbIds();
@@ -1211,17 +1263,10 @@ router.get('/search', async (req, res) => {
     }
 
     // Common path: enrich, filter, paginate (works for both genre and text search)
-    const libraryByTmdb = new Map();
-    const libraryByTvdb = new Map();
-    for (const item of [...movies, ...tv]) {
-      if (item.tmdbId) libraryByTmdb.set(String(item.tmdbId), item);
-      if (item.tvdbId) libraryByTvdb.set(String(item.tvdbId), item);
-    }
-
     // For genre search we historically hide items already in library; preserve that.
     // Text search keeps in-library items so users can find what they own.
     const visiblePool = isGenreSearch
-      ? externalResults.filter(item => !libraryTmdbIds.has(String(item.tmdbId)))
+      ? externalResults.filter(item => !libraryIndex.lookup(item.tmdbId, item.tvdbId, item.mediaType))
       : externalResults;
 
     let filteredPool = applySearchFilters(visiblePool, filterOpts);
@@ -1241,9 +1286,7 @@ router.get('/search', async (req, res) => {
       : filteredPool;
 
     const results = pageItems.map(item => {
-      const libItem = item.tmdbId
-        ? libraryByTmdb.get(String(item.tmdbId))
-        : (item.tvdbId ? libraryByTvdb.get(String(item.tvdbId)) : null);
+      const libItem = libraryIndex.lookup(item.tmdbId, item.tvdbId, item.mediaType);
       const inLibrary = isGenreSearch ? false : !!libItem;
       const requestKey = item.tmdbId
         ? `${item.tmdbId}:${item.mediaType}`
@@ -1312,16 +1355,13 @@ router.get('/search/similar', async (req, res) => {
       plexService.getLibraryItems(plexService.MOVIES_SECTION),
       plexService.getLibraryItems(plexService.TV_SECTION),
     ]);
-    const libraryByTmdb = new Map();
-    for (const item of [...movies, ...tv]) {
-      if (item.tmdbId) libraryByTmdb.set(String(item.tmdbId), item);
-    }
+    const libraryIndex = buildLibraryIndex([...movies, ...tv]);
     const watchedKeys = db.getWatchedKeysFromDb(String(userId));
     const watchlistKeys = new Set(db.getWatchlistFromDb(userId));
 
     // Helper to build a result item from a TMDB-enriched candidate
     function buildResult(candidate) {
-      const libItem = libraryByTmdb.get(String(candidate.tmdbId));
+      const libItem = libraryIndex.lookup(candidate.tmdbId, null, candidate.mediaType);
       if (hideLib && libItem) return null;
       if (!discoverEnabled && !libItem) return null;
       return {
@@ -1549,16 +1589,13 @@ router.get('/search/person', async (req, res) => {
       plexService.getLibraryItems(plexService.MOVIES_SECTION),
       plexService.getLibraryItems(plexService.TV_SECTION),
     ]);
-    const libraryByTmdb = new Map();
-    for (const item of [...movies, ...tv]) {
-      if (item.tmdbId) libraryByTmdb.set(String(item.tmdbId), item);
-    }
+    const libraryIndex = buildLibraryIndex([...movies, ...tv]);
     const watchedKeys = db.getWatchedKeysFromDb(String(userId));
     const watchlistKeys = new Set(db.getWatchlistFromDb(userId));
 
     // Same shape as /search/similar so the cards render identically client-side.
     function buildResult(candidate) {
-      const libItem = libraryByTmdb.get(String(candidate.tmdbId));
+      const libItem = libraryIndex.lookup(candidate.tmdbId, null, candidate.mediaType);
       if (hideLib && libItem) return null;
       if (!discoverEnabled && !libItem) return null;
       return {
@@ -2144,7 +2181,7 @@ router.get('/queue', async (req, res) => {
   //   requested = approved + NOT in library
   //   available = approved + IN library
   // Both require fetching all approved and filtering in memory.
-  const libraryTmdbIds = db.getLibraryTmdbIds();
+  const libraryTmdbKeys = db.getLibraryTmdbKeys();
   const isComputedFilter = status === 'requested' || status === 'available';
   const dbStatus = isComputedFilter ? 'approved' : status;
 
@@ -2153,9 +2190,10 @@ router.get('/queue', async (req, res) => {
     const all = isAdmin
       ? db.getAllRequests(10000, 0, 'approved', sortCol, sortDir, search || null, userIdFilter, dateFrom, dateTo)
       : db.getUserRequests(userId, 10000, 0, 'approved', sortCol, sortDir, search || null, dateFrom, dateTo);
-    const filtered = all.rows.filter(r =>
-      status === 'available' ? libraryTmdbIds.has(String(r.tmdb_id)) : !libraryTmdbIds.has(String(r.tmdb_id))
-    );
+    const filtered = all.rows.filter(r => {
+      const owned = libraryTmdbKeys.has(`${r.tmdb_id}:${r.media_type}`);
+      return status === 'available' ? owned : !owned;
+    });
     total = filtered.length;
     rows = filtered.slice((pageNum - 1) * limit, pageNum * limit);
   } else {
@@ -2182,7 +2220,7 @@ router.get('/queue', async (req, res) => {
 
   const enriched = rows.map(r => {
     const cached = db.getTmdbCache(r.tmdb_id, r.media_type);
-    const isAvailable = libraryTmdbIds.has(String(r.tmdb_id));
+    const isAvailable = libraryTmdbKeys.has(`${r.tmdb_id}:${r.media_type}`);
     let displayStatus = r.status;
     if (r.status === 'approved') displayStatus = isAvailable ? 'available' : 'requested';
     // Backfill seasons_json for TV requests that predate the seasons feature.
@@ -2249,8 +2287,8 @@ router.put('/queue/:id', async (req, res) => {
     return res.status(400).json({ error: 'Request is not editable' });
   }
   if (request.status === 'approved') {
-    const libraryTmdbIds = db.getLibraryTmdbIds();
-    if (libraryTmdbIds.has(String(request.tmdb_id))) {
+    const libraryTmdbKeys = db.getLibraryTmdbKeys();
+    if (libraryTmdbKeys.has(`${request.tmdb_id}:${request.media_type}`)) {
       return res.status(400).json({ error: 'Content is already available in the library' });
     }
   }
@@ -3317,7 +3355,7 @@ router.post('/reviews', async (req, res) => {
   // confirm it appears in the user's own Tautulli history (movie rating_key / show
   // grandparent_rating_key). Enforced here so it can't be bypassed via the API.
   const lib = tmdbId != null
-    ? db.getLibraryItemByTmdbId(Number(tmdbId))
+    ? db.getLibraryItemByTmdbId(Number(tmdbId), mediaType)
     : db.getLibraryItemByKey(String(ratingKey));
   if (!lib) {
     return res.status(403).json({ error: 'You can only review content you have watched' });
@@ -3397,7 +3435,7 @@ router.put('/reviews/:id', (req, res) => {
 
   // Push the (possibly changed) rating to the user's personal Plex rating.
   if (rating != null) {
-    const pushKey = updated.rating_key || db.getLibraryItemByTmdbId(updated.tmdb_id)?.rating_key;
+    const pushKey = updated.rating_key || db.getLibraryItemByTmdbId(updated.tmdb_id, updated.media_type)?.rating_key;
     if (pushKey) plexService.setUserRating(userId, String(pushKey), Number(updated.rating) * 2).catch(() => {});
   }
 
@@ -3426,7 +3464,7 @@ router.delete('/reviews/:id', (req, res) => {
   if (review.user_id !== userId) return res.status(403).json({ error: 'Forbidden' });
 
   // Clear the user's personal Plex rating (the review was the source of truth).
-  const pushKey = review.rating_key || db.getLibraryItemByTmdbId(review.tmdb_id)?.rating_key;
+  const pushKey = review.rating_key || db.getLibraryItemByTmdbId(review.tmdb_id, review.media_type)?.rating_key;
   if (pushKey) plexService.setUserRating(userId, String(pushKey), -1).catch(() => {});
 
   db.deleteReview(review.id, userId);
@@ -3520,7 +3558,7 @@ router.get('/reviews/:id', (req, res) => {
   const hasReacted = db.hasUserReacted(review.id, currentUserId);
   const followedSet = new Set(db.getFollowedUserIds(currentUserId));
   // Resolve poster + content rating from the matching library item
-  const lib = review.tmdb_id != null ? db.getLibraryItemByTmdbId(review.tmdb_id) : null;
+  const lib = review.tmdb_id != null ? db.getLibraryItemByTmdbId(review.tmdb_id, review.media_type) : null;
   const thumbPath = lib?.thumb || lib?.art || null;
   const posterUrl = thumbPath
     ? (thumbPath.startsWith('http') ? thumbPath : `/api/poster?path=${encodeURIComponent(thumbPath)}`)

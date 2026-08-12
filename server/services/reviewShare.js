@@ -43,7 +43,7 @@ function getShareData(id) {
 
   const ku = db.prepare('SELECT username, thumb FROM known_users WHERE user_id = ?').get(review.user_id);
   const lib = review.tmdb_id != null
-    ? db.getLibraryItemByTmdbId(review.tmdb_id)
+    ? db.getLibraryItemByTmdbId(review.tmdb_id, review.media_type)
     : (review.rating_key ? db.getLibraryItemByKey(review.rating_key) : null);
   const posterPath = lib?.thumb || lib?.art || lib?.posterUrl || null;
 

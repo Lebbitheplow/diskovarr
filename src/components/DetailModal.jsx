@@ -12,7 +12,7 @@ import CastCrewTab from './CastCrewTab'
 import RatingBadges from './RatingBadges'
 import MonitorDropdown from './MonitorManager/MonitorDropdown'
 import { posterUrl } from '../utils/media'
-import { sendPlayMedia, isChromiumBrowser } from '../utils/castPlayer'
+import { sendPlayMedia, probeLocalNetwork, isChromiumBrowser, localNetworkPermission } from '../utils/castPlayer'
 import { useTranslation } from 'react-i18next'
 
 const CAST_ICON = (
@@ -217,6 +217,10 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
         sessionStorage.setItem('castLnaNoticeShown', '1')
         info(t('Heads up: casting from this browser may not reach your TV — it needs local network access, which only Chrome and Edge support. If casting fails, try Chrome.'))
       }
+      // Surface Chrome's local-network permission prompt now, while the user
+      // is picking a device, instead of mid-cast where it stalled delivery.
+      const probeUri = (data.clients || []).map(c => c.probeUri).find(Boolean)
+      probeLocalNetwork(probeUri)
     } catch (e) {
       toastError(t('Could not fetch clients'))
     } finally {
@@ -248,23 +252,35 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
     }
   }, [success, toastError, t])
 
-  // Browser-first casting: the page delivers playMedia itself (it's on the
-  // same LAN as the user's TV; the server usually isn't), falling back to
-  // server-side delivery for players on the server's own LAN.
+  // Chromium: the page delivers playMedia itself (it's on the same LAN as the
+  // user's TV; the server usually isn't), then falls back to server-side
+  // delivery — sequentially, so the player can never get the command twice.
+  // Other browsers block page→LAN requests outright, so they cast through the
+  // server directly (reaches players on the server's own LAN only).
   const handleCastMedia = useCallback(async (client) => {
     setCastingId(client.machineIdentifier)
+    const castArgs = { ratingKey: item.ratingKey, clientId: client.machineIdentifier }
     try {
-      const { data: prep } = await plexApi.prepareCast({ ratingKey: item.ratingKey, clientId: client.machineIdentifier })
-      const result = await sendPlayMedia(prep)
-      if (!result.ok) {
-        try {
-          await plexApi.castMedia({ ratingKey: item.ratingKey, clientId: client.machineIdentifier })
-        } catch {
-          toastError(result.reason === 'rejected'
-            ? t('The device refused the playback command. Try restarting the Plex app on it.')
-            : t('Could not reach the device from this browser. Make sure you are on the same Wi-Fi network as your TV, and allow local network access if prompted (Chrome works best).'))
-          return
+      if (isChromiumBrowser()) {
+        // If the local-network permission is still undecided, delivery will
+        // sit behind a browser prompt — tell the user to look for it.
+        if (await localNetworkPermission() === 'prompt') {
+          info(t('If your browser asks to access devices on your network, choose Allow — that is how the play command reaches your TV.'))
         }
+        const { data: prep } = await plexApi.prepareCast(castArgs)
+        const result = await sendPlayMedia(prep)
+        if (!result.ok) {
+          try {
+            await plexApi.castMedia(castArgs)
+          } catch {
+            toastError(result.reason === 'rejected'
+              ? t('The device refused the playback command. Try restarting the Plex app on it.')
+              : t('Could not reach the device from this browser. Make sure you are on the same Wi-Fi network as your TV, and allow local network access if prompted.'))
+            return
+          }
+        }
+      } else {
+        await plexApi.castMedia(castArgs)
       }
       success('Playing on ' + client.name)
       setCastOpen(false)
@@ -273,7 +289,7 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
     } finally {
       setCastingId(null)
     }
-  }, [item, success, toastError, t])
+  }, [item, success, toastError, info, t])
 
   useEffect(() => {
     if (!item?.tmdbId) return

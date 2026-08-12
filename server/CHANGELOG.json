@@ -1,10 +1,11 @@
 [
   {
-    "version": "2.5.4",
-    "date": "2026-07-12",
+    "version": "2.5.5",
+    "date": "2026-08-11",
     "changes": [
-      "Non-Chrome browsers now get a heads-up when opening the cast menu — casting needs local network access, which only Chrome and Edge support, so if casting fails, try Chrome. Shown once per session.",
-      "Requesting a YouTube show no longer asks you to pick between Torrent and YouTube — YouTube series open straight into channel selection with the YouTube downloader preselected (Sonarr/torrent still available as an alternate), and regular shows never see the YouTube option anymore."
+      "Fixed library items using a single shared id field — movies and TV shows now use separate movie_id and tv_id columns, so a show can no longer be misregistered in the library because it shared the same id value as a movie in a different context.",
+      "Fixed the last sync date on libraries in the admin panel — the timestamp was broken and no longer reflected the actual sync time.",
+      "Fixed periodic reconciliation to include all libraries — previously some libraries were skipped during the reconciliation process, now all configured libraries are reconciled."
     ]
   },
   {

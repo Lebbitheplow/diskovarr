@@ -19,11 +19,6 @@ function ensureSystemUser() {
   systemUserSeeded = true;
 }
 
-function libraryIdSet() {
-  const rows = db.prepare('SELECT tmdb_id, type FROM library_items WHERE tmdb_id IS NOT NULL').all();
-  return new Set(rows.map(r => `${r.tmdb_id}:${r.type === 'show' ? 'tv' : 'movie'}`));
-}
-
 function activeRequestExists(tmdbId, mediaType) {
   return !!db.prepare(
     "SELECT 1 FROM discover_requests WHERE tmdb_id = ? AND media_type = ? AND status != 'denied' LIMIT 1"
@@ -66,7 +61,7 @@ async function syncList(listSource) {
   });
   const { items, unresolved } = await listSources.resolveEntries(typed);
 
-  const inLibrary = libraryIdSet();
+  const inLibrary = db.getLibraryTmdbKeys();
   const summary = { total: items.length, unresolved, requested: 0, pending: 0, inLibrary: 0, skipped: 0, failed: 0 };
 
   // Lazy requires: routes/api.js and the shim pull in heavy deps and would be a

@@ -801,10 +801,10 @@ router.get('/requests', requireAdmin, (req, res) => {
   const { rows, total } = db.getAllRequests(limit, offset, status);
 
   // Enrich with TMDB data and availability status
-  const libraryTmdbIds = db.getLibraryTmdbIds();
+  const libraryTmdbKeys = db.getLibraryTmdbKeys();
   const enriched = rows.map(r => {
     const cached = db.getTmdbCache(r.tmdb_id, r.media_type);
-    const isAvailable = libraryTmdbIds.has(String(r.tmdb_id));
+    const isAvailable = libraryTmdbKeys.has(`${r.tmdb_id}:${r.media_type}`);
     let displayStatus = r.status;
     if (r.status === 'approved') displayStatus = isAvailable ? 'available' : 'requested';
     return {

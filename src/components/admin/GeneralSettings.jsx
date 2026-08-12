@@ -24,7 +24,8 @@ const PRESET_COLORS = [
 
 function formatTimestamp(ts) {
   if (!ts) return 'Never'
-  const d = new Date(ts)
+  // sync_log.last_sync is stored as Unix seconds; Date() wants ms
+  const d = new Date(ts < 1e10 ? ts * 1000 : ts)
   const now = new Date()
   const diffMs = now - d
   const diffMin = Math.floor(diffMs / 60000)

@@ -339,6 +339,11 @@ db.exec(`
   "ALTER TABLE user_request_limits ADD COLUMN review_privacy TEXT NOT NULL DEFAULT 'public'",
 ].forEach(sql => { try { db.exec(sql); } catch (e) { if (!e.message.includes('duplicate column') && !e.message.includes('no such table')) throw e; } });
 
+// Indexes over ALTER-added columns (must run after Segment A). In-library lookups
+// are keyed by (tmdb_id, type) — TMDB namespaces ids per media type, so movie 121
+// and tv 121 are different works and both halves of the key are load-bearing.
+db.exec('CREATE INDEX IF NOT EXISTS idx_library_tmdb ON library_items(tmdb_id, type)');
+
 // Segment B migrations: user preferences
 ['ALTER TABLE user_request_limits ADD COLUMN region TEXT DEFAULT NULL',
  'ALTER TABLE user_request_limits ADD COLUMN language TEXT DEFAULT NULL',
@@ -1348,7 +1353,14 @@ function getAllKnownUsersWithTokens() {
   return db.prepare('SELECT user_id, plex_token FROM known_users WHERE plex_token IS NOT NULL').all();
 }
 
-function getLibraryItemByTmdbId(tmdbId) {
+// TMDB ids are only unique within a media type (movie 121 = The Two Towers,
+// tv 121 = Doctor Who 1963), so always pass mediaType when the caller knows it.
+// Omitting it keeps the old type-blind behaviour and can match the wrong work.
+function getLibraryItemByTmdbId(tmdbId, mediaType) {
+  if (mediaType) {
+    return db.prepare('SELECT * FROM library_items WHERE tmdb_id = ? AND type = ? LIMIT 1')
+      .get(String(tmdbId), mediaType === 'tv' ? 'show' : 'movie');
+  }
   return db.prepare('SELECT * FROM library_items WHERE tmdb_id = ? LIMIT 1').get(String(tmdbId));
 }
 
@@ -1589,23 +1601,32 @@ function getAllTmdbCacheItems() {
 
 // ── Library TMDB IDs ──────────────────────────────────────────────────────────
 
-function getLibraryTmdbIds() {
-  const rows = db.prepare('SELECT tmdb_id FROM library_items WHERE tmdb_id IS NOT NULL').all();
-  return new Set(rows.map(r => String(r.tmdb_id)));
+// library_items.type is Plex's vocabulary ('movie' | 'show'); TMDB and the rest
+// of the app speak 'movie' | 'tv'. One place to cross the boundary.
+function libraryMediaType(row) {
+  return row.type === 'show' ? 'tv' : 'movie';
 }
 
-// Normalized "title|year" strings for title+year fallback filtering
-// Used when TMDB IDs aren't populated yet
+// Set of "<tmdbId>:<movie|tv>" keys. TMDB namespaces ids per media type, so a
+// type-blind id check reports e.g. Doctor Who (tv 121) as owned because The Lord
+// of the Rings: The Two Towers (movie 121) is in the library.
+function getLibraryTmdbKeys() {
+  const rows = db.prepare('SELECT tmdb_id, type FROM library_items WHERE tmdb_id IS NOT NULL').all();
+  return new Set(rows.map(r => `${r.tmdb_id}:${libraryMediaType(r)}`));
+}
+
+// Normalized "title|year|mediaType" strings for the title+year fallback, used
+// when TMDB IDs aren't populated yet. Deliberately has no year-less wildcard
+// entry: one would make any candidate with an unknown year match a same-titled
+// library item of any year (Doctor Who 1963 vs 2005, Halloween, The Thing…).
 function getLibraryTitleYearSet() {
-  const rows = db.prepare('SELECT title, year FROM library_items').all();
+  const rows = db.prepare('SELECT title, year, type FROM library_items').all();
   const set = new Set();
   for (const r of rows) {
     if (r.title) {
       // Normalize: lowercase, strip punctuation, collapse spaces
       const norm = r.title.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim();
-      set.add(norm + '|' + (r.year || ''));
-      // Also add without year for fuzzy fallback
-      set.add(norm + '|');
+      set.add(`${norm}|${r.year || ''}|${libraryMediaType(r)}`);
     }
   }
   return set;
@@ -1997,7 +2018,7 @@ function getUserPublicReviews(userId, limit = 20, offset = 0) {
     LIMIT ? OFFSET ?
   `).all(...params, Number(limit), Number(offset));
   for (const r of rows) {
-    const lib = r.tmdb_id != null ? getLibraryItemByTmdbId(r.tmdb_id) : null;
+    const lib = r.tmdb_id != null ? getLibraryItemByTmdbId(r.tmdb_id, r.media_type) : null;
     const thumbPath = lib?.thumb || lib?.art || null;
     r.poster_url = thumbPath
       ? (thumbPath.startsWith('http') ? thumbPath : `/api/poster?path=${encodeURIComponent(thumbPath)}`)
@@ -2776,7 +2797,7 @@ function getPublicReviews(limit, offset, followedUserIds) {
   // Resolve poster + content rating from the matching library item so the feed card
   // can show artwork and a maturity badge. Done here so cached rows carry it.
   for (const r of rows) {
-    const lib = r.tmdb_id != null ? getLibraryItemByTmdbId(r.tmdb_id) : null;
+    const lib = r.tmdb_id != null ? getLibraryItemByTmdbId(r.tmdb_id, r.media_type) : null;
     const thumbPath = lib?.thumb || lib?.art || null;
     r.poster_url = thumbPath
       ? (thumbPath.startsWith('http') ? thumbPath : `/api/poster?path=${encodeURIComponent(thumbPath)}`)
@@ -3160,7 +3181,7 @@ module.exports = {
   getOwnerUserId, setOwnerUserId,
   getSetting, setSetting, getConnectionSettings, isDiscoverEnabled, hasTmdbKey,
   getTmdbCache, setTmdbCache, deleteTmdbCache, getAllTmdbCacheItems, getItemsByGenre,
-  getLibraryTmdbIds, getLibraryTitleYearSet,
+  getLibraryTmdbKeys, getLibraryTitleYearSet, libraryMediaType,
   addDiscoverRequest, getRequestedTmdbIds, getAllRequestedTmdbIds, getRecentRequests,
   addExploreDismissal, getExploreDismissedIds, getUserExploreDismissalRows, removeExploreDismissal,
   getDiscoverPool, setDiscoverPool, getKnownUserIds,

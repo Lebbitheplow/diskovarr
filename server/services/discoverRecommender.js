@@ -12,6 +12,28 @@ function makePoolKey(region, language, showMature) {
   return `${region || ''}:${language || ''}:${showMature ? '1' : '0'}`;
 }
 
+// ── In-library matching ───────────────────────────────────────────────────────
+// TMDB ids are unique only *within* a media type (movie 121 is The Two Towers,
+// tv 121 is Doctor Who 1963), so every check is keyed by "<tmdbId>:<mediaType>".
+// The title fallback is type-scoped too, and only fires when the candidate has a
+// year — a year-less match would treat Doctor Who (1963) as owned merely because
+// Doctor Who (2005) is in the library.
+function normTitle(t) {
+  return (t || '').toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim();
+}
+
+function makeInLibraryCheck(libraryTmdbKeys, libraryTitleYears) {
+  return function isInLibrary(tmdbId, mediaType, title, year) {
+    if (libraryTmdbKeys.has(`${tmdbId}:${mediaType}`)) return true;
+    if (!year) return false;
+    const norm = normTitle(title);
+    // ±1 year window absorbs slight year discrepancies between Plex and TMDB
+    return libraryTitleYears.has(`${norm}|${year}|${mediaType}`)
+      || libraryTitleYears.has(`${norm}|${year - 1}|${mediaType}`)
+      || libraryTitleYears.has(`${norm}|${year + 1}|${mediaType}`);
+  };
+}
+
 // Per-user in-memory cache: userId -> { pools, builtAt }
 const discoverCache = new Map();
 // Track in-progress background rebuilds to avoid duplicates
@@ -371,33 +393,10 @@ async function buildDiscoverPools(userId, userToken) {
     getTopWatchedTmdbIds(userId),
   ]);
 
-  // Library TMDB IDs to exclude from results
-  const libraryTmdbIds = db.getLibraryTmdbIds();
-  // Title+year fallback for when TMDB IDs aren't populated yet
-  const libraryTitleYears = db.getLibraryTitleYearSet();
-
-  function normTitle(t) {
-    return (t || '').toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim();
-  }
-
-  function isInLibraryByTitle(title, year) {
-    const norm = normTitle(title);
-    // Exact title+year match
-    if (libraryTitleYears.has(norm + '|' + (year || ''))) return true;
-    // Title match within ±1 year (handles slight year discrepancies)
-    if (year) {
-      if (libraryTitleYears.has(norm + '|' + (year - 1))) return true;
-      if (libraryTitleYears.has(norm + '|' + (year + 1))) return true;
-    }
-    return false;
-  }
-
-  function isAlreadyHave(tmdbId, mediaType, title, year) {
-    if (libraryTmdbIds.has(String(tmdbId))) return true;
-    // Requested items are NOT excluded — they appear as candidates with isRequested flag
-    if (isInLibraryByTitle(title, year)) return true;
-    return false;
-  }
+  // Library keys ("<tmdbId>:<mediaType>") to exclude from results, plus a
+  // title+year fallback for when TMDB IDs aren't populated yet.
+  // Requested items are NOT excluded — they appear as candidates with isRequested flag.
+  const isAlreadyHave = makeInLibraryCheck(db.getLibraryTmdbKeys(), db.getLibraryTitleYearSet());
 
   // ── Gather candidates ────────────────────────────────────────────────────
 
@@ -631,21 +630,9 @@ function scheduleRebuild(userId, userToken) {
  * from the TMDB DB cache populated during pool building, so this is fast after
  * the first pool build.
  */
-async function buildTrendingSections(requestedIds, dismissedIds, libraryTmdbIds, libraryTitleYears, mature) {
-  function normTitle(t) {
-    return (t || '').toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim();
-  }
-  function isInLibrary(tmdbId, mediaType, title, year) {
-    if (libraryTmdbIds.has(String(tmdbId))) return true;
-    // Do NOT filter by requestedIds — requested items show in trending with a badge
-    const norm = normTitle(title);
-    if (libraryTitleYears.has(norm + '|' + (year || ''))) return true;
-    if (year) {
-      if (libraryTitleYears.has(norm + '|' + (year - 1))) return true;
-      if (libraryTitleYears.has(norm + '|' + (year + 1))) return true;
-    }
-    return false;
-  }
+async function buildTrendingSections(requestedIds, dismissedIds, libraryTmdbKeys, libraryTitleYears, mature) {
+  // Do NOT filter by requestedIds — requested items show in trending with a badge
+  const isInLibrary = makeInLibraryCheck(libraryTmdbKeys, libraryTitleYears);
 
   // Fetch 3 pages per type (60 candidates). tmdbFetch caches page results in-process.
   const trendingOpts = { includeAdult: mature };
@@ -692,20 +679,8 @@ async function buildTrendingSections(requestedIds, dismissedIds, libraryTmdbIds,
  * Returns items with future release dates (next 90 days) that are not in the
  * library and not dismissed.  Fetches 3 pages per type.
  */
-async function buildUpcomingSections(requestedIds, dismissedIds, libraryTmdbIds, libraryTitleYears, mature) {
-  function normTitle(t) {
-    return (t || '').toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim();
-  }
-  function isInLibrary(tmdbId, mediaType, title, year) {
-    if (libraryTmdbIds.has(String(tmdbId))) return true;
-    const norm = normTitle(title);
-    if (libraryTitleYears.has(norm + '|' + (year || ''))) return true;
-    if (year) {
-      if (libraryTitleYears.has(norm + '|' + (year - 1))) return true;
-      if (libraryTitleYears.has(norm + '|' + (year + 1))) return true;
-    }
-    return false;
-  }
+async function buildUpcomingSections(requestedIds, dismissedIds, libraryTmdbKeys, libraryTitleYears, mature) {
+  const isInLibrary = makeInLibraryCheck(libraryTmdbKeys, libraryTitleYears);
 
   // Fetch 3 pages per type (20 results per page from TMDB)
   const upcomingOpts = { includeAdult: mature };
@@ -802,12 +777,12 @@ async function getDiscoverRecommendations(userId, userToken, { mature, hideReque
 
   // Trending sections run in parallel with the pool sampling — they use
   // the shared TMDB DB cache so they're fast after the first pool build.
-  const libraryTmdbIds = db.getLibraryTmdbIds();
+  const libraryTmdbKeys = db.getLibraryTmdbKeys();
   const libraryTitleYears = db.getLibraryTitleYearSet();
 
   const [trendingResult, upcomingResult] = await Promise.all([
-    buildTrendingSections(requestedIds, dismissedIds, libraryTmdbIds, libraryTitleYears, mature),
-    buildUpcomingSections(requestedIds, dismissedIds, libraryTmdbIds, libraryTitleYears, mature),
+    buildTrendingSections(requestedIds, dismissedIds, libraryTmdbKeys, libraryTitleYears, mature),
+    buildUpcomingSections(requestedIds, dismissedIds, libraryTmdbKeys, libraryTitleYears, mature),
   ]);
 
   function markTrending(items) {
