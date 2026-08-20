@@ -3,7 +3,7 @@
 # ──────────────────────────────────────────────────────────────────────────────
 # Stage 1 — build the React frontend with Vite
 # ──────────────────────────────────────────────────────────────────────────────
-FROM node:23-alpine AS frontend
+FROM node:26.7.0-alpine AS frontend
 WORKDIR /build
 
 # Install frontend deps (incl. devDeps — vite is a devDep)
@@ -28,7 +28,7 @@ RUN npm run build
 # These paths are preserved from the v1.x layout so existing
 # `-v ./data:/app/data` Docker Compose volumes upgrade in place.
 # ──────────────────────────────────────────────────────────────────────────────
-FROM node:23-alpine
+FROM node:26.7.0-alpine
 WORKDIR /app
 
 # ffmpeg: yt-dlp needs it to merge 1080p video+audio streams.
