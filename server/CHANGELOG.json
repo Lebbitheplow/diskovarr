@@ -1,5 +1,14 @@
 [
   {
+    "version": "2.5.8",
+    "date": "2026-08-22",
+    "changes": [
+      "Security patches across the frontend and server dependencies (Snyk).",
+      "Upgraded nodemailer from 8.x to 9.x, resolving a security advisory in the SMTP mailer; the existing email notification configuration is unaffected.",
+      "Patched additional dependency vulnerabilities pulled in transitively — path-to-regexp (Express routing ReDoS), PostCSS source-map path traversal, nanoid, and the Vite/Babel build toolchain."
+    ]
+  },
+  {
     "version": "2.5.7",
     "date": "2026-08-21",
     "changes": [

@@ -4,6 +4,16 @@ All notable changes are documented here. Versioning follows [Semantic Versioning
 
 ---
 
+## v2.5.8 — 2026-08-22
+
+### Security
+
+- **Snyk security patches** across the frontend and server dependencies.
+- **nodemailer upgraded 8.x → 9.x** — resolves a security advisory in the SMTP mailer. The transporter is created with the same host/port/secure/auth/TLS options as before (`server/services/emailAgent.js`), so existing email notification setups keep working unchanged.
+- **Transitive dependency fixes** — `path-to-regexp` (Express routing ReDoS, GHSA-37ch-88jc-xwx2), PostCSS source-map path traversal, `nanoid`, and the Vite/Babel build toolchain were patched via lockfile updates within their existing semver ranges (build-time devDependencies; not shipped in the served bundle).
+
+---
+
 ## v2.5.7 — 2026-08-21
 
 ### Added

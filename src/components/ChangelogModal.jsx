@@ -20,7 +20,7 @@ const DATE_STYLE = { fontWeight: '400', color: 'var(--text-secondary)', fontSize
 export default function ChangelogModal({ open, onClose }) {
   const { t } = useTranslation()
   if (!open) return null
-  const currentVersion = import.meta.env.VITE_APP_VERSION || '2.5.7'
+  const currentVersion = import.meta.env.VITE_APP_VERSION || '2.5.8'
 
   return (
     <div className="info-modal-backdrop open" onClick={onClose}>
@@ -33,6 +33,18 @@ export default function ChangelogModal({ open, onClose }) {
           <div className="info-modal-section">
             <div className="info-modal-section-title">
               v{currentVersion}{' '}
+              <span style={DATE_STYLE}>2026-08-22</span>
+            </div>
+            <p style={SECTION_LABEL_STYLE}>{t('Fixes')}</p>
+            <ul style={LIST_STYLE_LAST}>
+              <li style={ITEM_STYLE}>Security patches across the frontend and server dependencies (Snyk)</li>
+              <li style={ITEM_STYLE}>Upgraded the email (SMTP) library to nodemailer v9, resolving a security advisory in the mailer</li>
+              <li style={ITEM_STYLE}>Patched additional dependency vulnerabilities in the request-routing and build toolchains (path-to-regexp, PostCSS, nanoid, and Vite tooling)</li>
+            </ul>
+          </div>
+          <div className="info-modal-section">
+            <div className="info-modal-section-title">
+              v2.5.7{' '}
               <span style={DATE_STYLE}>2026-08-21</span>
             </div>
             <p style={SECTION_LABEL_STYLE}>{t('New')}</p>
@@ -50,18 +62,6 @@ export default function ChangelogModal({ open, onClose }) {
             <p style={SECTION_LABEL_STYLE}>{t('Fixes')}</p>
             <ul style={LIST_STYLE_LAST}>
               <li style={ITEM_STYLE}>Security patches across the frontend, server, and Docker base image (Snyk)</li>
-            </ul>
-          </div>
-          <div className="info-modal-section">
-            <div className="info-modal-section-title">
-              v2.5.5{' '}
-              <span style={DATE_STYLE}>2026-08-11</span>
-            </div>
-            <p style={SECTION_LABEL_STYLE}>{t('Fixes')}</p>
-            <ul style={LIST_STYLE_LAST}>
-              <li style={ITEM_STYLE}>Library items now use separate movie_id and tv_id columns instead of a single shared id — a show can no longer be misregistered in the library because it shared the same id value as a movie in a different context</li>
-              <li style={ITEM_STYLE}>Fixed the last sync date on libraries in the admin panel — the timestamp was broken and no longer reflected the actual sync time</li>
-              <li style={ITEM_STYLE}>Periodic reconciliation now includes all libraries — previously some libraries were skipped during the reconciliation process</li>
             </ul>
           </div>
         </div>
