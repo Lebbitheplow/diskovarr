@@ -20,7 +20,7 @@ const DATE_STYLE = { fontWeight: '400', color: 'var(--text-secondary)', fontSize
 export default function ChangelogModal({ open, onClose }) {
   const { t } = useTranslation()
   if (!open) return null
-  const currentVersion = import.meta.env.VITE_APP_VERSION || '2.5.5'
+  const currentVersion = import.meta.env.VITE_APP_VERSION || '2.5.7'
 
   return (
     <div className="info-modal-backdrop open" onClick={onClose}>
@@ -33,6 +33,28 @@ export default function ChangelogModal({ open, onClose }) {
           <div className="info-modal-section">
             <div className="info-modal-section-title">
               v{currentVersion}{' '}
+              <span style={DATE_STYLE}>2026-08-21</span>
+            </div>
+            <p style={SECTION_LABEL_STYLE}>{t('New')}</p>
+            <ul style={LIST_STYLE_LAST}>
+              <li style={ITEM_STYLE}>Filter the request queue by app — a new App filter lets admins narrow the queue to requests routed to Sonarr, Radarr, Overseerr, DUMB, or YouTube (plus a Default bucket for requests whose app is chosen at approval time)</li>
+              <li style={ITEM_STYLE}>Reporting a missing season or episode can now queue a search automatically — tick "This content is missing" when reporting an issue for a show, and Diskovarr searches for it in your default request app</li>
+              <li style={ITEM_STYLE}>When a reporter's requests need approval, missing-content issues wait for an admin instead — a Search now button on the issue lets you kick off the search (and retry if one fails)</li>
+            </ul>
+          </div>
+          <div className="info-modal-section">
+            <div className="info-modal-section-title">
+              v2.5.6{' '}
+              <span style={DATE_STYLE}>2026-08-19</span>
+            </div>
+            <p style={SECTION_LABEL_STYLE}>{t('Fixes')}</p>
+            <ul style={LIST_STYLE_LAST}>
+              <li style={ITEM_STYLE}>Security patches across the frontend, server, and Docker base image (Snyk)</li>
+            </ul>
+          </div>
+          <div className="info-modal-section">
+            <div className="info-modal-section-title">
+              v2.5.5{' '}
               <span style={DATE_STYLE}>2026-08-11</span>
             </div>
             <p style={SECTION_LABEL_STYLE}>{t('Fixes')}</p>
@@ -40,36 +62,6 @@ export default function ChangelogModal({ open, onClose }) {
               <li style={ITEM_STYLE}>Library items now use separate movie_id and tv_id columns instead of a single shared id — a show can no longer be misregistered in the library because it shared the same id value as a movie in a different context</li>
               <li style={ITEM_STYLE}>Fixed the last sync date on libraries in the admin panel — the timestamp was broken and no longer reflected the actual sync time</li>
               <li style={ITEM_STYLE}>Periodic reconciliation now includes all libraries — previously some libraries were skipped during the reconciliation process</li>
-            </ul>
-          </div>
-          <div className="info-modal-section">
-            <div className="info-modal-section-title">
-              v2.5.4{' '}
-              <span style={DATE_STYLE}>2026-07-12</span>
-            </div>
-            <p style={SECTION_LABEL_STYLE}>{t('New')}</p>
-            <ul style={LIST_STYLE}>
-              <li style={ITEM_STYLE}>Non-Chrome browsers now get a heads-up when opening the cast menu — casting needs local network access, which only Chrome and Edge support, so if casting fails, try Chrome. Shown once per session</li>
-            </ul>
-            <p style={SECTION_LABEL_STYLE}>{t('Fixes')}</p>
-            <ul style={LIST_STYLE_LAST}>
-              <li style={ITEM_STYLE}>Requesting a YouTube show no longer asks you to pick between Torrent and YouTube — YouTube series open straight into channel selection with the YouTube downloader preselected (Sonarr/torrent still available as an alternate), and regular shows never see the YouTube option anymore</li>
-            </ul>
-          </div>
-          <div className="info-modal-section">
-            <div className="info-modal-section-title">
-              v2.5.3{' '}
-              <span style={DATE_STYLE}>2026-07-06</span>
-            </div>
-            <p style={SECTION_LABEL_STYLE}>{t('New')}</p>
-            <ul style={LIST_STYLE}>
-              <li style={ITEM_STYLE}>Cast to your TV from anywhere — casting now works for users outside the server's household. Your browser sends the play command straight to your TV, so be on the same Wi-Fi as the TV and allow local network access if your browser asks. Chrome and Edge work best; iPhone/iPad browsers can't reach TVs yet, so use the Plex app there</li>
-            </ul>
-            <p style={SECTION_LABEL_STYLE}>{t('Fixes')}</p>
-            <ul style={LIST_STYLE_LAST}>
-              <li style={ITEM_STYLE}>Cast playback now streams from the server's public address instead of its LAN address, so TVs outside the server's network can actually play what you cast</li>
-              <li style={ITEM_STYLE}>Cast errors now say what went wrong — wrong network, Plex app closed, or a device that can't be remote-controlled — instead of a cryptic "operation was aborted" timeout</li>
-              <li style={ITEM_STYLE}>The device button shows "Casting…" while the command is being delivered</li>
             </ul>
           </div>
         </div>

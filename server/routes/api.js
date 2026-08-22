@@ -2166,7 +2166,7 @@ router.get('/queue', async (req, res) => {
   const isAdmin = !!(req.session.isAdmin || req.session.isPlexAdminUser)
     || db.getPrivilegedUserIds().includes(String(req.session.plexUser.id));
   const userId = req.session.plexUser.id;
-  const { status = 'all', page = '1', limit: limitParam = '25', sort: sortParam = 'requested_at', sortDir: sortDirParam = 'DESC', search: searchParam = '', userId: userIdParam = '', from: fromParam = '', to: toParam = '' } = req.query;
+  const { status = 'all', page = '1', limit: limitParam = '25', sort: sortParam = 'requested_at', sortDir: sortDirParam = 'DESC', search: searchParam = '', userId: userIdParam = '', from: fromParam = '', to: toParam = '', service: serviceParam = '' } = req.query;
   const limit = Math.min(100, Math.max(1, parseInt(limitParam) || 25));
   const pageNum = Math.max(1, parseInt(page) || 1);
   const ALLOWED_SORT_COLS = ['title', 'username', 'media_type', 'requested_at', 'status'];
@@ -2176,6 +2176,8 @@ router.get('/queue', async (req, res) => {
   const userIdFilter = isAdmin && typeof userIdParam === 'string' && userIdParam.trim() ? userIdParam.trim() : null;
   const dateFrom = (() => { const n = parseInt(fromParam, 10); return Number.isFinite(n) ? n : null; })();
   const dateTo = (() => { const n = parseInt(toParam, 10); return Number.isFinite(n) ? n : null; })();
+  const ALLOWED_SERVICES = ['overseerr', 'radarr', 'sonarr', 'riven', 'youtube', 'default'];
+  const serviceFilter = ALLOWED_SERVICES.includes(serviceParam) ? serviceParam : null;
 
   // 'requested' and 'available' are computed displayStatuses derived from approved rows:
   //   requested = approved + NOT in library
@@ -2188,8 +2190,8 @@ router.get('/queue', async (req, res) => {
   let rows, total;
   if (isComputedFilter) {
     const all = isAdmin
-      ? db.getAllRequests(10000, 0, 'approved', sortCol, sortDir, search || null, userIdFilter, dateFrom, dateTo)
-      : db.getUserRequests(userId, 10000, 0, 'approved', sortCol, sortDir, search || null, dateFrom, dateTo);
+      ? db.getAllRequests(10000, 0, 'approved', sortCol, sortDir, search || null, userIdFilter, dateFrom, dateTo, serviceFilter)
+      : db.getUserRequests(userId, 10000, 0, 'approved', sortCol, sortDir, search || null, dateFrom, dateTo, serviceFilter);
     const filtered = all.rows.filter(r => {
       const owned = libraryTmdbKeys.has(`${r.tmdb_id}:${r.media_type}`);
       return status === 'available' ? owned : !owned;
@@ -2198,8 +2200,8 @@ router.get('/queue', async (req, res) => {
     rows = filtered.slice((pageNum - 1) * limit, pageNum * limit);
   } else {
     ({ rows, total } = isAdmin
-      ? db.getAllRequests(limit, (pageNum - 1) * limit, dbStatus, sortCol, sortDir, search || null, userIdFilter, dateFrom, dateTo)
-      : db.getUserRequests(userId, limit, (pageNum - 1) * limit, dbStatus, sortCol, sortDir, search || null, dateFrom, dateTo));
+      ? db.getAllRequests(limit, (pageNum - 1) * limit, dbStatus, sortCol, sortDir, search || null, userIdFilter, dateFrom, dateTo, serviceFilter)
+      : db.getUserRequests(userId, limit, (pageNum - 1) * limit, dbStatus, sortCol, sortDir, search || null, dateFrom, dateTo, serviceFilter));
   }
 
   // Fetch TMDB details on-demand for rows with no cache entry, or TV rows whose
@@ -2463,12 +2465,112 @@ router.delete('/queue/:id', (req, res) => {
 
 // ── Issue reporting endpoints ──────────────────────────────────────────────────
 
+// Resolve the admin's chosen "default request app" to a concrete service for a
+// TV request — mirrors the fallback logic used when approving a queued request.
+function resolveDefaultTvService() {
+  const c = db.getConnectionSettings();
+  const dumbPullActive = db.getSetting('dumb_request_mode', 'pull') === 'pull'
+    && ['1', 'true'].includes(db.getSetting('riven_enabled', '0'));
+  if (dumbPullActive) return 'riven';
+  const choice = c.defaultRequestService || 'overseerr';
+  if (choice === 'riven' && c.rivenEnabled) return 'riven';
+  if (choice === 'overseerr' && c.overseerrEnabled) return 'overseerr';
+  if (choice === 'direct' && c.sonarrEnabled) return 'sonarr';
+  // Configured default isn't available — fall back to whatever is enabled
+  if (c.sonarrEnabled) return 'sonarr';
+  if (c.overseerrEnabled) return 'overseerr';
+  if (c.rivenEnabled) return 'riven';
+  return null;
+}
+
+// Queue a search for the missing season/episode named in a TV issue, using the
+// admin's default request app. A show already in Sonarr is searched in place
+// (SeasonSearch/EpisodeSearch); a show not in Sonarr, or a non-Sonarr default
+// app, falls back to a normal season-level request submission. Returns the app.
+async function triggerSearchForIssue(issue) {
+  if (issue.media_type === 'movie') throw new Error('Search is only supported for TV issues');
+  if (issue.scope !== 'season' && issue.scope !== 'episode') throw new Error('Search requires a season or episode scope');
+  const season = Number(issue.scope_season);
+  if (!Number.isFinite(season)) throw new Error('Issue has no season number');
+  const episode = issue.scope === 'episode' ? Number(issue.scope_episode) : null;
+
+  const libItem = db.getLibraryItemByKey(issue.rating_key);
+  const tmdbId = libItem?.tmdbId || null;
+  let tvdbId = libItem?.tvdbId || null;
+
+  const service = resolveDefaultTvService();
+  if (!service) throw new Error('No request app is configured to search');
+  const c = db.getConnectionSettings();
+
+  // Non-Sonarr default apps can't do episode-level searches — request the season.
+  if (service !== 'sonarr') {
+    if (!tmdbId) throw new Error('Cannot request season — no TMDB id for this library item');
+    await submitRequestToService({ tmdbId, mediaType: 'tv', title: issue.title, service, seasons: [season], tvdbId });
+    return service;
+  }
+
+  if (!c.sonarrEnabled || !c.sonarrUrl || !c.sonarrApiKey) throw new Error('Sonarr not configured');
+  const base = c.sonarrUrl.replace(/\/$/, '');
+  const sonarrFetch = (path, opts = {}) => fetch(`${base}/api/v3${path}`, {
+    headers: { 'X-Api-Key': c.sonarrApiKey, 'Content-Type': 'application/json' },
+    signal: AbortSignal.timeout(10000),
+    ...opts,
+  });
+
+  if (!tvdbId && tmdbId) {
+    const externalIds = await tmdbService.tmdbFetchPublic(`/tv/${tmdbId}/external_ids`).catch(() => ({}));
+    tvdbId = externalIds?.tvdb_id || null;
+  }
+  if (!tvdbId) throw new Error('Could not resolve TVDB id for this show');
+
+  const series = await sonarrFetch(`/series?tvdbId=${tvdbId}`).then(r => (r.ok ? r.json() : [])).catch(() => []);
+  const show = series[0];
+  if (!show) {
+    // Not in Sonarr yet — add it with the affected season monitored + searched.
+    if (!tmdbId) throw new Error('Show is not in Sonarr and has no TMDB id to add it');
+    await submitRequestToService({ tmdbId, mediaType: 'tv', title: issue.title, service: 'sonarr', seasons: [season], tvdbId });
+    return 'sonarr';
+  }
+
+  // Make sure the affected season is monitored before searching.
+  const seasonObj = (show.seasons || []).find(s => s.seasonNumber === season);
+  if (seasonObj && !seasonObj.monitored) {
+    seasonObj.monitored = true;
+    await sonarrFetch(`/series/${show.id}`, { method: 'PUT', body: JSON.stringify(show) }).catch(() => {});
+  }
+
+  if (episode != null && Number.isFinite(episode)) {
+    const eps = await sonarrFetch(`/episode?seriesId=${show.id}&seasonNumber=${season}`).then(r => (r.ok ? r.json() : [])).catch(() => []);
+    const ep = eps.find(e => e.episodeNumber === episode);
+    if (!ep) throw new Error(`Episode S${season}E${episode} not found in Sonarr`);
+    if (!ep.monitored) {
+      await sonarrFetch('/episode/monitor', { method: 'PUT', body: JSON.stringify({ episodeIds: [ep.id], monitored: true }) }).catch(() => {});
+    }
+    const cmd = await sonarrFetch('/command', { method: 'POST', body: JSON.stringify({ name: 'EpisodeSearch', episodeIds: [ep.id] }) });
+    if (!cmd.ok) throw new Error(`Sonarr episode search failed: ${await cmd.text()}`);
+  } else {
+    const cmd = await sonarrFetch('/command', { method: 'POST', body: JSON.stringify({ name: 'SeasonSearch', seriesId: show.id, seasonNumber: season }) });
+    if (!cmd.ok) throw new Error(`Sonarr season search failed: ${await cmd.text()}`);
+  }
+  return 'sonarr';
+}
+
 // POST /api/issues — report an issue with a library item
 router.post('/issues', async (req, res) => {
   if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
   const userId = String(req.session.plexUser.id);
-  const { ratingKey, title, mediaType, posterPath, scope, scopeSeason, scopeEpisode, description } = req.body;
+  const { ratingKey, title, mediaType, posterPath, scope, scopeSeason, scopeEpisode, description, missing } = req.body;
   if (!ratingKey || !title || !mediaType) return res.status(400).json({ error: 'Missing required fields' });
+
+  // A "missing content" report for a specific season/episode of a show can auto-queue
+  // a search. If this user's requests need admin approval, hold it for an admin instead.
+  const isMissing = !!missing;
+  const isTvMissing = mediaType !== 'movie' && (scope === 'season' || scope === 'episode') && isMissing;
+  let searchStatus = null;
+  if (isTvMissing) {
+    searchStatus = db.getEffectiveAutoApprove(userId, 'tv') ? 'searching' : 'needs_admin';
+  }
+
   const id = db.createIssue({
     userId, ratingKey, title, mediaType,
     posterPath: posterPath || null,
@@ -2476,7 +2578,20 @@ router.post('/issues', async (req, res) => {
     scopeSeason: scopeSeason != null ? Number(scopeSeason) : null,
     scopeEpisode: scopeEpisode != null ? Number(scopeEpisode) : null,
     description: description || null,
+    isMissing,
+    searchStatus,
   });
+
+  // Fire the auto-search (only when this user's requests auto-approve).
+  if (searchStatus === 'searching') {
+    try {
+      await triggerSearchForIssue(db.getIssueById(id));
+      db.setIssueSearchStatus(id, 'done');
+    } catch (e) {
+      logger.warn(`Issue auto-search failed (issue #${id}):`, e.message);
+      db.setIssueSearchStatus(id, 'failed');
+    }
+  }
   try {
     const shortDesc = description ? description.slice(0, 120) : 'A user has reported an issue.';
     for (const adminId of db.getPrivilegedUserIds()) {
@@ -2549,6 +2664,23 @@ router.get('/issues/:id', (req, res) => {
     || db.getPrivilegedUserIds().includes(String(req.session.plexUser.id));
   if (!isAdmin && String(issue.user_id) !== String(req.session.plexUser.id)) return res.status(403).json({ error: 'Forbidden' });
   res.json(enrichIssuePoster(issue));
+});
+
+// POST /api/issues/:id/search — admin-triggered search for a missing season/episode.
+// Used when the reporter's requests don't auto-approve, or to retry a failed search.
+router.post('/issues/:id/search', requirePrivileged, async (req, res) => {
+  const issue = db.getIssueById(req.params.id);
+  if (!issue) return res.status(404).json({ error: 'Not found' });
+  try {
+    db.setIssueSearchStatus(issue.id, 'searching');
+    const service = await triggerSearchForIssue(issue);
+    db.setIssueSearchStatus(issue.id, 'done');
+    res.json({ success: true, service });
+  } catch (e) {
+    db.setIssueSearchStatus(issue.id, 'failed');
+    logger.warn(`Manual issue search failed (issue #${issue.id}):`, e.message);
+    res.status(502).json({ error: e.message });
+  }
 });
 
 // POST /api/issues/:id/resolve — mark resolved with optional note

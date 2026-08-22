@@ -34,7 +34,11 @@ function ReportIssueForm({ item }) {
   const [scope, setScope] = useState('series')
   const [season, setSeason] = useState('')
   const [episode, setEpisode] = useState('')
+  const [missing, setMissing] = useState(false)
   const [description, setDescription] = useState('')
+
+  // The "missing" flag only applies to a specific season/episode of a show.
+  const canMarkMissing = isShow && (scope === 'season' || scope === 'episode')
 
   const handleSubmit = async () => {
     setSubmitting(true)
@@ -48,6 +52,7 @@ function ReportIssueForm({ item }) {
         scope,
         scopeSeason: isShow ? (parseInt(season) || null) : null,
         scopeEpisode: isShow && scope === 'episode' ? (parseInt(episode) || null) : null,
+        missing: canMarkMissing ? missing : false,
         description: description.trim() || null,
       })
       success('Issue reported')
@@ -98,6 +103,14 @@ function ReportIssueForm({ item }) {
               <label style={{ display: 'block', fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: '5px' }}>{t('Episode Number')}</label>
               <input type="number" min="1" className="filter-select" value={episode} onChange={e => setEpisode(e.target.value)} style={{ width: '80px', padding: '6px 8px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text)', fontSize: '0.85rem' }} />
             </div>
+          )}
+          {canMarkMissing && (
+            <label style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', marginBottom: '10px', fontSize: '0.82rem', color: 'var(--text)', cursor: 'pointer' }}>
+              <input type="checkbox" className="bulk-checkbox" checked={missing} onChange={e => setMissing(e.target.checked)} style={{ marginTop: '2px' }} />
+              <span>{t('This content is missing from the library')}
+                <span style={{ display: 'block', fontSize: '0.74rem', color: 'var(--text-secondary)' }}>{t('Automatically queues a search for it in the default request app')}</span>
+              </span>
+            </label>
           )}
           <div style={{ marginBottom: '10px' }}>
             <label style={{ display: 'block', fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: '5px' }}>Description (optional)</label>

@@ -52,6 +52,7 @@ export default function Queue() {
   const [perPage, setPerPage] = useState(() => parseInt(localStorage.getItem('diskovarr_queue_per_page') || '25'))
   const [sortCol, setSortCol] = useState('requested_at')
   const [sortDir, setSortDir] = useState('DESC')
+  const [serviceFilter, setServiceFilter] = useState('')
 
   const [editRequest, setEditRequest] = useState(null)
   const [editService, setEditService] = useState('')
@@ -98,6 +99,7 @@ export default function Queue() {
       if (selectedUser) params.userId = selectedUser
       if (dateFrom) params.from = dateFrom
       if (dateTo) params.to = dateTo
+      if (serviceFilter) params.service = serviceFilter
       const { data } = await queueApi.getQueue(params)
       setRequests(data.requests || [])
       setTotalPages(data.totalPages || 1)
@@ -108,14 +110,14 @@ export default function Queue() {
     } finally {
       setLoading(false)
     }
-  }, [perPage, sortCol, sortDir, debouncedSearchQuery, selectedUser, dateFrom, dateTo, toastError, t])
+  }, [perPage, sortCol, sortDir, debouncedSearchQuery, selectedUser, dateFrom, dateTo, serviceFilter, toastError, t])
 
   useEffect(() => {
     ;(async () => {
       setSelectedIds(new Set())
       await loadQueue(currentFilter, 1)
     })()
-  }, [currentFilter, debouncedSearchQuery, selectedUser, dateFrom, dateTo, loadQueue])
+  }, [currentFilter, debouncedSearchQuery, selectedUser, dateFrom, dateTo, serviceFilter, loadQueue])
 
   const toggleSelectAll = useCallback(() => {
     setSelectedIds(prev => {
@@ -296,6 +298,20 @@ export default function Queue() {
     setSelectedUser(prev => prev === userId ? '' : userId)
   }, [setSelectedUser])
 
+  // Request-app filter options, built from the apps the server actually has enabled.
+  // 'default' always shows — it captures requests with no explicit app (resolved at approval).
+  const appOptions = [
+    services.overseerr && { id: 'overseerr', name: 'Overseerr' },
+    services.radarr && { id: 'radarr', name: 'Radarr' },
+    services.sonarr && { id: 'sonarr', name: 'Sonarr' },
+    services.riven && { id: 'riven', name: 'DUMB' },
+    services.tuberr && { id: 'youtube', name: 'YouTube' },
+    { id: 'default', name: t('Default') },
+  ].filter(Boolean)
+
+  const anyActiveFilters = hasActiveFilters || !!serviceFilter
+  const clearAll = () => { clearAllFilters(); setServiceFilter('') }
+
   return (
     <main className="main-content queue-page">
       <div className="queue-hero">
@@ -330,6 +346,18 @@ export default function Queue() {
           />
         )}
 
+        {isAdmin && appOptions.length > 1 && (
+          <SearchableDropdown
+            options={appOptions}
+            value={serviceFilter}
+            onChange={setServiceFilter}
+            placeholder={t('All Apps')}
+            label={t('App')}
+            clearLabel={t('All Apps')}
+            noResultsLabel={t('No apps found')}
+          />
+        )}
+
         <DateRangeFilter
           value={{ from: dateFrom, to: dateTo }}
           onChange={setDateRange}
@@ -351,8 +379,8 @@ export default function Queue() {
           ))}
         </div>
 
-        {hasActiveFilters && (
-          <button className="chip-sm chip-sm-clear" onClick={clearAllFilters}>
+        {anyActiveFilters && (
+          <button className="chip-sm chip-sm-clear" onClick={clearAll}>
             {t('Clear Filters')}
           </button>
         )}

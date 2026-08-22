@@ -23,6 +23,13 @@ function scopeLabel(issue) {
   return 'Entire Series'
 }
 
+const SEARCH_STATUS_LABELS = {
+  searching: 'Search queued',
+  done: 'Search queued',
+  needs_admin: 'Search pending',
+  failed: 'Search failed',
+}
+
 export default function Issues() {
   const { t } = useTranslation()
   const [searchParams] = useSearchParams()
@@ -55,7 +62,7 @@ export default function Issues() {
   const [comments, setComments] = useState([])
   const [commentsLoading, setCommentsLoading] = useState(false)
 
-  const [newIssueData, setNewIssueData] = useState({ title: '', description: '', ratingKey: '', mediaType: 'movie', scope: 'series', scopeSeason: '', scopeEpisode: '' })
+  const [newIssueData, setNewIssueData] = useState({ title: '', description: '', ratingKey: '', mediaType: 'movie', scope: 'series', scopeSeason: '', scopeEpisode: '', missing: false })
   const [showNewIssue, setShowNewIssue] = useState(false)
   const [openCount, setOpenCount] = useState(0)
   const [actionModalLoading, setActionModalLoading] = useState(false)
@@ -173,6 +180,21 @@ export default function Issues() {
     setActionNote('')
   }, [])
 
+  const handleSearch = useCallback(async (id) => {
+    setIssues(prev => prev.map(i => i.id === id ? { ...i, search_status: 'searching' } : i))
+    setIssuesMap(prev => prev[id] ? { ...prev, [id]: { ...prev[id], search_status: 'searching' } } : prev)
+    try {
+      const { data } = await issuesApi.searchIssue(id)
+      toastSuccess(t('Search queued in {{app}}', { app: data.service || t('default app') }))
+      setIssues(prev => prev.map(i => i.id === id ? { ...i, search_status: 'done' } : i))
+      setIssuesMap(prev => prev[id] ? { ...prev, [id]: { ...prev[id], search_status: 'done' } } : prev)
+    } catch (e) {
+      toastError(e.message || t('Search failed'))
+      setIssues(prev => prev.map(i => i.id === id ? { ...i, search_status: 'failed' } : i))
+      setIssuesMap(prev => prev[id] ? { ...prev, [id]: { ...prev[id], search_status: 'failed' } } : prev)
+    }
+  }, [toastSuccess, toastError, t])
+
   const handleActionConfirm = useCallback(async () => {
     const { type, issueId } = actionModal
     if (!issueId || !type) return
@@ -274,7 +296,7 @@ export default function Issues() {
       await issuesApi.createIssue(newIssueData)
       toastSuccess(t('Issue created'))
       setShowNewIssue(false)
-      setNewIssueData({ title: '', description: '', ratingKey: '', mediaType: 'movie', scope: 'series', scopeSeason: '', scopeEpisode: '' })
+      setNewIssueData({ title: '', description: '', ratingKey: '', mediaType: 'movie', scope: 'series', scopeSeason: '', scopeEpisode: '', missing: false })
       loadIssues(currentFilter, page)
     } catch (e) {
       toastError(e.message || t('Create issue failed'))
@@ -413,6 +435,14 @@ export default function Issues() {
               <input type="number" min="1" className="filter-select" value={newIssueData.scopeEpisode} onChange={e => setNewIssueData(prev => ({ ...prev, scopeEpisode: e.target.value }))} style={{ width: '100px', padding: '7px 10px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg-elevated)', color: 'var(--text)', fontSize: '0.88rem' }} placeholder="e.g. 5" />
             </div>
           )}
+          {newIssueData.mediaType !== 'movie' && (newIssueData.scope === 'season' || newIssueData.scope === 'episode') && (
+            <label style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', marginBottom: '14px', fontSize: '0.85rem', color: 'var(--text)', cursor: 'pointer' }}>
+              <input type="checkbox" className="bulk-checkbox" checked={newIssueData.missing} onChange={e => setNewIssueData(prev => ({ ...prev, missing: e.target.checked }))} style={{ marginTop: '2px' }} />
+              <span>{t('This content is missing from the library')}
+                <span style={{ display: 'block', fontSize: '0.76rem', color: 'var(--text-secondary)' }}>{t('Automatically queues a search for it in the default request app')}</span>
+              </span>
+            </label>
+          )}
           <div style={{ marginBottom: '14px' }}>
             <label className="edit-field-label">{t('Description')}</label>
             <textarea className="filter-select" value={newIssueData.description} onChange={e => setNewIssueData(prev => ({ ...prev, description: e.target.value }))} style={{ width: '100%', padding: '7px 10px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg-elevated)', color: 'var(--text)', fontSize: '0.88rem', minHeight: '80px', resize: 'vertical', fontFamily: 'inherit', boxSizing: 'border-box' }} placeholder={t('Describe the issue...')} />
@@ -494,13 +524,22 @@ export default function Issues() {
                     {isAdmin && <td className="queue-user">
                       <span className={'queue-user-link' + (isSelected ? ' active' : '')} onClick={() => handleUsernameClick(issue.user_id)}>{issue.username || issue.user_id}</span>
                     </td>}
-                    <td><span className="scope-badge">{scopeLabel(issue)}</span></td>
+                    <td>
+                      <span className="scope-badge">{scopeLabel(issue)}</span>
+                      {issue.is_missing ? <span className="scope-badge" style={{ marginLeft: '4px', background: 'rgba(229,160,13,0.15)', color: '#e5a00d' }}>{t('Missing')}</span> : null}
+                      {issue.search_status && SEARCH_STATUS_LABELS[issue.search_status] ? (
+                        <span style={{ display: 'block', fontSize: '0.72rem', marginTop: '3px', color: issue.search_status === 'failed' ? '#ff5252' : 'var(--text-secondary)' }}>{t(SEARCH_STATUS_LABELS[issue.search_status])}</span>
+                      ) : null}
+                    </td>
                     <td>{fmtDate(issue.created_at)}</td>
                     <td><span className={'status-badge-' + issue.status}>{STATUS_LABELS[issue.status] || issue.status}</span></td>
                     <td><div className="queue-actions">
                       <button className="btn-page" onClick={() => handleViewDetails(issue.id)} style={{ fontSize: '0.82rem', padding: '4px 10px' }}>
                         Details{issue._commentCount > 0 && <span className="comment-count-badge">{issue._commentCount}</span>}
                       </button>
+                      {isAdmin && issue.is_missing && (issue.search_status === 'needs_admin' || issue.search_status === 'failed') && (
+                        <button className="btn-queue-edit" onClick={() => handleSearch(issue.id)}>{t('Search now')}</button>
+                      )}
                       {isAdmin && issue.status === 'open' && (
                         <>
                           <button className="btn-queue-approve" onClick={() => handleResolve(issue.id)}>{t('Resolve')}</button>

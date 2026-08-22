@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.5.7",
+    "date": "2026-08-21",
+    "changes": [
+      "Added a request-app filter to the queue — admins can now narrow the request queue to a specific app (Sonarr, Radarr, Overseerr, DUMB, or YouTube), plus a Default bucket for requests whose target app is resolved at approval time.",
+      "Reporting a missing season or episode can now auto-queue a search — the issue report form for shows has a 'This content is missing' checkbox that, when ticked, queues a search for that season/episode in the admin's default request app (in-place SeasonSearch/EpisodeSearch when the series is already in Sonarr).",
+      "Missing-content searches respect the approval workflow — when the reporter's requests don't auto-approve, the search is held with a 'Search now' button on the issue for an admin to trigger (also used to retry a failed search)."
+    ]
+  },
+  {
+    "version": "2.5.6",
+    "date": "2026-08-19",
+    "changes": [
+      "Security patches across the frontend, server, and Docker base image (Snyk)."
+    ]
+  },
+  {
     "version": "2.5.5",
     "date": "2026-08-11",
     "changes": [

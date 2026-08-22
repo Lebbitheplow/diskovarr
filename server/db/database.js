@@ -1743,7 +1743,26 @@ function getPendingRequests() {
   `).all();
 }
 
-function getAllRequests(limit = 20, offset = 0, statusFilter = null, orderBy = 'requested_at', orderDir = 'DESC', search = null, userIdFilter = null, dateFrom = null, dateTo = null) {
+// Push a WHERE fragment for the queue "request app" filter. Values:
+//   youtube  → rows routed through the YouTube (Tuberr) downloader
+//   default  → rows with no explicit service (resolved to an app at approval time)
+//   overseerr|radarr|sonarr|riven → that concrete app, excluding YouTube downloads
+function appendServiceClause(clauses, params, serviceFilter) {
+  if (!serviceFilter || serviceFilter === 'all') return;
+  if (serviceFilter === 'youtube') {
+    clauses.push("dr.downloader = 'youtube'");
+    return;
+  }
+  const notYoutube = "(dr.downloader IS NULL OR dr.downloader != 'youtube')";
+  if (serviceFilter === 'default') {
+    clauses.push(`(dr.service IS NULL OR dr.service = '' OR dr.service = 'none') AND ${notYoutube}`);
+    return;
+  }
+  clauses.push(`dr.service = ? AND ${notYoutube}`);
+  params.push(String(serviceFilter));
+}
+
+function getAllRequests(limit = 20, offset = 0, statusFilter = null, orderBy = 'requested_at', orderDir = 'DESC', search = null, userIdFilter = null, dateFrom = null, dateTo = null, serviceFilter = null) {
   const ALLOWED_COLS = { title: 'dr.title', username: 'COALESCE(ku.username, dr.user_id)', media_type: 'dr.media_type', requested_at: 'dr.requested_at', status: 'dr.status' };
   const col = ALLOWED_COLS[orderBy] || 'dr.requested_at';
   const dir = orderDir === 'ASC' ? 'ASC' : 'DESC';
@@ -1770,6 +1789,7 @@ function getAllRequests(limit = 20, offset = 0, statusFilter = null, orderBy = '
     clauses.push('dr.requested_at <= ?');
     params.push(Number(dateTo));
   }
+  appendServiceClause(clauses, params, serviceFilter);
   const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
   const rows = db.prepare(`
     SELECT dr.*, COALESCE(ku.username, dr.user_id) AS username, ku.thumb AS user_thumb
@@ -2038,7 +2058,7 @@ function getUserPublicReviewsCount(userId) {
   return row?.cnt || 0;
 }
 
-function getUserRequests(userId, limit = 20, offset = 0, statusFilter = null, orderBy = 'requested_at', orderDir = 'DESC', search = null, dateFrom = null, dateTo = null) {
+function getUserRequests(userId, limit = 20, offset = 0, statusFilter = null, orderBy = 'requested_at', orderDir = 'DESC', search = null, dateFrom = null, dateTo = null, serviceFilter = null) {
   const ALLOWED_COLS = { title: 'dr.title', username: 'COALESCE(ku.username, dr.user_id)', media_type: 'dr.media_type', requested_at: 'dr.requested_at', status: 'dr.status' };
   const col = ALLOWED_COLS[orderBy] || 'dr.requested_at';
   const dir = orderDir === 'ASC' ? 'ASC' : 'DESC';
@@ -2061,6 +2081,7 @@ function getUserRequests(userId, limit = 20, offset = 0, statusFilter = null, or
     clauses.push('dr.requested_at <= ?');
     params.push(Number(dateTo));
   }
+  appendServiceClause(clauses, params, serviceFilter);
   const where = `WHERE ${clauses.join(' AND ')}`;
   const rows = db.prepare(`
     SELECT dr.*, COALESCE(ku.username, dr.user_id) AS username, ku.thumb AS user_thumb
@@ -2145,6 +2166,16 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_issue_comments_issue ON issue_comments(issue_id, created_at);
 `);
+
+// Issue search support: a "missing content" flag set at report time, plus the
+// state of the auto-triggered Sonarr search (searching | needs_admin | failed | done).
+for (const col of [
+  'is_missing INTEGER DEFAULT 0',
+  'search_status TEXT DEFAULT NULL',
+]) {
+  try { db.exec(`ALTER TABLE issues ADD COLUMN ${col}`); }
+  catch (e) { if (!e.message.includes('duplicate column')) throw e; }
+}
 
 for (const col of [
   'notify_pending INTEGER DEFAULT 1',
@@ -2343,18 +2374,25 @@ function deleteQueueItem(id) {
 
 // ── Issue reporting ────────────────────────────────────────────────────────────
 
-function createIssue({ userId, ratingKey, title, mediaType, posterPath, scope, scopeSeason, scopeEpisode, description }) {
+function createIssue({ userId, ratingKey, title, mediaType, posterPath, scope, scopeSeason, scopeEpisode, description, isMissing = false, searchStatus = null }) {
   const result = db.prepare(`
-    INSERT INTO issues (user_id, rating_key, title, media_type, poster_path, scope, scope_season, scope_episode, description)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO issues (user_id, rating_key, title, media_type, poster_path, scope, scope_season, scope_episode, description, is_missing, search_status)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     String(userId), String(ratingKey), title, mediaType, posterPath || null,
     scope || 'series',
     scopeSeason != null ? Number(scopeSeason) : null,
     scopeEpisode != null ? Number(scopeEpisode) : null,
-    description || null
+    description || null,
+    isMissing ? 1 : 0,
+    searchStatus || null
   );
   return result.lastInsertRowid;
+}
+
+function setIssueSearchStatus(id, status) {
+  db.prepare('UPDATE issues SET search_status = ?, updated_at = unixepoch() WHERE id = ?')
+    .run(status || null, Number(id));
 }
 
 function getIssueById(id) {
@@ -3204,7 +3242,7 @@ module.exports = {
   getUserNotificationPrefs, setUserNotificationPrefs,
   getAdminUserIds, getPrivilegedUserIds,
   enqueueNotification, getPendingQueuedNotifications, markQueueItemSent, deleteQueueItem,
-  createIssue, getIssueById, getAllIssues, getUserIssues, getIssueUsers, updateIssueStatus, deleteIssue, deleteIssuesByIds,
+  createIssue, setIssueSearchStatus, getIssueById, getAllIssues, getUserIssues, getIssueUsers, updateIssueStatus, deleteIssue, deleteIssuesByIds,
   addIssueComment, getIssueComments, deleteIssueComment,
   getUnnotifiedFulfilledRequests, markRequestsNotifiedAvailable,
   // Reviews

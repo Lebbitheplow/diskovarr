@@ -129,6 +129,7 @@ export const issuesApi = {
   resolveIssueWithNote: (id, data) => api.post(`/issues/${id}/resolve`, data),
   closeIssue: (id) => api.post(`/issues/${id}/close`),
   closeIssueWithNote: (id, data) => api.post(`/issues/${id}/close`, data),
+  searchIssue: (id) => api.post(`/issues/${id}/search`),
   deleteIssue: (id) => api.delete(`/issues/${id}`),
   bulkDelete: (ids) => api.post('/issues/bulk-delete', { ids }),
   deleteComment: (id, commentId) => api.delete(`/issues/${id}/comments/${commentId}`),

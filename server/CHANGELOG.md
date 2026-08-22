@@ -4,6 +4,27 @@ All notable changes are documented here. Versioning follows [Semantic Versioning
 
 ---
 
+## v2.5.7 — 2026-08-21
+
+### Added
+
+- **Request-app filter on the queue** — a new **App** filter lets admins narrow the request queue to requests routed to a specific app (Sonarr, Radarr, Overseerr, DUMB, or YouTube). A **Default** option captures requests that carry no explicit app because it's resolved to a concrete service at approval time. Backed by a `service` query param on `GET /api/queue` and a shared `appendServiceClause` WHERE fragment in the request queries (YouTube-downloader rows are matched by `downloader` so they stay in their own bucket).
+- **Auto-search for missing seasons/episodes** — the issue report form for shows gained a **"This content is missing"** checkbox (shown for season/episode scope). When ticked, submitting the issue queues a search for that season/episode in the admin's **default request app**. For a series already in Sonarr the search runs in place (`SeasonSearch` / `EpisodeSearch`, monitoring the affected season/episode first); a series not yet in Sonarr, or a non-Sonarr default app, falls back to a normal season-level request submission.
+
+### Changed
+
+- **Missing-content searches follow the approval workflow** — the auto-search only fires when the reporter's requests auto-approve. Otherwise the issue is held with `search_status = needs_admin` and a **Search now** button appears for admins (also used to retry after a failed search) via the new `POST /api/issues/:id/search` endpoint. New `is_missing` and `search_status` columns were added to the `issues` table.
+
+---
+
+## v2.5.6 — 2026-08-19
+
+### Security
+
+- **Snyk security patches** across the frontend, server, and Docker base image.
+
+---
+
 ## v2.5.5 — 2026-08-11
 
 ### Fixed
