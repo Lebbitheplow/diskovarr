@@ -99,11 +99,16 @@ function normalizeMap(map) {
  * "Because you loved [title]" when that item was highly rated.
  */
 async function buildPreferenceProfile(userId, libraryMap) {
-  const [history, userRatings, userReviews] = await Promise.all([
+  const [tautulliHistory, userRatings, userReviews] = await Promise.all([
     tautulliService.getFullHistory(userId),
     db.getUserRatingsFromDb(userId),
     Promise.resolve(db.getReviewsForRecommendation(userId)),
   ]);
+  // Blend in Jellyfin plays (mirrored into watch_history by the jellyfin
+  // service) — one merged profile per canonical user, so a linked account's
+  // Plex history informs Jellyfin recommendations and vice versa.
+  const jellyfinService = require('./jellyfin');
+  const history = [...tautulliHistory, ...jellyfinService.getFullHistoryFromDb(userId)];
   if (!history.length) return null;
 
   // Build review rating map: tmdbId -> rating (0.5-5 scale)
@@ -802,7 +807,10 @@ function buildTopPicks(scoredMovies, scoredTV, scoredAnime, profile) {
   return picks.sort((a, b) => b.score - a.score);
 }
 
-async function getRecommendations(userId, userToken) {
+// `sourceFilter` scopes results to one media server ('plex' | 'jellyfin').
+// Pools are built and cached over the union of both libraries; filtering
+// happens at sample time so the nav toggle doesn't force a rebuild.
+async function getRecommendations(userId, userToken, sourceFilter = null) {
   const userIdStr = String(userId);
   const cached = recCache.get(userIdStr);
 
@@ -811,13 +819,23 @@ async function getRecommendations(userId, userToken) {
     // Pools already built — just re-sample (fast, no Plex/Tautulli calls)
     pools = cached.pools;
   } else {
-    // Fetch library + watched keys in parallel (library from DB/cache, watched from DB)
-    const [movies, tv, watchedKeys, dismissedKeys] = await Promise.all([
-      plexService.getLibraryItems(getMoviesSection()),
-      plexService.getLibraryItems(getTvSection()),
-      plexService.getWatchedKeys(userId, userToken),
+    const jellyfinService = require('./jellyfin');
+    // Fetch library + watched keys in parallel (library from DB/cache, watched from DB).
+    // Plex fetches degrade to empty on failure so Jellyfin-only deployments still work;
+    // Jellyfin-identity users have no Plex token, so their watched set comes from the DB
+    // (kept fresh by the 15-min Jellyfin user sync).
+    const isJellyfinUser = String(userId).startsWith('jf_');
+    const [plexMovies, plexTv, watchedKeys, dismissedKeys] = await Promise.all([
+      plexService.getLibraryItems(getMoviesSection()).catch(() => []),
+      plexService.getLibraryItems(getTvSection()).catch(() => []),
+      (isJellyfinUser || !userToken)
+        ? Promise.resolve(db.getWatchedKeysFromDb(userId))
+        : plexService.getWatchedKeys(userId, userToken).catch(() => db.getWatchedKeysFromDb(userId)),
       Promise.resolve(db.getDismissals(userId)),
     ]);
+    const jfItems = jellyfinService.isEnabled() ? db.getLibraryItemsBySource('jellyfin') : [];
+    const movies = [...plexMovies, ...jfItems.filter(i => i.type === 'movie')];
+    const tv = [...plexTv, ...jfItems.filter(i => i.type === 'show')];
 
     // Build library map from already-fetched items, then build profile (reuses same data)
     const libraryMap = new Map([...movies, ...tv].map(i => [i.ratingKey, i]));
@@ -894,11 +912,15 @@ async function getRecommendations(userId, userToken) {
   // Sample fresh results from the pools on every call — this is what creates variety
   // Top Picks: simple shuffle of the curated pool (all items are good, just vary the subset)
   // Movies/TV/Anime: tiered sampling so higher-scored items are favoured but not always shown
+  const bySource = (items) => sourceFilter
+    ? items.filter(i => (i.source || 'plex') === sourceFilter)
+    : items;
+  const topPicksPoolFiltered = bySource(pools.topPicks);
   const result = {
-    topPicks: partialShuffle(pools.topPicks, Math.min(72, pools.topPicks.length)),
-    movies:   tieredSample(pools.movies,  60),
-    tvShows:  tieredSample(pools.tvShows, 60),
-    anime:    tieredSample(pools.anime,   60),
+    topPicks: partialShuffle(topPicksPoolFiltered, Math.min(72, topPicksPoolFiltered.length)),
+    movies:   tieredSample(bySource(pools.movies),  60),
+    tvShows:  tieredSample(bySource(pools.tvShows), 60),
+    anime:    tieredSample(bySource(pools.anime),   60),
   };
 
   const watchlistKeys = new Set(db.getWatchlistFromDb(userIdStr));
@@ -948,6 +970,22 @@ async function warmAllUserCaches() {
       logger.debug(`warmAllUserCaches: skip user ${key} — ${err.message}`);
     }
   }
+  // Standalone Jellyfin identities have no Plex token but warm fine — their
+  // history and watched state are already mirrored into the DB.
+  try {
+    for (const u of db.getJellyfinUsers()) {
+      if (u.linked_user_id) continue; // linked users warm under their Plex id above
+      const key = String(u.user_id);
+      const existing = recCache.get(key);
+      if (existing && (Date.now() - existing.builtAt) < REC_CACHE_TTL) { skipped++; continue; }
+      try {
+        await getRecommendations(key, null);
+        warmed++;
+      } catch (err) {
+        logger.debug(`warmAllUserCaches: skip jellyfin user ${key} — ${err.message}`);
+      }
+    }
+  } catch { /* jellyfin helpers unavailable — nothing to warm */ }
   const usersWithoutTokens = allUsers.length - usersWithTokens.length;
   if (usersWithoutTokens > 0) {
     logger.info(`Rec pre-warm: ${warmed} warmed, ${skipped} already fresh, ${usersWithoutTokens} users without stored tokens (${allUsers.length} total)`);

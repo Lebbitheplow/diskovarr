@@ -267,6 +267,109 @@ function TautulliSection({ tautulliUrl, tautulliApiKey, onUpdate, onSave, onToas
   )
 }
 
+function JellyfinSection({ jellyfinUrl, jellyfinApiKey, jellyfinEnabled, onUpdate, onToast }) {
+  const { t } = useTranslation()
+  const [host, setHost] = useState(parseHost(jellyfinUrl))
+  const [port, setPort] = useState(parsePort(jellyfinUrl))
+  const [apiKey, setApiKey] = useState(jellyfinApiKey ? MASKED : '')
+  const [apiKeyVisible, setApiKeyVisible] = useState(false)
+  const [testLoading, setTestLoading] = useState(false)
+  const [enabled, setEnabled] = useState(jellyfinEnabled)
+  const realKey = apiKey === MASKED ? '' : apiKey
+
+  // Sync local fields from props (render-phase adjustment).
+  const [prevJellyfinUrl, setPrevJellyfinUrl] = useState(jellyfinUrl)
+  if (jellyfinUrl !== prevJellyfinUrl) {
+    setPrevJellyfinUrl(jellyfinUrl)
+    setHost(parseHost(jellyfinUrl))
+    setPort(parsePort(jellyfinUrl))
+  }
+  const [prevJellyfinApiKey, setPrevJellyfinApiKey] = useState(jellyfinApiKey)
+  if (jellyfinApiKey !== prevJellyfinApiKey) {
+    setPrevJellyfinApiKey(jellyfinApiKey)
+    setApiKey(jellyfinApiKey ? MASKED : '')
+  }
+  const [prevJellyfinEnabled, setPrevJellyfinEnabled] = useState(jellyfinEnabled)
+  if (jellyfinEnabled !== prevJellyfinEnabled) {
+    setPrevJellyfinEnabled(jellyfinEnabled)
+    setEnabled(jellyfinEnabled)
+  }
+
+  const hasBothFields = !!host && (apiKey === MASKED || !!apiKey)
+
+  const handleBlur = useCallback(() => {
+    const url = buildUrl(host, port)
+    if (apiKey === MASKED) {
+      onUpdate?.({ jellyfin_url: url })
+    } else {
+      onUpdate?.({ jellyfin_url: url, jellyfin_api_key: apiKey })
+    }
+  }, [host, port, apiKey, onUpdate])
+
+  const handleEnabledToggle = async (checked) => {
+    setEnabled(checked)
+    onUpdate?.({ jellyfin_enabled: checked })
+    try { await adminConnections.save({ jellyfin_enabled: checked }) } catch { /* ignore */ }
+  }
+
+  const handleTest = async () => {
+    if (!hasBothFields) return
+    setTestLoading(true)
+    try {
+      const res = await adminConnections.test('jellyfin', { url: buildUrl(host, port), apiKey: realKey })
+      if (res.data?.ok === false) throw new Error(res.data?.message || 'Jellyfin test failed')
+      onToast?.(res.data?.message || 'Jellyfin connection successful')
+    } catch (err) {
+      onToast?.(err.message || 'Jellyfin test failed', 'error')
+    } finally { setTestLoading(false) }
+  }
+
+  return (
+    <div className="conn-block">
+      <div className="conn-block-header">
+        <div className="conn-block-meta">
+          <span className="conn-block-name">{t('Jellyfin')}</span>
+          <span className="conn-block-desc">{t('Jellyfin Media Server — enables Jellyfin library sync, sign-in, and account linking')}</span>
+        </div>
+        <div className="conn-toggle-wrap">
+          <span className="conn-toggle-label">{enabled ? 'Enabled' : 'Disabled'}</span>
+          <label className="slide-toggle" title={!hasBothFields ? 'Enter URL and API key first' : ''}>
+            <input type="checkbox" checked={enabled} disabled={!enabled && !hasBothFields}
+              onChange={(e) => handleEnabledToggle(e.target.checked)} />
+            <span className="slide-track" />
+          </label>
+        </div>
+      </div>
+      <div className="conn-block-fields">
+        <div className="conn-field-group conn-field-host">
+          <span className="conn-field-label">{t('Address')}</span>
+          <input type="text" className="conn-input" placeholder={t('http://localhost')}
+            value={host} onChange={(e) => setHost(e.target.value)} onBlur={handleBlur} />
+        </div>
+        <div className="conn-field-group conn-field-port">
+          <span className="conn-field-label">{t('Port')} <span className="conn-field-optional">{t('optional')}</span></span>
+          <input type="number" className="conn-input conn-input-port" placeholder="8096" min="1" max="65535"
+            value={port} onChange={(e) => setPort(e.target.value.replace(/[^0-9]/g, ''))} onBlur={handleBlur} />
+        </div>
+        <div className="conn-field-group conn-field-key">
+          <span className="conn-field-label">{t('API Key')}</span>
+          <div className="conn-input-wrap">
+            <input type={apiKeyVisible ? 'text' : 'password'} className="conn-input" placeholder={t('API Key')}
+              value={apiKeyVisible && apiKey === MASKED ? jellyfinApiKey : apiKey} onChange={(e) => setApiKey(e.target.value)} onBlur={handleBlur} autoComplete="new-password" />
+            <div className="conn-input-btns">
+              <button type="button" className="conn-input-icon-btn"
+                onClick={() => setApiKeyVisible(!apiKeyVisible)} title={t('Show / hide')} />
+            </div>
+          </div>
+        </div>
+        <button className="btn-admin conn-action-btn" onClick={handleTest} disabled={testLoading || !hasBothFields}>
+          {testLoading ? 'Testing...' : 'Test'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function TmdbSection({ tmdbApiKey, discoverEnabled, onUpdate, onSave, onToast }) {
   const { t } = useTranslation()
   const [apiKey, setApiKey] = useState(tmdbApiKey ? MASKED : '')
@@ -1375,6 +1478,7 @@ export default function ConnectionSettings({ onDataLoaded, onToast }) {
         sonarr_api_key:    r.sonarrApiKey,
         youtube_api_key:   r.youtubeApiKey,
         tuberr_api_key:    r.tuberrApiKey,
+        jellyfin_api_key:  r.jellyfinApiKey,
         diskovarr_api_key: r.diskovarrApiKey,
         agregarr_api_key:  r.agregarrApiKey,
         dumb_api_key:      r.dumbApiKey,
@@ -1437,6 +1541,12 @@ export default function ConnectionSettings({ onDataLoaded, onToast }) {
     handleFieldSave(patch)
   }, [handleFieldSave])
 
+  // ── Jellyfin field updates ──
+  const handleJellyfinUpdate = useCallback((patch) => {
+    setFields((prev) => ({ ...prev, ...patch }))
+    handleFieldSave(patch)
+  }, [handleFieldSave])
+
   // ── Overseerr field updates ──
   const handleOverseerrUpdate = useCallback((patch) => {
     setFields((prev) => ({ ...prev, ...patch }))
@@ -1492,6 +1602,14 @@ export default function ConnectionSettings({ onDataLoaded, onToast }) {
           tautulliApiKey={fields.tautulli_api_key}
           onUpdate={handleTautulliUpdate}
           onSave={handleTautulliUpdate}
+          onToast={onToast}
+        />
+
+        <JellyfinSection
+          jellyfinUrl={fields.jellyfin_url}
+          jellyfinApiKey={fields.jellyfin_api_key}
+          jellyfinEnabled={fields.jellyfin_enabled}
+          onUpdate={handleJellyfinUpdate}
           onToast={onToast}
         />
 

@@ -153,6 +153,11 @@ if (process.env.TUBERR_URL) {
   }
 }
 
+// Launch the bundled Tuberr instance if the YouTube integration is enabled
+// (no-op in the Docker image, where the entrypoint runs Tuberr itself)
+const tuberrProcess = require('./services/tuberrProcess')
+tuberrProcess.sync()
+
 // Track last visit for logged-in users (throttled to once per 5 minutes per user)
 const _lastVisitTouch = new Map()
 app.use((req, res, next) => {
@@ -341,6 +346,7 @@ const server = app.listen(PORT, '0.0.0.0', () => {
   const recommender = require('./services/recommender')
   const plexService = require('./services/plex')
   const tautulliService = require('./services/tautulli')
+  const jellyfinService = require('./services/jellyfin')
   const reviewFeed = require('./services/reviewFeed')
   const reviewCardCache = require('./services/reviewCardCache')
   const logger = require('./services/logger')
@@ -439,6 +445,15 @@ const server = app.listen(PORT, '0.0.0.0', () => {
       20_000
     )
 
+    // Jellyfin: full library + all-user data sync shortly after boot. Both are
+    // no-ops when Jellyfin isn't configured/enabled.
+    setTimeout(() => jellyfinService.resyncAll()
+      .then(() => jellyfinService.syncAllUsers())
+      .then(n => { if (n) logger.info(`Jellyfin user data synced for ${n} user(s)`) })
+      .catch(err => logger.warn('Startup Jellyfin sync failed:', err.message)),
+      55_000
+    )
+
     // Warm the public review feed cache 15s after start so the first feed load is instant
     setTimeout(() => reviewFeed.warmFeedCacheJob(), 15_000)
 
@@ -520,6 +535,36 @@ const server = app.listen(PORT, '0.0.0.0', () => {
     15 * 60 * 1000
   )
 
+  // Jellyfin: mirror all users' played/favorites/likes every 15 min (the
+  // Tautulli-equivalent for Jellyfin — the core API tracks this natively).
+  setInterval(() => jellyfinService.syncAllUsers()
+    .catch(err => logger.warn('Periodic Jellyfin user sync failed:', err.message)),
+    15 * 60 * 1000
+  )
+
+  // Jellyfin: full library re-sync every 6h (mirrors the Plex re-sync above),
+  // plus a light new-item poll every 10 min for request fulfillment.
+  setInterval(() => jellyfinService.resyncAll()
+    .then(() => {
+      if (jellyfinService.isEnabled()) {
+        recommender.invalidateAllCaches()
+        discoverRecommender.invalidateAllCaches()
+      }
+    })
+    .catch(err => logger.warn('Periodic Jellyfin library re-sync failed:', err.message)),
+    6 * 60 * 60 * 1000
+  )
+  setInterval(() => jellyfinService.pollNewItems()
+    .then(fresh => {
+      if (fresh.length > 0) {
+        recommender.invalidateAllCaches()
+        discoverRecommender.invalidateAllCaches()
+      }
+    })
+    .catch(err => logger.warn('Jellyfin new-item poll failed:', err.message)),
+    10 * 60 * 1000
+  )
+
   // During December, refresh the in-progress Wrapped year daily so first visits
   // during the launch window are always fresh. No-op the other 11 months.
   const wrappedStats = require('./services/wrappedStats')
@@ -595,6 +640,7 @@ function shutdown(signal) {
   if (_shuttingDown) return
   _shuttingDown = true
   console.log(`${signal} received — shutting down gracefully`)
+  try { tuberrProcess.stop() } catch { /* not started */ }
   server.close(() => {
     try { require('./services/notificationService').stop() } catch { /* not started */ }
     try { db.close() } catch { /* already closed */ }

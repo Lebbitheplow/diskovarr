@@ -1,5 +1,18 @@
 [
   {
+    "version": "2.6.0",
+    "date": "2026-08-31",
+    "changes": [
+      "Jellyfin server support — Diskovarr now works with Jellyfin as well as Plex. Admins add their Jellyfin server under Admin → Connections, and its movies and shows sync into the library alongside Plex's.",
+      "Sign in with Jellyfin — the login page now offers a Jellyfin username and password form next to the Plex button, showing only the sign-in options your server actually has configured.",
+      "Link your Plex and Jellyfin accounts — a new Media Server Accounts card in Settings connects the two, so signing in with either one lands you in the same profile with a single combined watch history, watchlist, and set of reviews.",
+      "Switch between libraries — when both servers are set up, a Plex / Jellyfin toggle appears in the navigation bar. Recommendations, search, and what shows as already-in-your-library follow whichever you pick, and your choice is remembered.",
+      "Jellyfin watch history needs no Tautulli — Jellyfin tracks plays natively, so Diskovarr mirrors every user's watch history, ratings, and favorites directly from Jellyfin every 15 minutes. Your Jellyfin Favorites act as your watchlist.",
+      "Recommendations blend both servers — if you've linked accounts, what you watched on Plex shapes your Jellyfin recommendations and vice versa.",
+      "Tuberr now starts and stops with Diskovarr — the bundled YouTube downloader runs as part of the Diskovarr server, launching when you enable the YouTube integration and shutting down when you disable it, with automatic restarts if it crashes. No separate service to install or babysit. (If you set up the sample systemd unit on bare metal, disable it so two copies don't fight over port 9832.)"
+    ]
+  },
+  {
     "version": "2.5.8",
     "date": "2026-08-22",
     "changes": [

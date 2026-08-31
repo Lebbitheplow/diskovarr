@@ -3,6 +3,7 @@ const router = express.Router();
 const rateLimit = require('express-rate-limit');
 const db = require('../db/database');
 const logger = require('../services/logger');
+const jellyfinService = require('../services/jellyfin');
 
 const checkPinLimiter = rateLimit({
   windowMs: 60 * 1000,
@@ -11,6 +12,53 @@ const checkPinLimiter = rateLimit({
   legacyHeaders: false,
   message: { status: 'error', message: 'Too many requests' },
 });
+
+// Credential logins get admin-login-strength limiting (Jellyfin auth is
+// username/password — there is no PIN indirection to absorb guessing).
+const jellyfinLoginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { status: 'error', message: 'Too many login attempts' },
+});
+
+function isPlexConfigured() {
+  return !!(db.getSetting('plex_url', null) || process.env.PLEX_URL) || !!process.env.PLEX_SERVER_ID;
+}
+
+// Library sources this deployment offers. The per-user toggle only renders when
+// there is more than one.
+function availableSources() {
+  const sources = [];
+  if (isPlexConfigured()) sources.push('plex');
+  if (jellyfinService.isEnabled()) sources.push('jellyfin');
+  return sources.length ? sources : ['plex'];
+}
+
+// Active source for a fresh session: persisted preference if valid, else the
+// provider the user just signed in with, else whatever the server offers.
+function pickActiveSource(loginProvider, canonicalId) {
+  const sources = availableSources();
+  const pref = db.getUserPreferences(canonicalId).preferred_source;
+  if (pref && sources.includes(pref)) return pref;
+  if (sources.includes(loginProvider)) return loginProvider;
+  return sources[0];
+}
+
+// Session identity shared by both login paths. `plexUser` keeps its historic
+// name — dozens of routes read it — but carries either provider's identity.
+function buildSessionUser({ canonicalId, username, thumb, plexToken, plexServerToken, provider, jellyfin }) {
+  return {
+    id: String(canonicalId),
+    username,
+    thumb,
+    token: plexToken || null,
+    serverToken: plexServerToken || null,
+    provider,
+    jellyfin: jellyfin || null, // { userId: <jf guid>, token } when a Jellyfin identity is attached
+  };
+}
 
 const PLEX_CLIENT_ID = 'diskovarr-app';
 const PLEX_SERVER_ID = process.env.PLEX_SERVER_ID;
@@ -42,13 +90,16 @@ router.post('/create-pin', async (req, res) => {
   }
 });
 
-// POST /auth/callback — stores PIN in session (for React SPA)
+// POST /auth/callback — stores PIN in session (for React SPA). `link: true`
+// marks this PIN flow as an account-link for a signed-in Jellyfin user rather
+// than a fresh login.
 router.post('/callback', (req, res) => {
-  const { pinId, pinCode } = req.body;
-  logger.info(`POST callback: sessionID=${req.sessionID} pinId=${pinId || 'missing'}`);
+  const { pinId, pinCode, link } = req.body;
+  logger.info(`POST callback: sessionID=${req.sessionID} pinId=${pinId || 'missing'}${link ? ' (link mode)' : ''}`);
   if (pinId && pinCode) {
     req.session.plexPinId = pinId;
     req.session.plexPinCode = pinCode;
+    if (link && req.session.plexUser?.provider === 'jellyfin') req.session.plexLinkMode = true;
   }
   res.json({ ok: true });
 });
@@ -109,18 +160,37 @@ router.get('/check-pin', checkPinLimiter, async (req, res) => {
     // Persist username and token so admin panel and background syncs can use them
     db.upsertKnownUser(String(userData.id), username, thumb, userToken);
 
-    // Store in session — token stays server-side only
+    const plexId = String(userData.id);
+
+    // Link mode: a signed-in (unlinked) Jellyfin user completing the Plex PIN
+    // flow connects the two accounts. The Plex row becomes canonical and the
+    // Jellyfin account's data merges into it.
+    if (req.session.plexLinkMode && req.session.plexUser?.provider === 'jellyfin'
+        && String(req.session.plexUser.id).startsWith('jf_')) {
+      const jfDiskovarrId = String(req.session.plexUser.id);
+      db.linkJellyfinAccount(jfDiskovarrId, plexId);
+      logger.info(`Linked Jellyfin account ${jfDiskovarrId} to Plex user ${plexId}`);
+    }
+    delete req.session.plexLinkMode;
+
+    // Attach a linked Jellyfin identity (if any) so source-specific features work
+    const jfRow = db.getLinkedJellyfinRow(plexId);
     req.session.plexUser = {
-      id: String(userData.id),
+      ...buildSessionUser({
+        canonicalId: plexId,
+        username,
+        thumb,
+        plexToken: userToken,
+        plexServerToken: serverToken,
+        provider: 'plex',
+        jellyfin: jfRow ? { userId: jfRow.user_id.replace(/^jf_/, ''), token: jfRow.jellyfin_token } : null,
+      }),
       uuid: userData.uuid,
-      username,
-      thumb,
-      token: userToken,
-      serverToken,
     };
+    req.session.activeSource = pickActiveSource('plex', plexId);
 
     // Set Plex admin flag if user has is_admin set in DB
-    req.session.isPlexAdminUser = db.isAdminUser(String(userData.id));
+    req.session.isPlexAdminUser = db.isAdminUser(plexId);
 
     delete req.session.plexPinId;
     delete req.session.plexPinCode;
@@ -136,6 +206,69 @@ router.get('/check-pin', checkPinLimiter, async (req, res) => {
   }
 });
 
+// GET /auth/providers — which login methods the login page should offer
+router.get('/providers', (req, res) => {
+  res.json({
+    plex: isPlexConfigured(),
+    jellyfin: jellyfinService.isEnabled(),
+  });
+});
+
+// POST /auth/jellyfin/login — username/password against the configured Jellyfin
+// server (Jellyfin has no central account service or OAuth). The Diskovarr
+// identity is 'jf_<guid>', unless the account is linked to a Plex user — then
+// the Plex identity is canonical and gets loaded instead.
+router.post('/jellyfin/login', jellyfinLoginLimiter, async (req, res) => {
+  if (!jellyfinService.isEnabled()) {
+    return res.status(400).json({ status: 'error', message: 'Jellyfin login is not enabled' });
+  }
+  const { username, password } = req.body || {};
+  if (!username) return res.status(400).json({ status: 'error', message: 'Username required' });
+  try {
+    const auth = await jellyfinService.authenticateByName(username, password);
+    if (!auth) {
+      logger.warn(`Jellyfin login failed for username="${username}" ip=${req.ip}`);
+      return res.status(401).json({ status: 'invalid', message: 'Invalid username or password' });
+    }
+    const jfDiskovarrId = `jf_${auth.userId}`;
+    const avatar = jellyfinService.getAvatarPath(auth.userId, auth.primaryImageTag);
+    db.upsertJellyfinUser(jfDiskovarrId, auth.name, avatar, auth.accessToken);
+
+    const canonicalId = db.resolveCanonicalUserId(jfDiskovarrId);
+    if (canonicalId !== jfDiskovarrId) {
+      // Linked → sign in as the canonical Plex identity with Jellyfin attached
+      const plexRow = db.getKnownUserById(canonicalId);
+      req.session.plexUser = buildSessionUser({
+        canonicalId,
+        username: plexRow?.username || auth.name,
+        thumb: plexRow?.thumb || avatar,
+        plexToken: plexRow?.plex_token || null,
+        provider: 'jellyfin',
+        jellyfin: { userId: auth.userId, token: auth.accessToken },
+      });
+    } else {
+      req.session.plexUser = buildSessionUser({
+        canonicalId: jfDiskovarrId,
+        username: auth.name,
+        thumb: avatar,
+        provider: 'jellyfin',
+        jellyfin: { userId: auth.userId, token: auth.accessToken },
+      });
+    }
+    req.session.activeSource = pickActiveSource('jellyfin', canonicalId);
+    req.session.isPlexAdminUser = db.isAdminUser(canonicalId);
+
+    logger.info(`Jellyfin login success: user=${jfDiskovarrId} username="${auth.name}" ip=${req.ip}`);
+    const userPrefs = db.getUserPreferences(canonicalId);
+    const landingPage = userPrefs.landing_page || db.getLandingPage();
+    const landingUrl = (landingPage === 'explore') ? '/explore?welcome=1' : '/?welcome=1';
+    return res.json({ status: 'authorized', landingUrl });
+  } catch (err) {
+    logger.error(`Jellyfin auth error: ${err.message}`);
+    return res.status(502).json({ status: 'error', message: 'Could not reach Jellyfin' });
+  }
+});
+
 // GET /auth/check-auth — checks if user is logged in (for React SPA)
 router.get('/check-auth', (req, res) => {
   if (req.session?.plexUser) {
@@ -146,11 +279,23 @@ router.get('/check-auth', (req, res) => {
     // admins always get it so they can preview the in-progress year.
     const wrappedStats = require('../services/wrappedStats');
     const wrappedYears = wrappedStats.getAvailableYears(isAdmin || isElevated);
+    const sources = availableSources();
+    const isJellyfinIdentity = userId.startsWith('jf_');
     return res.json({
       authenticated: true,
-      user: { ...req.session.plexUser, isAdmin, isElevated },
+      // The Jellyfin token stays server-side; expose only that a link exists.
+      user: {
+        ...req.session.plexUser,
+        jellyfin: undefined,
+        hasJellyfin: !!req.session.plexUser.jellyfin,
+        isPlexLinked: !isJellyfinIdentity,
+        isAdmin,
+        isElevated,
+      },
       discoverAvailable: db.isDiscoverEnabled() && db.hasTmdbKey(),
       wrappedAvailable: wrappedYears.years.length > 0 || wrappedYears.previewYear != null,
+      activeSource: req.session.activeSource === 'jellyfin' ? 'jellyfin' : 'plex',
+      availableSources: sources,
     });
   }
   res.json({ authenticated: false });

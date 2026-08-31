@@ -48,6 +48,8 @@ export const authApi = {
   logout: () => authApiInstance.get('/logout'),
   callback: (data) => authApiInstance.post('/callback', data),
   checkPin: () => authApiInstance.get('/check-pin'),
+  getProviders: () => authApiInstance.get('/providers'),
+  jellyfinLogin: (username, password) => authApiInstance.post('/jellyfin/login', { username, password }),
 }
 
 /** Recommendations */
@@ -171,6 +173,10 @@ export const userApi = {
   getSettings: () => api.get('/user/settings'),
   testPushover: (userKey) => api.post('/user/pushover/test', { userKey }),
   testDiscord: (discordUserId) => api.post('/user/discord/test', { discordUserId }),
+  setSource: (source) => api.post('/user/source', { source }),
+  getAccountLinks: () => api.get('/user/link'),
+  linkJellyfin: (username, password) => api.post('/user/link/jellyfin', { username, password }),
+  unlinkJellyfin: () => api.delete('/user/link/jellyfin'),
 }
 
 /** Poster proxy */

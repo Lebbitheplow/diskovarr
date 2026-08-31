@@ -8,7 +8,7 @@ User=lebbi
 WorkingDirectory=/home/lebbi/Diskovarr-react/tuberr
 ExecStart=/usr/bin/node server.js
 Environment="TUBERR_DOWNLOADS_DIR=/NAS/Temp Download/tuberr"
-Restart=on-failure
+Restart=always
 RestartSec=5
 StandardOutput=journal
 StandardError=journal

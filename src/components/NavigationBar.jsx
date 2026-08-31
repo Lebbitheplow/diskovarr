@@ -24,7 +24,7 @@ function LogoIcon() {
 
 export default function NavigationBar() {
   const { t } = useTranslation()
-  const { user, logout, discoverAvailable } = useAuth()
+  const { user, logout, discoverAvailable, activeSource, availableSources, setActiveSource } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const [fabOpen, setFabOpen] = useState(false)
@@ -292,6 +292,23 @@ export default function NavigationBar() {
           </div>
 
           <div className="nav-user">
+            {availableSources.length > 1 && (
+              <div className="nav-source-toggle" role="group" aria-label={t('Library source')}>
+                {availableSources.map(src => (
+                  <button
+                    key={src}
+                    className={`nav-source-btn${activeSource === src ? ' active' : ''}`}
+                    onClick={() => {
+                      if (activeSource === src) return
+                      setActiveSource(src).then(() => window.location.reload())
+                    }}
+                    title={src === 'plex' ? 'Plex' : 'Jellyfin'}
+                  >
+                    {src === 'plex' ? 'Plex' : 'Jellyfin'}
+                  </button>
+                ))}
+              </div>
+            )}
             <div className={`nav-search-wrap${searchOpen ? ' expanded' : ''}`} ref={searchWrapRef}>
               <button
                 className="nav-search-toggle"
@@ -499,18 +516,24 @@ export default function NavigationBar() {
             <div className="info-modal-logo">
               <span className="logo-icon"><LogoIcon /></span>
               <span className="logo-text">Diskovarr</span>
-              <button className="info-modal-version" onClick={() => { setInfoOpen(false); setChangelogOpen(true) }}>v{import.meta.env.VITE_APP_VERSION || '2.5.8'}</button>
+              <button className="info-modal-version" onClick={() => { setInfoOpen(false); setChangelogOpen(true) }}>v{import.meta.env.VITE_APP_VERSION || '2.6.0'}</button>
             </div>
-            <p className="info-modal-tagline">{t("Your personalized Plex discovery and content management platform. Diskovarr combines recommendations, requests, watch history, reviews, and community features into a single experience. It learns from your viewing habits to help you discover new content, track what you've watched, and share your thoughts with other users.")}</p>
+            <p className="info-modal-tagline">{t("Your personalized discovery and content management platform for Plex and Jellyfin. Diskovarr combines recommendations, requests, watch history, reviews, and community features into a single experience. It learns from your viewing habits to help you discover new content, track what you've watched, and share your thoughts with other users.")}</p>
             <div className="info-modal-sections">
               <div className="info-modal-section">
                 <div className="info-modal-section-title">Diskovarr</div>
-                <p>{t("Your personalized recommendation feed. Diskovarr analyzes your Plex watch history, ratings, genres, actors, directors, and studios to surface movies and shows you're likely to enjoy. Dismiss anything you're not interested in and it won't be recommended again.")}</p>
+                <p>{t("Your personalized recommendation feed. Diskovarr analyzes your watch history from Plex and Jellyfin, along with your ratings, genres, actors, directors, and studios, to surface movies and shows you're likely to enjoy. Dismiss anything you're not interested in and it won't be recommended again.")}</p>
               </div>
               {discoverAvailable && (
                 <div className="info-modal-section">
                   <div className="info-modal-section-title">{t('Diskovarr Requests')}</div>
                   <p>{t("Recommendations for content not currently available in the library. Browse suggested titles based on your interests or search for any movie or show and request it directly. Requested items are tracked automatically so you won't be prompted to request the same title twice.")}</p>
+                </div>
+              )}
+              {availableSources.length > 1 && (
+                <div className="info-modal-section">
+                  <div className="info-modal-section-title">{t('Library Source')}</div>
+                  <p>{t('This server hosts both a Plex and a Jellyfin library. Use the Plex / Jellyfin switch in the navigation bar to choose which one you are browsing — recommendations, search, and availability all follow the selected source. Link both accounts in Settings to sign in with either one and keep a single combined watch profile.')}</p>
                 </div>
               )}
               <div className="info-modal-section">
@@ -523,7 +546,7 @@ export default function NavigationBar() {
               </div>
               <div className="info-modal-section">
                 <div className="info-modal-section-title">{t('Reviews')}</div>
-                <p>{t("A social-media-style feed of community reviews. Reviews are created from the Watch History section after a user has watched a movie or show in Plex, allowing them to share their thoughts and ratings with the community. Discover what other users are watching, comment on reviews, discuss content, and find new recommendations through other users' experiences. Reviews marked as spoilers are hidden by default and can be revealed when desired.")}</p>
+                <p>{t("A social-media-style feed of community reviews. Reviews are created from the Watch History section after a user has watched a movie or show on Plex or Jellyfin, allowing them to share their thoughts and ratings with the community. Discover what other users are watching, comment on reviews, discuss content, and find new recommendations through other users' experiences. Reviews marked as spoilers are hidden by default and can be revealed when desired.")}</p>
               </div>
               <div className="info-modal-section">
                 <div className="info-modal-section-title">{t('Queue')}</div>

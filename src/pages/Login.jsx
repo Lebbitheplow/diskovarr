@@ -108,11 +108,22 @@ const PosterBackground = memo(function PosterBackground({ posters }) {
   )
 })
 
+const JELLYFIN_ICON = (
+  <svg className="plex-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+    <path d="M12 3.5c-.9 0-3.4 3.2-7.6 10.1-1.1 1.8-1.6 2.9-1.3 3.4.6 1 2.4-.1 4.6-.1 2.1 0 3.1 1.1 4.3 1.1s2.2-1.1 4.3-1.1c2.2 0 4 .1 4.6.1.3-.5-.2-1.6-1.3-3.4C15.4 6.7 12.9 3.5 12 3.5zm0 5.1c.5 0 1.7 1.6 3.7 4.9.5.9.8 1.4.6 1.7-.3.5-1.2-.1-2.2-.1-1 0-1.5.6-2.1.6s-1.1-.6-2.1-.6c-1 0-1.9.6-2.2.1-.2-.3.1-.8.6-1.7 2-3.3 3.2-4.9 3.7-4.9z" />
+  </svg>
+)
+
 export default function Login() {
   const { t } = useTranslation()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [posters, setPosters] = useState([])
+  const [providers, setProviders] = useState({ plex: true, jellyfin: false })
+  const [showJellyfin, setShowJellyfin] = useState(false)
+  const [jfUsername, setJfUsername] = useState('')
+  const [jfPassword, setJfPassword] = useState('')
+  const [jfLoading, setJfLoading] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -120,8 +131,44 @@ export default function Login() {
       .then(res => res.json())
       .then(data => { if (!cancelled) setPosters(data.posters || []) })
       .catch(err => { if (err.name !== 'AbortError') console.warn('Failed to load login posters:', err.message) })
+    fetch('/auth/providers', { signal: AbortSignal.timeout(10000) })
+      .then(res => res.json())
+      .then(data => {
+        if (!cancelled && data) {
+          setProviders({ plex: data.plex !== false, jellyfin: !!data.jellyfin })
+          if (data.plex === false && data.jellyfin) setShowJellyfin(true)
+        }
+      })
+      .catch(() => { /* default to Plex-only */ })
     return () => { cancelled = true }
   }, [])
+
+  const handleJellyfinLogin = useCallback(async (e) => {
+    e.preventDefault()
+    if (!jfUsername || jfLoading) return
+    setJfLoading(true)
+    setError(null)
+    try {
+      const res = await fetch('/auth/jellyfin/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ username: jfUsername, password: jfPassword }),
+        signal: AbortSignal.timeout(20000),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (res.ok && data.status === 'authorized') {
+        // Full reload so AuthProvider re-checks the fresh session
+        window.location.assign(data.landingUrl || '/')
+        return
+      }
+      setJfLoading(false)
+      setError(res.status === 401 ? 'jellyfin_invalid' : 'jellyfin_unreachable')
+    } catch {
+      setJfLoading(false)
+      setError('jellyfin_unreachable')
+    }
+  }, [jfUsername, jfPassword, jfLoading])
 
   const handlePlexLogin = useCallback(async () => {
     setLoading(true)
@@ -153,9 +200,15 @@ export default function Login() {
             <span className="logo-icon">{LOGO_SVG}</span>
             <span className="logo-text">Diskovarr</span>
           </div>
-          <p className="login-tagline">{t('Your Plex. Personalized.')}</p>
+          <p className="login-tagline">
+            {providers.jellyfin ? t('Your library. Personalized.') : t('Your Plex. Personalized.')}
+          </p>
           <p className="login-description">
-            {t('Sign in with your Plex account to get personalized recommendations based on your watch history.')}
+            {providers.plex && providers.jellyfin
+              ? t('Sign in with your Plex or Jellyfin account to get personalized recommendations based on your watch history.')
+              : providers.jellyfin
+                ? t('Sign in with your Jellyfin account to get personalized recommendations based on your watch history.')
+                : t('Sign in with your Plex account to get personalized recommendations based on your watch history.')}
           </p>
           {error === 'plex_unreachable' && (
             <div className="error-banner">{t('Could not reach Plex. Please try again.')}</div>
@@ -163,10 +216,53 @@ export default function Login() {
           {error === 'no_access' && (
             <div className="error-banner">{t("Your account doesn't have access to this Plex server.")}</div>
           )}
-          <button className="btn-plex" onClick={handlePlexLogin} disabled={loading}>
-            {PLEX_ICON}
-            <span>{loading ? t('Connecting...') : t('Sign in with Plex')}</span>
-          </button>
+          {error === 'jellyfin_invalid' && (
+            <div className="error-banner">{t('Invalid Jellyfin username or password.')}</div>
+          )}
+          {error === 'jellyfin_unreachable' && (
+            <div className="error-banner">{t('Could not reach Jellyfin. Please try again.')}</div>
+          )}
+          {providers.plex && (
+            <button className="btn-plex" onClick={handlePlexLogin} disabled={loading}>
+              {PLEX_ICON}
+              <span>{loading ? t('Connecting...') : t('Sign in with Plex')}</span>
+            </button>
+          )}
+          {providers.jellyfin && !showJellyfin && (
+            <button
+              className="btn-plex btn-jellyfin"
+              style={{ marginTop: providers.plex ? '0.6rem' : 0 }}
+              onClick={() => setShowJellyfin(true)}
+            >
+              {JELLYFIN_ICON}
+              <span>{t('Sign in with Jellyfin')}</span>
+            </button>
+          )}
+          {providers.jellyfin && showJellyfin && (
+            <form className="jellyfin-login-form" onSubmit={handleJellyfinLogin} style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', marginTop: providers.plex ? '0.6rem' : 0 }}>
+              <input
+                type="text"
+                className="form-input"
+                placeholder={t('Jellyfin username')}
+                value={jfUsername}
+                onChange={e => setJfUsername(e.target.value)}
+                autoComplete="username"
+                autoFocus
+              />
+              <input
+                type="password"
+                className="form-input"
+                placeholder={t('Password')}
+                value={jfPassword}
+                onChange={e => setJfPassword(e.target.value)}
+                autoComplete="current-password"
+              />
+              <button type="submit" className="btn-plex btn-jellyfin" disabled={jfLoading || !jfUsername}>
+                {JELLYFIN_ICON}
+                <span>{jfLoading ? t('Connecting...') : t('Sign in with Jellyfin')}</span>
+              </button>
+            </form>
+          )}
           <p className="login-footer">
             {t('Recommendations are built from your personal watch history.')}<br />
             {t('No data is shared or stored externally.')}

@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/banner.png" width="840" alt="Diskovarr — personalized media discovery & management for Plex">
+<img src="docs/banner.png" width="840" alt="Diskovarr — personalized media discovery & management for Plex and Jellyfin">
 
 <br>
 
@@ -25,14 +25,14 @@
 
 ## Why Diskovarr
 
-Diskovarr is the central hub for discovering, managing, and automating your Plex media library. It learns what you enjoy from your watch history, surfaces personalized recommendations, and gives you the tools to request, review, and automate content acquisition and retention.
+Diskovarr is the central hub for discovering, managing, and automating your media library — on **Plex, Jellyfin, or both side by side**. It learns what you enjoy from your watch history, surfaces personalized recommendations, and gives you the tools to request, review, and automate content acquisition and retention.
 
 <table>
 <tr>
 <td width="33%" valign="top" align="center">
 <img src="docs/icons/discovery.svg" width="42" alt=""><br><br>
 <b>Personalized Discovery</b><br>
-<sub>Recommendations scored from your Tautulli watch history across genre, director, cast, studio, decade, and star ratings.</sub>
+<sub>Recommendations scored from your Plex (Tautulli) and Jellyfin watch history across genre, director, cast, studio, decade, and star ratings.</sub>
 </td>
 <td width="33%" valign="top" align="center">
 <img src="docs/icons/reviews.svg" width="42" alt=""><br><br>
@@ -66,7 +66,8 @@ Diskovarr is the central hub for discovering, managing, and automating your Plex
 
 ### <img src="docs/icons/discovery.svg" width="20" alt=""> Personalized Discovery
 
-* **Smart recommendations** — scored from your Tautulli watch history across genre, director, cast, studio, decade, and star ratings
+* **Smart recommendations** — scored from your Plex (via Tautulli) and Jellyfin watch history across genre, director, cast, studio, decade, and star ratings
+* **Plex and Jellyfin side by side** — run either server or both; a nav toggle switches which library you are browsing, and linked accounts share one combined watch profile
 * **Personalized feeds** — four curated carousels (Top Picks, Movies, TV Shows, Anime) that adapt as you watch
 * **Recommendation context** — every suggestion includes reason tags so you understand why a title made the cut
 * **Blacklists** — exclude genres, franchises, or specific titles to refine what surfaces in your feeds
@@ -141,7 +142,7 @@ Each user can configure: region, language, notification preferences (per event t
 Two-tab panel at `/admin`:
 
 - **Settings** — library sync controls, per-user watch sync, cache management, server owner, watchlist/playlist mode, theme color (8 presets + color wheel), app public URL, and full per-user settings with action buttons (re-sync, clear watched, clear dismissals, clear requests)
-- **Connections** — configure Plex, Tautulli, TMDB, Overseerr, Radarr, Sonarr, and DUMB/Riven with masked API key fields, test buttons, and slide toggles — no file edits or restarts needed
+- **Connections** — configure Plex, Jellyfin, Tautulli, TMDB, Overseerr, Radarr, Sonarr, and DUMB/Riven with masked API key fields, test buttons, and slide toggles — no file edits or restarts needed
 - **DUMB/Riven torrent browser** — search any title, browse Torrentio results with Real-Debrid cache status, and inject a torrent directly into Riven from the admin panel. Includes a season selector for TV shows and manual magnet paste fallback.
 - **DUMB request polling** — enable in Admin → Connections → DUMB/Riven → DUMB Integration. Enter your Diskovarr URL and the Overseerr Compat Key (Admin → General) in DUMB as its Overseerr connection. In Pull mode DUMB polls `/api/v1/request?filter=approved` and marks content available when downloaded. In Push mode Diskovarr pushes IMDB IDs directly to Riven on approval (original behaviour).
 - **Overseerr-compatible API** — Diskovarr exposes a full Overseerr-compatible API at `/api/v1/`. Any app that supports Overseerr — including **Agregarr**, **DUMB**, and **Homarr** — can connect using your Diskovarr URL and the Overseerr Compat Key from Admin → General. Agregarr service accounts are created automatically; their requests appear in the queue with a bot badge. v2.0.0 significantly expanded this compatibility surface (40+ new endpoints).
@@ -189,17 +190,18 @@ Configure from **Admin → Notifications**. Multiple events of the same type wit
 
 ## Requirements
 
-Diskovarr integrates with your existing media stack to deliver personalized discovery, request management, and library automation. At minimum you need a Plex server and Tautulli for watch history. Optional integrations extend the platform into content acquisition, collection management, and torrent automation.
+Diskovarr integrates with your existing media stack to deliver personalized discovery, request management, and library automation. At minimum you need **one media server — Plex (with Tautulli for watch history) or Jellyfin**. Optional integrations extend the platform into content acquisition, collection management, and torrent automation.
 
 - **[Docker](https://docs.docker.com/get-docker/)** (recommended) or Node.js ≥ 23.4.0
-- **[Plex Media Server](https://www.plex.tv/media-server-downloads/)** — local network access required
-- **[Tautulli](https://github.com/Tautulli/Tautulli)** — provides watch history used for preference scoring
+- **[Plex Media Server](https://www.plex.tv/media-server-downloads/)** — local network access required (optional if you run Jellyfin)
+- **[Tautulli](https://github.com/Tautulli/Tautulli)** — provides Plex watch history used for preference scoring; required only for Plex
+- **[Jellyfin](https://jellyfin.org/)** — optional alternative or addition to Plex; watch history comes from the Jellyfin API directly, so Tautulli is not needed
 - Optional: free [TMDB API key](https://www.themoviedb.org/settings/api) to enable the Requests tab
 - Optional request routing: **[Overseerr](https://github.com/sct/overseerr)** · **[Radarr](https://github.com/Radarr/Radarr)** · **[Sonarr](https://github.com/Sonarr/Sonarr)**
 - Optional collection management: **[Agregarr](https://github.com/agregarr/agregarr)**
 - Optional torrent management: **[DUMB](https://github.com/I-am-PUID-0/DUMB)** (Riven + Real-Debrid) — torrent browser and request polling
 
-> Diskovarr is designed for a single Plex server and its users. Users must be members of your configured Plex server — the app verifies membership during OAuth sign-in.
+> Diskovarr is designed for a single media server (or one Plex plus one Jellyfin server) and its users. Plex users must be members of your configured Plex server — the app verifies membership during OAuth sign-in. Jellyfin users sign in with their Jellyfin username and password against your configured server.
 
 ---
 
@@ -251,7 +253,7 @@ docker compose up -d
 
 **Update:** `docker compose pull && docker compose up -d`
 
-Open `http://your-server:3232`. The library syncs from Plex on first startup (30–60 seconds). Subsequent starts load from the local cache instantly.
+Open `http://your-server:3232`. The library syncs from your media server on first startup (30–60 seconds). Subsequent starts load from the local cache instantly.
 
 > The `./data` volume contains the SQLite databases — don't delete it between updates.
 
@@ -269,7 +271,7 @@ cd server && npm install && cd ..
 
 # Configure the backend
 cp server/.env.example server/.env
-# Edit server/.env and fill in your Plex credentials
+# Edit server/.env and fill in your media server credentials
 
 # Build the React frontend
 npm run build
@@ -309,6 +311,22 @@ sudo systemctl enable --now diskovarr
 ```
 </details>
 
+### <img src="docs/icons/config.svg" width="20" alt=""> Jellyfin
+
+Diskovarr runs against Jellyfin as an alternative to Plex, or alongside it. Configure it in *Admin → Connections → Jellyfin*: the server address, an API key (**Jellyfin → Dashboard → API Keys**), then **Test** and flip the toggle. The first save pulls the library and every user's watch data immediately; after that the library re-syncs every 6 hours with a light new-item poll every 10 minutes, and user watch data mirrors every 15 minutes.
+
+What you get:
+
+* **Library sync** — Jellyfin movies and shows land in the same library the Plex sync fills, tagged `source = jellyfin`. Posters and user avatars proxy through Diskovarr, so a LAN-only Jellyfin server is never exposed to the browser.
+* **Sign in with Jellyfin** — the login page gains a username/password form (Jellyfin has no OAuth or central account service). Only the providers you have configured are shown, so a Jellyfin-only install never mentions Plex.
+* **No Tautulli needed** — Jellyfin tracks played state, play counts, and last-played dates natively, so the admin API key mirrors every user's history the way the Tautulli sync does for Plex. Jellyfin **Favorites** act as the watchlist, and review ratings sync back as likes.
+* **Account linking** — users connect their Plex and Jellyfin accounts from *Settings → Media Server Accounts*. Signing in with either account then lands in the same profile, and the two histories merge into one preference model, so what you watch on one server improves recommendations on the other.
+* **Source toggle** — with both servers configured, a **Plex / Jellyfin** switch appears in the navigation bar. Recommendations, popular rows, search, and in-library availability follow the selection, which is remembered per user.
+
+`JELLYFIN_URL` and `JELLYFIN_API_KEY` can also be set as environment variables; the values saved in Admin → Connections take precedence.
+
+Plex-specific features stay Plex-specific: casting, the Plex.tv Watchlist, and Plex collections are not available for Jellyfin items.
+
 ### <img src="docs/icons/tuberr.svg" width="20" alt=""> Tuberr (YouTube series through Sonarr)
 
 Tuberr is an optional companion service (in `tuberr/`) that lets Sonarr search and download YouTube web series — shows that have TVDB entries but no torrent/usenet releases. It presents itself to Sonarr as a **Torznab indexer** plus a **qBittorrent-compatible download client**, and downloads the actual videos with `yt-dlp`. Sonarr handles naming/import as usual, so files land in your library with proper `Series - SxxEyy - Title` names.
@@ -322,13 +340,15 @@ How it fits together:
 
 Setup — **Docker (zero extra steps)**: Tuberr is bundled in the Diskovarr image and starts with the container, pairing itself in Admin → Connections automatically (disable with `TUBERR_ENABLED=false`). Expose port 9832 so Sonarr can reach it, and mount a downloads dir Sonarr also sees (set `TUBERR_DOWNLOADS_DIR` to that path — same-path mounts in both containers avoid remote path mappings). Then the whole setup is: set the Tuberr address to a LAN IP Sonarr can reach, paste a YouTube API key, click **Set up Sonarr** (creates the tagged indexer + download client in Sonarr for you), and flip the toggle.
 
-**Bare metal**:
+**Bare metal**: Diskovarr supervises the bundled `tuberr/` instance itself — it starts Tuberr when the YouTube toggle is on, stops it when the toggle is off, restarts it with backoff if it crashes, and shuts it down with the server. You only need to install its dependencies once:
 
 ```bash
 cd tuberr && npm install
-TUBERR_DOWNLOADS_DIR=/path/sonarr/can/read node server.js   # port 9832
+# then enable YouTube (Tuberr) in Admin → Connections — Diskovarr launches it on port 9832
 # the API key is printed on first boot and saved to tuberr/data/api_key.txt
 ```
+
+Set `TUBERR_DOWNLOADS_DIR` in the Diskovarr server's environment (the child process inherits it). Supervision is skipped when `TUBERR_URL` points at an external instance, or when `TUBERR_MANAGED=0`.
 
 The same key authenticates both Diskovarr and Sonarr's Torznab indexer. You only need to fetch it from `api_key.txt` (or the log) once — after pairing Diskovarr, the Connections page can reveal and copy it, and **Set up Sonarr** handles the Sonarr side (the ⓘ icon on the YouTube section has the full step-by-step).
 
@@ -341,7 +361,9 @@ In **Sonarr** (both tagged `yt` so only YouTube series use them):
 In **Diskovarr** (*Admin → Connections → YouTube (Tuberr)*): Tuberr address + API key, your YouTube Data API key, then flip the toggle. The toggle gates everything — TVDB search results, the YouTube downloader option, and the Manage Series view — so admins who don't want it can leave it off. Sonarr credentials and the YouTube key are pushed to Tuberr automatically when you save.
 
 <details>
-<summary>Run Tuberr as a systemd service</summary>
+<summary>Run Tuberr as a standalone systemd service</summary>
+
+Only needed if you run Tuberr on a **different host** from Diskovarr, or you have set `TUBERR_MANAGED=0`. If Diskovarr is supervising the bundled instance (the default on bare metal), leave this unit disabled — two copies will fight over port 9832.
 
 ```ini
 [Unit]
@@ -386,7 +408,7 @@ All runtime settings are read by the Express server from environment variables. 
 
 | Variable | Description |
 |---|---|
-| `PLEX_URL` | Local URL of your Plex server, e.g. `http://192.168.1.x:32400` |
+| `PLEX_URL` | Local URL of your Plex server, e.g. `http://192.168.1.x:32400` (omit for a Jellyfin-only install) |
 | `PLEX_TOKEN` | Plex admin token — used for library fetching and poster proxy |
 | `PLEX_SERVER_ID` | Plex machine identifier (`http://your-plex:32400/identity` → `machineIdentifier`) |
 | `ADMIN_PASSWORD` | Password for the `/admin` panel |
@@ -404,9 +426,11 @@ All runtime settings are read by the Express server from environment variables. 
 | `PORT` | Port to listen on (default: `3232`) |
 | `TMDB_API_KEY` | TMDB API key for metadata; enables the Requests tab |
 | `RIVEN_SETTINGS_PATH` | Path to Riven `settings.json`; enables DUMB/Riven integration (default: `/opt/riven/settings.json`) |
+| `JELLYFIN_URL` | Jellyfin server URL, e.g. `http://192.168.1.x:8096` (can also be set in Admin → Connections) |
+| `JELLYFIN_API_KEY` | Jellyfin API key (Jellyfin → Dashboard → API Keys) — used for library sync and mirroring every user's watch data |
 | `APP_URL` | Public URL of your Diskovarr instance — used for the Plex OAuth callback when running behind a reverse proxy. Auto-detected if omitted. |
 
-> **Tip:** Plex, Tautulli, TMDB, Overseerr, Radarr, Sonarr, and DUMB/Riven can all be configured or updated from **Admin → Connections** without touching any files or restarting.
+> **Tip:** Plex, Jellyfin, Tautulli, TMDB, Overseerr, Radarr, Sonarr, and DUMB/Riven can all be configured or updated from **Admin → Connections** without touching any files or restarting.
 
 ---
 
@@ -414,4 +438,4 @@ All runtime settings are read by the Express server from environment variables. 
 
 MIT
 
-<div align="center"><sub>Built for the Plex community · <a href="https://github.com/Lebbitheplow/diskovarr">github.com/Lebbitheplow/diskovarr</a></sub></div>
+<div align="center"><sub>Built for the Plex and Jellyfin communities · <a href="https://github.com/Lebbitheplow/diskovarr">github.com/Lebbitheplow/diskovarr</a></sub></div>

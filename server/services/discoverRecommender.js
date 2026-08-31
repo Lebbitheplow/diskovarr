@@ -227,8 +227,14 @@ function scoreTmdbItem(item, profile) {
  * Returns { topMovieIds: string[], topTvIds: string[] }
  */
 async function getTopWatchedTmdbIds(userId) {
-  const history = await tautulliService.getFullHistory(userId);
-  // user_watched is the union of Plex + Tautulli + onDeck — more complete than Tautulli alone
+  // Tautulli (Plex plays) merged with the mirrored Jellyfin plays — both feed
+  // the same rating_key → library_items → TMDB resolution below.
+  const jellyfinService = require('./jellyfin');
+  const history = [
+    ...await tautulliService.getFullHistory(userId),
+    ...jellyfinService.getFullHistoryFromDb(userId),
+  ];
+  // user_watched is the union of Plex + Tautulli + onDeck + Jellyfin — more complete than Tautulli alone
   const dbWatchedKeys = db.getWatchedKeysFromDb(userId);
 
   // Count watches per rating key from Tautulli (has recency + frequency data)
@@ -381,11 +387,18 @@ async function buildDiscoverPools(userId, userToken) {
     includeAdult: !!prefs.show_mature,
   };
 
-  const [movies, tv] = await Promise.all([
-    plexService.getLibraryItems(db.getSetting('plex_movies_section', null) || process.env.PLEX_MOVIES_SECTION_ID || '1'),
-    plexService.getLibraryItems(db.getSetting('plex_tv_section', null) || process.env.PLEX_TV_SECTION_ID || '2'),
-    plexService.getWatchedKeys(userId, userToken),
+  const isJellyfinUser = String(userId).startsWith('jf_');
+  const [plexMovies, plexTv] = await Promise.all([
+    plexService.getLibraryItems(db.getSetting('plex_movies_section', null) || process.env.PLEX_MOVIES_SECTION_ID || '1').catch(() => []),
+    plexService.getLibraryItems(db.getSetting('plex_tv_section', null) || process.env.PLEX_TV_SECTION_ID || '2').catch(() => []),
+    (isJellyfinUser || !userToken)
+      ? Promise.resolve(null) // watched state already mirrored into the DB by the Jellyfin sync
+      : plexService.getWatchedKeys(userId, userToken).catch(() => null),
   ]);
+  const jellyfinService = require('./jellyfin');
+  const jfItems = jellyfinService.isEnabled() ? db.getLibraryItemsBySource('jellyfin') : [];
+  const movies = [...plexMovies, ...jfItems.filter(i => i.type === 'movie')];
+  const tv = [...plexTv, ...jfItems.filter(i => i.type === 'show')];
 
   const libraryMap = new Map([...movies, ...tv].map(i => [i.ratingKey, i]));
   const [profile, { topMovieIds, topTvIds, topMovieKeys, topTvKeys }] = await Promise.all([
@@ -845,9 +858,15 @@ async function refreshSharedCandidatePools() {
  */
 async function warmAllUserDiscoverCaches() {
   const usersWithTokens = db.getAllKnownUsersWithTokens();
-  if (!usersWithTokens.length) return;
-  console.log(`[discoverRec] warmAllUserDiscoverCaches: ${usersWithTokens.length} user(s)`);
-  for (const { user_id, plex_token } of usersWithTokens) {
+  // Standalone Jellyfin identities have no Plex token; their data is mirrored
+  // in the DB so pools build fine with a null token.
+  const jellyfinUsers = (db.getJellyfinUsers?.() || [])
+    .filter(u => !u.linked_user_id)
+    .map(u => ({ user_id: u.user_id, plex_token: null }));
+  const allUsers = [...usersWithTokens, ...jellyfinUsers];
+  if (!allUsers.length) return;
+  console.log(`[discoverRec] warmAllUserDiscoverCaches: ${allUsers.length} user(s)`);
+  for (const { user_id, plex_token } of allUsers) {
     try {
       const pools = await buildDiscoverPools(user_id, plex_token);
       const builtAt = Date.now();

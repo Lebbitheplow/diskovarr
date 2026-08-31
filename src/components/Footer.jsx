@@ -1,9 +1,10 @@
 import React from 'react'
 import { useTranslation } from 'react-i18next'
+import { useAuth } from '../context/AuthContext'
 
 const REPO_URL = 'https://github.com/Lebbitheplow/diskovarr'
 const SITE_URL = 'https://diskovarr.com'
-const VERSION = import.meta.env.VITE_APP_VERSION || '2.5.8'
+const VERSION = import.meta.env.VITE_APP_VERSION || '2.6.0'
 const YEAR = new Date().getFullYear()
 
 // Diskovarr brand mark — mirrors the logo used in the navigation bar.
@@ -30,6 +31,10 @@ function GitHubIcon() {
 
 export default function Footer() {
   const { t } = useTranslation()
+  // Credit only the media servers this deployment actually talks to.
+  const { availableSources } = useAuth()
+  const hasJellyfin = availableSources?.includes('jellyfin')
+  const hasPlex = !availableSources || availableSources.includes('plex')
   return (
     <footer className="app-footer">
       <div className="app-footer-inner">
@@ -57,11 +62,12 @@ export default function Footer() {
         <span className="app-footer-sep" aria-hidden="true">·</span>
         <a href={`${REPO_URL}/releases`} target="_blank" rel="noopener noreferrer">v{VERSION}</a>
         <span className="app-footer-sep" aria-hidden="true">·</span>
-        <span>{t('Made with')} <span className="app-footer-heart">♥</span> {t('for Plex')}</span>
+        <span>{t('Made with')} <span className="app-footer-heart">♥</span>{' '}
+          {hasJellyfin && hasPlex ? t('for Plex & Jellyfin') : hasJellyfin ? t('for Jellyfin') : t('for Plex')}</span>
         <p className="app-footer-fineprint">
           © {YEAR} Diskovarr · {t('This product uses the TMDB API but is not endorsed or certified by')}{' '}
           <a href="https://www.themoviedb.org/" target="_blank" rel="noopener noreferrer">TMDB</a>.
-          {' '}{t('Not affiliated with Plex, Inc.')}
+          {' '}{hasJellyfin ? t('Not affiliated with Plex, Inc. or the Jellyfin project.') : t('Not affiliated with Plex, Inc.')}
         </p>
       </div>
     </footer>

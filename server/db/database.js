@@ -337,12 +337,22 @@ db.exec(`
   'ALTER TABLE known_users ADD COLUMN followers_count INTEGER NOT NULL DEFAULT 0',
   'ALTER TABLE known_users ADD COLUMN following_count INTEGER NOT NULL DEFAULT 0',
   "ALTER TABLE user_request_limits ADD COLUMN review_privacy TEXT NOT NULL DEFAULT 'public'",
+  // Jellyfin support: 'source' scopes library/watched rows to the media server
+  // they came from; known_users grows provider identity + account linking.
+  "ALTER TABLE library_items ADD COLUMN source TEXT NOT NULL DEFAULT 'plex'",
+  "ALTER TABLE user_watched ADD COLUMN source TEXT NOT NULL DEFAULT 'plex'",
+  "ALTER TABLE known_users ADD COLUMN auth_provider TEXT NOT NULL DEFAULT 'plex'",
+  'ALTER TABLE known_users ADD COLUMN linked_user_id TEXT DEFAULT NULL',
+  'ALTER TABLE known_users ADD COLUMN jellyfin_token TEXT DEFAULT NULL',
+  'ALTER TABLE user_request_limits ADD COLUMN preferred_source TEXT DEFAULT NULL',
 ].forEach(sql => { try { db.exec(sql); } catch (e) { if (!e.message.includes('duplicate column') && !e.message.includes('no such table')) throw e; } });
 
 // Indexes over ALTER-added columns (must run after Segment A). In-library lookups
 // are keyed by (tmdb_id, type) — TMDB namespaces ids per media type, so movie 121
 // and tv 121 are different works and both halves of the key are load-bearing.
 db.exec('CREATE INDEX IF NOT EXISTS idx_library_tmdb ON library_items(tmdb_id, type)');
+db.exec('CREATE INDEX IF NOT EXISTS idx_library_source ON library_items(source)');
+db.exec('CREATE INDEX IF NOT EXISTS idx_known_users_linked ON known_users(linked_user_id)');
 
 // Segment B migrations: user preferences
 ['ALTER TABLE user_request_limits ADD COLUMN region TEXT DEFAULT NULL',
@@ -773,6 +783,56 @@ db.exec(`CREATE TABLE IF NOT EXISTS migrations (name TEXT PRIMARY KEY, ran_at IN
       },
     },
     {
+      // Jellyfin history rows have no numeric Tautulli id — they use synthetic
+      // 'jf:<user>:<item>:<ts>' keys, so history_id becomes TEXT. The rebuild
+      // keeps existing Tautulli rows (ids stored as their decimal string) and
+      // adds a source column so per-server queries and syncs stay scoped.
+      name: 'watch_history_jellyfin_v1',
+      sql: () => {
+        db.exec(`
+          BEGIN;
+          CREATE TABLE watch_history_new (
+            history_id TEXT PRIMARY KEY,
+            user_id TEXT,
+            rating_key TEXT,
+            grandparent_rating_key TEXT,
+            parent_rating_key TEXT,
+            title TEXT,
+            parent_title TEXT,
+            year INTEGER,
+            media_type TEXT,
+            thumb TEXT,
+            watched_at INTEGER DEFAULT 0,
+            duration INTEGER DEFAULT 0,
+            percent_complete INTEGER DEFAULT 0,
+            watched_status TEXT,
+            user_name TEXT,
+            user_thumb TEXT,
+            season_number INTEGER,
+            episode_number INTEGER,
+            bitrate TEXT,
+            resolution TEXT,
+            synced_at INTEGER DEFAULT 0,
+            source TEXT NOT NULL DEFAULT 'plex'
+          );
+          INSERT INTO watch_history_new
+            SELECT CAST(history_id AS TEXT), user_id, rating_key, grandparent_rating_key,
+                   parent_rating_key, title, parent_title, year, media_type, thumb,
+                   watched_at, duration, percent_complete, watched_status, user_name,
+                   user_thumb, season_number, episode_number, bitrate, resolution,
+                   synced_at, 'plex'
+            FROM watch_history;
+          DROP TABLE watch_history;
+          ALTER TABLE watch_history_new RENAME TO watch_history;
+          CREATE INDEX idx_wh_user ON watch_history(user_id);
+          CREATE INDEX idx_wh_date ON watch_history(watched_at);
+          CREATE INDEX idx_wh_user_date ON watch_history(user_id, watched_at DESC);
+          CREATE INDEX idx_wh_source ON watch_history(source);
+          COMMIT;
+        `);
+      },
+    },
+    {
       // The monitor editor used to re-POST its full criteria list on every
       // save with no server-side replace, so each edit duplicated all rows.
       // One-time dedupe; the editor now swaps criteria atomically via
@@ -818,8 +878,8 @@ const stmtUpsertItem = db.prepare(`
      audience_rating, content_rating, added_at, summary, synced_at,
      rating, rating_image, audience_rating_image, studio, tmdb_id, tvdb_id, leaf_count,
      writers, countries, collections, edition, release_date, duration,
-     video_resolution, file_size)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     video_resolution, file_size, source)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   ON CONFLICT(rating_key) DO UPDATE SET
     section_id=excluded.section_id, title=excluded.title, year=excluded.year,
     thumb=excluded.thumb, art=excluded.art, type=excluded.type, genres=excluded.genres,
@@ -830,7 +890,8 @@ const stmtUpsertItem = db.prepare(`
     tmdb_id=excluded.tmdb_id, tvdb_id=excluded.tvdb_id, leaf_count=excluded.leaf_count, writers=excluded.writers,
     countries=excluded.countries, collections=excluded.collections, edition=excluded.edition,
     release_date=excluded.release_date, duration=excluded.duration,
-    video_resolution=excluded.video_resolution, file_size=excluded.file_size
+    video_resolution=excluded.video_resolution, file_size=excluded.file_size,
+    source=excluded.source
 `);
 
 function upsertManyItems(items) {
@@ -846,7 +907,8 @@ function upsertManyItems(items) {
         JSON.stringify(item.writers || []), JSON.stringify(item.countries || []),
         JSON.stringify(item.collections || []), item.edition || '',
         item.releaseDate || '', item.duration || 0,
-        item.videoResolution || null, item.fileSize ?? null
+        item.videoResolution || null, item.fileSize ?? null,
+        item.source || 'plex'
       );
     }
   });
@@ -933,12 +995,22 @@ function rowToItem(r) {
     lastEpisodeAddedAt: r.last_episode_added_at || 0,
     videoResolution: r.video_resolution || null,
     fileSize: r.file_size ?? null,
+    source: r.source || 'plex',
   };
 }
 
 function getLibraryItemsFromDb(sectionId) {
   return db.prepare('SELECT * FROM library_items WHERE section_id = ?')
     .all(String(sectionId)).map(rowToItem);
+}
+
+function getLibraryItemsBySource(source, type = null) {
+  if (type) {
+    return db.prepare('SELECT * FROM library_items WHERE source = ? AND type = ?')
+      .all(String(source), String(type)).map(rowToItem);
+  }
+  return db.prepare('SELECT * FROM library_items WHERE source = ?')
+    .all(String(source)).map(rowToItem);
 }
 
 function getLibraryItemByKey(ratingKey) {
@@ -949,16 +1021,18 @@ function getLibraryItemByKey(ratingKey) {
 // ── User watched ──────────────────────────────────────────────────────────────
 
 const stmtReplaceWatched = db.prepare(
-  'INSERT OR REPLACE INTO user_watched (user_id, rating_key, synced_at) VALUES (?, ?, ?)'
+  'INSERT OR REPLACE INTO user_watched (user_id, rating_key, synced_at, source) VALUES (?, ?, ?, ?)'
 );
-const stmtClearWatched = db.prepare('DELETE FROM user_watched WHERE user_id = ?');
+const stmtClearWatchedBySource = db.prepare('DELETE FROM user_watched WHERE user_id = ? AND source = ?');
 
-function replaceWatchedBatch(userId, ratingKeys) {
+// Clear-then-insert, scoped to one source so the Plex and Jellyfin watched syncs
+// can't wipe each other's rows for a linked (canonical) user.
+function replaceWatchedBatch(userId, ratingKeys, source = 'plex') {
   withTransaction(() => {
-    stmtClearWatched.run(String(userId));
+    stmtClearWatchedBySource.run(String(userId), source);
     const now = Math.floor(Date.now() / 1000);
     for (const key of ratingKeys) {
-      stmtReplaceWatched.run(String(userId), String(key), now);
+      stmtReplaceWatched.run(String(userId), String(key), now, source);
     }
   });
 }
@@ -975,8 +1049,8 @@ const stmtUpsertWatchHistory = db.prepare(`
     (history_id, user_id, rating_key, grandparent_rating_key, parent_rating_key,
      title, parent_title, year, media_type, thumb, watched_at, duration,
      percent_complete, watched_status, user_name, user_thumb, season_number,
-     episode_number, bitrate, resolution, synced_at)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+     episode_number, bitrate, resolution, synced_at, source)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
   ON CONFLICT(history_id) DO UPDATE SET
     user_id=excluded.user_id, rating_key=excluded.rating_key,
     grandparent_rating_key=excluded.grandparent_rating_key,
@@ -986,10 +1060,13 @@ const stmtUpsertWatchHistory = db.prepare(`
     percent_complete=excluded.percent_complete, watched_status=excluded.watched_status,
     user_name=excluded.user_name, user_thumb=excluded.user_thumb,
     season_number=excluded.season_number, episode_number=excluded.episode_number,
-    bitrate=excluded.bitrate, resolution=excluded.resolution, synced_at=excluded.synced_at
+    bitrate=excluded.bitrate, resolution=excluded.resolution, synced_at=excluded.synced_at,
+    source=excluded.source
 `);
 
-// Bulk upsert mapped history rows (camelCase, as produced by the Tautulli service).
+// Bulk upsert mapped history rows (camelCase, as produced by the Tautulli and
+// Jellyfin services). history_id is TEXT: Tautulli rows keep their numeric id
+// as a decimal string, Jellyfin rows use synthetic 'jf:…' keys.
 function upsertWatchHistoryBatch(rows) {
   if (!Array.isArray(rows) || rows.length === 0) return 0;
   const now = Math.floor(Date.now() / 1000);
@@ -998,7 +1075,7 @@ function upsertWatchHistoryBatch(rows) {
     for (const r of rows) {
       if (r.historyId == null) continue;
       stmtUpsertWatchHistory.run(
-        Number(r.historyId),
+        String(r.historyId),
         r.userId != null ? String(r.userId) : null,
         r.ratingKey != null ? String(r.ratingKey) : null,
         r.grandparentRatingKey || null,
@@ -1018,7 +1095,8 @@ function upsertWatchHistoryBatch(rows) {
         r.episodeNumber != null ? Number(r.episodeNumber) : null,
         r.bitrate || null,
         r.resolution || null,
-        now
+        now,
+        r.source || 'plex'
       );
       count++;
     }
@@ -1191,6 +1269,10 @@ function queryWatchHistory(opts = {}) {
       return item;
     }
     const showKey = g.grp_show_key != null ? String(g.grp_show_key) : null;
+    // Numeric keys are Plex rating keys; GUID-shaped keys are Jellyfin item ids.
+    const groupThumb = !showKey ? null
+      : /^\d+$/.test(showKey) ? `/library/metadata/${showKey}/thumb`
+      : `/Items/${showKey}/Images/Primary`;
     return {
       isGroup: true,
       groupKey: g.grp,
@@ -1201,7 +1283,7 @@ function queryWatchHistory(opts = {}) {
       parentTitle: null,
       year: g.grp_year || null,
       mediaType: 'episode',
-      thumb: showKey ? `/library/metadata/${showKey}/thumb` : null,
+      thumb: groupThumb,
       watchedAt: g.grp_date || 0,
       duration: g.grp_duration || 0,
       percentComplete: 0,
@@ -1353,13 +1435,116 @@ function getAllKnownUsersWithTokens() {
   return db.prepare('SELECT user_id, plex_token FROM known_users WHERE plex_token IS NOT NULL').all();
 }
 
+// ── Jellyfin identities & account linking ────────────────────────────────────
+// Jellyfin users live in known_users under 'jf_<guid>' ids with
+// auth_provider='jellyfin'. Linking points the Jellyfin row at the Plex row via
+// linked_user_id; the Plex row is canonical — all per-user data keys on it.
+
+function upsertJellyfinUser(userId, username, thumb, token) {
+  db.prepare(`
+    INSERT INTO known_users (user_id, username, thumb, seen_at, auth_provider, jellyfin_token)
+    VALUES (?, ?, ?, ?, 'jellyfin', ?)
+    ON CONFLICT(user_id) DO UPDATE SET
+      username = excluded.username,
+      thumb = excluded.thumb,
+      seen_at = excluded.seen_at,
+      jellyfin_token = COALESCE(excluded.jellyfin_token, known_users.jellyfin_token)
+  `).run(String(userId), username, thumb || null, Math.floor(Date.now() / 1000), token || null);
+}
+
+// Background-sync variant: creates/refreshes the row without touching seen_at
+// (which means "last login") or the stored login token.
+function seedJellyfinUser(userId, username, thumb) {
+  db.prepare(`
+    INSERT INTO known_users (user_id, username, thumb, seen_at, auth_provider)
+    VALUES (?, ?, ?, 0, 'jellyfin')
+    ON CONFLICT(user_id) DO UPDATE SET
+      username = excluded.username,
+      thumb = COALESCE(excluded.thumb, known_users.thumb)
+  `).run(String(userId), username, thumb || null);
+}
+
+// Follows a linked Jellyfin row to its Plex (canonical) row; identity otherwise.
+function resolveCanonicalUserId(userId) {
+  const row = db.prepare('SELECT linked_user_id FROM known_users WHERE user_id = ?').get(String(userId));
+  return row?.linked_user_id ? String(row.linked_user_id) : String(userId);
+}
+
+function getKnownUserById(userId) {
+  return db.prepare('SELECT * FROM known_users WHERE user_id = ?').get(String(userId)) || null;
+}
+
+function getLinkedJellyfinRow(plexUserId) {
+  return db.prepare("SELECT * FROM known_users WHERE linked_user_id = ? AND auth_provider = 'jellyfin' LIMIT 1")
+    .get(String(plexUserId)) || null;
+}
+
+function getJellyfinUsers() {
+  return db.prepare("SELECT * FROM known_users WHERE auth_provider = 'jellyfin'").all();
+}
+
+// Per-user tables re-keyed when a Jellyfin identity merges into a Plex one.
+const USER_ID_TABLES = [
+  ['dismissals', 'plex_user_id'],
+  ['explore_dismissals', 'plex_user_id'],
+  ['user_watched', 'user_id'],
+  ['watchlist', 'user_id'],
+  ['user_ratings', 'user_id'],
+  ['user_request_limits', 'user_id'],
+  ['discover_requests', 'user_id'],
+  ['reviews', 'user_id'],
+  ['review_reactions', 'user_id'],
+  ['review_comments', 'user_id'],
+  ['user_follows', 'follower_id'],
+  ['user_follows', 'followee_id'],
+  ['notifications', 'user_id'],
+  ['user_notification_prefs', 'user_id'],
+  ['user_push_subscriptions', 'user_id'],
+  ['watch_history', 'user_id'],
+  ['issues', 'user_id'],
+  ['issue_comments', 'user_id'],
+  ['monitors', 'user_id'],
+  ['monitor_notifications', 'user_id'],
+  ['tmdb_connections', 'user_id'],
+  ['wrapped_stats', 'user_id'],
+];
+
+// One-time merge of everything keyed by `fromId` into `toId`. UPDATE OR IGNORE
+// keeps the target's row on unique collisions (e.g. both accounts reviewed the
+// same movie); leftover source rows are then dropped.
+function mergeUserData(fromId, toId) {
+  withTransaction(() => {
+    for (const [table, col] of USER_ID_TABLES) {
+      try {
+        db.prepare(`UPDATE OR IGNORE ${table} SET ${col} = ? WHERE ${col} = ?`).run(String(toId), String(fromId));
+        db.prepare(`DELETE FROM ${table} WHERE ${col} = ?`).run(String(fromId));
+      } catch (e) { console.warn(`[merge] ${table}.${col}: ${e.message}`); }
+    }
+  });
+}
+
+function linkJellyfinAccount(jfUserId, plexUserId) {
+  db.prepare('UPDATE known_users SET linked_user_id = ? WHERE user_id = ?')
+    .run(String(plexUserId), String(jfUserId));
+  mergeUserData(jfUserId, plexUserId);
+}
+
+function unlinkJellyfinAccount(jfUserId) {
+  db.prepare('UPDATE known_users SET linked_user_id = NULL WHERE user_id = ?').run(String(jfUserId));
+}
+
 // TMDB ids are only unique within a media type (movie 121 = The Two Towers,
 // tv 121 = Doctor Who 1963), so always pass mediaType when the caller knows it.
 // Omitting it keeps the old type-blind behaviour and can match the wrong work.
-function getLibraryItemByTmdbId(tmdbId, mediaType) {
+function getLibraryItemByTmdbId(tmdbId, mediaType, source = null) {
   if (mediaType) {
+    const plexType = mediaType === 'tv' ? 'show' : 'movie';
+    if (source) {
+      return db.prepare('SELECT * FROM library_items WHERE tmdb_id = ? AND type = ? AND source = ? LIMIT 1')
+        .get(String(tmdbId), plexType, source);
+    }
     return db.prepare('SELECT * FROM library_items WHERE tmdb_id = ? AND type = ? LIMIT 1')
-      .get(String(tmdbId), mediaType === 'tv' ? 'show' : 'movie');
+      .get(String(tmdbId), plexType);
   }
   return db.prepare('SELECT * FROM library_items WHERE tmdb_id = ? LIMIT 1').get(String(tmdbId));
 }
@@ -1389,11 +1574,12 @@ db.exec(`
 ['ALTER TABLE watchlist ADD COLUMN plex_playlist_id TEXT',
  'ALTER TABLE watchlist ADD COLUMN plex_item_id TEXT',
  'ALTER TABLE watchlist ADD COLUMN plex_guid TEXT',
+ "ALTER TABLE watchlist ADD COLUMN source TEXT NOT NULL DEFAULT 'plex'",
 ].forEach(sql => { try { db.exec(sql); } catch (e) { if (!e.message.includes('duplicate column') && !e.message.includes('no such table')) throw e; } });
 
-function addToWatchlistDb(userId, ratingKey) {
-  db.prepare(`INSERT OR IGNORE INTO watchlist (user_id, rating_key, added_at) VALUES (?, ?, ?)`)
-    .run(String(userId), String(ratingKey), Math.floor(Date.now() / 1000));
+function addToWatchlistDb(userId, ratingKey, source = 'plex') {
+  db.prepare(`INSERT OR IGNORE INTO watchlist (user_id, rating_key, added_at, source) VALUES (?, ?, ?, ?)`)
+    .run(String(userId), String(ratingKey), Math.floor(Date.now() / 1000), source);
 }
 
 function removeFromWatchlistDb(userId, ratingKey) {
@@ -1401,13 +1587,19 @@ function removeFromWatchlistDb(userId, ratingKey) {
     .run(String(userId), String(ratingKey));
 }
 
-function getWatchlistFromDb(userId) {
-  return db.prepare('SELECT rating_key FROM watchlist WHERE user_id = ? ORDER BY added_at DESC')
-    .all(String(userId)).map(r => r.rating_key);
+function getWatchlistFromDb(userId, source = null) {
+  const rows = source
+    ? db.prepare('SELECT rating_key FROM watchlist WHERE user_id = ? AND source = ? ORDER BY added_at DESC').all(String(userId), source)
+    : db.prepare('SELECT rating_key FROM watchlist WHERE user_id = ? ORDER BY added_at DESC').all(String(userId));
+  return rows.map(r => r.rating_key);
 }
 
 // Rows with timestamps — used by the plex.tv watchlist reconciler to honor a grace window.
-function getWatchlistRows(userId) {
+function getWatchlistRows(userId, source = null) {
+  if (source) {
+    return db.prepare('SELECT rating_key, added_at FROM watchlist WHERE user_id = ? AND source = ?')
+      .all(String(userId), source);
+  }
   return db.prepare('SELECT rating_key, added_at FROM watchlist WHERE user_id = ?')
     .all(String(userId));
 }
@@ -1537,6 +1729,9 @@ function getConnectionSettings() {
     youtubeRootFolder: getSetting('youtube_root_folder', ''),
     tuberrUrl: getSetting('tuberr_url', ''),
     tuberrApiKey: getSetting('tuberr_api_key', ''),
+    jellyfinUrl: getSetting('jellyfin_url', '') || process.env.JELLYFIN_URL || '',
+    jellyfinApiKey: !!(getSetting('jellyfin_api_key', '') || process.env.JELLYFIN_API_KEY),
+    jellyfinEnabled: getSetting('jellyfin_enabled', '0') === '1',
   };
 }
 
@@ -1610,8 +1805,12 @@ function libraryMediaType(row) {
 // Set of "<tmdbId>:<movie|tv>" keys. TMDB namespaces ids per media type, so a
 // type-blind id check reports e.g. Doctor Who (tv 121) as owned because The Lord
 // of the Rings: The Two Towers (movie 121) is in the library.
-function getLibraryTmdbKeys() {
-  const rows = db.prepare('SELECT tmdb_id, type FROM library_items WHERE tmdb_id IS NOT NULL').all();
+// Pass a source ('plex' | 'jellyfin') to scope to one server; default is the
+// union of all sources (availability badges treat "on either server" as owned).
+function getLibraryTmdbKeys(source = null) {
+  const rows = source
+    ? db.prepare('SELECT tmdb_id, type FROM library_items WHERE tmdb_id IS NOT NULL AND source = ?').all(source)
+    : db.prepare('SELECT tmdb_id, type FROM library_items WHERE tmdb_id IS NOT NULL').all();
   return new Set(rows.map(r => `${r.tmdb_id}:${libraryMediaType(r)}`));
 }
 
@@ -1619,8 +1818,10 @@ function getLibraryTmdbKeys() {
 // when TMDB IDs aren't populated yet. Deliberately has no year-less wildcard
 // entry: one would make any candidate with an unknown year match a same-titled
 // library item of any year (Doctor Who 1963 vs 2005, Halloween, The Thing…).
-function getLibraryTitleYearSet() {
-  const rows = db.prepare('SELECT title, year, type FROM library_items').all();
+function getLibraryTitleYearSet(source = null) {
+  const rows = source
+    ? db.prepare('SELECT title, year, type FROM library_items WHERE source = ?').all(source)
+    : db.prepare('SELECT title, year, type FROM library_items').all();
   const set = new Set();
   for (const r of rows) {
     if (r.title) {
@@ -1958,7 +2159,7 @@ function getRequestById(id) {
 }
 
 function getUserPreferences(userId) {
-  const row = db.prepare('SELECT region, language, ui_language, auto_request_movies, auto_request_tv, landing_page, show_mature, review_privacy FROM user_request_limits WHERE user_id = ?').get(String(userId));
+  const row = db.prepare('SELECT region, language, ui_language, auto_request_movies, auto_request_tv, landing_page, show_mature, review_privacy, preferred_source FROM user_request_limits WHERE user_id = ?').get(String(userId));
   return {
     region: row?.region || null,
     language: row?.language || null,
@@ -1968,7 +2169,16 @@ function getUserPreferences(userId) {
     landing_page: row?.landing_page || null,
     show_mature: row ? !!row.show_mature : false,
     review_privacy: row?.review_privacy || 'public',
+    preferred_source: row?.preferred_source || null,
   };
+}
+
+// Persisted library-source preference ('plex' | 'jellyfin') seeding the session's
+// active source at login; updated by the nav toggle.
+function setPreferredSource(userId, source) {
+  db.prepare('INSERT OR IGNORE INTO user_request_limits (user_id) VALUES (?)').run(String(userId));
+  db.prepare('UPDATE user_request_limits SET preferred_source = ? WHERE user_id = ?')
+    .run(source === 'jellyfin' ? 'jellyfin' : 'plex', String(userId));
 }
 
 function setUserPreferences(userId, { region, language, ui_language, auto_request_movies, auto_request_tv, landing_page, show_mature, review_privacy }) {
@@ -3206,7 +3416,9 @@ module.exports = {
   addToWatchlistDb, removeFromWatchlistDb, getWatchlistFromDb, getWatchlistRows,
   updateWatchlistPlexIds, getWatchlistPlexIds, updateWatchlistPlexGuid,
   upsertKnownUser, seedKnownUser, touchKnownUser, getKnownUsers, getAllKnownUsersWithTokens, getLibraryItemByTmdbId,
-  upsertManyItems, pruneLibrarySectionItems, getLibraryItemsFromDb, getLibraryItemByKey,
+  upsertJellyfinUser, seedJellyfinUser, resolveCanonicalUserId, getKnownUserById, getLinkedJellyfinRow,
+  getJellyfinUsers, linkJellyfinAccount, unlinkJellyfinAccount, mergeUserData, setPreferredSource,
+  upsertManyItems, pruneLibrarySectionItems, getLibraryItemsFromDb, getLibraryItemsBySource, getLibraryItemByKey,
   updateItemDetailFields, updateLastEpisodeAdded, getItemsNeedingDetailSync,
   replaceWatchedBatch, getWatchedKeysFromDb,
   upsertWatchHistoryBatch, queryWatchHistory, getWatchHistoryUsers, getWatchHistoryCount,

@@ -1,7 +1,153 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
-import { tmdbApi } from '../services/api'
+import { tmdbApi, userApi } from '../services/api'
 import { useToast } from '../context/ToastContext'
 import { useTranslation } from 'react-i18next'
+
+// Plex ↔ Jellyfin account linking. Rendered only when the server has Jellyfin
+// configured; signing in with either linked account then signs into both.
+function MediaServerAccounts() {
+  const { t } = useTranslation()
+  const { success: toastSuccess, error: toastError } = useToast()
+  const [links, setLinks] = useState(null)
+  const [jfUsername, setJfUsername] = useState('')
+  const [jfPassword, setJfPassword] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [showForm, setShowForm] = useState(false)
+
+  const load = useCallback(async () => {
+    try {
+      const { data } = await userApi.getAccountLinks()
+      setLinks(data)
+    } catch { setLinks(null) }
+  }, [])
+
+  useEffect(() => { load() }, [load])
+
+  const handleLinkJellyfin = useCallback(async (e) => {
+    e.preventDefault()
+    if (!jfUsername || busy) return
+    setBusy(true)
+    try {
+      const { data } = await userApi.linkJellyfin(jfUsername, jfPassword)
+      toastSuccess(t('Linked Jellyfin account {{name}}', { name: data.jellyfinUsername || jfUsername }))
+      setShowForm(false)
+      setJfUsername('')
+      setJfPassword('')
+      await load()
+    } catch (err) {
+      toastError(err.message || t('Failed to link Jellyfin account'))
+    } finally {
+      setBusy(false)
+    }
+  }, [jfUsername, jfPassword, busy, load, toastSuccess, toastError, t])
+
+  const handleUnlinkJellyfin = useCallback(async () => {
+    setBusy(true)
+    try {
+      await userApi.unlinkJellyfin()
+      toastSuccess(t('Jellyfin account unlinked'))
+      await load()
+    } catch (err) {
+      toastError(err.message || t('Failed to unlink'))
+    } finally {
+      setBusy(false)
+    }
+  }, [load, toastSuccess, toastError, t])
+
+  // Jellyfin-identity users link Plex through the regular PIN flow with link=1
+  const handleLinkPlex = useCallback(async () => {
+    setBusy(true)
+    try {
+      const res = await fetch('/auth/create-pin', { method: 'POST', signal: AbortSignal.timeout(15000) })
+      if (!res.ok) throw new Error('PIN creation failed')
+      const pin = await res.json()
+      const appOrigin = window.location.origin
+      window.location.href = 'https://app.plex.tv/auth#?clientID=diskovarr-app&code=' + pin.code
+        + '&forwardUrl=' + encodeURIComponent(appOrigin + '/callback?link=1&pinId=' + pin.id + '&pinCode=' + encodeURIComponent(pin.code))
+        + '&context%5Bdevice%5D%5Bproduct%5D=Diskovarr'
+    } catch {
+      toastError(t('Could not reach Plex. Please try again.'))
+      setBusy(false)
+    }
+  }, [toastError, t])
+
+  if (!links || !links.jellyfinEnabled) return null
+
+  const cardStyle = {
+    background: 'var(--bg-elevated)',
+    border: '1px solid var(--border)',
+    borderRadius: '12px',
+    padding: '24px',
+    maxWidth: '520px',
+    marginBottom: '20px',
+  }
+
+  return (
+    <div style={cardStyle}>
+      <div style={{ fontWeight: '600', fontSize: '1rem', marginBottom: '4px' }}>{t('Media Server Accounts')}</div>
+      <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginBottom: '16px' }}>
+        {t('Link your Plex and Jellyfin accounts so signing in with either one signs you into both, with one combined watch profile.')}
+      </p>
+
+      {/* Plex row */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 0', borderTop: '1px solid var(--border)' }}>
+        <div style={{ fontWeight: 600, fontSize: '0.9rem', width: '80px' }}>Plex</div>
+        {links.plex ? (
+          <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>{links.plex.username}</span>
+        ) : (
+          <>
+            <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>{t('Not linked')}</span>
+            {links.plexConfigured && (
+              <button className="edit-modal-save" onClick={handleLinkPlex} disabled={busy}
+                style={{ marginLeft: 'auto', fontSize: '0.8rem', padding: '6px 16px' }}>
+                {busy ? t('Connecting...') : t('Sign in with Plex to link')}
+              </button>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* Jellyfin row */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 0', borderTop: '1px solid var(--border)', flexWrap: 'wrap' }}>
+        <div style={{ fontWeight: 600, fontSize: '0.9rem', width: '80px' }}>Jellyfin</div>
+        {links.jellyfin ? (
+          <>
+            <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>{links.jellyfin.username}</span>
+            {links.jellyfin.linked && (
+              <button className="btn-queue-delete" onClick={handleUnlinkJellyfin} disabled={busy}
+                style={{ marginLeft: 'auto', fontSize: '0.8rem', padding: '6px 16px' }}>
+                {t('Unlink')}
+              </button>
+            )}
+          </>
+        ) : !showForm ? (
+          <>
+            <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>{t('Not linked')}</span>
+            <button className="edit-modal-save" onClick={() => setShowForm(true)}
+              style={{ marginLeft: 'auto', fontSize: '0.8rem', padding: '6px 16px' }}>
+              {t('Link account')}
+            </button>
+          </>
+        ) : (
+          <form onSubmit={handleLinkJellyfin} style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', width: '100%', marginTop: '6px' }}>
+            <input type="text" className="form-input" placeholder={t('Jellyfin username')} value={jfUsername}
+              onChange={e => setJfUsername(e.target.value)} autoComplete="username" style={{ flex: '1 1 140px' }} />
+            <input type="password" className="form-input" placeholder={t('Password')} value={jfPassword}
+              onChange={e => setJfPassword(e.target.value)} autoComplete="current-password" style={{ flex: '1 1 140px' }} />
+            <button type="submit" className="edit-modal-save" disabled={busy || !jfUsername}
+              style={{ fontSize: '0.8rem', padding: '6px 16px' }}>
+              {busy ? t('Linking...') : t('Link')}
+            </button>
+            <button type="button" className="edit-modal-cancel" onClick={() => setShowForm(false)}
+              style={{ fontSize: '0.8rem', padding: '6px 16px' }}>
+              {t('Cancel')}
+            </button>
+          </form>
+        )}
+      </div>
+    </div>
+  )
+}
 
 function fmtDate(isoStr) {
   if (!isoStr) return 'Never'
@@ -147,6 +293,8 @@ export default function ConnectedAccounts() {
       <p className="settings-desc" style={{ marginBottom: '20px' }}>
         Connect your TMDB account to sync your star ratings. Only your rating is sent &mdash; review text and watch date stay local.
       </p>
+
+      <MediaServerAccounts />
 
       <div style={{
         background: 'var(--bg-elevated)',

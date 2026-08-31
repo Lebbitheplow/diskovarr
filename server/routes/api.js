@@ -11,6 +11,7 @@ const discoverRecommender = require('../services/discoverRecommender');
 const tmdbService = require('../services/tmdb');
 const tmdbIntegration = require('../services/tmdbIntegration');
 const tautulliService = require('../services/tautulli');
+const jellyfinService = require('../services/jellyfin');
 const overseerrService = require('../services/overseerr');
 const reviewFeed = require('../services/reviewFeed');
 const reviewCardCache = require('../services/reviewCardCache');
@@ -32,6 +33,35 @@ for (const [name, ids] of Object.entries(tmdbService.TV_GENRE_MAP || {})) {
 }
 
 router.use(requireAuth);
+
+// Deep links for a library item, dispatched on which server it lives on.
+// Plex items keep the plexAppLink native-app URI; Jellyfin has no equivalent.
+function mediaLinks(libItem) {
+  if (!libItem || !libItem.ratingKey) return { deepLink: null, plexAppLink: null };
+  if ((libItem.source || 'plex') === 'jellyfin') {
+    return { deepLink: jellyfinService.getDeepLink(libItem.ratingKey), plexAppLink: null };
+  }
+  return {
+    deepLink: plexService.getDeepLink(libItem.ratingKey),
+    plexAppLink: plexService.getAppLink(libItem.ratingKey),
+  };
+}
+
+// The session's active library source ('plex' | 'jellyfin'). Defaults to plex
+// for sessions predating the toggle.
+function activeSource(req) {
+  return req.session?.activeSource === 'jellyfin' ? 'jellyfin' : 'plex';
+}
+
+// Adds Jellyfin rows to a Plex item list for availability indexing (in-library
+// is the union of both servers). Items present on both resolve to the active
+// source — later entries win in buildLibraryIndex's maps.
+function withJellyfin(plexItems, req) {
+  const jellyfinService = require('../services/jellyfin');
+  if (!jellyfinService.isEnabled()) return plexItems;
+  const jf = db.getLibraryItemsBySource('jellyfin');
+  return activeSource(req) === 'jellyfin' ? [...plexItems, ...jf] : [...jf, ...plexItems];
+}
 
 // Abuse guards for compute/TMDB-heavy endpoints. Limits are far above normal
 // browsing rates — they only stop a user or leaked key from hammering routes
@@ -105,12 +135,13 @@ router.get('/trailer', async (req, res) => {
 router.get('/recommendations', async (req, res) => {
   try {
     const { id: userId, token: userToken } = req.session.plexUser;
-    const data = await recommender.getRecommendations(userId, userToken);
+    // Scope Home recs to the toggled library source once Jellyfin is in play
+    const sourceFilter = jellyfinService.isEnabled() ? activeSource(req) : null;
+    const data = await recommender.getRecommendations(userId, userToken, sourceFilter);
     // Attach deepLink to every item so the client can open them in Plex
     const addDeepLinks = items => items.map(item => ({
       ...item,
-      deepLink: item.ratingKey ? plexService.getDeepLink(item.ratingKey) : null,
-      plexAppLink: item.ratingKey ? plexService.getAppLink(item.ratingKey) : null,
+      ...mediaLinks(item),
     }));
     res.json({
       ...data,
@@ -128,10 +159,36 @@ router.get('/recommendations', async (req, res) => {
 // GET /api/popular
 // Returns most popular movies and TV shows from Tautulli (last 90 days),
 // enriched with library metadata and TMDB cache.
+// Cross-user popularity computed from the mirrored watch_history table —
+// covers Jellyfin (which has no Tautulli) and doubles as a fallback when
+// Tautulli is unreachable. Same shape as tautulliService.getPopularItems().
+function popularFromWatchHistory(source = null) {
+  const since = Math.floor(Date.now() / 1000) - 90 * 86400;
+  const srcClause = source ? 'AND source = ?' : '';
+  const params = source ? [since, source] : [since];
+  const movies = db.prepare(`
+    SELECT rating_key AS key, COUNT(*) AS plays FROM watch_history
+    WHERE media_type = 'movie' AND rating_key IS NOT NULL AND watched_at >= ? ${srcClause}
+    GROUP BY rating_key ORDER BY plays DESC LIMIT 60
+  `).all(...params).map(r => ({ ratingKey: String(r.key), totalPlays: r.plays || 0 }));
+  const tvShows = db.prepare(`
+    SELECT grandparent_rating_key AS key, COUNT(*) AS plays FROM watch_history
+    WHERE media_type = 'episode' AND grandparent_rating_key IS NOT NULL AND watched_at >= ? ${srcClause}
+    GROUP BY grandparent_rating_key ORDER BY plays DESC LIMIT 60
+  `).all(...params).map(r => ({ ratingKey: String(r.key), totalPlays: r.plays || 0 }));
+  return { movies, tvShows };
+}
+
 router.get('/popular', async (req, res) => {
   try {
     const { id: userId } = req.session.plexUser;
-    const tautulliData = await tautulliService.getPopularItems();
+    const popularSource = jellyfinService.isEnabled() ? activeSource(req) : null;
+    let tautulliData = popularSource === 'jellyfin'
+      ? popularFromWatchHistory('jellyfin')
+      : await tautulliService.getPopularItems();
+    if (!tautulliData.movies.length && !tautulliData.tvShows.length) {
+      tautulliData = popularFromWatchHistory(popularSource);
+    }
 
     const POPULAR_LIMIT = 20; // display up to this many genuine library items per section
     const enrichItems = async (items, mediaType) => {
@@ -149,8 +206,7 @@ router.get('/popular', async (req, res) => {
           backdropUrl: tmdbCached?.backdropUrl || libItem.art || null,
           audienceRating: tmdbCached?.voteAverage || libItem.audienceRating || 0,
           contentRating: tmdbCached?.contentRating || libItem.contentRating || '',
-          deepLink: libItem.ratingKey ? plexService.getDeepLink(libItem.ratingKey) : null,
-          plexAppLink: libItem.ratingKey ? plexService.getAppLink(libItem.ratingKey) : null,
+          ...mediaLinks(libItem),
         });
       }
       return result;
@@ -180,20 +236,24 @@ router.get('/popular', async (req, res) => {
   }
 });
 
-// GET /api/poster?path=/library/metadata/...
-// Proxies Plex poster through server — browser never sees Plex token
+// GET /api/poster?path=/library/metadata/... (Plex) or /Items/<id>/Images/... (Jellyfin)
+// Proxies media-server art through the server — browser never sees tokens
 router.get('/poster', async (req, res) => {
   const { path: posterPath } = req.query;
 
-  // Security: only Plex /library/ paths with no traversal segments — blocks
-  // SSRF to other hosts and stops '..' from reaching non-library Plex
-  // endpoints (e.g. /library/../status/sessions) with the server token.
-  if (!posterPath || !posterPath.startsWith('/library/') || posterPath.split('/').includes('..')) {
+  // Security: only Plex /library/ or Jellyfin /Items/ image paths with no
+  // traversal segments — blocks SSRF to other hosts and stops '..' from
+  // reaching non-media endpoints with a server token.
+  const isPlexPath = posterPath && posterPath.startsWith('/library/');
+  const isJellyfinPath = posterPath && /^\/Items\/[A-Za-z0-9-]+\/Images\//.test(posterPath);
+  if (!posterPath || (!isPlexPath && !isJellyfinPath) || posterPath.split('/').includes('..')) {
     return res.status(400).json({ error: 'Invalid poster path' });
   }
 
   try {
-    const url = `${plexService.getPlexUrl()}${posterPath}?X-Plex-Token=${plexService.getPlexToken()}`;
+    const url = isJellyfinPath
+      ? `${jellyfinService.getJellyfinUrl()}${posterPath}`
+      : `${plexService.getPlexUrl()}${posterPath}?X-Plex-Token=${plexService.getPlexToken()}`;
     const imgRes = await fetch(url, { signal: AbortSignal.timeout(10000) });
     if (!imgRes.ok) {
       return res.status(imgRes.status).send('Poster not found');
@@ -207,6 +267,25 @@ router.get('/poster', async (req, res) => {
   } catch (err) {
     console.error('poster proxy error:', err);
     res.status(500).send('Failed to fetch poster');
+  }
+});
+
+// GET /api/jellyfin/avatar/:jfUserId — proxies Jellyfin user avatars so the
+// (often LAN-only) Jellyfin origin never reaches the browser.
+router.get('/jellyfin/avatar/:jfUserId', posterLimiter, async (req, res) => {
+  const { jfUserId } = req.params;
+  if (!/^[A-Za-z0-9-]+$/.test(jfUserId)) return res.status(400).send('Invalid user id');
+  try {
+    const tag = /^[A-Za-z0-9]+$/.test(String(req.query.tag || '')) ? `?tag=${req.query.tag}` : '';
+    const imgRes = await fetch(`${jellyfinService.getJellyfinUrl()}/Users/${jfUserId}/Images/Primary${tag}`, {
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!imgRes.ok) return res.status(imgRes.status).send('Avatar not found');
+    res.setHeader('Content-Type', imgRes.headers.get('content-type') || 'image/jpeg');
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    res.send(Buffer.from(await imgRes.arrayBuffer()));
+  } catch {
+    res.status(500).send('Failed to fetch avatar');
   }
 });
 
@@ -227,17 +306,43 @@ router.get('/watchlist', (req, res) => {
   res.json({ items });
 });
 
+// The signed-in user's Jellyfin user GUID, whether they logged in with
+// Jellyfin or linked it to their Plex account. Null when neither.
+function jellyfinIdentity(req) {
+  const u = req.session.plexUser || {};
+  if (u.jellyfin?.userId) return u.jellyfin.userId;
+  if (String(u.id || '').startsWith('jf_')) return String(u.id).slice(3);
+  return null;
+}
+
 // POST /api/watchlist/add
 router.post('/watchlist/add', (req, res) => {
   const { ratingKey } = req.body;
   if (!ratingKey) return res.status(400).json({ error: 'ratingKey required' });
-  if (!/^\d+$/.test(String(ratingKey))) return res.status(400).json({ error: 'Invalid ratingKey' });
+  if (!/^[A-Za-z0-9-]+$/.test(String(ratingKey))) return res.status(400).json({ error: 'Invalid ratingKey' });
 
   const { id: userId, token: userToken, serverToken } = req.session.plexUser;
+
+  // Jellyfin items: the watchlist analog is Favorites (Jellyfin has none natively)
+  const libItem = db.getLibraryItemByKey(ratingKey);
+  if (libItem?.source === 'jellyfin' || (!libItem && !/^\d+$/.test(String(ratingKey)))) {
+    db.addToWatchlistDb(userId, ratingKey, 'jellyfin');
+    res.json({ success: true });
+    const jfUserId = jellyfinIdentity(req);
+    if (jfUserId) {
+      jellyfinService.setFavorite(jfUserId, String(ratingKey), true)
+        .catch(err => console.warn(`Jellyfin favorite add failed for user ${userId}:`, err.message));
+    }
+    return;
+  }
+
   const isOwner = userId === db.getOwnerUserId();
   const usePlaylist = isOwner && db.getAdminWatchlistMode() === 'playlist';
   db.addToWatchlistDb(userId, ratingKey);
   res.json({ success: true });
+
+  // Unlinked Jellyfin identities have no Plex token — the local row is enough.
+  if (!userToken && !serverToken) return;
 
   if (usePlaylist) {
     // Admin: sync to server playlist (needed for pd_zurg watchlist monitoring)
@@ -269,15 +374,30 @@ router.post('/watchlist/add', (req, res) => {
 router.post('/watchlist/remove', (req, res) => {
   const { ratingKey } = req.body;
   if (!ratingKey) return res.status(400).json({ error: 'ratingKey required' });
-  if (!/^\d+$/.test(String(ratingKey))) return res.status(400).json({ error: 'Invalid ratingKey' });
+  if (!/^[A-Za-z0-9-]+$/.test(String(ratingKey))) return res.status(400).json({ error: 'Invalid ratingKey' });
 
   const { id: userId, token: userToken, serverToken } = req.session.plexUser;
+
+  const libItem = db.getLibraryItemByKey(ratingKey);
+  if (libItem?.source === 'jellyfin' || (!libItem && !/^\d+$/.test(String(ratingKey)))) {
+    db.removeFromWatchlistDb(userId, ratingKey);
+    res.json({ success: true });
+    const jfUserId = jellyfinIdentity(req);
+    if (jfUserId) {
+      jellyfinService.setFavorite(jfUserId, String(ratingKey), false)
+        .catch(err => console.warn(`Jellyfin favorite remove failed for user ${userId}:`, err.message));
+    }
+    return;
+  }
+
   const isOwner = userId === db.getOwnerUserId();
   const usePlaylist = isOwner && db.getAdminWatchlistMode() === 'playlist';
   // Read Plex IDs before deleting the row
   const plexIds = db.getWatchlistPlexIds(userId, ratingKey);
   db.removeFromWatchlistDb(userId, ratingKey);
   res.json({ success: true });
+
+  if (!userToken && !serverToken) return;
 
   if (usePlaylist) {
     // Admin: remove from server playlist
@@ -366,11 +486,20 @@ router.get('/discover', async (req, res) => {
       return list.some(v => lower.includes(v));
     };
 
-    const [movies, tv, dismissedKeys] = await Promise.all([
-      plexService.getLibraryItems(plexService.MOVIES_SECTION),
-      plexService.getLibraryItems(plexService.TV_SECTION),
-      Promise.resolve(db.getDismissals(userId)),
-    ]);
+    // Library browse follows the toggled source: Jellyfin rows come straight
+    // from the DB (synced on its own schedule); Plex keeps its cache path.
+    let movies, tv, dismissedKeys;
+    if (jellyfinService.isEnabled() && activeSource(req) === 'jellyfin') {
+      movies = db.getLibraryItemsBySource('jellyfin', 'movie');
+      tv = db.getLibraryItemsBySource('jellyfin', 'show');
+      dismissedKeys = db.getDismissals(userId);
+    } else {
+      [movies, tv, dismissedKeys] = await Promise.all([
+        plexService.getLibraryItems(plexService.MOVIES_SECTION),
+        plexService.getLibraryItems(plexService.TV_SECTION),
+        Promise.resolve(db.getDismissals(userId)),
+      ]);
+    }
     const watchedKeys = db.getWatchedKeysFromDb(String(userId));
 
     // Categorise TV
@@ -419,7 +548,18 @@ router.get('/discover', async (req, res) => {
     if (sort === 'user_rating') {
       userRatings = db.getUserRatingsFromDb(String(userId)); // Map<ratingKey, rating>
     } else if (sort === 'date_viewed' || sort === 'plays') {
-      viewStats = await tautulliService.getViewStats(userId); // { ratingKey: {lastViewedAt, plays} }
+      // Copy the (cached) Tautulli stats before folding in mirrored Jellyfin
+      // plays — mutating the cache would double-count on every request.
+      const base = await tautulliService.getViewStats(userId); // { ratingKey: {lastViewedAt, plays} }
+      viewStats = {};
+      for (const [k, v] of Object.entries(base)) viewStats[k] = { ...v };
+      for (const row of jellyfinService.getFullHistoryFromDb(String(userId))) {
+        const key = row.media_type === 'show' ? String(row.grandparent_rating_key) : String(row.rating_key);
+        if (!key || key === 'null') continue;
+        const entry = viewStats[key] || (viewStats[key] = { lastViewedAt: 0, plays: 0 });
+        entry.plays += row.media_type === 'show' ? (row.episodeCount || 1) : 1;
+        if (row.watched_at > entry.lastViewedAt) entry.lastViewedAt = row.watched_at;
+      }
     }
 
     if (sort === 'rating') {
@@ -478,8 +618,7 @@ router.get('/discover', async (req, res) => {
 
     const itemsWithWatchlist = items.map(item => ({
       ...item,
-      deepLink: plexService.getDeepLink(item.ratingKey),
-      plexAppLink: plexService.getAppLink(item.ratingKey),
+      ...mediaLinks(item),
       isInWatchlist: watchlistKeys.has(item.ratingKey),
       isWatched: watchedKeys.has(item.ratingKey),
     }));
@@ -587,6 +726,8 @@ const CLIENTS_CACHE_TTL = 5 * 60 * 1000;
 router.get('/clients', async (req, res) => {
   try {
     const { token: userToken, id: clientsUserId } = req.session.plexUser;
+    // Casting is Plex-only; unlinked Jellyfin identities have no Plex token.
+    if (!userToken) return res.json({ clients: [] });
     const cachedClients = _clientsCache.get(String(clientsUserId));
     if (cachedClients && Date.now() - cachedClients.at < CLIENTS_CACHE_TTL) {
       return res.json({ clients: cachedClients.clients });
@@ -685,6 +826,7 @@ router.post('/cast/prepare', async (req, res) => {
     if (!/^\d+$/.test(String(ratingKey))) return res.status(400).json({ error: 'Invalid ratingKey' });
 
     const { serverToken, token: userToken } = req.session.plexUser;
+    if (!userToken) return res.status(400).json({ error: 'Casting requires a Plex account' });
     const resources = await plexCast.fetchUserResources(userToken);
     const player = plexCast.resolvePlayerConnections(resources, clientId);
     if (!player) {
@@ -723,6 +865,7 @@ router.post('/cast', async (req, res) => {
     res.on('close', () => { if (!res.writableEnded) clientGone = true; });
 
     const { serverToken, token: userToken } = req.session.plexUser;
+    if (!userToken) return res.status(400).json({ error: 'Casting requires a Plex account' });
     const resources = await plexCast.fetchUserResources(userToken);
     const player = plexCast.resolvePlayerConnections(resources, clientId);
     if (!player) {
@@ -752,7 +895,8 @@ router.post('/cast', async (req, res) => {
 router.post('/dismiss', (req, res) => {
   const { ratingKey } = req.body;
   if (!ratingKey) return res.status(400).json({ error: 'ratingKey required' });
-  if (!/^\d+$/.test(String(ratingKey))) {
+  // Plex keys are numeric; Jellyfin item ids are hex GUIDs
+  if (!/^[A-Za-z0-9-]+$/.test(String(ratingKey))) {
     return res.status(400).json({ error: 'Invalid ratingKey' });
   }
 
@@ -766,7 +910,7 @@ router.post('/dismiss', (req, res) => {
 router.delete('/dismiss', (req, res) => {
   const { ratingKey } = req.body;
   if (!ratingKey) return res.status(400).json({ error: 'ratingKey required' });
-  if (!/^\d+$/.test(String(ratingKey))) {
+  if (!/^[A-Za-z0-9-]+$/.test(String(ratingKey))) {
     return res.status(400).json({ error: 'Invalid ratingKey' });
   }
 
@@ -861,7 +1005,7 @@ router.get('/blacklist', async (req, res) => {
 // DELETE /api/blacklist/library/:ratingKey — remove library dismissal
 router.delete('/blacklist/library/:ratingKey', (req, res) => {
   const { ratingKey } = req.params;
-  if (!/^\d+$/.test(String(ratingKey))) {
+  if (!/^[A-Za-z0-9-]+$/.test(String(ratingKey))) {
     return res.status(400).json({ error: 'Invalid ratingKey' });
   }
 
@@ -929,7 +1073,7 @@ router.get('/search/details', async (req, res) => {
       plexService.getLibraryItems(plexService.MOVIES_SECTION),
       plexService.getLibraryItems(plexService.TV_SECTION),
     ]);
-    const libraryIndex = buildLibraryIndex([...movies, ...tv]);
+    const libraryIndex = buildLibraryIndex(withJellyfin([...movies, ...tv], req));
 
     const libItem = libraryIndex.lookup(tmdbId, null, type);
     const watchlistKeys = new Set(db.getWatchlistFromDb(userId));
@@ -948,8 +1092,7 @@ router.get('/search/details', async (req, res) => {
       ratingImage: libItem?.ratingImage || null,
       audienceRating: libItem?.audienceRating || null,
       audienceRatingImage: libItem?.audienceRatingImage || null,
-      deepLink: libItem ? plexService.getDeepLink(libItem.ratingKey) : null,
-      plexAppLink: libItem ? plexService.getAppLink(libItem.ratingKey) : null,
+      ...mediaLinks(libItem),
       isInWatchlist: libItem ? watchlistKeys.has(libItem.ratingKey) : false,
       isRequested,
     };
@@ -1128,12 +1271,13 @@ router.get('/search', async (req, res) => {
           title: item.title,
           year: item.year || null,
           overview: item.summary || '',
-          posterUrl: item.ratingKey ? `/api/poster?path=${encodeURIComponent(`/library/metadata/${item.ratingKey}/thumb`)}` : null,
+          posterUrl: item.thumb
+            ? `/api/poster?path=${encodeURIComponent(item.thumb)}`
+            : (item.ratingKey ? `/api/poster?path=${encodeURIComponent(`/library/metadata/${item.ratingKey}/thumb`)}` : null),
           voteAverage: 0,
           inLibrary: true,
           ratingKey: item.ratingKey,
-          deepLink: plexService.getDeepLink(item.ratingKey),
-          plexAppLink: plexService.getAppLink(item.ratingKey),
+          ...mediaLinks(item),
           isInWatchlist: watchlistKeys.has(item.ratingKey),
           isWatched: watchedKeys.has(item.ratingKey),
           isRequested: false,
@@ -1158,7 +1302,7 @@ router.get('/search', async (req, res) => {
       plexService.getLibraryItems(plexService.TV_SECTION),
     ]);
 
-    const libraryIndex = buildLibraryIndex([...movies, ...tv]);
+    const libraryIndex = buildLibraryIndex(withJellyfin([...movies, ...tv], req));
     const watchlistKeys = new Set(db.getWatchlistFromDb(userId));
     const watchedKeys = db.getWatchedKeysFromDb(String(userId));
     const requestedIds = db.getAllRequestedTmdbIds();
@@ -1307,8 +1451,7 @@ router.get('/search', async (req, res) => {
         contentRating: item.contentRating || null,
         inLibrary,
         ratingKey: inLibrary ? libItem.ratingKey : null,
-        deepLink: inLibrary ? plexService.getDeepLink(libItem.ratingKey) : null,
-        plexAppLink: inLibrary ? plexService.getAppLink(libItem.ratingKey) : null,
+        ...mediaLinks(inLibrary ? libItem : null),
         isInWatchlist: inLibrary ? watchlistKeys.has(libItem.ratingKey) : false,
         isWatched: inLibrary ? watchedKeys.has(libItem.ratingKey) : false,
         isRequested: !inLibrary && requestedIds.has(requestKey),
@@ -1355,7 +1498,7 @@ router.get('/search/similar', async (req, res) => {
       plexService.getLibraryItems(plexService.MOVIES_SECTION),
       plexService.getLibraryItems(plexService.TV_SECTION),
     ]);
-    const libraryIndex = buildLibraryIndex([...movies, ...tv]);
+    const libraryIndex = buildLibraryIndex(withJellyfin([...movies, ...tv], req));
     const watchedKeys = db.getWatchedKeysFromDb(String(userId));
     const watchlistKeys = new Set(db.getWatchlistFromDb(userId));
 
@@ -1377,8 +1520,7 @@ router.get('/search/similar', async (req, res) => {
         contentRating: candidate.contentRating || null,
         inLibrary: !!libItem,
         ratingKey: libItem?.ratingKey || null,
-        deepLink: libItem ? plexService.getDeepLink(libItem.ratingKey) : null,
-        plexAppLink: libItem ? plexService.getAppLink(libItem.ratingKey) : null,
+        ...mediaLinks(libItem),
         isInWatchlist: libItem ? watchlistKeys.has(libItem.ratingKey) : false,
         isWatched: libItem ? watchedKeys.has(libItem.ratingKey) : false,
         isRequested: !libItem && requestedIds.has(`${candidate.tmdbId}:${candidate.mediaType}`),
@@ -1589,7 +1731,7 @@ router.get('/search/person', async (req, res) => {
       plexService.getLibraryItems(plexService.MOVIES_SECTION),
       plexService.getLibraryItems(plexService.TV_SECTION),
     ]);
-    const libraryIndex = buildLibraryIndex([...movies, ...tv]);
+    const libraryIndex = buildLibraryIndex(withJellyfin([...movies, ...tv], req));
     const watchedKeys = db.getWatchedKeysFromDb(String(userId));
     const watchlistKeys = new Set(db.getWatchlistFromDb(userId));
 
@@ -1611,8 +1753,7 @@ router.get('/search/person', async (req, res) => {
         contentRating: candidate.contentRating || null,
         inLibrary: !!libItem,
         ratingKey: libItem?.ratingKey || null,
-        deepLink: libItem ? plexService.getDeepLink(libItem.ratingKey) : null,
-        plexAppLink: libItem ? plexService.getAppLink(libItem.ratingKey) : null,
+        ...mediaLinks(libItem),
         isInWatchlist: libItem ? watchlistKeys.has(libItem.ratingKey) : false,
         isWatched: libItem ? watchedKeys.has(libItem.ratingKey) : false,
         isRequested: !libItem && requestedIds.has(`${candidate.tmdbId}:${candidate.mediaType}`),
@@ -2103,7 +2244,8 @@ router.post('/request', async (req, res) => {
     const ownerUserId = db.getOwnerUserId();
     const isOwnerInPlaylistMode = watchlistMode === 'playlist' && userId === ownerUserId;
 
-    if (!isOwnerInPlaylistMode) {
+    // Unlinked Jellyfin identities have no plex.tv token to watchlist with.
+    if (!isOwnerInPlaylistMode && userToken) {
       fetch(`https://discover.provider.plex.tv/library/search?query=${encodeURIComponent(title || '')}&limit=10&X-Plex-Token=${userToken}`, {
         headers: { Accept: 'application/json' },
         signal: AbortSignal.timeout(8000),
@@ -2819,6 +2961,93 @@ router.delete('/issues/:id/comments/:commentId', async (req, res) => {
   res.json({ success: true });
 });
 
+// Library sources this deployment offers (mirrors auth.js availableSources).
+function serverSources() {
+  const plexConfigured = !!(db.getSetting('plex_url', null) || process.env.PLEX_URL) || !!process.env.PLEX_SERVER_ID;
+  const s = [];
+  if (plexConfigured) s.push('plex');
+  if (jellyfinService.isEnabled()) s.push('jellyfin');
+  return s.length ? s : ['plex'];
+}
+
+// POST /api/user/source — the nav toggle. Persists the preference and flips the
+// session's active source immediately.
+router.post('/user/source', (req, res) => {
+  const { source } = req.body || {};
+  if (!['plex', 'jellyfin'].includes(source)) return res.status(400).json({ error: 'Invalid source' });
+  if (!serverSources().includes(source)) return res.status(400).json({ error: `${source} is not configured` });
+  const userId = String(req.session.plexUser.id);
+  req.session.activeSource = source;
+  db.setPreferredSource(userId, source);
+  recommender.invalidateUserCache(userId);
+  res.json({ success: true, activeSource: source });
+});
+
+// GET /api/user/link — connected media-server accounts for the Settings page
+router.get('/user/link', (req, res) => {
+  const user = req.session.plexUser;
+  const userId = String(user.id);
+  const isJellyfinIdentity = userId.startsWith('jf_');
+  let jellyfinAccount = null;
+  if (user.jellyfin?.userId) {
+    const row = db.getKnownUserById(isJellyfinIdentity ? userId : `jf_${user.jellyfin.userId}`);
+    jellyfinAccount = { username: row?.username || null, linked: !isJellyfinIdentity };
+  } else if (isJellyfinIdentity) {
+    jellyfinAccount = { username: user.username, linked: false };
+  }
+  res.json({
+    provider: user.provider || 'plex',
+    jellyfinEnabled: jellyfinService.isEnabled(),
+    plexConfigured: serverSources().includes('plex'),
+    plex: isJellyfinIdentity ? null : { username: user.username },
+    jellyfin: jellyfinAccount,
+  });
+});
+
+// POST /api/user/link/jellyfin — a signed-in Plex user connects their Jellyfin
+// account with its credentials. Any data the Jellyfin identity accumulated
+// merges into the Plex (canonical) account.
+router.post('/user/link/jellyfin', async (req, res) => {
+  if (!jellyfinService.isEnabled()) return res.status(400).json({ error: 'Jellyfin is not enabled' });
+  const user = req.session.plexUser;
+  const userId = String(user.id);
+  if (userId.startsWith('jf_')) {
+    return res.status(400).json({ error: 'Link Plex from a Jellyfin session using the Plex sign-in button' });
+  }
+  const { username, password } = req.body || {};
+  if (!username) return res.status(400).json({ error: 'Username required' });
+  try {
+    const auth = await jellyfinService.authenticateByName(username, password);
+    if (!auth) return res.status(401).json({ error: 'Invalid Jellyfin username or password' });
+    const jfDiskovarrId = `jf_${auth.userId}`;
+    const existing = db.getKnownUserById(jfDiskovarrId);
+    if (existing?.linked_user_id && String(existing.linked_user_id) !== userId) {
+      return res.status(409).json({ error: 'That Jellyfin account is already linked to another user' });
+    }
+    db.upsertJellyfinUser(jfDiskovarrId, auth.name, jellyfinService.getAvatarPath(auth.userId, auth.primaryImageTag), auth.accessToken);
+    db.linkJellyfinAccount(jfDiskovarrId, userId);
+    req.session.plexUser = { ...user, jellyfin: { userId: auth.userId, token: auth.accessToken } };
+    logger.info(`User ${userId} linked Jellyfin account ${jfDiskovarrId}`);
+    res.json({ success: true, jellyfinUsername: auth.name });
+  } catch (err) {
+    logger.error('Jellyfin link error:', err.message);
+    res.status(502).json({ error: 'Could not reach Jellyfin' });
+  }
+});
+
+// DELETE /api/user/link/jellyfin — disconnect. Data already merged stays with
+// the Plex account; the Jellyfin login becomes a standalone account again.
+router.delete('/user/link/jellyfin', (req, res) => {
+  const user = req.session.plexUser;
+  const userId = String(user.id);
+  if (userId.startsWith('jf_')) return res.status(400).json({ error: 'Sign in with Plex to manage links' });
+  const jfRow = db.getLinkedJellyfinRow(userId);
+  if (!jfRow) return res.status(404).json({ error: 'No linked Jellyfin account' });
+  db.unlinkJellyfinAccount(jfRow.user_id);
+  req.session.plexUser = { ...user, jellyfin: null };
+  res.json({ success: true });
+});
+
 // GET /api/user/settings — load user's current preferences + notification prefs
 router.get('/user/settings', (req, res) => {
   const userId = req.session.plexUser.id;
@@ -3362,12 +3591,13 @@ router.get('/history', async (req, res) => {
       else if (reviewRatingKey) review = db.getReviewByRatingKey(userId, reviewRatingKey);
     }
 
-    // Tautulli user_thumb is typically an absolute avatar URL; only Plex
-    // /library/ paths need to be proxied (the poster proxy rejects everything else).
+    // Tautulli user_thumb is typically an absolute avatar URL; Plex /library/
+    // paths get proxied; Jellyfin avatars are already app-relative proxy paths.
     let userAvatarUrl = null;
     if (item.userThumb) {
       if (/^https?:\/\//i.test(item.userThumb)) userAvatarUrl = item.userThumb;
       else if (item.userThumb.startsWith('/library/')) userAvatarUrl = `/api/poster?path=${encodeURIComponent(item.userThumb)}`;
+      else if (item.userThumb.startsWith('/api/')) userAvatarUrl = item.userThumb;
     }
 
     return {
@@ -3483,24 +3713,41 @@ router.post('/reviews', async (req, res) => {
   }
 
   // You may only review content you have actually watched. Resolve the library
-  // item — by TMDB id, or by Plex rating_key for items with no TMDB match — then
-  // confirm it appears in the user's own Tautulli history (movie rating_key / show
-  // grandparent_rating_key). Enforced here so it can't be bypassed via the API.
-  const lib = tmdbId != null
-    ? db.getLibraryItemByTmdbId(Number(tmdbId), mediaType)
-    : db.getLibraryItemByKey(String(ratingKey));
-  if (!lib) {
+  // item on each server — by TMDB id, or by rating_key for items with no TMDB
+  // match — then confirm a watch: Plex items against the user's own Tautulli
+  // history, Jellyfin items against the mirrored played state in user_watched.
+  // Enforced here so it can't be bypassed via the API.
+  let libPlex = null, libJf = null;
+  if (tmdbId != null) {
+    libPlex = db.getLibraryItemByTmdbId(Number(tmdbId), mediaType, 'plex') || null;
+    libJf = db.getLibraryItemByTmdbId(Number(tmdbId), mediaType, 'jellyfin') || null;
+  } else {
+    const byKey = db.getLibraryItemByKey(String(ratingKey));
+    if (byKey?.source === 'jellyfin') libJf = byKey;
+    else if (byKey) libPlex = byKey;
+  }
+  if (!libPlex && !libJf) {
     return res.status(403).json({ error: 'You can only review content you have watched' });
   }
   // getLibraryItemByTmdbId returns a raw row (rating_key); getLibraryItemByKey
   // returns a mapped item (ratingKey).
-  const libRatingKey = String(lib.rating_key ?? lib.ratingKey);
-  const watchedKeys = mediaType === 'movie'
-    ? await tautulliService.getWatchedMovieKeys(userId)
-    : await tautulliService.getWatchedShowKeys(userId);
-  if (!watchedKeys.has(libRatingKey)) {
+  const keyOf = (lib) => String(lib.rating_key ?? lib.ratingKey);
+  let hasWatched = false;
+  if (libPlex && !userId.startsWith('jf_')) {
+    const watchedKeys = mediaType === 'movie'
+      ? await tautulliService.getWatchedMovieKeys(userId)
+      : await tautulliService.getWatchedShowKeys(userId);
+    hasWatched = watchedKeys.has(keyOf(libPlex));
+  }
+  if (!hasWatched) {
+    const dbWatched = db.getWatchedKeysFromDb(userId);
+    if (libJf && dbWatched.has(keyOf(libJf))) hasWatched = true;
+    if (!hasWatched && libPlex && dbWatched.has(keyOf(libPlex))) hasWatched = true;
+  }
+  if (!hasWatched) {
     return res.status(403).json({ error: 'You can only review content you have watched' });
   }
+  const libRatingKey = keyOf(libPlex || libJf);
 
   db.createReview({
     userId,
@@ -3519,9 +3766,15 @@ router.post('/reviews', async (req, res) => {
   recommender.invalidateUserCache(userId);
   reviewFeed.invalidateFeedCache();
 
-  // Mirror the rating into the user's personal Plex rating (0.5–5 → 0–10 scale).
-  // Best-effort; never blocks the response.
-  plexService.setUserRating(userId, libRatingKey, ratingNum * 2).catch(() => {});
+  // Mirror the rating into the user's personal Plex rating (0.5–5 → 0–10 scale)
+  // and/or their Jellyfin like/dislike. Best-effort; never blocks the response.
+  if (libPlex && !userId.startsWith('jf_')) {
+    plexService.setUserRating(userId, keyOf(libPlex), ratingNum * 2).catch(() => {});
+  }
+  const reviewJfUserId = jellyfinIdentity(req);
+  if (libJf && reviewJfUserId) {
+    jellyfinService.syncReviewRating(reviewJfUserId, keyOf(libJf), ratingNum).catch(() => {});
+  }
 
   const review = tmdbId != null
     ? db.getReview(userId, mediaType, Number(tmdbId))
@@ -3542,6 +3795,18 @@ router.post('/reviews', async (req, res) => {
     tmdbSyncedRating: review.tmdb_synced_rating ?? null,
   });
 });
+
+// Library rows (per source) a review attaches to, for mirroring ratings out.
+function reviewLibRows(review) {
+  if (review.tmdb_id != null) {
+    return {
+      plex: db.getLibraryItemByTmdbId(review.tmdb_id, review.media_type, 'plex') || null,
+      jf: db.getLibraryItemByTmdbId(review.tmdb_id, review.media_type, 'jellyfin') || null,
+    };
+  }
+  const byKey = review.rating_key ? db.getLibraryItemByKey(String(review.rating_key)) : null;
+  return byKey?.source === 'jellyfin' ? { plex: null, jf: byKey } : { plex: byKey, jf: null };
+}
 
 // PUT /api/reviews/:id — update review
 router.put('/reviews/:id', (req, res) => {
@@ -3565,10 +3830,17 @@ router.put('/reviews/:id', (req, res) => {
   reviewCardCache.invalidate(review.id);
   const updated = db.getReviewById(review.id);
 
-  // Push the (possibly changed) rating to the user's personal Plex rating.
+  // Push the (possibly changed) rating to the user's personal Plex rating
+  // and/or Jellyfin like/dislike.
   if (rating != null) {
-    const pushKey = updated.rating_key || db.getLibraryItemByTmdbId(updated.tmdb_id, updated.media_type)?.rating_key;
-    if (pushKey) plexService.setUserRating(userId, String(pushKey), Number(updated.rating) * 2).catch(() => {});
+    const { plex: libPlex, jf: libJf } = reviewLibRows(updated);
+    if (libPlex && !userId.startsWith('jf_')) {
+      plexService.setUserRating(userId, String(libPlex.rating_key ?? libPlex.ratingKey), Number(updated.rating) * 2).catch(() => {});
+    }
+    const jfUserId = jellyfinIdentity(req);
+    if (libJf && jfUserId) {
+      jellyfinService.syncReviewRating(jfUserId, String(libJf.rating_key ?? libJf.ratingKey), Number(updated.rating)).catch(() => {});
+    }
   }
 
   res.json({
@@ -3595,9 +3867,18 @@ router.delete('/reviews/:id', (req, res) => {
   if (!review) return res.status(404).json({ error: 'Review not found' });
   if (review.user_id !== userId) return res.status(403).json({ error: 'Forbidden' });
 
-  // Clear the user's personal Plex rating (the review was the source of truth).
-  const pushKey = review.rating_key || db.getLibraryItemByTmdbId(review.tmdb_id, review.media_type)?.rating_key;
-  if (pushKey) plexService.setUserRating(userId, String(pushKey), -1).catch(() => {});
+  // Clear the user's personal Plex rating / Jellyfin like (the review was the
+  // source of truth).
+  {
+    const { plex: libPlex, jf: libJf } = reviewLibRows(review);
+    if (libPlex && !userId.startsWith('jf_')) {
+      plexService.setUserRating(userId, String(libPlex.rating_key ?? libPlex.ratingKey), -1).catch(() => {});
+    }
+    const jfUserId = jellyfinIdentity(req);
+    if (libJf && jfUserId) {
+      jellyfinService.syncReviewRating(jfUserId, String(libJf.rating_key ?? libJf.ratingKey), null).catch(() => {});
+    }
+  }
 
   db.deleteReview(review.id, userId);
   recommender.invalidateUserCache(userId);

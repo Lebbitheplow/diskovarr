@@ -297,6 +297,38 @@ img {
   border-color: var(--accent);
 }
 
+/* ── Nav library-source toggle (Plex / Jellyfin) ───────────────── */
+.nav-source-toggle {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  flex-shrink: 0;
+}
+.nav-source-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  line-height: 1.2;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+.nav-source-btn:hover { color: var(--text-primary); }
+.nav-source-btn.active {
+  background: var(--accent);
+  color: #000;
+}
+@media (max-width: 640px) {
+  .nav-source-btn { padding: 4px 7px; font-size: 0.7rem; }
+}
+
 /* ── Nav search ───────────────────────────────────────────────── */
 .nav-search-wrap {
   position: relative;

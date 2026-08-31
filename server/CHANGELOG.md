@@ -4,6 +4,25 @@ All notable changes are documented here. Versioning follows [Semantic Versioning
 
 ---
 
+## v2.6.0 — 2026-08-31
+
+### Added
+
+- **Jellyfin Media Server support** — Diskovarr is no longer Plex-only. Configure a Jellyfin server under **Admin → Connections → Jellyfin** (URL, API key, enable toggle) and its libraries sync into the same `library_items` table Plex uses, tagged with a new `source` column (`plex` | `jellyfin`). Jellyfin items key on the Item GUID, so they can never collide with Plex's numeric rating keys. A full library re-sync runs every 6 hours with a light new-item poll every 10 minutes for request fulfillment (`server/services/jellyfin/`).
+- **Sign in with Jellyfin** — the login page now offers a Jellyfin username/password form alongside the Plex OAuth button, showing only the providers the server actually has configured (`GET /auth/providers`). Jellyfin authenticates against the configured server via `AuthenticateByName`; credential logins are rate-limited to 20 attempts per 15 minutes per IP. Standalone Jellyfin identities are stored as `jf_<guid>`.
+- **Plex ↔ Jellyfin account linking** — a new **Media Server Accounts** card in Settings links the two accounts in either direction: a Plex user links Jellyfin with username/password, and a Jellyfin user links Plex through the normal PIN flow. Once linked, signing in with either account signs you into the same Diskovarr profile — the Plex identity is canonical, and the Jellyfin account's watch history, watchlist, ratings and reviews are merged into it.
+- **Library source toggle** — when both servers are configured, a **Plex / Jellyfin** switch appears in the navigation bar. Recommendations, popular rows, search, and in-library availability all follow the selected source; the choice persists per user (`preferred_source`) and across sessions. The toggle only renders when there is more than one source.
+- **Jellyfin watch data without Tautulli** — Jellyfin tracks played state, play counts, and last-played dates natively, so the admin API key mirrors every user's data into `watch_history`, `user_watched`, and `user_ratings` every 15 minutes — the Jellyfin equivalent of the Tautulli sync. Jellyfin **Favorites** double as the watchlist (Jellyfin has no native watchlist), and review ratings sync back as likes/favorites.
+
+### Changed
+
+- **Recommendations now blend both servers** — preference profiles are built from the union of Tautulli (Plex) and mirrored Jellyfin plays, so a linked account's Plex history informs its Jellyfin recommendations and vice versa. Pools are built and cached over both libraries, with source filtering applied at sample time so flipping the nav toggle never forces a rebuild. Plex fetches now degrade to empty instead of throwing, so Jellyfin-only deployments work with no Plex server at all.
+- **Tuberr is now supervised by Diskovarr** — the bundled YouTube downloader runs as a child process of the Diskovarr server (`server/services/tuberrProcess.js`) instead of needing its own systemd unit. It starts when the YouTube integration is enabled, stops when it's disabled, restarts with exponential backoff (5s → 60s, reset after a clean minute of uptime) if it crashes, and shuts down cleanly with the server. Process management is skipped when `TUBERR_URL` is set (the Docker image's entrypoint runs its own Tuberr) or `TUBERR_MANAGED=0`. Bare-metal users running the sample `tuberr.service` unit should disable it to avoid two instances competing for port 9832.
+- **Posters and avatars proxy through the server for Jellyfin too** — the existing poster proxy now accepts Jellyfin `/Items/<id>/Images/…` paths (with the same traversal and SSRF guards as the Plex `/library/` paths), and a new `/api/jellyfin/avatar/:jfUserId` endpoint proxies user avatars, so a LAN-only Jellyfin origin is never exposed to the browser.
+- **App descriptions cover both servers** — the login page, About modal, footer, page metadata, and README no longer describe Diskovarr as Plex-only. Plex-specific features (casting, the Plex.tv Watchlist, Plex collections, ratings sync) are still described as Plex-specific.
+
+---
+
 ## v2.5.8 — 2026-08-22
 
 ### Security

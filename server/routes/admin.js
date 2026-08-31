@@ -435,6 +435,7 @@ const CONNECTION_KEYS = [
   'sonarr_url', 'sonarr_api_key', 'sonarr_enabled', 'sonarr_quality_profile_id', 'sonarr_quality_profile_name',
   'riven_url', 'riven_api_key', 'riven_rdkey', 'riven_enabled', 'dumb_request_mode',
   'youtube_enabled', 'youtube_api_key', 'youtube_root_folder', 'tuberr_url', 'tuberr_api_key',
+  'jellyfin_url', 'jellyfin_api_key', 'jellyfin_enabled',
   'default_request_service',
   'individual_seasons_enabled',
   'direct_request_access',
@@ -470,6 +471,8 @@ router.get('/connections/settings', requireAdmin, (req, res) => {
     youtube_enabled:             db.getSetting('youtube_enabled', '0') === '1',
     youtube_root_folder:         db.getSetting('youtube_root_folder', ''),
     tuberr_url:                  db.getSetting('tuberr_url', ''),
+    jellyfin_url:                db.getSetting('jellyfin_url', ''),
+    jellyfin_enabled:            !!(db.getSetting('jellyfin_url', '') && db.getSetting('jellyfin_api_key', '')) && db.getSetting('jellyfin_enabled', '0') === '1',
     default_request_service:     db.getSetting('default_request_service', 'overseerr'),
     direct_request_access:       db.getSetting('direct_request_access', '0'),
   });
@@ -477,7 +480,7 @@ router.get('/connections/settings', requireAdmin, (req, res) => {
 
 router.post('/connections/save', requireAdmin, (req, res) => {
   const body = req.body;
-  const BOOL_KEYS = new Set(['discover_enabled','overseerr_enabled','radarr_enabled','sonarr_enabled','riven_enabled','youtube_enabled','individual_seasons_enabled','direct_request_access']);
+  const BOOL_KEYS = new Set(['discover_enabled','overseerr_enabled','radarr_enabled','sonarr_enabled','riven_enabled','youtube_enabled','individual_seasons_enabled','direct_request_access','jellyfin_enabled']);
   // Booleans may arrive as true/false, '1'/'0', or 'true'/'false' depending on caller — normalize to '1'/'0'
   // so downstream readers using strict `=== '1'` checks don't silently treat 'true' as disabled.
   const toBool01 = (v) => (v === true || v === 1 || v === '1' || v === 'true') ? '1' : '0';
@@ -488,6 +491,18 @@ router.post('/connections/save', requireAdmin, (req, res) => {
   }
   // Invalidate discover cache when settings change
   discoverRecommender.invalidateAllCaches();
+  // Start/stop the bundled Tuberr instance to match the YouTube toggle
+  try { require('../services/tuberrProcess').sync(); } catch (e) { console.warn('[tuberr] process sync failed:', e.message); }
+  // First Jellyfin enable: pull the library + user data right away instead of
+  // waiting for the scheduled jobs.
+  if ('jellyfin_url' in body || 'jellyfin_api_key' in body || 'jellyfin_enabled' in body) {
+    const jellyfin = require('../services/jellyfin');
+    if (jellyfin.isEnabled()) {
+      jellyfin.resyncAll()
+        .then(() => jellyfin.syncAllUsers())
+        .catch(e => console.warn('[jellyfin] post-save sync failed:', e.message));
+    }
+  }
   // Keep Tuberr's config in sync (it needs Sonarr creds + the YouTube key for matching)
   if (db.getSetting('tuberr_url', '') && db.getSetting('tuberr_api_key', '')) {
     const tuberrService = require('../services/tuberr');
@@ -517,6 +532,7 @@ router.get('/connections/reveal', requireAdmin, (req, res) => {
     sonarrApiKey:    db.getSetting('sonarr_api_key', '')    || '',
     youtubeApiKey:   db.getSetting('youtube_api_key', '')   || '',
     tuberrApiKey:    db.getSetting('tuberr_api_key', '')    || '',
+    jellyfinApiKey:  db.getSetting('jellyfin_api_key', '')  || process.env.JELLYFIN_API_KEY || '',
     diskovarrApiKey: db.getSetting('diskovarr_api_key', '') || '',
     agregarrApiKey:  (() => { const a = db.listApiApps().find(x => x.type === 'agregarr'); return a ? a.api_key : ''; })(),
     dumbApiKey:      (() => { const a = db.listApiApps().find(x => x.type === 'dumb');      return a ? a.api_key : ''; })(),
@@ -682,6 +698,19 @@ router.post('/connections/test/tautulli', requireAdmin, async (req, res) => {
       return res.json({ ok: false, message: data.response?.message || 'Tautulli API error' });
     }
     res.json({ ok: true, message: 'Connected to Tautulli' });
+  } catch (err) {
+    res.json({ ok: false, message: err.message });
+  }
+});
+
+router.post('/connections/test/jellyfin', requireAdmin, async (req, res) => {
+  const { url, apiKey } = req.body;
+  const effectiveKey = apiKey || db.getSetting('jellyfin_api_key', '');
+  if (!url || !effectiveKey) return res.json({ ok: false, message: 'URL and API key required' });
+  try {
+    const jellyfin = require('../services/jellyfin');
+    const info = await jellyfin.testConnection(url, effectiveKey);
+    res.json({ ok: true, message: `Connected to ${info.serverName} (Jellyfin ${info.version})` });
   } catch (err) {
     res.json({ ok: false, message: err.message });
   }

@@ -16,6 +16,8 @@ export default function Callback() {
   const handleAuth = useCallback(async () => {
     const pinId = searchParams.get('pinId')
     const pinCode = searchParams.get('pinCode')
+    // Account-link flow: a signed-in Jellyfin user connecting their Plex account
+    const isLink = searchParams.get('link') === '1'
 
     if (!pinId || !pinCode) {
       toastError(t('Missing authentication parameters'))
@@ -27,7 +29,7 @@ export default function Callback() {
 
     // Store the pin in the session via XHR so the session cookie used here matches the one check-pin will use
     try {
-      await authApi.callback({ pinId, pinCode })
+      await authApi.callback({ pinId, pinCode, link: isLink })
     } catch { /* session may already be set server-side, continue */ }
 
     // Poll /auth/check-pin every 2 seconds
@@ -38,7 +40,7 @@ export default function Callback() {
           clearInterval(pollInterval)
           setStatus('redirecting')
           await checkAuth()
-          navigate(data.landingUrl || '/', { replace: true })
+          navigate(isLink ? '/settings' : (data.landingUrl || '/'), { replace: true })
         } else if (data.status === 'expired' || data.status === 'no_access' || data.status === 'error') {
           clearInterval(pollInterval)
           if (data.status === 'no_access') {
@@ -46,7 +48,7 @@ export default function Callback() {
           } else {
             toastError(t('Authentication failed or expired'))
           }
-          navigate('/login', { replace: true })
+          navigate(isLink ? '/settings' : '/login', { replace: true })
         }
       } catch {
         // Keep polling on error

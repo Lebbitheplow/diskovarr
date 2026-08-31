@@ -9,6 +9,8 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true)
   const [discoverAvailable, setDiscoverAvailable] = useState(false)
   const [wrappedAvailable, setWrappedAvailable] = useState(false)
+  const [activeSource, setActiveSourceState] = useState('plex')
+  const [availableSources, setAvailableSources] = useState(['plex'])
 
   const checkAuth = useCallback(async () => {
     try {
@@ -17,6 +19,8 @@ export function AuthProvider({ children }) {
         setUser(res.data.user)
         setDiscoverAvailable(!!res.data.discoverAvailable)
         setWrappedAvailable(!!res.data.wrappedAvailable)
+        setActiveSourceState(res.data.activeSource || 'plex')
+        setAvailableSources(res.data.availableSources || ['plex'])
         // Apply the user's saved UI language (follows them across devices).
         // Fire-and-forget: localStorage already gave a fast first paint.
         axios.get('/api/user/settings', { withCredentials: true }).then(({ data }) => {
@@ -44,10 +48,24 @@ export function AuthProvider({ children }) {
     setUser(null)
     setDiscoverAvailable(false)
     setWrappedAvailable(false)
+    setActiveSourceState('plex')
+    setAvailableSources(['plex'])
     setLoading(false)
   }
 
-  const value = { user, loading, logout, checkAuth, discoverAvailable, wrappedAvailable }
+  // Nav toggle: persists the preference server-side, then reloads data by
+  // letting consumers react to the context change.
+  const setActiveSource = useCallback(async (source) => {
+    const prev = activeSource
+    setActiveSourceState(source)
+    try {
+      await axios.post('/api/user/source', { source }, { withCredentials: true })
+    } catch {
+      setActiveSourceState(prev)
+    }
+  }, [activeSource])
+
+  const value = { user, loading, logout, checkAuth, discoverAvailable, wrappedAvailable, activeSource, availableSources, setActiveSource }
   return (
     <AuthContext.Provider value={value}>
       {children}
