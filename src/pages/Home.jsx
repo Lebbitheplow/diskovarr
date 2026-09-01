@@ -9,6 +9,7 @@ import {
 } from '../services/api'
 import MediaCard from '../components/MediaCard'
 import Carousel from '../components/Carousel'
+import SpotlightHero from '../components/SpotlightHero'
 import WrappedBanner from '../components/wrapped/WrappedBanner'
 import DetailModal from '../components/DetailModal'
 import SkeletonLoader from '../components/SkeletonLoader'
@@ -16,6 +17,7 @@ import ToggleSwitch from '../components/ToggleSwitch'
 import { useToast } from '../context/ToastContext'
 import { useAuth } from '../context/AuthContext'
 import { useTranslation } from 'react-i18next'
+import { withViewTransition } from '../utils/viewTransition'
 
 const MATURE_RATINGS = new Set(['r', 'tv-ma', 'nc-17', 'x', 'nr'])
 
@@ -169,8 +171,10 @@ export default function Home() {
     setMatureEnabled(checked)
   }, [])
 
+  // Morphs the clicked poster into the modal's poster where the browser
+  // supports view transitions; a plain state update everywhere else.
   const handleOpenModal = useCallback((item) => {
-    setSelectedItem(item)
+    withViewTransition(() => setSelectedItem(item))
   }, [])
 
   const handleToggleWatchlist = useCallback(async (item) => {
@@ -218,17 +222,20 @@ export default function Home() {
     loadWatchlist()
   }, [loadWatchlist])
 
+  // These four stripped mature content unconditionally, which meant the
+  // "Show mature content" toggle only ever affected the popular shelves below.
+  // Gated on matureEnabled now, so the toggle governs every shelf on the page.
   const showTopPicks = (recommendations?.topPicks || []).filter(item =>
-    !item.contentRating || !MATURE_RATINGS.has(item.contentRating.toLowerCase())
+    matureEnabled || !item.contentRating || !MATURE_RATINGS.has(item.contentRating.toLowerCase())
   )
   const showMovies = (recommendations?.movies || []).filter(item =>
-    !item.contentRating || !MATURE_RATINGS.has(item.contentRating.toLowerCase())
+    matureEnabled || !item.contentRating || !MATURE_RATINGS.has(item.contentRating.toLowerCase())
   )
   const showTvShows = (recommendations?.tvShows || []).filter(item =>
-    !item.contentRating || !MATURE_RATINGS.has(item.contentRating.toLowerCase())
+    matureEnabled || !item.contentRating || !MATURE_RATINGS.has(item.contentRating.toLowerCase())
   )
   const showAnime = (recommendations?.anime || []).filter(item =>
-    !item.contentRating || !MATURE_RATINGS.has(item.contentRating.toLowerCase())
+    matureEnabled || !item.contentRating || !MATURE_RATINGS.has(item.contentRating.toLowerCase())
   )
   // Popular = server-wide "what's trending" stats. Respect the mature toggle (show mature when
   // enabled) so the lists stay populated rather than always stripping R / TV-MA content.
@@ -241,6 +248,13 @@ export default function Home() {
 
   return (
     <>
+      <SpotlightHero
+        items={showTopPicks}
+        loading={loading}
+        onOpenModal={handleOpenModal}
+        onToggleWatchlist={handleToggleWatchlist}
+        isInWatchlist={(it) => !!watchlistCache[it?.ratingKey]}
+      />
       <main className="main-content">
         <div className="hero">
           <h1 className="hero-title">

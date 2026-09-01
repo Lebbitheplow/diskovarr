@@ -30,13 +30,28 @@ export function normalizeError(error) {
   return { status: null, message: error.message || 'Unknown error', details: {}, isNetworkError: false }
 }
 
+// Notified when the session turns out to be dead. AuthContext registers here
+// and clears the user, which lets ProtectedRoute do the redirect to /login.
+// Deliberately not a hard window.location redirect: the public review pages
+// render fine signed-out, and bouncing a visitor off a shared link would be
+// worse than showing them the logged-out view.
+let onUnauthorized = null
+
+export function setUnauthorizedHandler(fn) {
+  onUnauthorized = fn
+}
+
 api.interceptors.request.use((config) => config, (error) => Promise.reject(normalizeError(error)))
 api.interceptors.response.use(
   (response) => response,
   (error) => {
     const normalized = normalizeError(error)
-    if (normalized.status === 401) console.warn('[401] Session may have expired')
-    else if (normalized.status === 403) console.warn('[403] Insufficient permissions')
+    if (normalized.status === 401) {
+      console.warn('[401] Session may have expired')
+      // Only this instance carries the interceptor — the admin and auth
+      // instances are separate, so an admin-only 401 can't sign a user out.
+      if (onUnauthorized) onUnauthorized()
+    } else if (normalized.status === 403) console.warn('[403] Insufficient permissions')
     else if (normalized.status === 500) console.error('[500] Server error')
     return Promise.reject(normalized)
   },

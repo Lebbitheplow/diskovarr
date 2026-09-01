@@ -1,8 +1,7 @@
-import React, { Suspense, lazy } from 'react'
+import React, { Suspense, lazy, useEffect, useRef } from 'react'
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from './context/AuthContext'
-import NavigationBar from './components/NavigationBar'
-import Footer from './components/Footer'
+import AppShell from './components/AppShell'
 import AmbientBackground from './components/AmbientBackground'
 
 // Lazy-loaded pages
@@ -22,6 +21,7 @@ const Login = lazy(() => import('./pages/Login'))
 const Callback = lazy(() => import('./pages/Callback'))
 const Admin = lazy(() => import('./pages/Admin'))
 const AdminLogin = lazy(() => import('./pages/AdminLogin'))
+const Privacy = lazy(() => import('./pages/Privacy'))
 
 function LoadingScreen() {
   return (
@@ -29,6 +29,29 @@ function LoadingScreen() {
       <div className="spinner" />
     </div>
   )
+}
+
+// Replays a short enter animation on every path change. The class is toggled
+// rather than the subtree being keyed by pathname: keying would remount the
+// page on each navigation, throwing away its state and refetching its data.
+function RouteFade({ children }) {
+  const { pathname } = useLocation()
+  const ref = useRef(null)
+
+  useEffect(() => {
+    // Full page loads used to reset this for free; client-side navigation
+    // otherwise lands the new page at the old page's scroll offset. Keyed on
+    // pathname only, so query-param changes (search, filters) hold position.
+    window.scrollTo(0, 0)
+
+    const el = ref.current
+    if (!el) return
+    el.classList.remove('is-entering')
+    void el.offsetWidth // reflow, so the animation restarts rather than continuing
+    el.classList.add('is-entering')
+  }, [pathname])
+
+  return <div ref={ref} className="route-fade">{children}</div>
 }
 
 function ProtectedRoute({ children }) {
@@ -54,10 +77,11 @@ export default function App() {
     return <LoadingScreen />
   }
 
-  return (
-    <>
-      {user && !isAdminRoute && <AmbientBackground />}
-      {user && !isAdminRoute && <NavigationBar />}
+  // Admin has its own chrome, and signed-out screens (login/callback/shared
+  // review links) render bare. Everything else gets the rail + top bar shell.
+  const showChrome = user && !isAdminRoute
+
+  const routes = (
       <Suspense fallback={<LoadingScreen />}>
         <Routes>
           <Route path="/login" element={
@@ -125,12 +149,23 @@ export default function App() {
               <UserProfile />
             </ProtectedRoute>
           } />
+          {/* Public: a privacy notice has to be readable before you sign in */}
+          <Route path="/privacy" element={<Privacy />} />
           <Route path="/admin/login" element={<AdminLogin />} />
           <Route path="/admin/*" element={<Admin />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </Suspense>
-      {user && !isAdminRoute && <Footer />}
+  )
+
+  if (!showChrome) return routes
+
+  return (
+    <>
+      <AmbientBackground />
+      <AppShell>
+        <RouteFade>{routes}</RouteFade>
+      </AppShell>
     </>
   )
 }

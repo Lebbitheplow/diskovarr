@@ -2405,6 +2405,9 @@ for (const col of [
   'pushover_application_token TEXT DEFAULT NULL',
   'pushover_sound TEXT DEFAULT NULL',
   'email_enabled INTEGER DEFAULT 0',
+  // Stored only when a user sets up email notifications for themselves; the
+  // media-server account's address is never harvested. See /privacy.
+  'email_address TEXT DEFAULT NULL',
   'pgp_key TEXT DEFAULT NULL',
 ]) {
   try { db.prepare(`ALTER TABLE user_notification_prefs ADD COLUMN ${col}`).run(); } catch {}
@@ -2483,6 +2486,7 @@ function getUserNotificationPrefs(userId) {
     pushbullet_access_token: row?.pushbullet_access_token || null,
     pushbullet_enabled: row ? !!row.pushbullet_enabled : false,
     email_enabled: row ? !!row.email_enabled : false,
+    email_address: row?.email_address || null,
     pgp_key: row?.pgp_key || null,
     notify_pending: row ? (row.notify_pending !== null ? !!row.notify_pending : true) : true,
     notify_auto_approved: row ? (row.notify_auto_approved !== null ? !!row.notify_auto_approved : true) : true,
@@ -2520,6 +2524,7 @@ function setUserNotificationPrefs(userId, prefs) {
     `pushbullet_access_token = ${sqlValue(prefs.pushbullet_access_token)}`,
     `pushbullet_enabled = ${prefs.pushbullet_enabled ? 1 : 0}`,
     `email_enabled = ${prefs.email_enabled ? 1 : 0}`,
+    `email_address = ${sqlValue(prefs.email_address)}`,
     `pgp_key = ${sqlValue(prefs.pgp_key)}`,
     `notify_monitor = ${prefs.notify_monitor !== false ? 1 : 0}`,
   ];

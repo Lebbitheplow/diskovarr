@@ -1,5 +1,6 @@
 import React, { useState, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
+import { posterUrl as makePosterSrc } from '../utils/media'
 
 export default function MediaCard({
   item, onOpenModal, onToggleWatchlist, onDismiss, variant = 'home',
@@ -9,12 +10,6 @@ export default function MediaCard({
   const [imgError, setImgError] = useState(false)
   const { title, year, audienceRating, contentRating, thumb, posterUrl, ratingKey, reasons } = item
   const posterPath = thumb || posterUrl
-
-  function makePosterSrc(path) {
-    if (!path) return null
-    if (path.startsWith('http://') || path.startsWith('https://')) return path
-    return `/api/poster?path=${encodeURIComponent(path)}`
-  }
 
   const handleOpenModal = useCallback(() => {
     if (onOpenModal) onOpenModal(item)
@@ -32,6 +27,10 @@ export default function MediaCard({
 
   const posterSrc = posterPath && !imgError ? makePosterSrc(posterPath) : null
 
+  // The poster button, the action overlay and the info panel are siblings
+  // stacked over the card rather than nested. Nesting the action buttons inside
+  // the poster button (as this did previously) is invalid HTML — the info panel
+  // is pointer-events:none so clicks still fall through to the poster button.
   return (
     <div className="card" data-rating-key={ratingKey} data-adult={contentRating && ['r','tv-ma','nc-17','x','nr'].includes(contentRating.toLowerCase()) ? 'true' : undefined}>
       <button className="card-poster-link" onClick={handleOpenModal} aria-label={title}>
@@ -39,7 +38,7 @@ export default function MediaCard({
           <img
             className="card-poster"
             src={posterSrc}
-            alt={title}
+            alt=""
             loading="lazy"
             onError={() => setImgError(true)}
           />
@@ -48,36 +47,39 @@ export default function MediaCard({
             <span>{title?.charAt(0) || '?'}</span>
           </div>
         )}
-        {isWatched && (
-          <div className="card-watched-badge" title={t('Watched')}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" width="12" height="12">
-              <polyline points="20 6 9 17 4 12" />
-            </svg>
-          </div>
-        )}
-        {variant === 'explore' && item.badgeNotInLibrary && !item.badgeRequested && (
-          <div className="badge-not-in-library">{t('Not in Library')}</div>
-        )}
-        {variant === 'explore' && item.badgeRequested && (
-          <div className="badge-not-in-library badge-requested">{t('Requested')}</div>
-        )}
-        <div className="card-overlay">
-          <div className="card-overlay-actions">
-            <button
-              className={`btn-icon btn-watchlist ${isInWatchlist ? 'in-watchlist' : ''}`}
-              onClick={handleToggleWatchlist}
-            >
-              {isInWatchlist ? '✓ ' + t('In Watchlist') : '+ ' + t('Watchlist')}
-            </button>
-            {variant === 'home' && (
-              <button className="btn-icon btn-dismiss" onClick={handleDismiss} title={t("Don't show this again")}>✕</button>
-            )}
-            {variant === 'explore' && onDismiss && !item.badgeRequested && (
-              <button className="btn-icon btn-dismiss" onClick={handleDismiss} title={t('Dismiss')}>✕</button>
-            )}
-          </div>
-        </div>
       </button>
+
+      {isWatched && (
+        <div className="card-watched-badge" title={t('Watched')}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" width="12" height="12">
+            <polyline points="20 6 9 17 4 12" />
+          </svg>
+        </div>
+      )}
+      {variant === 'explore' && item.badgeNotInLibrary && !item.badgeRequested && (
+        <div className="badge-not-in-library">{t('Not in Library')}</div>
+      )}
+      {variant === 'explore' && item.badgeRequested && (
+        <div className="badge-not-in-library badge-requested">{t('Requested')}</div>
+      )}
+
+      <div className="card-overlay">
+        <div className="card-overlay-actions">
+          <button
+            className={`btn-icon btn-watchlist ${isInWatchlist ? 'in-watchlist' : ''}`}
+            onClick={handleToggleWatchlist}
+          >
+            {isInWatchlist ? '✓ ' + t('In Watchlist') : '+ ' + t('Watchlist')}
+          </button>
+          {variant === 'home' && (
+            <button className="btn-icon btn-dismiss" onClick={handleDismiss} title={t("Don't show this again")}>✕</button>
+          )}
+          {variant === 'explore' && onDismiss && !item.badgeRequested && (
+            <button className="btn-icon btn-dismiss" onClick={handleDismiss} title={t('Dismiss')}>✕</button>
+          )}
+        </div>
+      </div>
+
       <div className="card-info">
         <div className="card-title">{title}</div>
         <div className="card-meta">

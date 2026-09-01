@@ -14,6 +14,72 @@ import RequestModal from '../components/RequestModal'
 import { useToast } from '../context/ToastContext'
 import { posterUrl } from '../utils/media'
 import { useTranslation } from 'react-i18next'
+import { withViewTransition } from '../utils/viewTransition'
+
+// One card for every result grid/carousel on this page. Previously this markup
+// was duplicated four times, each nesting the action buttons inside the poster
+// <button> — invalid HTML. The badges and action overlay are siblings now, and
+// .card-info is pointer-events:none so clicks still reach the poster button.
+function SearchCard({ item, inWatchlist, onOpenModal, onToggleWatchlist, onRequest }) {
+  const { t } = useTranslation()
+  const isUpcoming = item.releaseDate && item.releaseDate > new Date().toISOString().slice(0, 10)
+  return (
+    <div className="card search-card">
+      <button className="card-poster-link" onClick={() => onOpenModal(item)} type="button" aria-label={item.title}>
+        {item.posterUrl && (
+          <img className="card-poster" src={posterUrl(item.posterUrl)} alt="" loading="lazy" />
+        )}
+        <div className="card-poster-placeholder">{item.title?.charAt(0) || '?'}</div>
+      </button>
+      {item.inLibrary ? (
+        <span className="badge-in-library">{t('In Library')}</span>
+      ) : isUpcoming ? (
+        <span className={'badge-upcoming-card' + (item.isRequested ? ' badge-requested' : '')}>
+          {item.isRequested ? t('Requested') : t('Coming Soon')}
+        </span>
+      ) : (
+        <span className={'badge-not-in-library' + (item.isRequested ? ' badge-requested' : '')}>
+          {item.isRequested ? t('Requested') : t('Not in Library')}
+        </span>
+      )}
+      {item.isWatched && (
+        <div className="card-watched-badge" title={t('Watched')}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" width="12" height="12">
+            <polyline points="20 6 9 17 4 12" />
+          </svg>
+        </div>
+      )}
+      <div className="card-overlay">
+        <div className="card-overlay-actions">
+          {item.inLibrary && item.ratingKey ? (
+            <button
+              className={'btn-icon btn-watchlist' + (inWatchlist ? ' in-watchlist' : '')}
+              onClick={(e) => { e.stopPropagation(); onToggleWatchlist(item) }}
+            >
+              {inWatchlist ? '\u2713 ' + t('In Watchlist') : '+ ' + t('Watchlist')}
+            </button>
+          ) : null}
+          {!item.inLibrary && (
+            <button
+              className={'btn-icon btn-request' + (item.isRequested ? ' btn-request-sent' : '')}
+              onClick={(e) => { e.stopPropagation(); onRequest(item) }}
+              disabled={item.isRequested}
+            >
+              {item.isRequested ? t('Requested') + ' \u2713' : t('Request')}
+            </button>
+          )}
+        </div>
+      </div>
+      <div className="card-info">
+        <div className="card-title">{item.title}</div>
+        <div className="card-meta">
+          {item.year && <span className="card-year">{item.year}</span>}
+          {item.voteAverage && <span className="card-rating">\u2605 {item.voteAverage.toFixed(1)}</span>}
+        </div>
+      </div>
+    </div>
+  )
+}
 
 export default function Search() {
   const { t } = useTranslation()
@@ -266,8 +332,10 @@ export default function Search() {
     }
   }, [watchlistCache, toastSuccess, toastError, t])
 
+  // Morphs the clicked poster into the modal's poster where the browser
+  // supports view transitions; a plain state update everywhere else.
   const handleOpenModal = useCallback((item) => {
-    setSelectedItem(item)
+    withViewTransition(() => setSelectedItem(item))
   }, [])
 
   const handleLoadMore = useCallback(() => {
@@ -443,120 +511,28 @@ export default function Search() {
             </div>
             <div className="card-grid" id="search-grid">
               {(activeTab === 'all' ? displayResults : activeTab === 'movies' ? movieResults : tvResults).map(item => (
-                <div key={item.tmdbId || `tvdb${item.tvdbId}`} className="card search-card">
-                  <button className="card-poster-link" onClick={() => handleOpenModal(item)} type="button">
-                    {item.posterUrl && (
-                      <img className="card-poster" src={posterUrl(item.posterUrl)} alt={item.title} loading="lazy" />
-                    )}
-                    <div className="card-poster-placeholder">{item.title?.charAt(0) || '?'}</div>
-                    {item.inLibrary ? (
-                      <span className="badge-in-library">{t('In Library')}</span>
-                    ) : item.releaseDate && item.releaseDate > new Date().toISOString().slice(0, 10) ? (
-                      <span className={'badge-upcoming-card' + (item.isRequested ? ' badge-requested' : '')}>
-                        {item.isRequested ? 'Requested' : 'Coming Soon'}
-                      </span>
-                    ) : (
-                      <span className={'badge-not-in-library' + (item.isRequested ? ' badge-requested' : '')}>
-                        {item.isRequested ? 'Requested' : 'Not in Library'}
-                      </span>
-                    )}
-                    {item.isWatched && (
-                      <div className="card-watched-badge" title={t('Watched')}>
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" width="12" height="12">
-                          <polyline points="20 6 9 17 4 12" />
-                        </svg>
-                      </div>
-                    )}
-                    <div className="card-overlay">
-                      <div className="card-overlay-actions">
-                        {item.inLibrary && item.ratingKey ? (
-                          <button
-                            className={'btn-icon btn-watchlist' + (watchlistCache[item.ratingKey] ? ' in-watchlist' : '')}
-                            onClick={(e) => { e.stopPropagation(); handleToggleWatchlist(item) }}
-                          >
-                            {watchlistCache[item.ratingKey] ? '✓ In Watchlist' : '+ Watchlist'}
-                          </button>
-                        ) : null}
-                        {!item.inLibrary && (
-                          <button
-                            className={'btn-icon btn-request' + (item.isRequested ? ' btn-request-sent' : '')}
-                            onClick={(e) => { e.stopPropagation(); setRequestItem(item) }}
-                            disabled={item.isRequested}
-                          >
-                            {item.isRequested ? 'Requested ✓' : 'Request'}
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  </button>
-                  <div className="card-info">
-                    <div className="card-title">{item.title}</div>
-                    <div className="card-meta">
-                      {item.year && <span className="card-year">{item.year}</span>}
-                      {item.voteAverage && <span className="card-rating">★ {item.voteAverage.toFixed(1)}</span>}
-                    </div>
-                  </div>
-                </div>
+                <SearchCard
+                  key={item.tmdbId || `tvdb${item.tvdbId}`}
+                  item={item}
+                  inWatchlist={!!(item.ratingKey && watchlistCache[item.ratingKey])}
+                  onOpenModal={handleOpenModal}
+                  onToggleWatchlist={handleToggleWatchlist}
+                  onRequest={setRequestItem}
+                />
               ))}
             </div>
           </>
         ) : (
           <div className="card-grid" id="search-grid">
             {displayResults.map(item => (
-              <div key={item.tmdbId || `tvdb${item.tvdbId}`} className="card search-card">
-                <button className="card-poster-link" onClick={() => handleOpenModal(item)} type="button">
-                  {item.posterUrl && (
-                    <img className="card-poster" src={posterUrl(item.posterUrl)} alt={item.title} loading="lazy" />
-                  )}
-                  <div className="card-poster-placeholder">{item.title?.charAt(0) || '?'}</div>
-                  {item.inLibrary ? (
-                    <span className="badge-in-library">{t('In Library')}</span>
-                  ) : item.releaseDate && item.releaseDate > new Date().toISOString().slice(0, 10) ? (
-                    <span className={'badge-upcoming-card' + (item.isRequested ? ' badge-requested' : '')}>
-                      {item.isRequested ? 'Requested' : 'Coming Soon'}
-                    </span>
-                  ) : (
-                    <span className={'badge-not-in-library' + (item.isRequested ? ' badge-requested' : '')}>
-                      {item.isRequested ? 'Requested' : 'Not in Library'}
-                    </span>
-                  )}
-                  {item.isWatched && (
-                    <div className="card-watched-badge" title={t('Watched')}>
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" width="12" height="12">
-                        <polyline points="20 6 9 17 4 12" />
-                      </svg>
-                    </div>
-                  )}
-                  <div className="card-overlay">
-                    <div className="card-overlay-actions">
-                      {item.inLibrary && item.ratingKey ? (
-                        <button
-                          className={'btn-icon btn-watchlist' + (watchlistCache[item.ratingKey] ? ' in-watchlist' : '')}
-                          onClick={(e) => { e.stopPropagation(); handleToggleWatchlist(item) }}
-                        >
-                          {watchlistCache[item.ratingKey] ? '✓ In Watchlist' : '+ Watchlist'}
-                        </button>
-                      ) : null}
-                      {!item.inLibrary && (
-                        <button
-                          className={'btn-icon btn-request' + (item.isRequested ? ' btn-request-sent' : '')}
-                          onClick={(e) => { e.stopPropagation(); setRequestItem(item) }}
-                          disabled={item.isRequested}
-                        >
-                          {item.isRequested ? 'Requested ✓' : 'Request'}
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </button>
-                <div className="card-info">
-                  <div className="card-title">{item.title}</div>
-                  <div className="card-meta">
-                    {item.year && <span className="card-year">{item.year}</span>}
-                    {item.voteAverage && <span className="card-rating">★ {item.voteAverage.toFixed(1)}</span>}
-                  </div>
-                </div>
-              </div>
+              <SearchCard
+                key={item.tmdbId || `tvdb${item.tvdbId}`}
+                item={item}
+                inWatchlist={!!(item.ratingKey && watchlistCache[item.ratingKey])}
+                onOpenModal={handleOpenModal}
+                onToggleWatchlist={handleToggleWatchlist}
+                onRequest={setRequestItem}
+              />
             ))}
           </div>
         )
@@ -581,60 +557,14 @@ export default function Search() {
           ) : displayPersonCredits.length > 0 ? (
             <Carousel>
               {displayPersonCredits.map(item => (
-                <div key={(item.tmdbId || `tvdb${item.tvdbId}`) + item.mediaType} className="card search-card">
-                  <button className="card-poster-link" onClick={() => handleOpenModal(item)} type="button">
-                    {item.posterUrl && (
-                      <img className="card-poster" src={posterUrl(item.posterUrl)} alt={item.title} loading="lazy" />
-                    )}
-                    <div className="card-poster-placeholder">{item.title?.charAt(0) || '?'}</div>
-                    {item.inLibrary ? (
-                      <span className="badge-in-library">{t('In Library')}</span>
-                    ) : item.releaseDate && item.releaseDate > new Date().toISOString().slice(0, 10) ? (
-                      <span className={'badge-upcoming-card' + (item.isRequested ? ' badge-requested' : '')}>
-                        {item.isRequested ? 'Requested' : 'Coming Soon'}
-                      </span>
-                    ) : (
-                      <span className={'badge-not-in-library' + (item.isRequested ? ' badge-requested' : '')}>
-                        {item.isRequested ? 'Requested' : 'Not in Library'}
-                      </span>
-                    )}
-                    {item.isWatched && (
-                      <div className="card-watched-badge" title={t('Watched')}>
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" width="12" height="12">
-                          <polyline points="20 6 9 17 4 12" />
-                        </svg>
-                      </div>
-                    )}
-                    <div className="card-overlay">
-                      <div className="card-overlay-actions">
-                        {item.inLibrary && item.ratingKey ? (
-                          <button
-                            className={'btn-icon btn-watchlist' + (watchlistCache[item.ratingKey] ? ' in-watchlist' : '')}
-                            onClick={(e) => { e.stopPropagation(); handleToggleWatchlist(item) }}
-                          >
-                            {watchlistCache[item.ratingKey] ? '✓ In Watchlist' : '+ Watchlist'}
-                          </button>
-                        ) : null}
-                        {!item.inLibrary && (
-                          <button
-                            className={'btn-icon btn-request' + (item.isRequested ? ' btn-request-sent' : '')}
-                            onClick={(e) => { e.stopPropagation(); setRequestItem(item) }}
-                            disabled={item.isRequested}
-                          >
-                            {item.isRequested ? 'Requested ✓' : 'Request'}
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  </button>
-                  <div className="card-info">
-                    <div className="card-title">{item.title}</div>
-                    <div className="card-meta">
-                      {item.year && <span className="card-year">{item.year}</span>}
-                      {item.voteAverage ? <span className="card-rating">★ {item.voteAverage.toFixed(1)}</span> : null}
-                    </div>
-                  </div>
-                </div>
+                <SearchCard
+                  key={(item.tmdbId || `tvdb${item.tvdbId}`) + item.mediaType}
+                  item={item}
+                  inWatchlist={!!(item.ratingKey && watchlistCache[item.ratingKey])}
+                  onOpenModal={handleOpenModal}
+                  onToggleWatchlist={handleToggleWatchlist}
+                  onRequest={setRequestItem}
+                />
               ))}
             </Carousel>
           ) : (
@@ -658,60 +588,14 @@ export default function Search() {
           ) : displaySimilar.length > 0 ? (
             <Carousel>
               {displaySimilar.map(item => (
-                <div key={(item.tmdbId || `tvdb${item.tvdbId}`) + item.mediaType} className="card search-card">
-                  <button className="card-poster-link" onClick={() => handleOpenModal(item)} type="button">
-                    {item.posterUrl && (
-                      <img className="card-poster" src={posterUrl(item.posterUrl)} alt={item.title} loading="lazy" />
-                    )}
-                    <div className="card-poster-placeholder">{item.title?.charAt(0) || '?'}</div>
-                    {item.inLibrary ? (
-                      <span className="badge-in-library">{t('In Library')}</span>
-                    ) : item.releaseDate && item.releaseDate > new Date().toISOString().slice(0, 10) ? (
-                      <span className={'badge-upcoming-card' + (item.isRequested ? ' badge-requested' : '')}>
-                        {item.isRequested ? 'Requested' : 'Coming Soon'}
-                      </span>
-                    ) : (
-                      <span className={'badge-not-in-library' + (item.isRequested ? ' badge-requested' : '')}>
-                        {item.isRequested ? 'Requested' : 'Not in Library'}
-                      </span>
-                    )}
-                    {item.isWatched && (
-                      <div className="card-watched-badge" title={t('Watched')}>
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" width="12" height="12">
-                          <polyline points="20 6 9 17 4 12" />
-                        </svg>
-                      </div>
-                    )}
-                    <div className="card-overlay">
-                      <div className="card-overlay-actions">
-                        {item.inLibrary && item.ratingKey ? (
-                          <button
-                            className={'btn-icon btn-watchlist' + (watchlistCache[item.ratingKey] ? ' in-watchlist' : '')}
-                            onClick={(e) => { e.stopPropagation(); handleToggleWatchlist(item) }}
-                          >
-                            {watchlistCache[item.ratingKey] ? '✓ In Watchlist' : '+ Watchlist'}
-                          </button>
-                        ) : null}
-                        {!item.inLibrary && (
-                          <button
-                            className={'btn-icon btn-request' + (item.isRequested ? ' btn-request-sent' : '')}
-                            onClick={(e) => { e.stopPropagation(); setRequestItem(item) }}
-                            disabled={item.isRequested}
-                          >
-                            {item.isRequested ? 'Requested ✓' : 'Request'}
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  </button>
-                  <div className="card-info">
-                    <div className="card-title">{item.title}</div>
-                    <div className="card-meta">
-                      {item.year && <span className="card-year">{item.year}</span>}
-                      {item.voteAverage && <span className="card-rating">★ {item.voteAverage.toFixed(1)}</span>}
-                    </div>
-                  </div>
-                </div>
+                <SearchCard
+                  key={(item.tmdbId || `tvdb${item.tvdbId}`) + item.mediaType}
+                  item={item}
+                  inWatchlist={!!(item.ratingKey && watchlistCache[item.ratingKey])}
+                  onOpenModal={handleOpenModal}
+                  onToggleWatchlist={handleToggleWatchlist}
+                  onRequest={setRequestItem}
+                />
               ))}
             </Carousel>
           ) : null}

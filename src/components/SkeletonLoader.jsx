@@ -1,11 +1,13 @@
 import React from 'react'
 
+// Mirrors the card's shape: one 2:3 shimmer filling the tile, with the title
+// lines floated over its foot where the real info panel sits.
 export default function SkeletonLoader({ count = 6, rows = 1 }) {
   return (
     <div
-      className={`card-grid skeleton-grid ${rows === 2 ? '' : ''}`}
+      className="card-grid skeleton-grid"
       style={rows === 2
-        ? { gridTemplateRows: 'repeat(2, auto)', gridAutoFlow: 'column', gridAutoColumns: '160px' }
+        ? { gridTemplateRows: 'repeat(2, auto)', gridAutoFlow: 'column', gridAutoColumns: '172px' }
         : {}
       }
     >

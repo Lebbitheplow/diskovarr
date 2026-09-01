@@ -367,6 +367,14 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
     onClose()
   }, [onClose])
 
+  // Escape closes, matching the shared Modal component. Routed through
+  // handleClose so the trailer iframe is torn down rather than left playing.
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') handleClose() }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [handleClose])
+
   if (!item) return null
 
   const mediaTypeLabel = item.type === 'show' ? 'TV Show' : (item.isAnime ? 'Anime' : 'Movie')
@@ -513,7 +521,9 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
           <div ref={trailerRef} className={'detail-modal-trailer' + (trailerKey ? ' active' : '')}>
             {trailerKey && (
               <iframe
-                src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=1&rel=0&modestbranding=1&playsinline=1`}
+                // youtube-nocookie.com: same player, but YouTube does not set its
+                // tracking cookies unless the video is actually played.
+                src={`https://www.youtube-nocookie.com/embed/${trailerKey}?autoplay=1&mute=1&rel=0&modestbranding=1&playsinline=1`}
                 allow="autoplay; encrypted-media; fullscreen"
                 allowFullScreen
               />

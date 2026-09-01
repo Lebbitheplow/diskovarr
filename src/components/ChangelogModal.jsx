@@ -20,7 +20,7 @@ const DATE_STYLE = { fontWeight: '400', color: 'var(--text-secondary)', fontSize
 export default function ChangelogModal({ open, onClose }) {
   const { t } = useTranslation()
   if (!open) return null
-  const currentVersion = import.meta.env.VITE_APP_VERSION || '2.6.0'
+  const currentVersion = import.meta.env.VITE_APP_VERSION || '2.7.0'
 
   return (
     <div className="info-modal-backdrop open" onClick={onClose}>
@@ -33,6 +33,35 @@ export default function ChangelogModal({ open, onClose }) {
           <div className="info-modal-section">
             <div className="info-modal-section-title">
               v{currentVersion}{' '}
+              <span style={DATE_STYLE}>2026-09-01</span>
+            </div>
+            <p style={SECTION_LABEL_STYLE}>{t('New')}</p>
+            <ul style={LIST_STYLE}>
+              <li style={ITEM_STYLE}>A new sidebar — the top navigation bar has moved to a collapsible rail down the left side, with every page one click away instead of hidden behind the avatar menu. Click ☰ to shrink it to icons; Diskovarr remembers your choice</li>
+              <li style={ITEM_STYLE}>A spotlight on the home page — your strongest recommendation now leads the page as full-width artwork with its rating, runtime, description, and Play and Watchlist buttons</li>
+              <li style={ITEM_STYLE}>Redesigned artwork cards — posters are larger and cleaner, with the title, year, and rating laid over the artwork and the reasons a title was recommended revealed on hover</li>
+            </ul>
+            <p style={SECTION_LABEL_STYLE}>{t('Changes')}</p>
+            <ul style={LIST_STYLE}>
+              <li style={ITEM_STYLE}>A refreshed look across every page — frosted panels, a new display typeface for headings, and shelf headings that pin below the top bar as you scroll</li>
+              <li style={ITEM_STYLE}>Moving between pages no longer reloads the app, so navigation is instant, and opening a title now expands its poster into the detail window</li>
+              <li style={ITEM_STYLE}>Shelves now animate in as you scroll to them rather than all at once on load</li>
+              <li style={ITEM_STYLE}>Diskovarr Requests now has the same full-width spotlight as the home page, and both cycle through your top picks every few seconds — hover to hold one in place, or use the dots to jump</li>
+              <li style={ITEM_STYLE}>Added a privacy notice, linked in the footer, covering what this server stores, who it talks to, and what other members can see</li>
+            </ul>
+            <p style={SECTION_LABEL_STYLE}>{t('Fixes')}</p>
+            <ul style={LIST_STYLE_LAST}>
+              <li style={ITEM_STYLE}>The "Show mature content" switch on the home page now applies to every shelf — it previously only affected the two Most Popular rows, leaving R and TV-MA titles filtered out of your recommendations no matter how it was set</li>
+              <li style={ITEM_STYLE}>Esc now closes the title detail window, and stops the trailer with it</li>
+              <li style={ITEM_STYLE}>If your session expires while you're browsing, Diskovarr now returns you to the sign-in page instead of quietly failing to load anything</li>
+              <li style={ITEM_STYLE}>Email notifications now actually send — set the address you want them delivered to in Settings → Notifications → Email. The feature previously looked for an address that was never stored</li>
+              <li style={ITEM_STYLE}>Saving one notification channel no longer clears the others — Telegram, Pushbullet and email settings were being reset whenever any other notification setting was saved</li>
+              <li style={ITEM_STYLE}>Trailers now use YouTube's privacy-enhanced player, so YouTube doesn't set tracking cookies unless you press play</li>
+            </ul>
+          </div>
+          <div className="info-modal-section">
+            <div className="info-modal-section-title">
+              v2.6.0{' '}
               <span style={DATE_STYLE}>2026-08-31</span>
             </div>
             <p style={SECTION_LABEL_STYLE}>{t('New')}</p>
@@ -59,18 +88,6 @@ export default function ChangelogModal({ open, onClose }) {
               <li style={ITEM_STYLE}>Security patches across the frontend and server dependencies (Snyk)</li>
               <li style={ITEM_STYLE}>Upgraded the email (SMTP) library to nodemailer v9, resolving a security advisory in the mailer</li>
               <li style={ITEM_STYLE}>Patched additional dependency vulnerabilities in the request-routing and build toolchains (path-to-regexp, PostCSS, nanoid, and Vite tooling)</li>
-            </ul>
-          </div>
-          <div className="info-modal-section">
-            <div className="info-modal-section-title">
-              v2.5.7{' '}
-              <span style={DATE_STYLE}>2026-08-21</span>
-            </div>
-            <p style={SECTION_LABEL_STYLE}>{t('New')}</p>
-            <ul style={LIST_STYLE_LAST}>
-              <li style={ITEM_STYLE}>Filter the request queue by app — a new App filter lets admins narrow the queue to requests routed to Sonarr, Radarr, Overseerr, DUMB, or YouTube (plus a Default bucket for requests whose app is chosen at approval time)</li>
-              <li style={ITEM_STYLE}>Reporting a missing season or episode can now queue a search automatically — tick "This content is missing" when reporting an issue for a show, and Diskovarr searches for it in your default request app</li>
-              <li style={ITEM_STYLE}>When a reporter's requests need approval, missing-content issues wait for an admin instead — a Search now button on the issue lets you kick off the search (and retry if one fails)</li>
             </ul>
           </div>
         </div>

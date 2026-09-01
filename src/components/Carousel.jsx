@@ -33,7 +33,10 @@ export default function Carousel({ children, variant = 'home' }) {
       {canScrollLeft && (
         <button className="carousel-arrow carousel-arrow-prev" onClick={() => scrollByAmount(-scrollRef.current?.clientWidth || 0)} aria-label={t('Previous')}>❮</button>
       )}
-      <div className={`card-grid ${variant === 'home' ? '' : ''}`} ref={scrollRef} style={variant === 'home' ? { gridTemplateRows: 'repeat(2, auto)', gridAutoFlow: 'column', gridAutoColumns: '160px' } : {}}>
+      {/* Track shape comes from .carousel-wrap .card-grid in CSS. It used to be
+          set inline here, which silently beat the ≤600px rule that narrows the
+          columns for phones. */}
+      <div className="card-grid" data-variant={variant} ref={scrollRef}>
         {children}
       </div>
       {!canScrollRight && <button className="carousel-arrow carousel-arrow-next" disabled aria-label={t('Next')}>❯</button>}

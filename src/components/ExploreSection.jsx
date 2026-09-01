@@ -15,37 +15,38 @@ const ExploreCard = memo(function ExploreCard({
   const isFutureRelease = item.releaseDate && item.releaseDate > new Date().toISOString().slice(0, 10)
   return (
     <div key={item.tmdbId + item.mediaType} className="card" data-tmdb-id={item.tmdbId} data-adult={item.adult ? 'true' : undefined} data-request-tmdb={item.tmdbId} onClick={() => onOpenModal(item)}>
-      <button className="card-poster-link" onClick={() => onOpenModal(item)} type="button">
-        {item.posterUrl && <img className="card-poster" src={posterUrl(item.posterUrl)} alt={item.title} loading="lazy" />}
+      <button className="card-poster-link" onClick={() => onOpenModal(item)} type="button" aria-label={item.title}>
+        {item.posterUrl && <img className="card-poster" src={posterUrl(item.posterUrl)} alt="" loading="lazy" />}
         <div className="card-poster-placeholder">{item.title?.charAt(0) || '?'}</div>
-        {(upcoming || isFutureRelease)
-          ? <span className={'badge-upcoming-card' + (item.badgeRequested ? ' badge-requested' : '')}>{item.badgeRequested ? t('Requested') : t('Coming Soon')}</span>
-          : <span className={'badge-not-in-library' + (item.badgeRequested ? ' badge-requested' : '')}>{item.badgeRequested ? t('Requested') : t('Not in Library')}</span>}
-        <div className="card-overlay">
-          <div className="card-overlay-actions">
-            {item.ratingKey && (
-              <button
-                className={'btn-icon btn-watchlist' + (inWatchlist ? ' in-watchlist' : '')}
-                onClick={(e) => { e.stopPropagation(); onToggleWatchlist(item) }}
-              >
-                {inWatchlist ? '✓ ' + t('In Watchlist') : '+ ' + t('Watchlist')}
-              </button>
-            )}
-            {!item.ratingKey && (
-              <button
-                className={'btn-icon btn-request' + (item.isMyRequest ? ' btn-request-sent' : '')}
-                onClick={(e) => { e.stopPropagation(); !item.isMyRequest && (item.isRequested ? onNotify(item) : onRequest(item)) }}
-                disabled={item.isMyRequest}
-              >
-                {item.isMyRequest ? t('Requested') + ' ✓' : (item.isRequested ? t('Notify Me') : t('Request'))}
-              </button>
-            )}
-            {!item.badgeRequested && (
-              <button className="btn-icon btn-dismiss" onClick={(e) => { e.stopPropagation(); onDismiss(item) }}>✕</button>
-            )}
-          </div>
-        </div>
       </button>
+      {(upcoming || isFutureRelease)
+        ? <span className={'badge-upcoming-card' + (item.badgeRequested ? ' badge-requested' : '')}>{item.badgeRequested ? t('Requested') : t('Coming Soon')}</span>
+        : <span className={'badge-not-in-library' + (item.badgeRequested ? ' badge-requested' : '')}>{item.badgeRequested ? t('Requested') : t('Not in Library')}</span>}
+      {/* Sibling of the poster button, not a child — buttons cannot nest */}
+      <div className="card-overlay">
+        <div className="card-overlay-actions">
+          {item.ratingKey && (
+            <button
+              className={'btn-icon btn-watchlist' + (inWatchlist ? ' in-watchlist' : '')}
+              onClick={(e) => { e.stopPropagation(); onToggleWatchlist(item) }}
+            >
+              {inWatchlist ? '✓ ' + t('In Watchlist') : '+ ' + t('Watchlist')}
+            </button>
+          )}
+          {!item.ratingKey && (
+            <button
+              className={'btn-icon btn-request' + (item.isMyRequest ? ' btn-request-sent' : '')}
+              onClick={(e) => { e.stopPropagation(); !item.isMyRequest && (item.isRequested ? onNotify(item) : onRequest(item)) }}
+              disabled={item.isMyRequest}
+            >
+              {item.isMyRequest ? t('Requested') + ' ✓' : (item.isRequested ? t('Notify Me') : t('Request'))}
+            </button>
+          )}
+          {!item.badgeRequested && (
+            <button className="btn-icon btn-dismiss" onClick={(e) => { e.stopPropagation(); onDismiss(item) }}>✕</button>
+          )}
+        </div>
+      </div>
       <div className="card-info">
         <div className="card-title">{item.title}</div>
         <div className="card-meta">

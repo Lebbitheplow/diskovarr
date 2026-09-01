@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react'
 import axios from 'axios'
 import i18n from '../i18n'
+import { setUnauthorizedHandler } from '../services/api'
 
 const AuthContext = createContext(null)
 
@@ -40,6 +41,14 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     ;(async () => { await checkAuth() })()
   }, [checkAuth])
+
+  // A session that expires mid-visit used to surface only as a console warning
+  // and failed requests. Dropping the user here makes ProtectedRoute redirect
+  // to /login on the next render, while public routes stay readable.
+  useEffect(() => {
+    setUnauthorizedHandler(() => setUser(null))
+    return () => setUnauthorizedHandler(null)
+  }, [])
 
   const logout = async () => {
     try {

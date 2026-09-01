@@ -1,10 +1,11 @@
 import React from 'react'
+import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useAuth } from '../context/AuthContext'
 
 const REPO_URL = 'https://github.com/Lebbitheplow/diskovarr'
 const SITE_URL = 'https://diskovarr.com'
-const VERSION = import.meta.env.VITE_APP_VERSION || '2.6.0'
+const VERSION = import.meta.env.VITE_APP_VERSION || '2.7.0'
 const YEAR = new Date().getFullYear()
 
 // Diskovarr brand mark — mirrors the logo used in the navigation bar.
@@ -59,6 +60,8 @@ export default function Footer() {
           <GitHubIcon />
           <span>GitHub</span>
         </a>
+        <span className="app-footer-sep" aria-hidden="true">·</span>
+        <Link to="/privacy">{t('Privacy')}</Link>
         <span className="app-footer-sep" aria-hidden="true">·</span>
         <a href={`${REPO_URL}/releases`} target="_blank" rel="noopener noreferrer">v{VERSION}</a>
         <span className="app-footer-sep" aria-hidden="true">·</span>

@@ -22,14 +22,53 @@
 }
 
 /* ── Glass surfaces ─────────────────────────────────────────── */
-.nav {
-  background: var(--glass-bg-heavy);
-  backdrop-filter: blur(var(--glass-blur)) saturate(150%);
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(150%);
-  border-bottom-color: var(--glass-border);
+/* The rail is the one always-on blur layer. Note that Chromium will not
+   render a backdrop-filter nested inside another one, which is why every
+   dropdown anchored here is rendered as a sibling by AppShell. */
+.rail {
+  backdrop-filter: blur(22px) saturate(150%);
+  -webkit-backdrop-filter: blur(22px) saturate(150%);
 }
 
-.nav-fab-menu,
+/* Only once it has something to sit over — no idle blur layer at rest */
+.topbar.is-scrolled {
+  backdrop-filter: blur(var(--glass-blur)) saturate(150%);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(150%);
+}
+
+/* Where the blur can't composite, the translucent fills alone leave text
+   sitting on top of page content. Fall back to opaque shell surfaces. */
+@supports not (backdrop-filter: blur(1px)) {
+  .rail { background: rgba(12, 12, 12, 0.97); }
+  .topbar.is-scrolled { background: rgba(14, 14, 14, 0.97); }
+  .section-header { background: rgba(20, 20, 20, 0.96); }
+}
+
+/* Sticky shelf headers. useShellMotion marks the one that is actually pinned,
+   so exactly one blur layer is composited instead of one per shelf. Without
+   that flag (no JS / reduced motion) the pill stays frosted at all times. */
+.section-header {
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+}
+
+[data-motion='on'] .section-header {
+  background: transparent;
+  border-color: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  transition: background var(--dur-med) var(--ease-out),
+    border-color var(--dur-med) var(--ease-out);
+}
+
+[data-motion='on'] .section-header.is-stuck {
+  background: var(--glass-bg);
+  border-color: var(--glass-border);
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+}
+
+.user-menu,
 .nav-bell-dropdown,
 .nav-search-dropdown,
 .search-page-dropdown {
@@ -108,27 +147,39 @@
   }
 }
 
-.card-grid .card {
-  animation: card-in 0.35s var(--ease-out) backwards;
+/* Shelves animate as they scroll into view. Gated on data-motion so the cards
+   are plainly visible if the observer never runs — an un-revealed shelf must
+   never be able to strand content at opacity 0. */
+[data-motion='on'] .card-grid:not(.is-revealed) .card {
+  opacity: 0;
 }
 
-.card-grid .card:nth-child(1) { animation-delay: 0.03s; }
-.card-grid .card:nth-child(2) { animation-delay: 0.06s; }
-.card-grid .card:nth-child(3) { animation-delay: 0.09s; }
-.card-grid .card:nth-child(4) { animation-delay: 0.12s; }
-.card-grid .card:nth-child(5) { animation-delay: 0.15s; }
-.card-grid .card:nth-child(6) { animation-delay: 0.18s; }
-.card-grid .card:nth-child(7) { animation-delay: 0.21s; }
-.card-grid .card:nth-child(8) { animation-delay: 0.24s; }
-.card-grid .card:nth-child(9) { animation-delay: 0.27s; }
-.card-grid .card:nth-child(10) { animation-delay: 0.3s; }
-.card-grid .card:nth-child(11) { animation-delay: 0.33s; }
-.card-grid .card:nth-child(12) { animation-delay: 0.36s; }
-.card-grid .card:nth-child(n + 13) { animation-delay: 0.36s; }
+[data-motion='on'] .card-grid.is-revealed .card {
+  animation: card-in 0.4s var(--ease-out) backwards;
+}
+
+[data-motion='on'] .card-grid.is-revealed .card:nth-child(1) { animation-delay: 0.03s; }
+[data-motion='on'] .card-grid.is-revealed .card:nth-child(2) { animation-delay: 0.06s; }
+[data-motion='on'] .card-grid.is-revealed .card:nth-child(3) { animation-delay: 0.09s; }
+[data-motion='on'] .card-grid.is-revealed .card:nth-child(4) { animation-delay: 0.12s; }
+[data-motion='on'] .card-grid.is-revealed .card:nth-child(5) { animation-delay: 0.15s; }
+[data-motion='on'] .card-grid.is-revealed .card:nth-child(6) { animation-delay: 0.18s; }
+[data-motion='on'] .card-grid.is-revealed .card:nth-child(7) { animation-delay: 0.21s; }
+[data-motion='on'] .card-grid.is-revealed .card:nth-child(8) { animation-delay: 0.24s; }
+[data-motion='on'] .card-grid.is-revealed .card:nth-child(9) { animation-delay: 0.27s; }
+[data-motion='on'] .card-grid.is-revealed .card:nth-child(10) { animation-delay: 0.3s; }
+[data-motion='on'] .card-grid.is-revealed .card:nth-child(11) { animation-delay: 0.33s; }
+[data-motion='on'] .card-grid.is-revealed .card:nth-child(n + 12) { animation-delay: 0.36s; }
 
 /* ── Snappiness retunes ─────────────────────────────────────── */
-.nav-fab-menu {
-  transition: opacity 0.18s var(--ease-spring), transform 0.18s var(--ease-spring);
+.nav-fab {
+  transition: border-color var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out),
+    transform var(--dur-med) var(--ease-spring);
+}
+
+.nav-fab:active {
+  transform: scale(0.92);
 }
 
 .modal-backdrop {
@@ -174,4 +225,380 @@
   }
 
   .ambient-bg { display: none; }
+}
+
+/* ============================================================
+   Site-wide surface pass
+   Panels, headings and controls across the non-Home pages are
+   brought onto the same vocabulary as the shell and the shelves:
+   display type for headings, translucent panels over the ambient
+   background, accent-derived active states.
+   No backdrop-filter below this line — these surfaces are numerous
+   and would blow the blur budget documented at the top of the file.
+   ============================================================ */
+
+/* ── Display type on real headings (not the small caps labels) ── */
+.queue-hero h1,
+.detail-modal-title,
+.review-modal-title,
+.profile-username {
+  font-family: var(--font-display);
+  letter-spacing: -0.02em;
+}
+
+.queue-hero h1 {
+  font-size: 1.9rem;
+}
+
+/* ── Panels ─────────────────────────────────────────────────────
+   Dark base rather than a plain white wash: these carry body copy and
+   sit over the ambient orb canvas, which would otherwise read straight
+   through them. The white overlay supplies the top-edge lift only. */
+.settings-section,
+.review-post {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0.015) 100%),
+    linear-gradient(180deg, rgba(23, 23, 25, 0.88) 0%, rgba(18, 18, 20, 0.92) 100%);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-1);
+  transition: border-color var(--dur-med) var(--ease-out),
+    box-shadow var(--dur-med) var(--ease-out);
+}
+
+.review-post:hover {
+  border-color: var(--border-hover);
+  box-shadow: var(--shadow-2);
+}
+
+/* ── Request / issue / history tables ───────────────────────── */
+.queue-table {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.045) 0%, rgba(255, 255, 255, 0.012) 100%),
+    linear-gradient(180deg, rgba(23, 23, 25, 0.88) 0%, rgba(18, 18, 20, 0.92) 100%);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.queue-table th {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.queue-table tbody tr {
+  transition: background var(--dur-fast) var(--ease-out);
+}
+
+.queue-table tbody tr:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.queue-poster,
+.queue-poster-placeholder {
+  border-radius: 6px;
+  box-shadow: var(--shadow-1);
+}
+
+/* ── Pills: filter chips and queue status filters ───────────── */
+.filter-chip,
+.queue-filter-btn {
+  transition: background var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-spring);
+}
+
+.filter-chip:active,
+.queue-filter-btn:active {
+  transform: scale(0.96);
+}
+
+.queue-filter-btn:not(.active) {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: var(--glass-border);
+}
+
+/* ── Profile header reads as a banner over the ambient layer ── */
+.profile-header-main {
+  padding: 20px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--glass-border);
+  background:
+    radial-gradient(ellipse 60% 140% at 0% 0%, var(--accent-tint) 0%, transparent 70%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0.02) 100%),
+    linear-gradient(180deg, rgba(23, 23, 25, 0.86) 0%, rgba(18, 18, 20, 0.9) 100%);
+  box-shadow: var(--shadow-1);
+}
+
+.profile-username {
+  font-size: 1.5rem;
+}
+
+/* ── Search page header ─────────────────────────────────────── */
+.search-page-header {
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* ── Footer sits on the shell's column, not the page edge ───── */
+.app-footer {
+  border-top: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.015);
+}
+
+/* ── Focus visibility, now that surfaces are lower contrast ─── */
+.rail-link:focus-visible,
+.rail-user:focus-visible,
+.topbar-bell:focus-visible,
+.card-poster-link:focus-visible,
+.btn-icon:focus-visible,
+.spotlight-btn:focus-visible,
+.filter-chip:focus-visible,
+.queue-filter-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ── Reduced motion: freeze the hero's ken-burns drift ──────── */
+@media (prefers-reduced-motion: reduce) {
+  .spotlight-art {
+    animation: none !important;
+    transform: scale(1.04);
+  }
+}
+
+/* ============================================================
+   Motion system
+   ============================================================ */
+
+/* ── Route change ─────────────────────────────────────────────
+   Client-side navigation is instant now that the rail uses <Link>,
+   so this is a short settle rather than a cover for latency. The
+   wrapper re-triggers the animation without remounting children. */
+.route-fade {
+  flex: 1 0 auto;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+[data-motion='on'] .route-fade.is-entering {
+  animation: route-in 0.26s var(--ease-out);
+}
+
+@keyframes route-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ── Shared element: poster → detail modal ────────────────────
+   viewTransition.js names the clicked poster for the duration of the
+   transition; this element carries the matching name so the browser
+   morphs one into the other instead of cross-fading the whole page. */
+.detail-modal-poster {
+  view-transition-name: media-poster;
+}
+
+::view-transition-group(media-poster) {
+  animation-duration: var(--dur-slow);
+  animation-timing-function: var(--ease-out);
+}
+
+::view-transition-old(media-poster),
+::view-transition-new(media-poster) {
+  /* Both snapshots are posters at different sizes — cover keeps the art from
+     stretching while the group animates between the two boxes. */
+  height: 100%;
+  object-fit: cover;
+  mix-blend-mode: normal;
+}
+
+/* Keep the surrounding page cross-fade brief so the poster leads the eye */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 0.2s;
+}
+
+/* ── Toasts ───────────────────────────────────────────────────── */
+.toast {
+  animation: toast-in 0.28s var(--ease-spring) backwards;
+}
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(12px) scale(0.96); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ── Rail press feedback ──────────────────────────────────────── */
+.rail-link:active,
+.rail-user:active {
+  transform: scale(0.98);
+}
+
+.rail-link,
+.rail-user {
+  transition: background var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-spring);
+}
+
+/* ── Reduced motion: nothing above should move ────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .spotlight-art {
+    animation: none !important;
+    transform: scale(1.04);
+  }
+
+  /* useShellMotion never sets data-motion under reduced motion, so the
+     reveal gate is inert — this covers the view transition API, which
+     ignores CSS animation overrides. */
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
+}
+
+/* ── Spotlight copy replays as the hero advances ─────────────── */
+[data-motion='on'] .spotlight-body {
+  animation: spotlight-copy-in 0.55s var(--ease-out) backwards;
+}
+
+@keyframes spotlight-copy-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* No drift between picks; the rotation itself is already disabled in JS */
+  .spotlight-slide {
+    transition: none !important;
+    transform: none !important;
+  }
+}
+
+/* ============================================================
+   Legal pages (privacy notice)
+   ============================================================ */
+.legal-page {
+  max-width: 820px;
+}
+
+/* Signed-out there is no app shell, so the page supplies its own header */
+.legal-topbar {
+  display: flex;
+  align-items: center;
+  height: var(--topbar-h);
+  padding: 0 24px;
+  border-bottom: 1px solid var(--border);
+}
+
+.legal-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.1rem;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+}
+
+.legal-brand-mark {
+  color: var(--accent);
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
+.legal-callout {
+  padding: 18px 20px;
+  margin-bottom: 36px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--accent-edge);
+  background:
+    linear-gradient(180deg, var(--accent-tint) 0%, transparent 100%),
+    linear-gradient(180deg, rgba(23, 23, 25, 0.86) 0%, rgba(18, 18, 20, 0.9) 100%);
+}
+
+.legal-callout p { margin-bottom: 10px; }
+.legal-callout p:last-child { margin-bottom: 0; }
+
+.legal-section {
+  margin-bottom: 34px;
+  scroll-margin-top: calc(var(--topbar-h) + 16px);
+}
+
+.legal-h2 {
+  font-family: var(--font-display);
+  font-size: 1.2rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.legal-h3 {
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--accent);
+  margin: 20px 0 8px;
+}
+
+/* Prose measure: long legal copy is unreadable at full page width */
+.legal-page p {
+  font-size: 0.92rem;
+  line-height: 1.7;
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+}
+
+.legal-page p strong { color: var(--text-primary); }
+
+.legal-lead {
+  padding: 12px 14px;
+  border-left: 3px solid var(--accent);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  background: var(--accent-tint);
+}
+
+.legal-list {
+  margin: 0 0 14px;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.legal-list li {
+  font-size: 0.92rem;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+.legal-list li strong { color: var(--text-primary); }
+
+.legal-page code {
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 0.85em;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+}
+
+.legal-page a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+@media (max-width: 960px) {
+  .legal-topbar { padding: 0 14px; }
 }

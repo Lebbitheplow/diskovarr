@@ -1,5 +1,25 @@
 [
   {
+    "version": "2.7.0",
+    "date": "2026-09-01",
+    "changes": [
+      "A new sidebar — the top navigation bar has moved to a collapsible rail down the left side, putting every page one click away instead of hidden behind the avatar menu. Click the ☰ button to shrink it to icons; Diskovarr remembers your choice. On phones it slides in as a drawer from the same floating button as before.",
+      "A spotlight on the home page — your strongest recommendation now leads the page as full-width artwork, with its rating, year, genres, runtime and description, plus Play and Watchlist buttons.",
+      "Redesigned artwork cards — posters are larger and cleaner, with the title, year and rating laid over the artwork itself, and the reasons a title was recommended revealed when you hover it.",
+      "A refreshed look across every page — frosted panels over the ambient background, a new display typeface for headings, and shelf headings that pin below the top bar as you scroll past them.",
+      "Moving between pages no longer reloads the whole app, so navigation is instant, and opening a title expands its poster into the detail window on browsers that support it.",
+      "Shelves now animate in as you scroll down to them, rather than all playing their entrance at once while still off-screen.",
+      "Fixed: the 'Show mature content' switch on the home page now applies to every shelf. It previously only affected the two Most Popular rows, so R and TV-MA titles stayed filtered out of Top Picks, Movies, TV Shows and Anime no matter how the switch was set.",
+      "Fixed: Esc now closes the title detail window, and stops the trailer along with it.",
+      "Fixed: if your session expires while you're browsing, Diskovarr returns you to the sign-in page instead of quietly failing to load anything. Shared review links still open without signing in.",
+      "The Diskovarr Requests page now leads with the same full-width spotlight as the home page, and both spotlights rotate through your top picks every few seconds. Rotation pauses while you hover or tab into it and while the tab is in the background, the dots let you jump between picks, and it holds still entirely if your system asks for reduced motion.",
+      "Added a privacy notice at /privacy, linked from the footer and readable without signing in, describing what this server stores, who it talks to, and what other members can see.",
+      "Email notifications now work. You set the address you want them sent to in Settings → Notifications → Email; previously the feature read an address from your media-server account that was never stored, so no email was ever sent. Your address is kept only for this, and clearing the field removes it.",
+      "Fixed: saving one notification channel no longer wipes the others. Telegram, Pushbullet, email and the extra Pushover fields were being reset every time any notification setting was saved, because the save endpoint never passed them through.",
+      "Trailers now embed through YouTube's privacy-enhanced player (youtube-nocookie.com), so YouTube no longer sets tracking cookies unless you actually press play."
+    ]
+  },
+  {
     "version": "2.6.0",
     "date": "2026-08-31",
     "changes": [

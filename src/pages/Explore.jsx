@@ -6,12 +6,14 @@ import {
 } from '../services/api'
 import Carousel from '../components/Carousel'
 import ExploreSection from '../components/ExploreSection'
+import SpotlightHero from '../components/SpotlightHero'
 import DetailModal from '../components/DetailModal'
 import SkeletonLoader from '../components/SkeletonLoader'
 import ToggleSwitch from '../components/ToggleSwitch'
 import RequestModal from '../components/RequestModal'
 import { useToast } from '../context/ToastContext'
 import { useTranslation } from 'react-i18next'
+import { withViewTransition } from '../utils/viewTransition'
 
 const GENRE_META = {
   'Action':          { gradient: 'linear-gradient(145deg, #7f1d1d 0%, #c2410c 60%, #ea580c 100%)', emoji: '💥' },
@@ -178,8 +180,10 @@ export default function Explore() {
     localStorage.setItem('hideRequested', checked ? 'true' : 'false')
   }, [])
 
+  // Morphs the clicked poster into the modal's poster where the browser
+  // supports view transitions; a plain state update everywhere else.
   const handleOpenModal = useCallback((item) => {
-    setSelectedItem(item)
+    withViewTransition(() => setSelectedItem(item))
   }, [])
 
   const handleToggleWatchlist = useCallback(async (item) => {
@@ -321,6 +325,15 @@ export default function Explore() {
 
   return (
     <>
+      <SpotlightHero
+        items={visibleRecs.topPicks}
+        loading={loading}
+        onOpenModal={handleOpenModal}
+        onToggleWatchlist={handleToggleWatchlist}
+        onRequest={openRequestDialog}
+        onNotify={handleNotify}
+        isInWatchlist={(it) => !!(it?.ratingKey && watchlistCache[it.ratingKey])}
+      />
       <main className="main-content">
         {building && (
           <div style={{ padding: '28px 24px 20px', maxWidth: '480px', margin: '0 auto' }}>

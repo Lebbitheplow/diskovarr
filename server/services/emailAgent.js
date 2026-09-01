@@ -150,13 +150,15 @@ class EmailAgent extends BaseAgent {
       // Send to specific user if provided
       if (payload.userId) {
         const prefs = db.getUserNotificationPrefs(payload.userId);
-        // User's email would come from the user record
-        const users = db.getKnownUsers();
-        const user = users.find((u) => u.user_id === payload.userId);
-        if (user && user.email && prefs?.email_enabled) {
-          await this.sendToEmail(user.email, user.username || '', payload);
+        // The address comes from the user's own notification settings. It used
+        // to be read off the known_users record, which has no email column, so
+        // this branch could never fire.
+        if (prefs?.email_enabled && prefs.email_address) {
+          const users = db.getKnownUsers();
+          const user = users.find((u) => u.user_id === payload.userId);
+          await this.sendToEmail(prefs.email_address, user?.username || '', payload);
           sent++;
-          logger.debug(`Email: sent to user ${payload.userId} (${user.email})`);
+          logger.debug(`Email: sent to user ${payload.userId}`);
         }
       }
     } catch (err) {

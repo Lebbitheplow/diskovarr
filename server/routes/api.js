@@ -3089,6 +3089,10 @@ router.post('/user/settings', (req, res) => {
   const { region, language, ui_language, landing_page, show_mature, review_privacy,
           notify_approved, notify_denied, notify_available,
           discord_webhook, discord_enabled, discord_user_id, pushover_user_key, pushover_enabled,
+          pushover_application_token, pushover_sound,
+          telegram_chat_id, telegram_message_thread_id, telegram_send_silently, telegram_enabled,
+          pushbullet_access_token, pushbullet_enabled,
+          email_enabled, email_address, pgp_key,
           notify_pending, notify_auto_approved, notify_process_failed,
           notify_issue_new, notify_issue_update, notify_issue_comment, notify_monitor } = req.body;
   // Read current prefs so partial updates (e.g. only show_mature) don't reset other fields
@@ -3120,6 +3124,18 @@ router.post('/user/settings', (req, res) => {
   const _b = (val, fallback) => val === undefined ? fallback : (val !== false && val !== 'false');
   const _s = (val, fallback) => val === undefined ? fallback : (val || null);
   const _e = (val, fallback) => val === undefined ? fallback : (val === true || val === 'true');
+  // Shape check only — a bad address would just bounce, but this keeps obvious
+  // junk (and anything header-injection shaped) out of the mailer.
+  let newEmailAddress = email_address;
+  if (typeof email_address === 'string' && email_address.trim()) {
+    const addr = email_address.trim();
+    if (addr.length > 254 || !/^[^\s@<>,;:"]+@[^\s@<>,;:"]+\.[^\s@<>,;:"]{2,}$/.test(addr)) {
+      return res.status(400).json({ error: 'Invalid email address' });
+    }
+    newEmailAddress = addr;
+  } else if (email_address !== undefined) {
+    newEmailAddress = null;
+  }
   db.setUserNotificationPrefs(userId, {
     notify_approved:       _b(notify_approved,      oldNotif.notify_approved),
     notify_denied:         _b(notify_denied,         oldNotif.notify_denied),
@@ -3129,6 +3145,20 @@ router.post('/user/settings', (req, res) => {
     discord_user_id:       _s(discord_user_id,       oldNotif.discord_user_id),
     pushover_user_key:     _s(pushover_user_key,     oldNotif.pushover_user_key),
     pushover_enabled:      _e(pushover_enabled,      oldNotif.pushover_enabled),
+    // These are all written by setUserNotificationPrefs. Any that the route
+    // failed to pass through were being reset on every save, so configuring
+    // one channel silently wiped the others.
+    pushover_application_token: _s(pushover_application_token, oldNotif.pushover_application_token),
+    pushover_sound:        _s(pushover_sound,        oldNotif.pushover_sound),
+    telegram_chat_id:      _s(telegram_chat_id,      oldNotif.telegram_chat_id),
+    telegram_message_thread_id: _s(telegram_message_thread_id, oldNotif.telegram_message_thread_id),
+    telegram_send_silently: _e(telegram_send_silently, oldNotif.telegram_send_silently),
+    telegram_enabled:      _e(telegram_enabled,      oldNotif.telegram_enabled),
+    pushbullet_access_token: _s(pushbullet_access_token, oldNotif.pushbullet_access_token),
+    pushbullet_enabled:    _e(pushbullet_enabled,    oldNotif.pushbullet_enabled),
+    email_enabled:         _e(email_enabled,         oldNotif.email_enabled),
+    email_address:         _s(newEmailAddress,       oldNotif.email_address),
+    pgp_key:               _s(pgp_key,               oldNotif.pgp_key),
     notify_pending:        _b(notify_pending,        oldNotif.notify_pending),
     notify_auto_approved:  _b(notify_auto_approved,  oldNotif.notify_auto_approved),
     notify_process_failed: _b(notify_process_failed, oldNotif.notify_process_failed),

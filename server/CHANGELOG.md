@@ -4,6 +4,39 @@ All notable changes are documented here. Versioning follows [Semantic Versioning
 
 ---
 
+## v2.7.0 — 2026-09-01
+
+### Added
+
+- **Collapsible navigation rail** — the sticky top navigation bar is replaced by a persistent left rail (`SideRail.jsx`), which collapses between 224px and 64px with the state persisted to `localStorage`. It carries every destination, including the five that previously lived only in the avatar popup (Queue, Watch History, Issues, Settings, Admin). At ≤960px it becomes an off-canvas drawer behind a scrim with body-scroll lock, opened by the existing FAB. Search, the Plex/Jellyfin source toggle and the notification bell move to a new sticky `TopBar.jsx` that frosts once the page scrolls. `NavigationBar.jsx` is gone; its notification and typeahead logic was extracted verbatim into `hooks/useNotifications.js` and `hooks/useNavSearch.js`, and `AppShell.jsx` now owns the chrome.
+- **Home spotlight hero** (`HomeHero.jsx`) — the top recommendation leads the page as full-bleed key art with a slow ken-burns drift, rating, year, genres, runtime, certification, synopsis, the recommendation reason, and Play / Watchlist / Details actions. It costs no extra request: `/api/recommendations` items already carry `art`, `summary`, `genres`, `duration` and `deepLink`. Titles with no landscape art fall back to their poster, blurred and scaled.
+- **Shared-element poster transition** — clicking a poster morphs it into the detail modal's poster via the View Transitions API (`utils/viewTransition.js`). React Router's `viewTransition` prop needs Data/Framework mode, so `document.startViewTransition` is driven directly. Degrades to a plain state update where the API is absent or `prefers-reduced-motion` is set.
+- **Scroll-reveal shelves** (`hooks/useShellMotion.js`) — shelves animate in as they enter the viewport instead of every shelf burning its entrance animation on mount. The opacity gate is scoped to a `data-motion` flag that only JS sets, so content is never left invisible if the observer does not run.
+
+### Changed
+
+- **Cards are now 2:3 tiles with an overlaid info panel** — title, year and rating sit over the artwork, with recommendation reasons revealed on hover. The poster button, action row and info panel are siblings in a bottom-anchored flex stack, so revealing the actions grows the stack upward rather than covering the title. Carousels keep their two-row column flow at 172px.
+- **Site-wide surface pass** — Bricolage Grotesque for display headings, frosted sticky shelf headers, panelled Settings/Reviews/Queue surfaces over the ambient background, unified pill press states, and `focus-visible` accent rings. New tokens (`--rail-w`, `--topbar-h`, `--font-display`, `--dur-slow`, `--ease-emphasized`, a z-index scale, and `color-mix`-derived accent tints) mean a server owner's custom accent still drives everything with no change to `ThemeContext` or `/theme.css`.
+- **Navigation is client-side** — the rail, top bar and user menu use `<Link>`, so moving between pages no longer reloads the application. Scroll reset on path change and a short route enter animation are reintroduced explicitly; the route wrapper toggles a class rather than being keyed on pathname, which would remount each page and refetch its data.
+- **Only one blur layer is composited at a time** — sticky shelf headers frost only while actually pinned, detected with an `IntersectionObserver` that requires `isIntersecting` as well as a sub-1 ratio (without it every shelf below the fold counts as pinned). Card info panels use a gradient scrim rather than `backdrop-filter`, keeping dozens of cards off the blur budget.
+
+- **Spotlight hero on Explore, and rotation on both** — `HomeHero` became `SpotlightHero`, shared by Home and Explore. It cycles up to five top picks on a 7s interval, pausing on hover, on focus-within, and on `visibilitychange`, and not starting at all under `prefers-reduced-motion`. Every slide's artwork stays mounted so advancing never re-fetches an image; the slide transform and the ken-burns zoom live on separate nested elements so they don't fight. Which actions render is derived from the item rather than a variant flag — a library row has `deepLink`/`ratingKey` so it offers Play and Watchlist, an Explore row has neither and offers Request/Notify.
+- **Privacy notice** (`/privacy`) — a public route, readable signed-out and linked from the footer, documenting what is stored, the third parties involved, what other members can see, cookie use, retention, and how to exercise data rights through the server administrator.
+
+### Fixed
+
+- **Per-user email notifications could never fire.** `emailAgent` read `user.email` off the `known_users` record, which has no `email` column, so the send condition was always false. Users now enter a delivery address in **Settings → Notifications → Email**, stored in a new `user_notification_prefs.email_address` column (additive migration). The address is validated for shape and length server-side — the pattern rejects whitespace and `<>,;:"`, which also keeps header-injection shapes out of the mailer — and is deliberately not harvested from the Plex or Jellyfin account.
+- **Saving one notification channel reset the others.** `setUserNotificationPrefs` writes `telegram_*`, `pushbullet_*`, `pushover_application_token`, `pushover_sound`, `email_enabled` and `pgp_key`, but `POST /api/user/settings` never destructured or forwarded them, so every save rewrote them to null/0. The route now reads and preserves each one.
+- **Trailers embed via `youtube-nocookie.com`** rather than `youtube.com`, so YouTube's tracking cookies are not set unless the video is played.
+- **The home page "Show mature content" switch had no effect on most of the page** — Top Picks, Movies, TV Shows and Anime filtered R / TV-MA content unconditionally, so only the two Most Popular rows responded to the toggle. All four are now gated on the setting.
+- **Esc closes the detail modal**, routed through the existing close handler so the trailer iframe is torn down rather than left playing.
+- **An expired session now returns you to the sign-in page.** A 401 from the main API instance clears the user in `AuthContext`, letting `ProtectedRoute` redirect; the admin and auth axios instances are untouched, so an admin-only 401 cannot sign a user out, and public review links still render signed-out.
+- **Invalid nested buttons removed from every card** — the action buttons were descendants of the poster `<button>`, which React reported as a DOM nesting error on each card. `Search.jsx` had four byte-identical copies of the card markup; they are now one `SearchCard` component.
+- **Carousel card widths were inconsistent** — `.carousel-wrap .card-grid` inherited the base grid's explicit `grid-template-columns`, so the first screenful of cards took its width from that and only overflow columns used `grid-auto-columns`. Inline styles on the carousel also silently overrode the ≤600px rule that narrows cards for phones.
+- **Hidden card action buttons could swallow clicks** — the hover overlay was click-through at `opacity: 0`; `pointer-events` is now gated with the reveal.
+
+---
+
 ## v2.6.0 — 2026-08-31
 
 ### Added

@@ -39,7 +39,36 @@
   --dur-med: 0.22s;
   --radius: 8px;
   --radius-lg: 12px;
-  --nav-height: 64px;
+
+  /* ── Shell layout (collapsible rail + top bar) ────────────────
+     --rail is resolved per-shell by .app-shell[data-rail]; the two
+     width tokens below are the endpoints it animates between. */
+  --rail-w: 224px;
+  --rail-w-collapsed: 64px;
+  --topbar-h: 60px;
+
+  /* ── Typography ───────────────────────────────────────────────
+     Display face for headings/hero; Inter stays the body face. */
+  --font-display: 'Bricolage Grotesque', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+
+  /* ── Derived accent tints ─────────────────────────────────────
+     color-mix keeps these in step with a server owner's custom
+     accent with no extra JS — ThemeContext only has to set --accent. */
+  --accent-tint: color-mix(in oklab, var(--accent), transparent 84%);
+  --accent-tint-strong: color-mix(in oklab, var(--accent), transparent 70%);
+  --accent-edge: color-mix(in oklab, var(--accent), transparent 60%);
+
+  /* Motion (see also --ease-out / --ease-spring / --dur-* above) */
+  --dur-slow: 0.4s;
+  --ease-emphasized: cubic-bezier(0.34, 1.2, 0.64, 1);
+
+  /* ── Z-index scale ────────────────────────────────────────────
+     Sticky section headers must clear hover-lifted cards, and the
+     rail must clear both. Dropdowns/modals keep their own 9000+. */
+  --z-card-hover: 2;
+  --z-sticky-header: 20;
+  --z-topbar: 30;
+  --z-rail: 40;
 }
 
 /* ============================================================
@@ -76,38 +105,344 @@ img {
 }
 
 /* ============================================================
-   Navigation
+   App shell — collapsible rail + sticky top bar
    ============================================================ */
-.nav {
+.app-shell {
+  --rail: var(--rail-w);
+  display: flex;
+  min-height: 100vh;
+  isolation: isolate;
+}
+
+.app-shell[data-rail='collapsed'] {
+  --rail: var(--rail-w-collapsed);
+}
+
+.app-main {
+  flex: 1;
+  /* Without this, a wide carousel forces the whole column wider than the
+     viewport instead of scrolling inside its own track */
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Rail ─────────────────────────────────────────────────────
+   Glass lives in effects.css with the other backdrop-filter
+   surfaces, so the blur budget stays visible in one place. */
+.rail {
+  flex: 0 0 var(--rail);
+  width: var(--rail);
+  align-self: flex-start;
   position: sticky;
   top: 0;
-  z-index: 100;
-  isolation: isolate;
-  height: var(--nav-height);
-  background: rgba(15, 15, 15, 0.85);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border-bottom: 1px solid var(--border);
-  overflow-x: clip;
+  height: 100dvh;
+  z-index: var(--z-rail);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 18px 12px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: none;
+  background: var(--glass-bg-heavy);
+  border-right: 1px solid var(--glass-border);
+  transition: flex-basis var(--dur-slow) var(--ease-emphasized),
+    width var(--dur-slow) var(--ease-emphasized);
 }
 
-.nav-inner {
-  max-width: 1400px;
-  margin: 0 auto;
-  padding: 0 24px;
-  height: 100%;
+.rail::-webkit-scrollbar { display: none; }
+
+.rail-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 10px;
+  padding: 2px 6px 18px;
+  min-height: 30px;
 }
 
-.nav-logo {
+.rail-toggle {
+  flex: none;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-secondary);
+  padding: 6px;
+  margin: -6px;
+  border-radius: 8px;
+  line-height: 0;
+  transition: color var(--dur-fast) var(--ease-out),
+    background var(--dur-fast) var(--ease-out);
+}
+
+.rail-toggle:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.rail-brand {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
+}
+
+.rail-brand-mark {
+  flex: none;
+  color: var(--accent);
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
+.rail-brand-text {
+  font-family: var(--font-display);
   font-weight: 700;
-  font-size: 1.2rem;
+  font-size: 1.12rem;
   letter-spacing: -0.02em;
+  color: var(--text-primary);
+}
+
+.rail-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.rail-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 10px 4px;
+}
+
+.rail-link {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding: 10px 11px;
+  border-radius: 9px;
+  font-size: 0.87rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  transition: background var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
+}
+
+.rail-link:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-primary);
+}
+
+.rail-link.active {
+  background: var(--accent-tint);
+  color: var(--text-primary);
+}
+
+/* Flush against the rail edge, not the item's rounded box */
+.rail-link.active::before {
+  content: '';
+  position: absolute;
+  left: -12px;
+  top: 50%;
+  width: 3px;
+  height: 18px;
+  margin-top: -9px;
+  border-radius: 0 3px 3px 0;
+  background: var(--accent);
+}
+
+.rail-icon {
+  flex: none;
+  color: var(--text-muted);
+  transition: color var(--dur-fast) var(--ease-out);
+}
+
+.rail-link:hover .rail-icon { color: var(--text-secondary); }
+.rail-link.active .rail-icon { color: var(--accent); }
+
+.rail-label {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  transition: opacity 0.18s var(--ease-out);
+}
+
+.app-shell[data-rail='collapsed'] .rail-label {
+  opacity: 0;
+  width: 0;
+  pointer-events: none;
+}
+
+.app-shell[data-rail='collapsed'] .rail-brand { display: none; }
+.app-shell[data-rail='collapsed'] .rail-head { justify-content: center; padding-inline: 0; }
+
+.app-shell[data-rail='collapsed'] .rail-link,
+.app-shell[data-rail='collapsed'] .rail-user {
+  justify-content: center;
+  gap: 0;
+  padding-inline: 0;
+}
+
+.rail-user {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 9px 10px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid transparent;
+  cursor: pointer;
+  font: inherit;
+  color: var(--text-primary);
+  text-align: left;
+  white-space: nowrap;
+  transition: background var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out);
+}
+
+.rail-user:hover,
+.rail-user.open {
+  background: rgba(255, 255, 255, 0.09);
+  border-color: var(--border-hover);
+}
+
+.rail-user-avatar {
+  width: 30px;
+  height: 30px;
+  flex: none;
+  border-radius: 50%;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent);
+  color: #000;
+  font-weight: 700;
+  font-size: 0.8rem;
+}
+
+.rail-user-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.rail-user-name {
+  font-size: 0.82rem;
+  font-weight: 500;
+}
+
+/* Scrim behind the mobile drawer (shown at the ≤960px breakpoint) */
+.rail-scrim {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: calc(var(--z-rail) - 1);
+  background: rgba(0, 0, 0, 0.5);
+  animation: scrim-in 0.2s var(--ease-out);
+}
+
+@keyframes scrim-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* ── Top bar ──────────────────────────────────────────────────
+   Transparent at rest so it reads as part of the page (and, from
+   Phase 2, of the Home hero); frosts once content scrolls under. */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-topbar);
+  flex: none;
+  height: var(--topbar-h);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 24px;
+  background: transparent;
+  border-bottom: 1px solid transparent;
+  transition: background var(--dur-med) var(--ease-out),
+    border-color var(--dur-med) var(--ease-out);
+}
+
+.topbar.is-scrolled {
+  background: var(--glass-bg-heavy);
+  border-bottom-color: var(--glass-border);
+}
+
+/* Desktop keeps the wordmark in the rail; the mobile drawer is off-canvas,
+   so the bar carries it there instead (see the ≤960px block) */
+.topbar-brand {
+  display: none;
+  align-items: center;
+  gap: 8px;
+}
+
+.topbar-brand-mark {
+  color: var(--accent);
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
+.topbar-brand-text {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.1rem;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-left: auto;
+}
+
+.topbar-bell {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 8px;
+  color: var(--text-secondary);
+  transition: color var(--dur-fast) var(--ease-out),
+    background var(--dur-fast) var(--ease-out);
+}
+
+.topbar-bell:hover {
+  color: var(--accent);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.topbar-bell-count {
+  background: #ff5252;
+  color: #fff;
+  font-size: 0.65rem;
+  font-weight: 700;
+  line-height: 1.4;
+  padding: 1px 5px;
+  border-radius: 10px;
+  min-width: 16px;
+  text-align: center;
+}
+
+/* Shared avatar fallback (rail, FAB, user menu) */
+.avatar-initial {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  font-weight: 700;
+  line-height: 1;
 }
 
 .logo-icon {
@@ -118,88 +453,6 @@ img {
 
 .logo-text {
   color: var(--text-primary);
-}
-
-.nav-user {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.nav-avatar {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  object-fit: cover;
-  border: 2px solid var(--accent);
-}
-
-.nav-avatar-placeholder {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  background: var(--accent);
-  color: #000;
-  font-weight: 700;
-  font-size: 0.875rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.nav-username {
-  font-size: 0.875rem;
-  color: var(--text-secondary);
-  font-weight: 500;
-}
-
-/* Nav tabs — prominent Home / Diskovarr View links */
-.nav-tabs {
-  display: flex;
-  align-items: stretch;
-  height: 100%;
-  gap: 0;
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
-}
-
-.nav-tab {
-  display: flex;
-  align-items: center;
-  padding: 0 22px;
-  font-size: 0.9rem;
-  font-weight: 600;
-  color: var(--text-secondary);
-  border-bottom: 3px solid transparent;
-  transition: all 0.2s;
-  letter-spacing: 0.01em;
-}
-
-.nav-tab:hover {
-  color: var(--text-primary);
-  background: var(--accent-glow);
-}
-
-.nav-tab.active {
-  color: var(--accent);
-  border-bottom-color: var(--accent);
-}
-
-.nav-logout {
-  font-size: 0.8rem;
-  color: var(--text-muted);
-  padding: 4px 10px;
-  border: 1px solid var(--border);
-  border-radius: 20px;
-  transition: all 0.2s;
-}
-
-.nav-logout:hover {
-  color: var(--text-primary);
-  border-color: var(--border-hover);
-  background: var(--bg-elevated);
 }
 
 /* ── Floating action button (mobile only, hidden on desktop) ─── */
@@ -230,71 +483,10 @@ img {
   display: block;
 }
 
-.nav-fab-initial {
-  font-size: 1.1rem;
-  font-weight: 700;
-  color: var(--accent);
-  line-height: 1;
-}
-
 .nav-fab.open,
 .nav-fab:hover {
   border-color: var(--accent);
   box-shadow: var(--shadow-2), 0 0 0 2px var(--accent-border);
-}
-
-/* ── FAB popup menu (desktop: drops down from user button) ────── */
-.nav-fab-menu {
-  display: block;
-  position: fixed;
-  top: calc(var(--nav-height) + 6px);
-  bottom: auto;
-  right: 16px;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-3);
-  min-width: 210px;
-  z-index: 300;
-  overflow: hidden;
-  opacity: 0;
-  transform: translateY(-8px) scale(0.96);
-  transform-origin: top right;
-  transition: opacity 0.2s ease, transform 0.2s ease;
-  pointer-events: none;
-}
-
-.nav-fab-menu.open {
-  opacity: 1;
-  transform: translateY(0) scale(1);
-  pointer-events: auto;
-}
-
-/* ── Desktop user avatar button ──────────────────────────────── */
-.nav-user-btn {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  border: 2px solid var(--accent-border);
-  background: var(--bg-elevated);
-  cursor: pointer;
-  overflow: hidden;
-  padding: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: border-color 0.2s, box-shadow 0.2s;
-  flex-shrink: 0;
-}
-.nav-user-btn img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-.nav-user-btn.open,
-.nav-user-btn:hover {
-  border-color: var(--accent);
 }
 
 /* ── Nav library-source toggle (Plex / Jellyfin) ───────────────── */
@@ -514,18 +706,24 @@ img {
   flex-shrink: 0;
 }
 
-.nav-fab-menu-avatar-placeholder {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
+/* Initial fallback shares the <img> box so the two states are interchangeable */
+.avatar-initial.nav-fab-menu-avatar {
   background: var(--accent);
   color: #000;
-  font-weight: 700;
   font-size: 0.875rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
+}
+
+.avatar-initial.nav-fab-avatar {
+  background: var(--accent);
+  color: #000;
+  font-size: 1.1rem;
+}
+
+.nav-fab-avatar {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 
 .nav-fab-menu-username {
@@ -563,53 +761,83 @@ img {
   font-size: inherit;
 }
 
-/* ── Overlay (closes menu on tap outside) ────────────────────── */
-.nav-overlay {
-  display: none;
+/* ── User menu (anchored above the rail's user button) ───────── */
+.user-menu {
   position: fixed;
-  inset: 0;
-  z-index: 250;
+  min-width: 220px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-3);
+  z-index: 9002;
+  overflow: hidden;
+  transform-origin: bottom left;
+  animation: user-menu-in 0.18s var(--ease-spring);
 }
 
-.nav-overlay.open {
-  display: block;
+@keyframes user-menu-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.96); }
+  to { opacity: 1; transform: none; }
 }
 
 /* ── Mobile breakpoint (≤960px covers wide phones like Galaxy Fold unfolded) ── */
 @media (max-width: 960px) {
   :root {
-    --nav-height: 54px;
+    --topbar-h: 54px;
   }
 
-  .nav-inner {
+  /* Rail leaves the flow and becomes a drawer opened by the FAB */
+  .rail {
+    position: fixed;
+    left: 0;
+    top: 0;
+    height: 100dvh;
+    width: var(--rail-w);
+    flex: none;
+    transform: translateX(-100%);
+    box-shadow: var(--shadow-3);
+    transition: transform var(--dur-med) var(--ease-out);
+    /* Near-opaque here: unlike the desktop rail, which sits beside content,
+       the drawer sits over it, so it must stay legible even where
+       backdrop-filter doesn't composite (Firefox with the pref off, GPU
+       blocklisted machines, older Safari). */
+    background: rgba(12, 12, 12, 0.97);
+  }
+
+  .rail.drawer-open {
+    transform: none;
+  }
+
+  .app-shell { --rail: 0px; }
+
+  .rail-scrim { display: block; }
+
+  /* The drawer is always labelled, even if the desktop rail was left collapsed */
+  .app-shell[data-rail='collapsed'] .rail-label { opacity: 1; width: auto; }
+  .app-shell[data-rail='collapsed'] .rail-brand { display: flex; }
+  .app-shell[data-rail='collapsed'] .rail-head { justify-content: flex-start; padding-inline: 6px; }
+  .app-shell[data-rail='collapsed'] .rail-link {
+    justify-content: flex-start;
+    gap: 13px;
+    padding-inline: 11px;
+  }
+  .app-shell[data-rail='collapsed'] .rail-user {
+    justify-content: flex-start;
+    gap: 11px;
+    padding-inline: 10px;
+  }
+
+  .topbar {
     padding: 0 14px;
   }
 
-  /* Show nav-user on mobile (contains bell) but hide desktop-only elements */
-  .nav-user {
+  .topbar-brand {
     display: flex;
-  }
-
-  .nav-user-btn {
-    display: none;
   }
 
   /* Show FAB */
   .nav-fab {
     display: flex;
-  }
-
-  /* FAB menu: mobile slides up from bottom-right */
-  .nav-fab-menu {
-    display: block;
-    top: auto;
-    bottom: 88px;
-    transform-origin: bottom right;
-    transform: translateY(12px) scale(0.96);
-  }
-
-  .nav-fab-menu.open {
-    transform: translateY(0) scale(1);
   }
 
   /* Nav search: collapse to icon on mobile */
@@ -635,7 +863,7 @@ img {
     padding: 0 12px;
     margin: 0;
     max-width: none;
-    height: var(--nav-height);
+    height: var(--topbar-h);
     flex: none;
   }
   .nav-search-wrap.expanded .nav-search-toggle { display: none; }
@@ -644,33 +872,14 @@ img {
     width: 100%;
   }
   .nav-search-wrap.expanded .nav-search-dropdown {
-    top: calc(var(--nav-height) + 2px);
+    top: calc(var(--topbar-h) + 2px);
     left: 0;
     right: 0;
     border-radius: 0 0 10px 10px;
   }
 
-  /* Tabs: scrollable strip between logo and FAB */
-  .nav-tabs {
-    position: static;
-    transform: none;
-    flex: 1;
-    justify-content: flex-start;
-    overflow-x: auto;
-    overflow-y: hidden;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
-  }
-  .nav-tabs::-webkit-scrollbar { display: none; }
-
-  .nav-tab {
-    padding: 0 14px;
-    font-size: 0.8rem;
-    white-space: nowrap;
-    flex-shrink: 0;
-  }
-
-  /* Hide logo text, show just the ◈ symbol */
+  /* Applies to the login/callback/admin wordmarks — the shell's own brand
+     text is .topbar-brand-text and stays visible here */
   .logo-text {
     display: none;
   }
@@ -686,18 +895,266 @@ img {
 .main-content {
   max-width: 1400px;
   margin: 0 auto;
-  padding: 32px 24px 80px;
+  padding: 24px 24px 80px;
+  /* Fills the shell column so the footer sits at the bottom on short pages.
+     Ignored on the signed-out screens, which have no flex parent. */
+  flex: 1 0 auto;
+  width: 100%;
+}
+
+@media (max-width: 960px) {
+  .main-content {
+    padding: 20px 14px 88px;
+  }
 }
 
 /* ============================================================
-   Hero
+   Spotlight hero (Home + Explore)
+   ============================================================ */
+/* Pulled up by the top bar's height so the key art runs behind it; the bar is
+   transparent until scrolled, which is what produces the cinematic bleed. */
+.spotlight {
+  position: relative;
+  margin-top: calc(-1 * var(--topbar-h));
+  min-height: 520px;
+  display: flex;
+  align-items: flex-end;
+  overflow: hidden;
+}
+
+.spotlight-loading {
+  background: linear-gradient(100deg, var(--bg-secondary), var(--bg-elevated), var(--bg-secondary));
+  background-size: 200% 100%;
+  animation: shimmer 1.6s infinite;
+}
+
+.spotlight-stage {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+/* One layer per pick, all mounted so advancing never re-fetches artwork.
+   The wrapper owns the horizontal slide; the art inside owns the zoom, which
+   is why they are two elements rather than one. */
+.spotlight-slide {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transform: translateX(7%);
+  transition: opacity 0.9s var(--ease-out), transform 0.9s var(--ease-out);
+  will-change: opacity, transform;
+}
+
+.spotlight-slide.is-active {
+  opacity: 1;
+  transform: none;
+}
+
+/* Slides already shown exit to the left, so the run reads in one direction */
+.spotlight-slide.is-prev {
+  transform: translateX(-7%);
+}
+
+.spotlight-art {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center 20%;
+  animation: spotlight-zoom 24s ease-in-out infinite alternate;
+}
+
+/* Poster fallback: portrait art stretched across a landscape box needs the blur
+   to hide the upscaling, and a bump in scale to cover the blur's soft edges. */
+.spotlight-art-poster {
+  filter: blur(28px) saturate(120%);
+  transform: scale(1.15);
+}
+
+@keyframes spotlight-zoom {
+  from { transform: scale(1.04); }
+  to { transform: scale(1.13); }
+}
+
+.spotlight-scrim {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(90deg, rgba(10, 10, 11, 0.94) 0%, rgba(10, 10, 11, 0.6) 42%, transparent 82%),
+    linear-gradient(0deg, var(--bg-primary) 1%, transparent 52%);
+}
+
+.spotlight-body {
+  position: relative;
+  max-width: 620px;
+  padding: 0 24px 44px;
+  margin-left: max(0px, calc((100% - 1400px) / 2));
+}
+
+.spotlight-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 12px;
+}
+
+.spotlight-rule {
+  width: 24px;
+  height: 1px;
+  background: var(--accent);
+}
+
+.spotlight-title {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: clamp(2.1rem, 5vw, 3.4rem);
+  line-height: 0.98;
+  letter-spacing: -0.03em;
+  margin-bottom: 14px;
+  color: #fff;
+}
+
+.spotlight-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 11px;
+  font-size: 0.82rem;
+  color: rgba(255, 255, 255, 0.75);
+  margin-bottom: 12px;
+}
+
+.spotlight-score {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.spotlight-cert {
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 4px;
+  padding: 0 6px;
+  font-size: 0.72rem;
+}
+
+.spotlight-overview {
+  font-size: 0.9rem;
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.72);
+  margin-bottom: 10px;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+
+.spotlight-reason {
+  font-size: 0.78rem;
+  color: var(--accent);
+  margin-bottom: 18px;
+}
+
+.spotlight-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 11px;
+}
+
+.spotlight-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: var(--radius);
+  padding: 11px 22px;
+  font-family: inherit;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-spring);
+}
+
+.spotlight-btn:active { transform: scale(0.97); }
+
+.spotlight-btn-play {
+  background: var(--accent);
+  color: #000;
+  font-weight: 700;
+}
+
+.spotlight-btn-play:hover { background: var(--accent-hover); }
+
+.spotlight-btn-ghost {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.spotlight-btn-ghost:hover { background: rgba(255, 255, 255, 0.2); }
+
+.spotlight-btn-ghost.active {
+  background: var(--accent-tint-strong);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.spotlight-dots {
+  position: absolute;
+  right: 28px;
+  bottom: 44px;
+  display: flex;
+  gap: 8px;
+  z-index: 2;
+}
+
+.spotlight-dot {
+  width: 28px;
+  height: 4px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.28);
+  cursor: pointer;
+  transition: background var(--dur-med) var(--ease-out),
+    width var(--dur-med) var(--ease-out);
+}
+
+.spotlight-dot:hover { background: rgba(255, 255, 255, 0.5); }
+
+.spotlight-dot.is-active {
+  width: 44px;
+  background: var(--accent);
+}
+
+@media (max-width: 960px) {
+  .spotlight {
+    min-height: 400px;
+  }
+  .spotlight-body {
+    padding: 0 14px 32px;
+  }
+  .spotlight-dots {
+    right: 14px;
+    bottom: 16px;
+  }
+}
+
+/* ============================================================
+   Page header
    ============================================================ */
 .hero {
-  margin-bottom: 48px;
+  margin-bottom: 40px;
 }
 
 .hero-title {
-  font-size: clamp(1.75rem, 4vw, 2.5rem);
+  font-family: var(--font-display);
+  font-size: clamp(1.75rem, 4vw, 2.4rem);
   font-weight: 700;
   letter-spacing: -0.03em;
   line-height: 1.2;
@@ -847,34 +1304,44 @@ img {
    Sections
    ============================================================ */
 .section {
-  margin-bottom: 56px;
+  margin-bottom: 48px;
 }
 
+/* Frosted pill that pins under the top bar while its shelf scrolls past.
+   Sticks relative to the viewport — the horizontal card-grid scroller is a
+   sibling, so it doesn't become the containing scroll box. */
 .section-header {
+  position: sticky;
+  top: var(--topbar-h);
+  z-index: var(--z-sticky-header);
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-bottom: 20px;
-  padding-bottom: 14px;
-  border-bottom: 1px solid var(--border);
+  margin-bottom: 18px;
+  padding: 12px 16px;
+  border-radius: var(--radius-lg);
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
 }
 
 .section-title {
-  font-size: 1.5rem;
+  font-family: var(--font-display);
+  font-size: 1.25rem;
   font-weight: 700;
-  letter-spacing: -0.03em;
+  letter-spacing: -0.02em;
 }
 
 .section-badge {
-  font-size: 0.7rem;
+  font-size: 0.62rem;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.1em;
   color: var(--accent);
-  background: var(--accent-dim);
-  border: 1px solid var(--accent-border);
-  padding: 2px 8px;
+  background: var(--accent-tint);
+  border: 1px solid var(--accent-edge);
+  padding: 3px 9px;
   border-radius: 20px;
+  white-space: nowrap;
 }
 
 .section-badge.badge-upcoming {
@@ -928,9 +1395,13 @@ img {
 
 .carousel-wrap .card-grid {
   display: grid;
+  /* Clear the base grid's explicit columns. Left set, the first screenful of
+     cards takes their width from it and only the overflow columns use
+     grid-auto-columns, giving the track two different card widths. */
+  grid-template-columns: none;
   grid-template-rows: repeat(2, auto);
   grid-auto-flow: column;
-  grid-auto-columns: 160px;
+  grid-auto-columns: 172px;
   overflow-x: auto;
   scroll-snap-type: x mandatory;
   -webkit-overflow-scrolling: touch;
@@ -1018,13 +1489,41 @@ img {
 /* ============================================================
    Cards
    ============================================================ */
+/* The poster fills the card; the action row and info panel are in-flow
+   children pinned to the bottom, so revealing the actions on hover grows the
+   stack upward instead of overlapping the title. */
 .card {
   position: relative;
-  border-radius: var(--radius);
+  aspect-ratio: 2 / 3;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  border-radius: var(--radius-lg);
   overflow: hidden;
   background: var(--bg-secondary);
+  box-shadow: var(--shadow-1);
   transition: transform 0.25s ease, box-shadow 0.25s ease, opacity 0.3s ease;
   cursor: pointer;
+}
+
+/* Scrim that keeps the title legible over any poster. Grows on hover to cover
+   the taller stack (actions + reason tags). */
+.card::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 60%;
+  z-index: 1;
+  pointer-events: none;
+  background: linear-gradient(
+    to top,
+    rgba(8, 9, 11, 0.94) 0%,
+    rgba(8, 9, 11, 0.74) 42%,
+    transparent 100%
+  );
+  transition: height var(--dur-med) var(--ease-out);
 }
 
 /* Lift gated to real pointers so touch devices don't get sticky hover */
@@ -1032,17 +1531,23 @@ img {
   .card:hover {
     transform: translateY(-4px) scale(1.02);
     box-shadow: var(--shadow-hover);
-    z-index: 2;
+    z-index: var(--z-card-hover);
+  }
+
+  .card:hover::after,
+  .card:focus-within::after {
+    height: 82%;
   }
 }
 
 .card-poster-link {
+  position: absolute;
+  inset: 0;
   display: block;
-  position: relative;
-  aspect-ratio: 2 / 3;
   overflow: hidden;
   background: var(--bg-elevated);
   width: 100%;
+  height: 100%;
   padding: 0;
   border: none;
   cursor: pointer;
@@ -1073,7 +1578,7 @@ img {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 3;
+  z-index: 4;
   pointer-events: none;
   box-shadow: 0 1px 4px rgba(0,0,0,0.4);
 }
@@ -1099,27 +1604,26 @@ img {
 }
 .modal-watched-pill svg { stroke: #4ade80; flex-shrink: 0; }
 
-/* Poster overlay */
+/* Action row — collapsed at rest, expands above the info panel on hover.
+   pointer-events is gated too, so the hidden buttons can't swallow clicks
+   meant for the poster underneath. */
 .card-overlay {
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(
-    to bottom,
-    transparent 40%,
-    rgba(0, 0, 0, 0.75) 75%,
-    rgba(0, 0, 0, 0.92) 100%
-  );
+  position: relative;
+  z-index: 3;
+  padding: 0 10px 6px;
+  max-height: 0;
   opacity: 0;
-  transition: opacity 0.25s ease;
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-end;
-  padding: 12px;
-  gap: 6px;
+  overflow: hidden;
+  pointer-events: none;
+  transition: max-height var(--dur-med) var(--ease-out),
+    opacity var(--dur-med) var(--ease-out);
 }
 
-.card:hover .card-overlay {
+.card:hover .card-overlay,
+.card:focus-within .card-overlay {
+  max-height: 48px;
   opacity: 1;
+  pointer-events: auto;
 }
 
 .card-overlay-actions {
@@ -1171,16 +1675,20 @@ img {
   border-color: rgba(255, 60, 60, 0.4);
 }
 
-/* Card info (below poster) */
+/* Card info — overlaid on the foot of the poster.
+   pointer-events:none so clicks fall through to the poster button beneath. */
 .card-info {
-  padding: 10px 10px 12px;
+  position: relative;
+  z-index: 3;
+  padding: 0 10px 10px;
+  pointer-events: none;
 }
 
 .card-title {
-  font-size: 0.82rem;
+  font-size: 0.83rem;
   font-weight: 600;
   line-height: 1.3;
-  margin-bottom: 4px;
+  color: #fff;
   overflow: hidden;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -1189,14 +1697,15 @@ img {
 
 .card-meta {
   font-size: 0.72rem;
-  color: var(--text-muted);
+  color: rgba(255, 255, 255, 0.6);
   display: flex;
   align-items: center;
   gap: 6px;
+  margin-top: 3px;
 }
 
 .card-year {
-  color: var(--text-secondary);
+  color: rgba(255, 255, 255, 0.65);
 }
 
 .card-rating {
@@ -1210,6 +1719,28 @@ img {
   flex-wrap: wrap;
   gap: 4px;
   margin-top: 6px;
+}
+
+/* On pointer devices the reasons stay tucked away until hover, so the resting
+   card is just art + title. Touch devices keep them visible — there is no
+   hover state there to reveal them. */
+@media (hover: hover) and (pointer: fine) {
+  .card-reasons {
+    margin-top: 0;
+    max-height: 0;
+    opacity: 0;
+    overflow: hidden;
+    transition: max-height var(--dur-med) var(--ease-out),
+      opacity var(--dur-med) var(--ease-out),
+      margin-top var(--dur-med) var(--ease-out);
+  }
+
+  .card:hover .card-reasons,
+  .card:focus-within .card-reasons {
+    max-height: 56px;
+    opacity: 1;
+    margin-top: 6px;
+  }
 }
 
 .reason-tag {
@@ -1315,14 +1846,17 @@ img {
   pointer-events: none;
 }
 
+/* Fills the tile rather than setting its own ratio — .card already is 2:3 */
 .skeleton-poster {
-  aspect-ratio: 2 / 3;
-  width: 100%;
+  position: absolute;
+  inset: 0;
   border-radius: 0;
 }
 
 .skeleton-info {
-  padding: 10px;
+  position: relative;
+  z-index: 3;
+  padding: 0 10px 12px;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -2383,6 +2917,7 @@ img {
   padding: 3px 7px;
   border-radius: 4px;
   pointer-events: none;
+  z-index: 4;
   backdrop-filter: blur(4px);
 }
 
@@ -2396,6 +2931,7 @@ img {
   position: absolute;
   top: 8px;
   left: 8px;
+  z-index: 4;
   background: rgba(37, 99, 235, 0.8);
   color: #93c5fd;
   font-size: 0.65rem;

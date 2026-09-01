@@ -10,6 +10,7 @@ import { useToast } from '../context/ToastContext'
 import FilterControls from '../components/FilterControls'
 import { SCORE_VALUES, FACET_FIELDS } from '../components/filterConstants'
 import { useTranslation } from 'react-i18next'
+import { withViewTransition } from '../utils/viewTransition'
 
 const emptyTags = () => Object.fromEntries(FACET_FIELDS.map(f => [f.field, new Set()]))
 
@@ -202,7 +203,8 @@ export default function Discover() {
     }
   }, [toastSuccess, toastError, t])
 
-  const handleOpenModal = useCallback((item) => setSelectedItem(item), [])
+  // Morphs the clicked poster into the modal's poster where supported
+  const handleOpenModal = useCallback((item) => withViewTransition(() => setSelectedItem(item)), [])
 
   return (
     <>

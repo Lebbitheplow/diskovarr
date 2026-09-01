@@ -4,7 +4,9 @@
 .wrapped-page {
   max-width: 880px;
   margin: 0 auto;
-  padding: calc(var(--nav-height) + 32px) 20px 60px;
+  /* No nav-height reservation any more — the shell's top bar is in normal
+     flow above this, so it no longer overlaps the page. */
+  padding: 32px 20px 60px;
 }
 
 .wrapped-header {
