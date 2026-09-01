@@ -359,6 +359,9 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
     return () => { active = false }
   }, [item?.tmdbId, item?.mediaType, item?.type, credits, creditsLoading, hasItemRatings, fetchedRatings])
 
+  // Set when a popstate closed us, so the unmount cleanup doesn't pop again.
+  const closedByPopRef = useRef(false)
+
   const handleClose = useCallback(() => {
     if (trailerRef.current) {
       trailerRef.current.innerHTML = ''
@@ -374,6 +377,25 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
   }, [handleClose])
+
+  // Give the modal its own history entry so Android's Back gesture and the
+  // browser's back button close it instead of leaving the page. Closing by any
+  // other route calls history.back(), which pops that entry and lands here too,
+  // so both paths converge on a single close.
+  useEffect(() => {
+    window.history.pushState({ diskovarrModal: true }, '')
+    const onPop = () => { closedByPopRef.current = true; handleClose() }
+    window.addEventListener('popstate', onPop)
+    return () => {
+      window.removeEventListener('popstate', onPop)
+      // Unmounted without the entry being popped (route change while open):
+      // drop it so Back doesn't have to be pressed twice to leave.
+      if (!closedByPopRef.current) window.history.back()
+    }
+    // Mounts once per modal — handleClose only changes with onClose, which the
+    // pages keep stable, and re-running this would push duplicate entries.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   if (!item) return null
 

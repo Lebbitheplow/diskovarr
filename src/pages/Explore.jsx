@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import {
   exploreApi,
   watchlistApi,
+  blacklistApi,
 } from '../services/api'
 import Carousel from '../components/Carousel'
 import ExploreSection from '../components/ExploreSection'
@@ -14,6 +15,7 @@ import RequestModal from '../components/RequestModal'
 import { useToast } from '../context/ToastContext'
 import { useTranslation } from 'react-i18next'
 import { withViewTransition } from '../utils/viewTransition'
+import { capturePositions, restorePositions } from '../utils/listRestore'
 
 const GENRE_META = {
   'Action':          { gradient: 'linear-gradient(145deg, #7f1d1d 0%, #c2410c 60%, #ea580c 100%)', emoji: '💥' },
@@ -41,7 +43,7 @@ const MATURE_RATINGS = new Set(['r', 'tv-ma', 'nc-17', 'x', 'nr'])
 
 export default function Explore() {
   const { t } = useTranslation()
-  const { error: toastError, success: toastSuccess } = useToast()
+  const { error: toastError, success: toastSuccess, withAction: toastUndo } = useToast()
 
   const [recommendations, setRecommendations] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -232,13 +234,16 @@ export default function Explore() {
     }
   }, [toastSuccess, toastError, t])
 
+  // Offered back as an undo rather than guarded by a confirm — see Home.
   const handleDismiss = useCallback(async (item) => {
+    const matches = (i) => i.tmdbId === item.tmdbId && i.mediaType === item.mediaType
+    const positions = capturePositions(recommendations, matches)
     try {
       await exploreApi.dismissRecommendation(item.tmdbId, item.mediaType)
       setSelectedItem(prev => prev && prev.tmdbId === item.tmdbId ? null : prev)
       setRecommendations(prev => {
         if (!prev) return prev
-        const filterItems = (items) => items.filter(i => i.tmdbId !== item.tmdbId || i.mediaType !== item.mediaType)
+        const filterItems = (items) => items.filter(i => !matches(i))
         return {
           topPicks: filterItems(prev.topPicks || []),
           movies: filterItems(prev.movies || []),
@@ -250,11 +255,19 @@ export default function Explore() {
           upcomingTV: filterItems(prev.upcomingTV || []),
         }
       })
-      toastSuccess(t('Not interested'))
+      toastUndo(t('Not interested'), t('Undo'), async () => {
+        try {
+          await blacklistApi.removeExploreFromBlacklist(item.tmdbId, item.mediaType)
+          setRecommendations(prev => restorePositions(prev, positions, item, matches))
+          toastSuccess(t('Restored'))
+        } catch (e) {
+          toastError(t('Restore failed'))
+        }
+      })
     } catch (e) {
       toastError(t('Dismiss failed'))
     }
-  }, [toastSuccess, toastError, t])
+  }, [recommendations, toastUndo, toastSuccess, toastError, t])
 
   const openRequestDialog = useCallback((item) => {
     setRequestItem(item)

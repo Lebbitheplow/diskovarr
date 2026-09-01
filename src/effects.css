@@ -172,14 +172,14 @@
 [data-motion='on'] .card-grid.is-revealed .card:nth-child(n + 12) { animation-delay: 0.36s; }
 
 /* ── Snappiness retunes ─────────────────────────────────────── */
-.nav-fab {
-  transition: border-color var(--dur-fast) var(--ease-out),
-    box-shadow var(--dur-fast) var(--ease-out),
+.topbar-menu {
+  transition: color var(--dur-fast) var(--ease-out),
+    background var(--dur-fast) var(--ease-out),
     transform var(--dur-med) var(--ease-spring);
 }
 
-.nav-fab:active {
-  transform: scale(0.92);
+.topbar-menu:active {
+  transform: scale(0.9);
 }
 
 .modal-backdrop {
@@ -601,4 +601,39 @@
 
 @media (max-width: 960px) {
   .legal-topbar { padding: 0 14px; }
+}
+
+/* ── Toast with an action (undo) ──────────────────────────────── */
+.toast-has-action {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.toast-message { flex: 1; }
+
+.toast-action {
+  flex: none;
+  background: none;
+  border: none;
+  padding: 2px 4px;
+  margin: -2px -4px;
+  border-radius: 6px;
+  font: inherit;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 0.74rem;
+  color: var(--accent);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out);
+}
+
+.toast-action:hover { background: var(--accent-tint); }
+.toast-action:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* ── Menu button matches the rail's own toggle ────────────────── */
+.topbar-menu:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }

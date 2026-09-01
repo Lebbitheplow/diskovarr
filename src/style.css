@@ -395,6 +395,28 @@ img {
   color: var(--text-primary);
 }
 
+.topbar-menu {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  margin-left: -6px;
+  padding: 8px;
+  background: none;
+  border: none;
+  border-radius: 8px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  line-height: 0;
+  transition: color var(--dur-fast) var(--ease-out),
+    background var(--dur-fast) var(--ease-out);
+}
+
+.topbar-menu:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.06);
+}
+
 .topbar-actions {
   display: flex;
   align-items: center;
@@ -453,40 +475,6 @@ img {
 
 .logo-text {
   color: var(--text-primary);
-}
-
-/* ── Floating action button (mobile only, hidden on desktop) ─── */
-.nav-fab {
-  display: none;
-  position: fixed;
-  bottom: 24px;
-  right: 20px;
-  width: 52px;
-  height: 52px;
-  border-radius: 50%;
-  border: 2px solid var(--accent-border);
-  background: var(--bg-elevated);
-  box-shadow: var(--shadow-2), 0 0 0 1px var(--accent-border);
-  cursor: pointer;
-  overflow: hidden;
-  z-index: 300;
-  padding: 0;
-  align-items: center;
-  justify-content: center;
-  transition: border-color 0.2s, box-shadow 0.2s;
-}
-
-.nav-fab img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-
-.nav-fab.open,
-.nav-fab:hover {
-  border-color: var(--accent);
-  box-shadow: var(--shadow-2), 0 0 0 2px var(--accent-border);
 }
 
 /* ── Nav library-source toggle (Plex / Jellyfin) ───────────────── */
@@ -713,19 +701,6 @@ img {
   font-size: 0.875rem;
 }
 
-.avatar-initial.nav-fab-avatar {
-  background: var(--accent);
-  color: #000;
-  font-size: 1.1rem;
-}
-
-.nav-fab-avatar {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-
 .nav-fab-menu-username {
   font-size: 0.875rem;
   font-weight: 600;
@@ -835,8 +810,7 @@ img {
     display: flex;
   }
 
-  /* Show FAB */
-  .nav-fab {
+  .topbar-menu {
     display: flex;
   }
 
@@ -1619,11 +1593,17 @@ img {
     opacity var(--dur-med) var(--ease-out);
 }
 
-.card:hover .card-overlay,
-.card:focus-within .card-overlay {
-  max-height: 48px;
-  opacity: 1;
-  pointer-events: auto;
+/* Pointer devices only. Touch browsers apply :hover on tap, which used to open
+   this row *underneath the finger* — and because the stack is bottom-anchored,
+   revealing it pushes content up so the tap landed on Not Interested instead of
+   the poster. Touch users get the same actions from the detail modal. */
+@media (hover: hover) and (pointer: fine) {
+  .card:hover .card-overlay,
+  .card:focus-within .card-overlay {
+    max-height: 48px;
+    opacity: 1;
+    pointer-events: auto;
+  }
 }
 
 .card-overlay-actions {

@@ -18,6 +18,7 @@ import { useToast } from '../context/ToastContext'
 import { useAuth } from '../context/AuthContext'
 import { useTranslation } from 'react-i18next'
 import { withViewTransition } from '../utils/viewTransition'
+import { capturePositions, restorePositions } from '../utils/listRestore'
 
 const MATURE_RATINGS = new Set(['r', 'tv-ma', 'nc-17', 'x', 'nr'])
 
@@ -37,7 +38,7 @@ function setMatureEnabled(checked) {
 export default function Home() {
   const { t } = useTranslation()
   const [searchParams] = useSearchParams()
-  const { error: toastError, success: toastSuccess } = useToast()
+  const { error: toastError, success: toastSuccess, withAction: toastUndo } = useToast()
   const { user } = useAuth()
 
   const [recommendations, setRecommendations] = useState(null)
@@ -195,24 +196,37 @@ export default function Home() {
     }
   }, [watchlistCache, toastSuccess, toastError, t])
 
+  // Dismissing is easy to do by accident, so it is offered back as an undo
+  // rather than guarded by a confirm dialog — the restore endpoint already
+  // exists, and a prompt on every dismiss punishes deliberate use.
   const handleDismiss = useCallback(async (item) => {
+    const key = item.ratingKey
+    const matches = (i) => i.ratingKey === key
+    const positions = capturePositions(recommendations, matches)
     try {
-      await plexApi.dismissItem(item.ratingKey)
-      const key = item.ratingKey
+      await plexApi.dismissItem(key)
       setRecommendations(prev => {
         if (!prev) return prev
         return {
-          topPicks: prev.topPicks.filter(i => i.ratingKey !== key),
-          movies: prev.movies.filter(i => i.ratingKey !== key),
-          tvShows: prev.tvShows.filter(i => i.ratingKey !== key),
-          anime: prev.anime.filter(i => i.ratingKey !== key),
+          topPicks: prev.topPicks.filter(i => !matches(i)),
+          movies: prev.movies.filter(i => !matches(i)),
+          tvShows: prev.tvShows.filter(i => !matches(i)),
+          anime: prev.anime.filter(i => !matches(i)),
         }
       })
-      toastSuccess(t('Not interested'))
+      toastUndo(t('Not interested'), t('Undo'), async () => {
+        try {
+          await plexApi.restoreItem(key)
+          setRecommendations(prev => restorePositions(prev, positions, item, matches))
+          toastSuccess(t('Restored'))
+        } catch (e) {
+          toastError(t('Restore failed'))
+        }
+      })
     } catch (e) {
       toastError(t('Dismiss failed'))
     }
-  }, [toastSuccess, toastError, t])
+  }, [recommendations, toastUndo, toastSuccess, toastError, t])
 
   const handleModalClose = useCallback(() => {
     setSelectedItem(null)

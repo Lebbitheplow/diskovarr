@@ -20,7 +20,7 @@ const DATE_STYLE = { fontWeight: '400', color: 'var(--text-secondary)', fontSize
 export default function ChangelogModal({ open, onClose }) {
   const { t } = useTranslation()
   if (!open) return null
-  const currentVersion = import.meta.env.VITE_APP_VERSION || '2.7.0'
+  const currentVersion = import.meta.env.VITE_APP_VERSION || '2.7.1'
 
   return (
     <div className="info-modal-backdrop open" onClick={onClose}>
@@ -33,6 +33,22 @@ export default function ChangelogModal({ open, onClose }) {
           <div className="info-modal-section">
             <div className="info-modal-section-title">
               v{currentVersion}{' '}
+              <span style={DATE_STYLE}>2026-09-01</span>
+            </div>
+            <p style={SECTION_LABEL_STYLE}>{t('Fixes')}</p>
+            <ul style={LIST_STYLE}>
+              <li style={ITEM_STYLE}>Tapping a poster on a phone could mark it Not Interested — phones treat a tap as a hover, which opened the hidden action row right under your finger. Card actions now only appear on devices with a mouse; on a phone, tapping a poster simply opens its details, where Watchlist and Not Interested still live</li>
+              <li style={ITEM_STYLE}>Not Interested can now be undone — the confirmation gets an Undo button that puts the title back where it was</li>
+              <li style={ITEM_STYLE}>The back button and Android's back gesture now close the details window instead of leaving the page</li>
+            </ul>
+            <p style={SECTION_LABEL_STYLE}>{t('Changes')}</p>
+            <ul style={LIST_STYLE_LAST}>
+              <li style={ITEM_STYLE}>On phones, the floating profile button in the bottom right is now a menu button at the top left. It opens the same navigation drawer, from the side the drawer actually comes from, using the same icon as the sidebar toggle on desktop</li>
+            </ul>
+          </div>
+          <div className="info-modal-section">
+            <div className="info-modal-section-title">
+              v2.7.0{' '}
               <span style={DATE_STYLE}>2026-09-01</span>
             </div>
             <p style={SECTION_LABEL_STYLE}>{t('New')}</p>
@@ -76,18 +92,6 @@ export default function ChangelogModal({ open, onClose }) {
             <ul style={LIST_STYLE_LAST}>
               <li style={ITEM_STYLE}>Recommendations blend both servers — with linked accounts, what you watched on Plex shapes your Jellyfin recommendations and vice versa</li>
               <li style={ITEM_STYLE}>Tuberr now starts and stops with Diskovarr — the bundled YouTube downloader runs as part of the server, launching when you enable the YouTube integration and restarting itself if it crashes, with no separate service to install</li>
-            </ul>
-          </div>
-          <div className="info-modal-section">
-            <div className="info-modal-section-title">
-              v2.5.8{' '}
-              <span style={DATE_STYLE}>2026-08-22</span>
-            </div>
-            <p style={SECTION_LABEL_STYLE}>{t('Fixes')}</p>
-            <ul style={LIST_STYLE_LAST}>
-              <li style={ITEM_STYLE}>Security patches across the frontend and server dependencies (Snyk)</li>
-              <li style={ITEM_STYLE}>Upgraded the email (SMTP) library to nodemailer v9, resolving a security advisory in the mailer</li>
-              <li style={ITEM_STYLE}>Patched additional dependency vulnerabilities in the request-routing and build toolchains (path-to-regexp, PostCSS, nanoid, and Vite tooling)</li>
             </ul>
           </div>
         </div>

@@ -1,5 +1,15 @@
 [
   {
+    "version": "2.7.1",
+    "date": "2026-09-01",
+    "changes": [
+      "Fixed: tapping a poster on a phone could mark it Not Interested. Touch browsers treat a tap as a hover, which opened the hidden action row underneath your finger — and because that row appears above the title, the tap landed on a button you never saw. The card actions are now shown only on devices with a real pointer; on a phone, tapping a poster just opens its details, where Watchlist and Not Interested are still available.",
+      "Not Interested can now be undone. The confirmation toast carries an Undo button that puts the title back where it was in your recommendations.",
+      "Fixed: the back button and the Android back gesture now close the title details window instead of leaving the page.",
+      "The floating profile button on phones has been replaced by a menu button at the top left. It opens the same navigation drawer, but from the side the drawer actually appears on, and uses the same icon as the sidebar toggle on desktop."
+    ]
+  },
+  {
     "version": "2.7.0",
     "date": "2026-09-01",
     "changes": [

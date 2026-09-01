@@ -4,6 +4,20 @@ All notable changes are documented here. Versioning follows [Semantic Versioning
 
 ---
 
+## v2.7.1 — 2026-09-01
+
+### Fixed
+
+- **Tapping a card on touch devices could dismiss it.** The `.card:hover`/`:focus-within` rule that reveals the action row was not gated behind `@media (hover: hover) and (pointer: fine)`, so a tap applied sticky `:hover`, expanded the row (and re-enabled its `pointer-events`), and — because the card's stack is bottom-anchored and grows upward — put the Not Interested button under the finger that was aiming at the poster. The reveal is now pointer-only; touch users reach the same actions through the detail modal.
+- **"Not interested" is recoverable.** Dismissals now surface an Undo action on the toast rather than a blocking confirm, since `DELETE /api/dismiss` and the explore blacklist removal already existed. `utils/listRestore.js` records the item's index in each affected list before removal and splices it back on undo — restoring a whole pre-dismiss snapshot would have resurrected anything else dismissed in the meantime. `ToastContext` gained optional action support (9s timeout, click-through suppressed so the toast body's dismiss handler can't swallow it).
+- **Back closes the detail modal.** `DetailModal` pushes a history entry on open and closes on `popstate`; closing by any other route calls `history.back()`, so both paths converge on one close. Previously Android's back gesture navigated away from the page with the modal still mounted.
+
+### Changed
+
+- **The mobile FAB is now a menu button in the top bar.** A floating avatar in the bottom-right that opened a left-hand drawer was a mismatched affordance. It is replaced by a `☰` at the top-left — the same glyph and the same action as the desktop rail's toggle, so one control means "show/hide navigation" at every width. The avatar remains in the drawer's user block. The `.nav-fab*` rules it used are removed; `.nav-fab-menu-*` (the user menu) is unaffected.
+
+---
+
 ## v2.7.0 — 2026-09-01
 
 ### Added

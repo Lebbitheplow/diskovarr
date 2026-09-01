@@ -17,6 +17,7 @@ export default function TopBar({
   search, searchWrapRef,
   availableSources, activeSource, onSourceChange,
   bellBtnRef, bellCount, onBellClick,
+  onOpenDrawer, drawerOpen,
 }) {
   const { t } = useTranslation()
   const [scrolled, setScrolled] = useState(false)
@@ -36,6 +37,24 @@ export default function TopBar({
 
   return (
     <header className={`topbar${scrolled ? ' is-scrolled' : ''}`}>
+      {/* Mobile only. Same glyph and same job as the rail's own toggle, so one
+          control in one place means "show/hide navigation" at every width —
+          and it sits on the side the drawer actually comes from. */}
+      <button
+        className="topbar-menu"
+        onClick={onOpenDrawer}
+        aria-label={t('Open navigation')}
+        aria-expanded={!!drawerOpen}
+        aria-controls="app-rail"
+      >
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"
+             strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+          <line x1="4" y1="7" x2="20" y2="7" />
+          <line x1="4" y1="12" x2="20" y2="12" />
+          <line x1="4" y1="17" x2="20" y2="17" />
+        </svg>
+      </button>
+
       {/* Desktop keeps the wordmark in the rail; on mobile the rail is
           off-canvas, so the bar carries the brand instead. */}
       <Link to="/" className="topbar-brand">
