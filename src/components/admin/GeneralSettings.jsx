@@ -328,7 +328,7 @@ function LibrarySelectionSection({ onToast }) {
         <div>
           <h3 className="section-title" style={{ fontSize: '1rem' }}>{t('Synced Libraries')}</h3>
           <p className="section-desc">
-            {t('Choose which Plex libraries to sync. Only enabled libraries are included in sync operations. Removing a library deletes its synced data.')}
+            {t('Choose which media server libraries to sync. Only enabled libraries are included in sync operations. Removing a library deletes its synced data.')}
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -380,32 +380,47 @@ function LibrarySelectionSection({ onToast }) {
               </div>
             ) : (
               <div className="library-list">
-                {libraries.map(lib => {
-                  const local = localSections.find(s => s.id === lib.id) || { enabled: false }
+                {['plex', 'jellyfin'].map(src => {
+                  const group = libraries.filter(l => (l.source || 'plex') === src)
+                  if (group.length === 0) return null
+                  const hasBothSources = libraries.some(l => (l.source || 'plex') === 'jellyfin')
+                    && libraries.some(l => (l.source || 'plex') === 'plex')
                   return (
-                    <div className="library-item" key={lib.id}>
-                      <div className="library-item-info">
-                        <span className={`library-type-badge ${lib.type === 'movie' ? 'type-movie' : 'type-tv'}`}>
-                          {lib.type === 'movie' ? 'Movie' : 'TV'}
-                        </span>
-                        <span className="library-item-name">{lib.title}</span>
-                        {lib.enabled && lib.itemCount > 0 && (
-                          <span className="library-item-count">{lib.itemCount.toLocaleString()} items</span>
-                        )}
-                        {!local.enabled && (
-                          <span className="library-item-disabled">{t('Not synced')}</span>
-                        )}
-                      </div>
-                      <div className="library-item-controls">
-                        <label className="slide-toggle">
-                          <input
-                            type="checkbox"
-                            checked={local.enabled}
-                            onChange={() => handleToggle(lib.id)}
-                          />
-                          <span className="slide-track" />
-                        </label>
-                      </div>
+                    <div key={src}>
+                      {hasBothSources && (
+                        <div style={{ margin: '10px 0 6px', fontSize: '0.75rem', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-muted)' }}>
+                          {src === 'plex' ? 'Plex' : 'Jellyfin'}
+                        </div>
+                      )}
+                      {group.map(lib => {
+                        const local = localSections.find(s => s.id === lib.id) || { enabled: false }
+                        return (
+                          <div className="library-item" key={lib.id}>
+                            <div className="library-item-info">
+                              <span className={`library-type-badge ${lib.type === 'movie' ? 'type-movie' : 'type-tv'}`}>
+                                {lib.type === 'movie' ? 'Movie' : 'TV'}
+                              </span>
+                              <span className="library-item-name">{lib.title}</span>
+                              {lib.enabled && lib.itemCount > 0 && (
+                                <span className="library-item-count">{lib.itemCount.toLocaleString()} items</span>
+                              )}
+                              {!local.enabled && (
+                                <span className="library-item-disabled">{t('Not synced')}</span>
+                              )}
+                            </div>
+                            <div className="library-item-controls">
+                              <label className="slide-toggle">
+                                <input
+                                  type="checkbox"
+                                  checked={local.enabled}
+                                  onChange={() => handleToggle(lib.id)}
+                                />
+                                <span className="slide-track" />
+                              </label>
+                            </div>
+                          </div>
+                        )
+                      })}
                     </div>
                   )
                 })}

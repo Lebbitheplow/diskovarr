@@ -138,11 +138,17 @@ router.get('/recommendations', async (req, res) => {
     // Scope Home recs to the toggled library source once Jellyfin is in play
     const sourceFilter = jellyfinService.isEnabled() ? activeSource(req) : null;
     const data = await recommender.getRecommendations(userId, userToken, sourceFilter);
+    // Score breakdowns are admin-only debugging output (?debug=1)
+    const showDebug = req.query.debug === '1' && !!(req.session.isAdmin || req.session.isPlexAdminUser);
     // Attach deepLink to every item so the client can open them in Plex
-    const addDeepLinks = items => items.map(item => ({
-      ...item,
-      ...mediaLinks(item),
-    }));
+    const addDeepLinks = items => items.map(item => {
+      const { breakdown, ...rest } = item;
+      return {
+        ...rest,
+        ...(showDebug ? { breakdown } : {}),
+        ...mediaLinks(item),
+      };
+    });
     res.json({
       ...data,
       topPicks: addDeepLinks(data.topPicks || []),
@@ -637,14 +643,27 @@ router.get('/discover', async (req, res) => {
   }
 });
 
+// Library pool for the toggled source — matches the /discover browse pool so
+// filter options always describe the library the user is actually browsing.
+async function libraryPoolForSource(req) {
+  if (jellyfinService.isEnabled() && activeSource(req) === 'jellyfin') {
+    return [
+      ...db.getLibraryItemsBySource('jellyfin', 'movie'),
+      ...db.getLibraryItemsBySource('jellyfin', 'show'),
+    ];
+  }
+  const [movies, tv] = await Promise.all([
+    plexService.getLibraryItems(plexService.MOVIES_SECTION),
+    plexService.getLibraryItems(plexService.TV_SECTION),
+  ]);
+  return [...movies, ...tv];
+}
+
 // GET /api/discover/genres — all unique genres in library
 router.get('/discover/genres', async (req, res) => {
   try {
-    const [movies, tv] = await Promise.all([
-      plexService.getLibraryItems(plexService.MOVIES_SECTION),
-      plexService.getLibraryItems(plexService.TV_SECTION),
-    ]);
-    const genres = [...new Set([...movies, ...tv].flatMap(i => i.genres))].sort();
+    const pool = await libraryPoolForSource(req);
+    const genres = [...new Set(pool.flatMap(i => i.genres))].sort();
     res.json({ genres });
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch genres' });
@@ -670,11 +689,8 @@ router.get('/discover/facets', async (req, res) => {
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 30));
 
     if (field === 'decade') {
-      const [movies, tv] = await Promise.all([
-        plexService.getLibraryItems(plexService.MOVIES_SECTION),
-        plexService.getLibraryItems(plexService.TV_SECTION),
-      ]);
-      const decades = [...new Set([...movies, ...tv]
+      const pool = await libraryPoolForSource(req);
+      const decades = [...new Set(pool
         .map(i => i.year ? Math.floor(i.year / 10) * 10 : null).filter(Boolean))]
         .sort((a, b) => b - a).map(d => String(d));
       return res.json({ values: decades });
@@ -687,11 +703,7 @@ router.get('/discover/facets', async (req, res) => {
     // High-cardinality person fields need a query to avoid returning tens of thousands of names.
     if (FACET_HIGH_CARDINALITY.has(field) && !q) return res.json({ values: [] });
 
-    const [movies, tv] = await Promise.all([
-      plexService.getLibraryItems(plexService.MOVIES_SECTION),
-      plexService.getLibraryItems(plexService.TV_SECTION),
-    ]);
-    const pool = [...movies, ...tv];
+    const pool = await libraryPoolForSource(req);
 
     const set = new Set();
     for (const item of pool) {
@@ -1260,10 +1272,13 @@ router.get('/search', async (req, res) => {
         plexService.getLibraryItems(plexService.MOVIES_SECTION),
         plexService.getLibraryItems(plexService.TV_SECTION),
       ]);
+      // Search spans both servers, like the TMDB-backed path's availability union.
+      const pool = [...movies, ...tv];
+      if (jellyfinService.isEnabled()) pool.push(...db.getLibraryItemsBySource('jellyfin'));
       const watchlistKeys = new Set(db.getWatchlistFromDb(userId));
       const watchedKeys = db.getWatchedKeysFromDb(String(userId));
       const ql = q.toLowerCase();
-      const matched = [...movies, ...tv]
+      const matched = pool
         .filter(item => (item.title || '').toLowerCase().includes(ql))
         .map(item => ({
           tmdbId: item.tmdbId || null,
@@ -1273,7 +1288,7 @@ router.get('/search', async (req, res) => {
           overview: item.summary || '',
           posterUrl: item.thumb
             ? `/api/poster?path=${encodeURIComponent(item.thumb)}`
-            : (item.ratingKey ? `/api/poster?path=${encodeURIComponent(`/library/metadata/${item.ratingKey}/thumb`)}` : null),
+            : (item.source !== 'jellyfin' && item.ratingKey ? `/api/poster?path=${encodeURIComponent(`/library/metadata/${item.ratingKey}/thumb`)}` : null),
           voteAverage: 0,
           inLibrary: true,
           ratingKey: item.ratingKey,
@@ -1347,15 +1362,34 @@ router.get('/search', async (req, res) => {
           }
         }
       } else {
-        const allMatches = [];
-        for (let p = 1; p <= TEXT_SEARCH_MAX_TMDB_PAGES; p++) {
-          const json = await tmdbService.tmdbFetchPublic(
-            `/search/multi?query=${encodeURIComponent(q)}&page=${p}&include_adult=false`
+        // Start Sonarr's TVDB lookup immediately so it overlaps the TMDB
+        // fetches below instead of adding its latency on top. Only for text
+        // search, only when YouTube requests are enabled, always failure-tolerant.
+        const conn = db.getConnectionSettings();
+        const sonarrLookupPromise = (conn.youtubeEnabled && conn.sonarrEnabled && conn.sonarrUrl && conn.sonarrApiKey)
+          ? fetch(
+              `${conn.sonarrUrl.replace(/\/$/, '')}/api/v3/series/lookup?term=${encodeURIComponent(q)}`,
+              { headers: { 'X-Api-Key': conn.sonarrApiKey }, signal: AbortSignal.timeout(8000) }
+            )
+              .then(r => (r.ok ? r.json() : []))
+              .catch(e => { logger.warn('sonarr lookup merge failed:', e.message); return []; })
+          : null;
+
+        const searchPage = (p) => tmdbService.tmdbFetchPublic(
+          `/search/multi?query=${encodeURIComponent(q)}&page=${p}&include_adult=false`
+        );
+        const pageItemsOf = (json) =>
+          (json?.results || []).filter(r => r.media_type === 'movie' || r.media_type === 'tv');
+
+        // Page 1 tells us how many pages exist; the rest fetch in parallel.
+        const firstPage = await searchPage(1);
+        const allMatches = pageItemsOf(firstPage);
+        const totalPages = Math.min(firstPage?.total_pages || 1, TEXT_SEARCH_MAX_TMDB_PAGES);
+        if (allMatches.length && totalPages > 1) {
+          const restPages = await Promise.all(
+            Array.from({ length: totalPages - 1 }, (_, i) => searchPage(i + 2))
           );
-          const pageItems = (json?.results || []).filter(r => r.media_type === 'movie' || r.media_type === 'tv');
-          if (!pageItems.length) break;
-          allMatches.push(...pageItems);
-          if (p >= (json?.total_pages || 1)) break;
+          for (const json of restPages) allMatches.push(...pageItemsOf(json));
         }
         const enriched = await tmdbService.batchGetDetails(
           allMatches.map(r => ({ tmdbId: r.id, mediaType: r.media_type }))
@@ -1363,16 +1397,10 @@ router.get('/search', async (req, res) => {
         externalResults = enriched.filter(item => item !== null);
 
         // Merge Sonarr's TVDB lookup so shows absent from TMDB (YouTube web
-        // series, mostly) are still findable. Only for text search, only when
-        // YouTube requests are enabled, and always failure-tolerant.
-        const conn = db.getConnectionSettings();
-        if (conn.youtubeEnabled && conn.sonarrEnabled && conn.sonarrUrl && conn.sonarrApiKey) {
+        // series, mostly) are still findable.
+        if (sonarrLookupPromise) {
           try {
-            const lookupRes = await fetch(
-              `${conn.sonarrUrl.replace(/\/$/, '')}/api/v3/series/lookup?term=${encodeURIComponent(q)}`,
-              { headers: { 'X-Api-Key': conn.sonarrApiKey }, signal: AbortSignal.timeout(8000) }
-            );
-            const lookup = lookupRes.ok ? await lookupRes.json() : [];
+            const lookup = await sonarrLookupPromise;
             const normTitle = (t) => String(t || '').toLowerCase().replace(/[^a-z0-9]/g, '');
             const seen = new Set(externalResults.map(i => `${normTitle(i.title)}|${i.year || ''}`));
             for (const s of lookup.slice(0, 20)) {
@@ -1823,6 +1851,15 @@ router.get('/explore/recommendations', async (req, res) => {
     const mature = req.query.mature === 'true';
     const hideRequested = req.query.hideRequested === 'true';
     const data = await discoverRecommender.getDiscoverRecommendations(userId, userToken, { mature, hideRequested });
+    // Score breakdowns are admin-only debugging output (?debug=1)
+    const showDebug = req.query.debug === '1' && !!(req.session.isAdmin || req.session.isPlexAdminUser);
+    if (!showDebug && data && typeof data === 'object') {
+      for (const key of Object.keys(data)) {
+        if (Array.isArray(data[key])) {
+          data[key] = data[key].map(({ breakdown: _breakdown, ...rest }) => rest);
+        }
+      }
+    }
     res.json(data);
   } catch (err) {
     logger.error('explore/recommendations error:', err.message);
@@ -1839,6 +1876,10 @@ router.post('/explore/dismiss', (req, res) => {
 
   const { id: userId } = req.session.plexUser;
   db.addExploreDismissal(userId, tmdbId, mediaType);
+  // Explore dismissals feed the affinity model now — rebuild both profiles.
+  // Discover rebuilds happen in the background, so UX is unaffected.
+  try { recommender.invalidateUserCache(userId); } catch {}
+  try { discoverRecommender.invalidateUserCache(userId); } catch {}
   res.json({ success: true });
 });
 
@@ -3072,6 +3113,7 @@ router.get('/user/settings', (req, res) => {
     landing_page: prefs.landing_page,
     show_mature: prefs.show_mature,
     review_privacy: prefs.review_privacy || 'public',
+    taste_quiz_state: db.getTasteQuizState(userId),
     is_admin: isAdmin,
     is_elevated: isElevated,
     discover_enabled: db.getSetting('discover_enabled', '1') === '1',
@@ -3166,6 +3208,94 @@ router.post('/user/settings', (req, res) => {
     notify_issue_update:   _b(notify_issue_update,   oldNotif.notify_issue_update),
     notify_issue_comment:  _b(notify_issue_comment,  oldNotif.notify_issue_comment),
     notify_monitor:        _b(notify_monitor,        oldNotif.notify_monitor),
+  });
+  res.json({ ok: true });
+});
+
+// ── Taste quiz ────────────────────────────────────────────────────────────────
+
+// GET /api/user/taste — current taste entries + quiz state
+router.get('/user/taste', (req, res) => {
+  const userId = req.session.plexUser.id;
+  res.json({
+    entries: db.getUserTaste(userId),
+    quiz_state: db.getTasteQuizState(userId),
+  });
+});
+
+// PUT /api/user/taste — full replace of the user's taste set (quiz submit)
+router.put('/user/taste', (req, res) => {
+  const userId = req.session.plexUser.id;
+  const { entries } = req.body || {};
+  if (!Array.isArray(entries)) return res.status(400).json({ error: 'entries must be an array' });
+  if (entries.length > 200) return res.status(400).json({ error: 'Too many taste entries' });
+  const VALID_KINDS = ['genre', 'keyword', 'person', 'title', 'mood'];
+  const VALID_SENTIMENTS = ['love', 'avoid'];
+  for (const e of entries) {
+    if (!e || !VALID_KINDS.includes(e.kind) || !VALID_SENTIMENTS.includes(e.sentiment)) {
+      return res.status(400).json({ error: 'Invalid taste entry' });
+    }
+    if (typeof e.entity_name !== 'string' || !e.entity_name.trim() || e.entity_name.length > 200) {
+      return res.status(400).json({ error: 'Invalid entity_name' });
+    }
+    if (e.media_type !== undefined && e.media_type !== null && !['movie', 'tv'].includes(e.media_type)) {
+      return res.status(400).json({ error: 'Invalid media_type' });
+    }
+  }
+  db.replaceUserTaste(userId, entries);
+  db.setTasteQuizState(userId, 'done');
+  // Taste feeds the preference profile — rebuild both recommenders
+  try { recommender.invalidateUserCache(userId); } catch {}
+  try { discoverRecommender.invalidateUserCache(userId); } catch {}
+  res.json({ ok: true });
+});
+
+// POST /api/user/taste/skip — user declined the quiz; don't prompt again
+router.post('/user/taste/skip', (req, res) => {
+  const userId = req.session.plexUser.id;
+  if (!db.getTasteQuizState(userId)) db.setTasteQuizState(userId, 'skipped');
+  res.json({ ok: true });
+});
+
+// GET /api/user/taste/suggest?type=genre|keyword|person|title|mood&q=...
+// Quiz option sources. Genres/moods are static lists; the rest hit TMDB —
+// deliberately NOT library-scoped, the quiz must cover things you don't have.
+router.get('/user/taste/suggest', async (req, res) => {
+  const { type, q = '' } = req.query;
+  const query = String(q).trim();
+  try {
+    if (type === 'genre') {
+      const names = new Set([
+        ...Object.keys(tmdbService.MOVIE_GENRE_MAP),
+        ...Object.keys(tmdbService.TV_GENRE_MAP),
+      ]);
+      return res.json({ results: [...names].sort().map(name => ({ name })) });
+    }
+    if (type === 'mood') {
+      const { MOODS } = require('../services/recommend/tasteConstants');
+      return res.json({ results: MOODS.map(({ id, label, description, sentiment }) => ({ id, label, description, sentiment })) });
+    }
+    if (!query || query.length > 100) return res.json({ results: [] });
+    if (type === 'person') return res.json({ results: await tmdbService.searchPerson(query) });
+    if (type === 'keyword') return res.json({ results: await tmdbService.searchKeyword(query) });
+    if (type === 'title') return res.json({ results: await tmdbService.searchTitles(query) });
+    return res.status(400).json({ error: 'Invalid suggest type' });
+  } catch (err) {
+    logger.error('taste/suggest error:', err.message);
+    res.status(500).json({ error: 'Suggest failed' });
+  }
+});
+
+// POST /api/search/click — record that a search result was opened (interest signal)
+router.post('/search/click', (req, res) => {
+  const userId = req.session.plexUser.id;
+  const { query, tmdbId, mediaType, title } = req.body || {};
+  if (tmdbId !== undefined && !/^\d+$/.test(String(tmdbId))) return res.status(400).json({ error: 'Invalid tmdbId' });
+  if (mediaType !== undefined && !['movie', 'tv'].includes(mediaType)) return res.status(400).json({ error: 'Invalid mediaType' });
+  db.addSearchClick(userId, {
+    query: typeof query === 'string' ? query.slice(0, 200) : null,
+    tmdbId, mediaType,
+    title: typeof title === 'string' ? title.slice(0, 300) : null,
   });
   res.json({ ok: true });
 });
@@ -3428,6 +3558,7 @@ router.get('/monitors/criteria/suggest', requireAuth, async (req, res) => {
         plexService.getLibraryItems(plexService.TV_SECTION),
       ]);
       const pool = [...movies, ...tv];
+      if (jellyfinService.isEnabled()) pool.push(...db.getLibraryItemsBySource('jellyfin'));
       const set = new Set();
       for (const item of pool) {
         for (const c of (item.countries || [])) { if (c) set.add(c); }
@@ -3450,6 +3581,7 @@ router.get('/monitors/criteria/suggest', requireAuth, async (req, res) => {
         plexService.getLibraryItems(plexService.TV_SECTION),
       ]);
       const pool = [...movies, ...tv];
+      if (jellyfinService.isEnabled()) pool.push(...db.getLibraryItemsBySource('jellyfin'));
       const set = new Set();
       for (const item of pool) {
         const val = item[facetKey];
@@ -3467,8 +3599,11 @@ router.get('/monitors/criteria/suggest', requireAuth, async (req, res) => {
     // Network: use studio field from library
     if (type === 'network') {
       const tv = await plexService.getLibraryItems(plexService.TV_SECTION);
+      const pool = jellyfinService.isEnabled()
+        ? [...tv, ...db.getLibraryItemsBySource('jellyfin', 'show')]
+        : tv;
       const set = new Set();
-      for (const item of tv) {
+      for (const item of pool) {
         if (item.studio) set.add(item.studio);
       }
       let results = [...set].sort();
@@ -3507,7 +3642,9 @@ router.post('/monitors/evaluate', requireAuth, async (req, res) => {
       plexService.getLibraryItems(plexService.MOVIES_SECTION),
       plexService.getLibraryItems(plexService.TV_SECTION),
     ]);
-    const contents = [...movies, ...tv].map(monitorMatcher.buildContentFromLibrary);
+    const pool = [...movies, ...tv];
+    if (jellyfinService.isEnabled()) pool.push(...db.getLibraryItemsBySource('jellyfin'));
+    const contents = pool.map(monitorMatcher.buildContentFromLibrary);
     const matches = await monitorMatcher.evaluateBatch(contents, 'plex');
     await monitorNotifier.sendMatches(matches, 'plex');
     res.json({ ok: true, matches: matches.length });
@@ -4285,6 +4422,11 @@ router.put('/users/profile', (req, res) => {
   if (favoriteGenres && favoriteGenres.length > 5) return res.status(400).json({ error: 'Maximum 5 favorite genres allowed' });
   if (favoriteMedia && favoriteMedia.length > 5) return res.status(400).json({ error: 'Maximum 5 favorite media items allowed' });
   db.updateUserProfile(userId, { bio, favoriteGenres, favoriteMedia });
+  // favorite_genres feed the recommender as weak priors — rebuild profiles
+  if (favoriteGenres !== undefined || favoriteMedia !== undefined) {
+    try { recommender.invalidateUserCache(userId); } catch {}
+    try { discoverRecommender.invalidateUserCache(userId); } catch {}
+  }
   res.json(db.getUserProfile(userId));
 });
 

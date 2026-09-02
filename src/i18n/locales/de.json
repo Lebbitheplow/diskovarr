@@ -135,7 +135,7 @@
   "Chinese": "Chinesisch",
   "Choose Image": "Bild auswählen",
   "Choose a channel to post to and copy the webhook URL": "Wähle einen Kanal und kopiere die Webhook-URL",
-  "Choose which Plex libraries to sync. Only enabled libraries are included in sync operations. Removing a library deletes its synced data.": "Wähle, welche Plex-Bibliotheken synchronisiert werden. Nur aktivierte Bibliotheken werden einbezogen. Das Entfernen einer Bibliothek löscht ihre synchronisierten Daten.",
+  "Choose which media server libraries to sync. Only enabled libraries are included in sync operations. Removing a library deletes its synced data.": "Wähle, welche Medienserver-Bibliotheken synchronisiert werden. Nur aktivierte Bibliotheken werden einbezogen. Das Entfernen einer Bibliothek löscht ihre synchronisierten Daten.",
   "Choose which events trigger notifications across all your enabled channels.": "Wähle, welche Ereignisse Benachrichtigungen über deine aktivierten Kanäle auslösen.",
   "Clear": "Leeren",
   "Clear All Dismissals": "Alle Ablehnungen zurücksetzen",
@@ -1050,5 +1050,7 @@
   "✓ Issue Reported": "✓ Problem gemeldet",
   "✕ Not Interested": "✕ Kein Interesse",
   "✕ Remove": "✕ Entfernen",
-  "❮ Prev": "❮ Zurück"
+  "❮ Prev": "❮ Zurück",
+  "Jellyfin Media Server — enables Jellyfin library sync, sign-in, and account linking": "Jellyfin-Medienserver — ermöglicht Jellyfin-Bibliothekssynchronisierung, Anmeldung und Kontoverknüpfung",
+  "This server hosts both a Plex and a Jellyfin library. Use the Plex / Jellyfin switch in the navigation bar to choose which one you are browsing — recommendations, search, and availability all follow the selected source. Link both accounts in Settings to sign in with either one and keep a single combined watch profile.": "Dieser Server bietet sowohl eine Plex- als auch eine Jellyfin-Bibliothek. Wähle mit dem Plex/Jellyfin-Schalter in der Navigationsleiste, welche du durchstöberst — Empfehlungen, Suche und Verfügbarkeit folgen der gewählten Quelle. Verknüpfe beide Konten in den Einstellungen, um dich mit beiden anzumelden und ein gemeinsames Profil zu behalten."
 }

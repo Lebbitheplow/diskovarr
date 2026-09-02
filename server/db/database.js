@@ -362,6 +362,8 @@ db.exec('CREATE INDEX IF NOT EXISTS idx_known_users_linked ON known_users(linked
  'ALTER TABLE user_request_limits ADD COLUMN allow_requests_override INTEGER DEFAULT 0',
  'ALTER TABLE user_request_limits ADD COLUMN landing_page TEXT DEFAULT NULL',
  'ALTER TABLE user_request_limits ADD COLUMN show_mature INTEGER DEFAULT 0',
+ // Taste quiz: null = never shown, 'skipped', 'done'
+ 'ALTER TABLE user_request_limits ADD COLUMN taste_quiz_state TEXT DEFAULT NULL',
 ].forEach(sql => { try { db.exec(sql); } catch (e) { if (!e.message.includes('duplicate column') && !e.message.includes('no such table')) throw e; } });
 
 // Initialize global auto-request settings if not set
@@ -844,6 +846,45 @@ db.exec(`CREATE TABLE IF NOT EXISTS migrations (name TEXT PRIMARY KEY, ran_at IN
             SELECT MIN(id) FROM monitor_criteria
             GROUP BY monitor_id, type, entity_name, entity_id
           );
+        `);
+      },
+    },
+    {
+      // Taste quiz: explicit per-user love/avoid entries feeding the recommender.
+      name: 'user_taste_v1',
+      sql: () => {
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS user_taste (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT NOT NULL,
+            kind TEXT NOT NULL CHECK (kind IN ('genre','keyword','person','title','mood')),
+            sentiment TEXT NOT NULL CHECK (sentiment IN ('love','avoid')),
+            entity_id TEXT,
+            entity_name TEXT NOT NULL,
+            media_type TEXT,
+            metadata TEXT,
+            created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+            UNIQUE(user_id, kind, entity_name)
+          );
+          CREATE INDEX IF NOT EXISTS idx_user_taste_user ON user_taste(user_id);
+        `);
+      },
+    },
+    {
+      // Search-result clicks — an interest signal for the recommender.
+      name: 'user_search_history_v1',
+      sql: () => {
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS user_search_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT NOT NULL,
+            query TEXT,
+            tmdb_id INTEGER,
+            media_type TEXT,
+            title TEXT,
+            searched_at INTEGER NOT NULL DEFAULT (unixepoch())
+          );
+          CREATE INDEX IF NOT EXISTS idx_search_history_user ON user_search_history(user_id, searched_at DESC);
         `);
       },
     },
@@ -1340,6 +1381,8 @@ function getAdminStats() {
       ku.user_id,
       ku.username,
       ku.thumb,
+      ku.auth_provider,
+      ku.linked_user_id,
       ku.seen_at AS last_login,
       COALESCE(w.watched_count, 0) AS watched_count,
       COALESCE(sl.last_sync, 0) AS last_sync,
@@ -1361,9 +1404,13 @@ function getAdminStats() {
     ORDER BY ku.seen_at DESC
   `).all();
 
-  // Sync times
-  const libSync1 = getSyncTime(`library_${process.env.PLEX_MOVIES_SECTION_ID || '1'}`);
-  const libSync2 = getSyncTime(`library_${process.env.PLEX_TV_SECTION_ID || '2'}`);
+  // Sync times — newest sync across every section (Plex or Jellyfin) holding that type
+  const lastSyncFor = (type) => db.prepare(`
+    SELECT MAX(last_sync) AS t FROM sync_log
+    WHERE key IN (SELECT DISTINCT 'library_' || section_id FROM library_items WHERE type = ?)
+  `).get(type)?.t || 0;
+  const libSync1 = lastSyncFor('movie');
+  const libSync2 = lastSyncFor('show');
 
   return {
     library: {
@@ -1507,6 +1554,9 @@ const USER_ID_TABLES = [
   ['monitor_notifications', 'user_id'],
   ['tmdb_connections', 'user_id'],
   ['wrapped_stats', 'user_id'],
+  ['user_taste', 'user_id'],
+  ['user_search_history', 'user_id'],
+  ['notification_queue', 'user_id'],
 ];
 
 // One-time merge of everything keyed by `fromId` into `toId`. UPDATE OR IGNORE
@@ -2230,6 +2280,90 @@ function updateUserProfile(userId, { bio, favoriteGenres, favoriteMedia }) {
   if (fields.length === 0) return;
   params.push(String(userId));
   db.prepare(`UPDATE known_users SET ${fields.join(', ')} WHERE user_id = ?`).run(...params);
+}
+
+// ── Taste quiz ────────────────────────────────────────────────────────────────
+
+function getUserTaste(userId) {
+  return db.prepare('SELECT kind, sentiment, entity_id, entity_name, media_type, metadata FROM user_taste WHERE user_id = ? ORDER BY id ASC')
+    .all(String(userId));
+}
+
+// Full replace — the quiz always submits the complete taste set.
+function replaceUserTaste(userId, entries) {
+  const insert = db.prepare(`
+    INSERT OR IGNORE INTO user_taste (user_id, kind, sentiment, entity_id, entity_name, media_type, metadata)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `);
+  withTransaction(() => {
+    db.prepare('DELETE FROM user_taste WHERE user_id = ?').run(String(userId));
+    for (const e of entries) {
+      insert.run(
+        String(userId), e.kind, e.sentiment,
+        e.entity_id != null ? String(e.entity_id) : null,
+        String(e.entity_name),
+        e.media_type || null,
+        e.metadata ? JSON.stringify(e.metadata) : null,
+      );
+    }
+  });
+}
+
+function getTasteQuizState(userId) {
+  const row = db.prepare('SELECT taste_quiz_state FROM user_request_limits WHERE user_id = ?').get(String(userId));
+  return row?.taste_quiz_state || null;
+}
+
+function setTasteQuizState(userId, state) {
+  db.prepare('INSERT OR IGNORE INTO user_request_limits (user_id) VALUES (?)').run(String(userId));
+  db.prepare('UPDATE user_request_limits SET taste_quiz_state = ? WHERE user_id = ?')
+    .run(state, String(userId));
+}
+
+// ── Search-click history ──────────────────────────────────────────────────────
+
+function addSearchClick(userId, { query, tmdbId, mediaType, title }) {
+  const uid = String(userId);
+  db.prepare('INSERT INTO user_search_history (user_id, query, tmdb_id, media_type, title) VALUES (?, ?, ?, ?, ?)')
+    .run(uid, query || null, tmdbId != null ? Number(tmdbId) : null, mediaType || null, title || null);
+  // Keep at most 50 rows per user
+  db.prepare(`
+    DELETE FROM user_search_history WHERE user_id = ? AND id NOT IN (
+      SELECT id FROM user_search_history WHERE user_id = ? ORDER BY searched_at DESC, id DESC LIMIT 50
+    )
+  `).run(uid, uid);
+}
+
+// Distinct clicked titles within `days`, most recent first.
+function getRecentSearchClicks(userId, days = 30, limit = 15) {
+  const cutoff = Math.floor(Date.now() / 1000) - days * 86400;
+  return db.prepare(`
+    SELECT tmdb_id, media_type, title, MAX(searched_at) AS searched_at
+    FROM user_search_history
+    WHERE user_id = ? AND searched_at >= ? AND tmdb_id IS NOT NULL
+    GROUP BY tmdb_id, media_type
+    ORDER BY searched_at DESC
+    LIMIT ?
+  `).all(String(userId), cutoff, Number(limit));
+}
+
+// ── Social signal: titles loved by people the user follows ────────────────────
+
+function getFolloweeLoved(userId, { minRating = 4, maxAgeDays = 180 } = {}) {
+  const cutoff = Math.floor(Date.now() / 1000) - maxAgeDays * 86400;
+  return db.prepare(`
+    SELECT r.tmdb_id, r.media_type, r.rating, ku.username
+    FROM user_follows f
+    JOIN reviews r ON r.user_id = f.followee_id
+    LEFT JOIN known_users ku ON ku.user_id = r.user_id
+    LEFT JOIN user_request_limits url ON url.user_id = r.user_id
+    WHERE f.follower_id = ?
+      AND r.rating >= ?
+      AND r.created_at >= ?
+      AND r.tmdb_id IS NOT NULL
+      AND (url.review_privacy IS NULL OR url.review_privacy != 'private')
+    ORDER BY r.created_at DESC
+  `).all(String(userId), Number(minRating), cutoff);
 }
 
 function getUserPublicReviews(userId, limit = 20, offset = 0) {
@@ -3452,6 +3586,8 @@ module.exports = {
   getUserSettings, saveUserSettings,
   getUserPreferences, setUserPreferences,
   getUserProfile, updateUserProfile, getUserPublicReviews, getUserPublicReviewsCount,
+  getUserTaste, replaceUserTaste, getTasteQuizState, setTasteQuizState,
+  addSearchClick, getRecentSearchClicks, getFolloweeLoved,
   getUserRequests,
   addDiscoverRequestWithStatus, updateRequest, getRequestById,
   createOrBundleNotification, getUnreadNotificationCount, getNotifications,

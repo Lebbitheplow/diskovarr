@@ -6,7 +6,7 @@ function buildExplanation(matchedCriteria, content, notificationType) {
     return `${typeLabel}: ${c.entityName}`;
   });
 
-  const source = notificationType === 'plex_added' ? 'added to Plex' : 'available to request';
+  const source = notificationType === 'plex_added' ? 'added to the library' : 'available to request';
   const title = content.title || 'Unknown title';
 
   if (parts.length === 1) {

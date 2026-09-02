@@ -135,7 +135,7 @@
   "Chinese": "Chino",
   "Choose Image": "Elegir imagen",
   "Choose a channel to post to and copy the webhook URL": "Elige un canal donde publicar y copia la URL del webhook",
-  "Choose which Plex libraries to sync. Only enabled libraries are included in sync operations. Removing a library deletes its synced data.": "Elige qué bibliotecas de Plex sincronizar. Solo las habilitadas se incluyen en la sincronización. Quitar una biblioteca elimina sus datos sincronizados.",
+  "Choose which media server libraries to sync. Only enabled libraries are included in sync operations. Removing a library deletes its synced data.": "Elige qué bibliotecas del servidor de medios sincronizar. Solo las habilitadas se incluyen en la sincronización. Quitar una biblioteca elimina sus datos sincronizados.",
   "Choose which events trigger notifications across all your enabled channels.": "Elige qué eventos generan notificaciones en todos tus canales habilitados.",
   "Clear": "Limpiar",
   "Clear All Dismissals": "Limpiar todos los descartes",
@@ -1050,5 +1050,7 @@
   "✓ Issue Reported": "✓ Incidencia informada",
   "✕ Not Interested": "✕ No me interesa",
   "✕ Remove": "✕ Quitar",
-  "❮ Prev": "❮ Anterior"
+  "❮ Prev": "❮ Anterior",
+  "Jellyfin Media Server — enables Jellyfin library sync, sign-in, and account linking": "Servidor de medios Jellyfin — habilita la sincronización de bibliotecas, el inicio de sesión y la vinculación de cuentas de Jellyfin",
+  "This server hosts both a Plex and a Jellyfin library. Use the Plex / Jellyfin switch in the navigation bar to choose which one you are browsing — recommendations, search, and availability all follow the selected source. Link both accounts in Settings to sign in with either one and keep a single combined watch profile.": "Este servidor aloja una biblioteca de Plex y otra de Jellyfin. Usa el selector Plex/Jellyfin en la barra de navegación para elegir cuál estás explorando: las recomendaciones, la búsqueda y la disponibilidad siguen la fuente seleccionada. Vincula ambas cuentas en Ajustes para iniciar sesión con cualquiera y mantener un único perfil combinado."
 }

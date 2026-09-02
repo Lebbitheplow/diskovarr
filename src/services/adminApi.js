@@ -19,11 +19,24 @@ export function normalizeError(error) {
 }
 
 adminApi.interceptors.request.use((config) => config, (error) => Promise.reject(normalizeError(error)))
+
+// The panel is reachable by client-side navigation (the rail links to /admin),
+// so nothing asks the server whether there is an admin session until the first
+// request comes back 401. One redirect for the whole burst — a tab fires many
+// requests in parallel and every one of them fails together.
+let redirectingToLogin = false
+function goToAdminLogin() {
+  if (redirectingToLogin) return
+  if (window.location.pathname === '/admin/login') return
+  redirectingToLogin = true
+  window.location.href = '/admin/login'
+}
+
 adminApi.interceptors.response.use(
   (response) => response,
   (error) => {
     const normalized = normalizeError(error)
-    if (normalized.status === 401) console.warn('[401] Admin session expired')
+    if (normalized.status === 401) goToAdminLogin()
     else if (normalized.status === 403) console.warn('[403] Insufficient permissions')
     else if (normalized.status === 500) console.error('[500] Server error')
     return Promise.reject(normalized)

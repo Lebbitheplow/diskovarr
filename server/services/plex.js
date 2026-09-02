@@ -935,7 +935,9 @@ async function syncPlexTvWatchlist(userId, userToken) {
     removeSkipped = true;
   } else {
     const cutoff = Math.floor(Date.now() / 1000) - WATCHLIST_GRACE_SECONDS;
-    for (const row of db.getWatchlistRows(userId)) {
+    // Only reconcile Plex-sourced rows — Jellyfin favorites are mirrored by the
+    // Jellyfin sync and are never on the plex.tv watchlist.
+    for (const row of db.getWatchlistRows(userId, 'plex')) {
       if (keepKeys.has(String(row.rating_key))) continue;
       if ((row.added_at || 0) > cutoff) continue; // within grace window — leave it alone
       db.removeFromWatchlistDb(userId, row.rating_key);

@@ -544,26 +544,50 @@ const server = app.listen(PORT, '0.0.0.0', () => {
 
   // Jellyfin: full library re-sync every 6h (mirrors the Plex re-sync above),
   // plus a light new-item poll every 10 min for request fulfillment.
+  // Evaluate monitors against a batch of Jellyfin library items (mirrors the
+  // post-sync Plex evaluation above).
+  const evaluateJellyfinMonitors = (items) => {
+    try {
+      const monitorMatcher = require('./services/monitorMatcher')
+      const monitorNotifier = require('./services/monitorNotifier')
+      const contents = items.map(monitorMatcher.buildContentFromLibrary)
+      monitorMatcher.evaluateBatch(contents, 'jellyfin')
+        .then(matches => {
+          if (matches.length > 0) monitorNotifier.sendMatches(matches, 'jellyfin')
+        })
+        .catch(err => logger.warn('Jellyfin monitor evaluation failed:', err.message))
+    } catch (err) {
+      logger.warn('Jellyfin monitor evaluation failed:', err.message)
+    }
+  }
+
   setInterval(() => jellyfinService.resyncAll()
     .then(() => {
       if (jellyfinService.isEnabled()) {
         recommender.invalidateAllCaches()
         discoverRecommender.invalidateAllCaches()
+        evaluateJellyfinMonitors(db.getLibraryItemsBySource('jellyfin'))
       }
     })
     .catch(err => logger.warn('Periodic Jellyfin library re-sync failed:', err.message)),
     6 * 60 * 60 * 1000
   )
+  const handleFreshJellyfinItems = (fresh) => {
+    if (!fresh || fresh.length === 0) return
+    recommender.invalidateAllCaches()
+    discoverRecommender.invalidateAllCaches()
+    evaluateJellyfinMonitors(fresh)
+  }
   setInterval(() => jellyfinService.pollNewItems()
-    .then(fresh => {
-      if (fresh.length > 0) {
-        recommender.invalidateAllCaches()
-        discoverRecommender.invalidateAllCaches()
-      }
-    })
+    .then(handleFreshJellyfinItems)
     .catch(err => logger.warn('Jellyfin new-item poll failed:', err.message)),
     10 * 60 * 1000
   )
+
+  // Real-time LibraryChanged events over Jellyfin's native websocket (the
+  // Jellyfin analog of the Plex notification stream below); the 10-minute poll
+  // above stays as the fallback for missed events.
+  require('./services/jellyfin/socket').sync(handleFreshJellyfinItems)
 
   // During December, refresh the in-progress Wrapped year daily so first visits
   // during the launch window are always fresh. No-op the other 11 months.
@@ -641,6 +665,7 @@ function shutdown(signal) {
   _shuttingDown = true
   console.log(`${signal} received — shutting down gracefully`)
   try { tuberrProcess.stop() } catch { /* not started */ }
+  try { require('./services/jellyfin/socket').stop() } catch { /* not started */ }
   server.close(() => {
     try { require('./services/notificationService').stop() } catch { /* not started */ }
     try { db.close() } catch { /* already closed */ }

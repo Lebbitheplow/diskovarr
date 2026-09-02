@@ -3,9 +3,12 @@ const tautulliService = require('./tautulli');
 const tmdbService = require('./tmdb');
 const db = require('../db/database');
 const logger = require('./logger');
+const C = require('./recommend/constants');
+const affinity = require('./recommend/affinity');
+const tasteProfile = require('./recommend/tasteProfile');
 
 // Signal type priority for reason display — genre always shows after specific signals
-const SIGNAL_TYPE_RANK = { collection: 0, director: 1, similar: 2, actor: 3, keyword: 4, studio: 5, rating: 6, new: 7, recent_release: 8, genre: 99 };
+const SIGNAL_TYPE_RANK = { collection: 0, director: 1, similar: 2, taste: 3, actor: 3, social: 4, keyword: 5, studio: 6, rating: 7, new: 8, recent_release: 9, genre: 99 };
 
 function getMoviesSection() { return db.getSetting('plex_movies_section', null) || process.env.PLEX_MOVIES_SECTION_ID || '1'; }
 function getTvSection()     { return db.getSetting('plex_tv_section', null)     || process.env.PLEX_TV_SECTION_ID     || '2'; }
@@ -81,6 +84,22 @@ function normalizeMap(map) {
   return out;
 }
 
+// "tmdbId:mediaType" → [usernames] of followed users who reviewed it ≥4★.
+function buildSocialLovedMap(userId) {
+  const map = new Map();
+  try {
+    for (const row of db.getFolloweeLoved(userId, {
+      minRating: C.SOCIAL_REVIEW_MIN_RATING, maxAgeDays: C.SOCIAL_REVIEW_MAX_AGE_DAYS,
+    })) {
+      const key = `${row.tmdb_id}:${row.media_type}`;
+      const names = map.get(key) || [];
+      if (row.username && !names.includes(row.username)) names.push(row.username);
+      map.set(key, names);
+    }
+  } catch { /* social signal is optional */ }
+  return map;
+}
+
 /**
  * Build preference weights from Tautulli watch history + Plex user ratings.
  *
@@ -109,7 +128,17 @@ async function buildPreferenceProfile(userId, libraryMap) {
   // Plex history informs Jellyfin recommendations and vice versa.
   const jellyfinService = require('./jellyfin');
   const history = [...tautulliHistory, ...jellyfinService.getFullHistoryFromDb(userId)];
-  if (!history.length) return null;
+
+  // Quiz-derived taste (loves/avoids). Also the cold-start path: with no
+  // watch history at all, a completed quiz still yields a usable profile.
+  const taste = tasteProfile.loadTaste(userId);
+  const socialLovedMap = buildSocialLovedMap(userId);
+  if (!history.length) {
+    if (!taste) return null;
+    const tasteOnly = await tasteProfile.buildTasteOnlyProfile(taste);
+    tasteOnly.socialLovedMap = socialLovedMap;
+    return tasteOnly;
+  }
 
   // Build review rating map: tmdbId -> rating (0.5-5 scale)
   const reviewRatings = new Map(); // tmdbId -> rating
@@ -134,6 +163,22 @@ async function buildPreferenceProfile(userId, libraryMap) {
   const keywordWeights    = new Map();
   const keywordIdWeights  = new Map(); // keyword tmdb id -> { weight, name }
   const collectionWeights = new Map(); // tmdb collection id -> weight
+
+  // Signed-affinity inputs: RAW (un-normalized) weighted category distributions
+  // keyed by normalized names, plus the totals they're fractions of. Keyword
+  // data only exists for the top-60 keyword-fetched items, so keywords get
+  // their own denominator — otherwise sparse coverage would read as avoidance.
+  const normGenreWatchWeights   = new Map();
+  const normKeywordWatchWeights = new Map();
+  let totalWatchWeight = 0;
+  let totalKeywordWatchWeight = 0;
+  const distinctWatched = new Set();
+  const distinctKeywordItems = new Set();
+
+  // Actor context: which genres the user actually watches each actor in.
+  const actorGenreRaw   = new Map(); // actor -> Map(normalized genre -> weight)
+  const actorTotalRaw   = new Map(); // actor -> total weight
+  const actorItemSets   = new Map(); // actor -> Set(rating_key)
 
   // Trigger tracking: for each signal key, the watched item that contributed most weight
   const directorTriggers = new Map(); // director -> { title, weight, isHighlyRated }
@@ -228,10 +273,47 @@ async function buildPreferenceProfile(userId, libraryMap) {
     actorWeights:    normalizeMap(dismissalPenaltyActors),
   };
 
+  // Category-level dismissal counts (normalized genre + keyword names) feeding
+  // the signed-affinity model. Library dismissals contribute their genres and
+  // (via the TMDB cache — no network calls) keywords; explore dismissals,
+  // which previously only hard-excluded, now teach the profile too.
+  const dismissGenreCounts = new Map();
+  const dismissKeywordCounts = new Map();
+  const countDismissed = (genres, keywords) => {
+    for (const g of affinity.normalizedGenreSet(genres)) {
+      dismissGenreCounts.set(g, (dismissGenreCounts.get(g) || 0) + 1);
+    }
+    for (const k of affinity.normalizedKeywordSet(keywords)) {
+      dismissKeywordCounts.set(k, (dismissKeywordCounts.get(k) || 0) + 1);
+    }
+  };
+  for (const key of db.getDismissals(userId)) {
+    const item = libraryMap.get(key);
+    if (!item) continue;
+    const cachedTmdb = item.tmdbId
+      ? db.getTmdbCache(item.tmdbId, item.type === 'movie' ? 'movie' : 'tv')
+      : null;
+    countDismissed(item.genres, cachedTmdb?.keywords);
+  }
+  try {
+    for (const row of db.getUserExploreDismissalRows(userId)) {
+      const cachedTmdb = db.getTmdbCache(row.tmdb_id, row.media_type);
+      if (cachedTmdb) countDismissed(cachedTmdb.genres, cachedTmdb.keywords);
+    }
+  } catch { /* explore dismissal enrichment is best-effort */ }
+  const dismissCategoryCounts = { genres: dismissGenreCounts, keywords: dismissKeywordCounts };
+
   const tmdbSimilarMap = new Map();
   const plexRelatedMap = new Map(); // ratingKey (string) -> { sourceTitle, weight }
-  const interestSimilarMap     = new Map(); // numericTmdbId -> { sourceTitle, mediaType }
+  const interestSimilarMap     = new Map(); // numericTmdbId -> { sourceTitle, mediaType, fromSearch? }
   const interestPlexRelatedMap = new Map(); // ratingKey (string) -> { sourceTitle }
+  const tasteTitleDetails = [];             // [{ details, title }] loved-title TMDB details
+  const searchClickSeeds = (() => {         // recent search clicks → interest seeds
+    try {
+      return db.getRecentSearchClicks(userId, C.SEARCH_CLICK_MAX_AGE_DAYS, 15)
+        .filter(c => c.title).slice(0, C.SEARCH_CLICK_SEEDS);
+    } catch { return []; }
+  })();
 
   await Promise.all([
     // TMDB recommendations + similar
@@ -321,6 +403,43 @@ async function buildPreferenceProfile(userId, libraryMap) {
         }
       }
     })),
+
+    // ── Taste: loved-title seeds from the quiz ───────────────────────────────
+    // Recs/similar merge into tmdbSimilarMap at a fixed weight; details feed a
+    // virtual watch after the history loop so genres/keywords/cast get priors.
+    Promise.all((taste?.loveTitles || []).map(async ({ tmdbId, mediaType, title }) => {
+      const [recs, similar, details] = await Promise.all([
+        tmdbService.getRecommendations(tmdbId, mediaType).catch(() => []),
+        tmdbService.getSimilar(tmdbId, mediaType).catch(() => []),
+        tmdbService.getItemDetails(tmdbId, mediaType).catch(() => null),
+      ]);
+      const recSet = new Set(recs.map(r => Number(r.tmdbId)));
+      for (const r of [...recs, ...similar]) {
+        const rid = Number(r.tmdbId);
+        const existing = tmdbSimilarMap.get(rid);
+        if (existing) {
+          existing.weight += C.TASTE_LOVE_TITLE_SEED_WEIGHT;
+        } else {
+          tmdbSimilarMap.set(rid, {
+            weight: C.TASTE_LOVE_TITLE_SEED_WEIGHT, sourceTitle: title,
+            fromRec: recSet.has(rid), _bestWeight: C.TASTE_LOVE_TITLE_SEED_WEIGHT,
+          });
+        }
+      }
+      if (details) tasteTitleDetails.push({ details, title });
+    })),
+
+    // ── Interest: recent search-result clicks ────────────────────────────────
+    Promise.all(searchClickSeeds.map(async click => {
+      const mt = click.media_type === 'tv' ? 'tv' : 'movie';
+      const recs = await tmdbService.getRecommendations(Number(click.tmdb_id), mt).catch(() => []);
+      for (const r of recs) {
+        const rid = Number(r.tmdbId);
+        if (!interestSimilarMap.has(rid)) {
+          interestSimilarMap.set(rid, { sourceTitle: click.title, mediaType: mt, fromSearch: true });
+        }
+      }
+    })),
   ]);
 
  for (const entry of history) {
@@ -390,6 +509,22 @@ async function buildPreferenceProfile(userId, libraryMap) {
       genreWeights.set(g, (genreWeights.get(g) || 0) + weight);
     }
 
+    // Affinity distributions (normalized category names, raw weights)
+    totalWatchWeight += weight;
+    distinctWatched.add(entry.rating_key);
+    const normGenres = affinity.normalizedGenreSet(item.genres);
+    for (const g of normGenres) {
+      normGenreWatchWeights.set(g, (normGenreWatchWeights.get(g) || 0) + weight);
+    }
+    const entryKeywords = keywordMap.get(entry.rating_key);
+    if (entryKeywords) {
+      totalKeywordWatchWeight += weight;
+      distinctKeywordItems.add(entry.rating_key);
+      for (const k of affinity.normalizedKeywordSet(entryKeywords)) {
+        normKeywordWatchWeights.set(k, (normKeywordWatchWeights.get(k) || 0) + weight);
+      }
+    }
+
     // Director — higher per-item weight since it's a precise signal
     for (const d of item.directors) {
       const w = (directorWeights.get(d) || 0) + weight * 2.0;
@@ -398,12 +533,19 @@ async function buildPreferenceProfile(userId, libraryMap) {
       if (!ex || trigger.weight > ex.weight) directorTriggers.set(d, trigger);
     }
 
-    // Actor
+    // Actor — plus per-actor genre context for context-aware actor scoring
     for (const a of item.cast) {
       const w = (actorWeights.get(a) || 0) + weight;
       actorWeights.set(a, w);
       const ex = actorTriggers.get(a);
       if (!ex || trigger.weight > ex.weight) actorTriggers.set(a, trigger);
+      let ctx = actorGenreRaw.get(a);
+      if (!ctx) { ctx = new Map(); actorGenreRaw.set(a, ctx); }
+      for (const g of normGenres) ctx.set(g, (ctx.get(g) || 0) + weight);
+      actorTotalRaw.set(a, (actorTotalRaw.get(a) || 0) + weight);
+      let itemSet = actorItemSets.get(a);
+      if (!itemSet) { itemSet = new Set(); actorItemSets.set(a, itemSet); }
+      itemSet.add(entry.rating_key);
     }
 
     // Studio
@@ -437,7 +579,43 @@ async function buildPreferenceProfile(userId, libraryMap) {
     }
   }
 
-  return {
+  // Quiz loved-titles count as virtual watches: their genres/keywords/cast
+  // nudge the raw distributions so a cold-ish user's loves shape affinity too.
+  for (const { details } of tasteTitleDetails) {
+    const w = C.TASTE_LOVE_TITLE_SEED_WEIGHT;
+    totalWatchWeight += w;
+    for (const g of details.genres || []) {
+      genreWeights.set(g, (genreWeights.get(g) || 0) + w);
+    }
+    for (const g of affinity.normalizedGenreSet(details.genres)) {
+      normGenreWatchWeights.set(g, (normGenreWatchWeights.get(g) || 0) + w);
+    }
+    if (details.keywords?.length) {
+      totalKeywordWatchWeight += w;
+      for (const k of affinity.normalizedKeywordSet(details.keywords)) {
+        normKeywordWatchWeights.set(k, (normKeywordWatchWeights.get(k) || 0) + w);
+      }
+    }
+    for (const a of (details.cast || []).slice(0, 5)) {
+      actorWeights.set(a, (actorWeights.get(a) || 0) + w);
+    }
+    for (const d of details.directors || []) {
+      directorWeights.set(d, (directorWeights.get(d) || 0) + w * 2.0);
+    }
+  }
+
+  // Actor context shares: fraction of each actor's watched weight per genre.
+  const actorGenreCtx = new Map();
+  for (const [actor, ctx] of actorGenreRaw) {
+    const total = actorTotalRaw.get(actor) || 1;
+    const shares = new Map();
+    for (const [g, w] of ctx) shares.set(g, w / total);
+    actorGenreCtx.set(actor, shares);
+  }
+  const actorItemCount = new Map();
+  for (const [actor, set] of actorItemSets) actorItemCount.set(actor, set.size);
+
+  const profile = {
     genreWeights:      normalizeMap(genreWeights),
     directorWeights:   normalizeMap(directorWeights),
     actorWeights:      normalizeMap(actorWeights),
@@ -462,7 +640,32 @@ async function buildPreferenceProfile(userId, libraryMap) {
       negativeDirectors: normalizeMap(reviewNegativeDirectors),
       negativeActors: normalizeMap(reviewNegativeActors),
     } : null,
+    // Signed-affinity inputs (see recommend/affinity.js)
+    normGenreWatchWeights,
+    normKeywordWatchWeights,
+    totalWatchWeight,
+    totalKeywordWatchWeight,
+    watchedItemCount: distinctWatched.size,
+    keywordItemCount: distinctKeywordItems.size,
+    actorGenreCtx,
+    actorItemCount,
+    dismissCategoryCounts,
+    socialLovedMap,
   };
+
+  // Enabled monitors' genre criteria act as weak explicit interests.
+  try {
+    for (const monitor of db.getMonitors(userId)) {
+      if (!monitor.enabled) continue;
+      for (const crit of db.getCriteria(monitor.id)) {
+        if (crit.type !== 'genre' || !crit.entityName) continue;
+        profile.genreWeights.set(crit.entityName,
+          Math.max(profile.genreWeights.get(crit.entityName) || 0, C.MONITOR_GENRE_WEIGHT));
+      }
+    }
+  } catch { /* monitors are optional */ }
+
+  return taste ? tasteProfile.applyTastePriors(profile, taste) : profile;
 }
 
 // Genre names that look like titles rather than real genres are filtered out.
@@ -539,7 +742,10 @@ function scoreItem(item, profile, dismissedKeys, watchedKeys, tmdbEnrich) {
     const entry = interestSimilarMap.get(numericTmdbId);
     if (entry) {
       interestSimilarPts = 14;
-      signals.push({ pts: interestSimilarPts, reason: `Because you're interested in ${entry.sourceTitle}`, type: 'similar' });
+      const reason = entry.fromSearch
+        ? `Because you searched for ${entry.sourceTitle}`
+        : `Because you're interested in ${entry.sourceTitle}`;
+      signals.push({ pts: interestSimilarPts, reason, type: 'similar' });
     }
   }
 
@@ -569,13 +775,15 @@ function scoreItem(item, profile, dismissedKeys, watchedKeys, tmdbEnrich) {
   }
 
   // ── Actor (max 35pts) ─────────────────────────────────────────────────────
-  // Each matching cast member contributes w*15; multiple matches stack.
-  // Cap raised to 35 — seeing 3 films with the same actor is a strong signal.
+  // Each matching cast member contributes w*15, scaled by genre context:
+  // an actor the user only watches in dramas earns a fraction of their points
+  // on an action flick (see affinity.actorContextScale).
   let actPts = 0, topActor = null, actTrigger = null;
   for (const a of item.cast.slice(0, 10)) {
     const w = actorWeights.get(a) || 0;
     if (w > 0.1) {  // require actor to be a meaningful pattern, not a one-off
-      actPts += w * 15;
+      const scale = affinity.actorContextScale(a, item.genres, profile.actorGenreCtx, profile.actorItemCount);
+      actPts += w * 15 * scale;
       if (!topActor || w > (actorWeights.get(topActor) || 0)) {
         topActor = a;
         actTrigger = actorTriggers.get(a);
@@ -584,10 +792,11 @@ function scoreItem(item, profile, dismissedKeys, watchedKeys, tmdbEnrich) {
   }
   actPts = Math.min(actPts, 35);
   if (actPts > 3) {
-    const reason = (actTrigger?.isHighlyRated)
-      ? `Because you loved ${actTrigger.title}`
+    const isTastePick = profile.tastePeople?.has(topActor);
+    const reason = isTastePick ? `One of your favorites: ${topActor}`
+      : (actTrigger?.isHighlyRated) ? `Because you loved ${actTrigger.title}`
       : `Starring ${topActor}`;
-    signals.push({ pts: actPts, reason, type: 'actor' });
+    signals.push({ pts: actPts, reason, type: isTastePick ? 'taste' : 'actor' });
   }
 
   // ── Genre (max 8pts, tiebreaker only) ───────────────────────────────────────
@@ -676,14 +885,29 @@ function scoreItem(item, profile, dismissedKeys, watchedKeys, tmdbEnrich) {
   if (newBonus) signals.push({ pts: newBonus, reason: 'Recently Added', type: 'new' });
 
   // ── Release recency bonus ────────────────────────────────────────────────
+  let recentReleasePts = 0;
   if (item.year) {
     const age = new Date().getFullYear() - item.year;
     if (age <= 1) {
+      recentReleasePts = 5;
       signals.push({ pts: 5, reason: 'Recently released', type: 'recent_release' });
     } else if (age <= 2) {
+      recentReleasePts = 3;
       signals.push({ pts: 3, reason: null, type: 'recent_release' });
     } else if (age <= 3) {
+      recentReleasePts = 1;
       signals.push({ pts: 1, reason: null, type: 'recent_release' });
+    }
+  }
+
+  // ── Social: loved by people you follow (max 12pts) ───────────────────────
+  let socialPts = 0;
+  if (profile.socialLovedMap?.size && numericTmdbId) {
+    const mt = item.type === 'movie' ? 'movie' : 'tv';
+    const lovers = profile.socialLovedMap.get(`${numericTmdbId}:${mt}`);
+    if (lovers?.length) {
+      socialPts = Math.min(C.SOCIAL_PTS_PER_LOVER * lovers.length, C.SOCIAL_PTS_CAP);
+      signals.push({ pts: socialPts, reason: `Loved by ${lovers[0]}`, type: 'social' });
     }
   }
 
@@ -696,7 +920,7 @@ function scoreItem(item, profile, dismissedKeys, watchedKeys, tmdbEnrich) {
     for (const g of item.genres)           dismissPenalty += (dgw.get(g) || 0) * 2;
     for (const d of item.directors)        dismissPenalty += (ddw.get(d) || 0) * 3;
     for (const a of item.cast.slice(0, 5)) dismissPenalty += (daw.get(a) || 0) * 2;
-    dismissPenalty = Math.min(dismissPenalty, 8);
+    dismissPenalty = Math.min(dismissPenalty, C.DISMISS_PENALTY_CAP);
   }
 
   // ── Review penalty/bonus (max -5 / +5) ───────────────────────────────────
@@ -721,9 +945,25 @@ function scoreItem(item, profile, dismissedKeys, watchedKeys, tmdbEnrich) {
     reviewBonus = Math.min(reviewBonus, 5);
   }
 
-  const score = similarPts + plexRelatedPts + interestSimilarPts + interestPlexRelatedPts +
-                dirPts + actPts + kwPts + collectionPts + genrePts + studioPts + decadePts +
-                ratingBonus + newBonus + reviewBonus - dismissPenalty - reviewPenalty;
+  // ── Multiplicative dampener ──────────────────────────────────────────────
+  // Signed negative affinities (avoided genres/keywords) suppress the whole
+  // positive sum — no amount of actor points overrides an avoided category.
+  const enrichKeywordsForDamp = tmdbEnrich?.keywords || [];
+  const { M, matched: dampMatched } = affinity.itemDampener(item.genres, enrichKeywordsForDamp, profile.affinity);
+
+  const positiveSum = similarPts + plexRelatedPts + interestSimilarPts + interestPlexRelatedPts +
+                      dirPts + actPts + kwPts + collectionPts + genrePts + studioPts + decadePts +
+                      recentReleasePts + socialPts;
+  const score = positiveSum * M + ratingBonus + newBonus + reviewBonus - dismissPenalty - reviewPenalty;
+
+  const breakdown = {
+    similarPts, plexRelatedPts, interestSimilarPts, interestPlexRelatedPts,
+    dirPts, actPts, kwPts, collectionPts, genrePts, studioPts, decadePts,
+    recentReleasePts, socialPts, ratingBonus, newBonus, reviewBonus,
+    dismissPenalty, reviewPenalty,
+    dampener: M < 0.85 ? { M, categories: dampMatched } : undefined,
+    M,
+  };
 
   // Sort signals: specific signals (director/actor/studio/rating) always before genre,
   // so "Because you like Comedy" never crowds out "Directed by X" or "Starring Y"
@@ -736,7 +976,7 @@ function scoreItem(item, profile, dismissedKeys, watchedKeys, tmdbEnrich) {
   });
   const reasons = signals.map(s => s.reason).filter(r => r && r.trim()).slice(0, 3);
 
-  return { ...item, score, reasons, _primarySignal: signals[0]?.type };
+  return { ...item, score, reasons, breakdown, _primarySignal: signals[0]?.type };
 }
 
 function scoreFallback(item, dismissedKeys, watchedKeys) {
@@ -869,6 +1109,16 @@ async function getRecommendations(userId, userToken, sourceFilter = null) {
       }
     }
 
+    // Signed affinity: user's watch distribution vs. this library's baseline.
+    // Computed once per pool build; scoreItem reads profile.affinity.
+    if (profile) {
+      const baselineItems = [...movies, ...tv].map(i => ({
+        genres: i.genres,
+        keywords: tmdbEnrichMap.get(i.ratingKey)?.keywords || [],
+      }));
+      profile.affinity = affinity.computeAffinities(profile, affinity.buildCategoryBaseline(baselineItems));
+    }
+
     let scoredMovies, scoredTV, scoredAnime;
 
     if (!profile) {
@@ -998,4 +1248,6 @@ module.exports = {
   getRecommendations, invalidateUserCache, invalidateAllCaches, warmAllUserCaches,
   // Exported for use by discoverRecommender
   buildPreferenceProfile, partialShuffle, tieredSample,
+  // Exported for tests and the rec-debug script
+  scoreItem, scoreFallback,
 };

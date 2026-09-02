@@ -129,12 +129,21 @@ async function syncFolder(folder) {
 
 let _syncInProgress = false;
 
+// A folder the admin explicitly disabled in Synced Libraries is skipped;
+// folders never toggled default to enabled.
+function isFolderEnabled(folderId) {
+  const sid = SECTION_PREFIX + folderId;
+  const entry = db.getSyncEnabledSections().find(s => String(s.id) === sid);
+  return entry ? !!entry.enabled : true;
+}
+
 async function resyncAll() {
   if (!client.isEnabled() || _syncInProgress) return;
   _syncInProgress = true;
   try {
     const folders = await getFolders();
     for (const folder of folders) {
+      if (!isFolderEnabled(folder.id)) continue;
       try { await syncFolder(folder); }
       catch (err) { console.warn(`[jellyfin] Library sync failed for "${folder.title}": ${err.message}`); }
     }
@@ -162,6 +171,7 @@ async function pollNewItems() {
   if (since === 0) return []; // first tick just establishes the watermark
   const fresh = [];
   for (const folder of await cachedFolders()) {
+    if (!isFolderEnabled(folder.id)) continue;
     const params = new URLSearchParams({
       ParentId: folder.id,
       IncludeItemTypes: 'Movie,Series',

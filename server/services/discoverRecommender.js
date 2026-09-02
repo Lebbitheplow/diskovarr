@@ -3,6 +3,8 @@ const tautulliService = require('./tautulli');
 const tmdbService = require('./tmdb');
 const { buildPreferenceProfile, partialShuffle, tieredSample } = require('./recommender');
 const db = require('../db/database');
+const C = require('./recommend/constants');
+const affinity = require('./recommend/affinity');
 
 const CACHE_TTL = 6 * 60 * 60 * 1000; // 6 hours
 const CANDIDATES_TTL = 8 * 60 * 60 * 1000; // 8 hours for shared candidate pool
@@ -49,7 +51,7 @@ function invalidateAllCaches() {
 }
 
 // Signal rank for reason display — mirrors recommender.js exactly
-const SIGNAL_TYPE_RANK = { collection: 0, director: 1, similar: 2, actor: 3, keyword: 4, studio: 5, rating: 6, new: 7, genre: 99 };
+const SIGNAL_TYPE_RANK = { collection: 0, director: 1, similar: 2, taste: 3, actor: 3, social: 4, keyword: 5, studio: 6, rating: 7, new: 8, genre: 99 };
 
 // Genre names that are clearly titles rather than real genres (e.g. Plex custom genres)
 function isRealGenre(g) {
@@ -63,7 +65,7 @@ function isRealGenre(g) {
 function scoreTmdbItem(item, profile) {
   const { genreWeights, directorWeights, actorWeights, studioWeights, decadeWeights,
           keywordWeights, collectionWeights, tmdbSimilarMap, interestSimilarMap, dismissalProfile,
-          directorTriggers, actorTriggers, studioTriggers } = profile;
+          reviewProfile, directorTriggers, actorTriggers, studioTriggers } = profile;
 
   const signals = [];
 
@@ -90,7 +92,10 @@ function scoreTmdbItem(item, profile) {
     const entry = interestSimilarMap.get(Number(item.tmdbId));
     if (entry) {
       interestSimilarPts = 14;
-      signals.push({ pts: interestSimilarPts, reason: `Because you're interested in ${entry.sourceTitle}`, type: 'similar' });
+      const reason = entry.fromSearch
+        ? `Because you searched for ${entry.sourceTitle}`
+        : `Because you're interested in ${entry.sourceTitle}`;
+      signals.push({ pts: interestSimilarPts, reason, type: 'similar' });
     }
   }
 
@@ -108,12 +113,13 @@ function scoreTmdbItem(item, profile) {
     signals.push({ pts: dirPts, reason, type: 'director' });
   }
 
-  // ── Actor (max 35pts) ─────────────────────────────────────────────────────
+  // ── Actor (max 35pts, genre-context scaled) ───────────────────────────────
   let actPts = 0, topActor = null, actTrigger = null;
   for (const a of (item.cast || []).slice(0, 10)) {
     const w = actorWeights.get(a) || 0;
     if (w > 0.1) {
-      actPts += w * 15;
+      const scale = affinity.actorContextScale(a, item.genres, profile.actorGenreCtx, profile.actorItemCount);
+      actPts += w * 15 * scale;
       if (!topActor || w > (actorWeights.get(topActor) || 0)) {
         topActor = a;
         actTrigger = actorTriggers.get(a);
@@ -122,10 +128,11 @@ function scoreTmdbItem(item, profile) {
   }
   actPts = Math.min(actPts, 35);
   if (actPts > 3) {
-    const reason = actTrigger?.isHighlyRated
-      ? `Because you loved ${actTrigger.title}`
+    const isTastePick = profile.tastePeople?.has(topActor);
+    const reason = isTastePick ? `One of your favorites: ${topActor}`
+      : actTrigger?.isHighlyRated ? `Because you loved ${actTrigger.title}`
       : `Starring ${topActor}`;
-    signals.push({ pts: actPts, reason, type: 'actor' });
+    signals.push({ pts: actPts, reason, type: isTastePick ? 'taste' : 'actor' });
   }
 
   // ── Keywords / themes (max 25pts) ─────────────────────────────────────────
@@ -199,6 +206,16 @@ function scoreTmdbItem(item, profile) {
     signals.push({ pts: ratingBonus, reason: 'Highly Rated', type: 'rating' });
   }
 
+  // ── Social: loved by people you follow (max 12pts) ───────────────────────
+  let socialPts = 0;
+  if (profile.socialLovedMap?.size && item.tmdbId) {
+    const lovers = profile.socialLovedMap.get(`${Number(item.tmdbId)}:${item.mediaType}`);
+    if (lovers?.length) {
+      socialPts = Math.min(C.SOCIAL_PTS_PER_LOVER * lovers.length, C.SOCIAL_PTS_CAP);
+      signals.push({ pts: socialPts, reason: `Loved by ${lovers[0]}`, type: 'social' });
+    }
+  }
+
   // ── Dismissal penalty (max -20pts) ───────────────────────────────────────
   let dismissPenalty = 0;
   if (dismissalProfile) {
@@ -206,10 +223,43 @@ function scoreTmdbItem(item, profile) {
     for (const g of (item.genres || []))           dismissPenalty += (dgw.get(g) || 0) * 2;
     for (const d of (item.directors || []))        dismissPenalty += (ddw.get(d) || 0) * 3;
     for (const a of (item.cast || []).slice(0, 5)) dismissPenalty += (daw.get(a) || 0) * 2;
-    dismissPenalty = Math.min(dismissPenalty, 8);
+    dismissPenalty = Math.min(dismissPenalty, C.DISMISS_PENALTY_CAP);
   }
 
-  const score = similarPts + interestSimilarPts + dirPts + actPts + kwPts + collectionPts + genrePts + studioPts + decadePts + ratingBonus - dismissPenalty;
+  // ── Review penalty/bonus (max -5 / +5) — mirrors recommender.js ──────────
+  let reviewPenalty = 0;
+  let reviewBonus = 0;
+  if (reviewProfile) {
+    for (const g of (item.genres || [])) {
+      reviewPenalty += (reviewProfile.negativeGenres.get(g) || 0) * 1.5;
+      reviewBonus += (reviewProfile.positiveGenres.get(g) || 0) * 1.5;
+    }
+    for (const d of (item.directors || [])) {
+      reviewPenalty += (reviewProfile.negativeDirectors.get(d) || 0) * 2;
+      reviewBonus += (reviewProfile.positiveDirectors.get(d) || 0) * 2;
+    }
+    for (const a of (item.cast || []).slice(0, 5)) {
+      reviewPenalty += (reviewProfile.negativeActors.get(a) || 0) * 1;
+      reviewBonus += (reviewProfile.positiveActors.get(a) || 0) * 1;
+    }
+    reviewPenalty = Math.min(reviewPenalty, 5);
+    reviewBonus = Math.min(reviewBonus, 5);
+  }
+
+  // ── Multiplicative dampener (see recommend/affinity.js) ──────────────────
+  const { M, matched: dampMatched } = affinity.itemDampener(item.genres, item.keywords, profile.affinity);
+
+  const positiveSum = similarPts + interestSimilarPts + dirPts + actPts + kwPts +
+                      collectionPts + genrePts + studioPts + decadePts + socialPts;
+  const score = positiveSum * M + ratingBonus + reviewBonus - dismissPenalty - reviewPenalty;
+
+  const breakdown = {
+    similarPts, interestSimilarPts, dirPts, actPts, kwPts, collectionPts,
+    genrePts, studioPts, decadePts, socialPts, ratingBonus, reviewBonus,
+    dismissPenalty, reviewPenalty,
+    dampener: M < 0.85 ? { M, categories: dampMatched } : undefined,
+    M,
+  };
 
   signals.sort((a, b) => {
     const ra = SIGNAL_TYPE_RANK[a.type] ?? 50;
@@ -217,9 +267,9 @@ function scoreTmdbItem(item, profile) {
     if (ra !== rb) return ra - rb;
     return b.pts - a.pts;
   });
-  const reasons = signals.slice(0, 3).map(s => s.reason);
+  const reasons = signals.slice(0, 3).map(s => s.reason).filter(r => r && r.trim());
 
-  return { ...item, score, reasons };
+  return { ...item, score, reasons, breakdown };
 }
 
 /**
@@ -495,6 +545,15 @@ async function buildDiscoverPools(userId, userToken) {
     console.log(`[discoverRec] Added ${profile.interestSimilarMap.size} interest-seeded candidates for user ${userId}`);
   }
 
+  // 3c. Social seeds: titles loved by people the user follows become candidates
+  // so "Loved by <name>" can surface even outside the usual discovery paths.
+  if (profile?.socialLovedMap?.size) {
+    for (const key of profile.socialLovedMap.keys()) {
+      const [tmdbId, mt] = key.split(':');
+      addCandidate(Number(tmdbId), mt, null, null);
+    }
+  }
+
   // 5. Person-based candidates: top 20 actors + top 12 directors (movie + TV)
   let personPromises = [];
   if (profile) {
@@ -519,6 +578,30 @@ async function buildDiscoverPools(userId, userToken) {
     ];
   }
 
+  // 6. Monitor criteria seeds: keyword + person criteria on the user's enabled
+  // monitors are explicit declared interests — feed them into discovery.
+  let monitorPromises = [];
+  try {
+    const monitorKeywordIds = [];
+    const monitorPeople = [];
+    for (const monitor of db.getMonitors(userId)) {
+      if (!monitor.enabled) continue;
+      for (const crit of db.getCriteria(monitor.id)) {
+        if (crit.type === 'keyword' && crit.entityId) monitorKeywordIds.push(Number(crit.entityId));
+        else if (['cast', 'director'].includes(crit.type) && crit.entityName) monitorPeople.push(crit.entityName);
+      }
+    }
+    monitorPromises = [
+      ...monitorKeywordIds.slice(0, 5).flatMap(id => [
+        tmdbService.discoverByKeywordId('movie', id, 1, discoverOpts).then(recs => recs.forEach(r => addCandidate(r.tmdbId, 'movie', r.title, r.year))),
+        tmdbService.discoverByKeywordId('tv', id, 1, discoverOpts).then(recs => recs.forEach(r => addCandidate(r.tmdbId, 'tv', r.title, r.year))),
+      ]),
+      ...monitorPeople.slice(0, 5).map(name =>
+        tmdbService.getPersonCandidates(name, 'movie').then(recs => recs.forEach(r => addCandidate(r.tmdbId, 'movie', r.title, r.year)))
+      ),
+    ];
+  } catch { /* monitors optional */ }
+
   // 7. Keyword-based discovery — top 20 keywords, pages 1+2+3 each
   // Very targeted: surfaces content matching specific themes you've enjoyed
   let keywordPromises = [];
@@ -535,7 +618,7 @@ async function buildDiscoverPools(userId, userToken) {
     ]);
   }
 
-  await Promise.all([...movieRecPromises, ...movieSimPromises, ...tvRecPromises, ...tvSimPromises, sharedCandidatesPromise, ...personPromises, ...keywordPromises, plexRelatedPromise]);
+  await Promise.all([...movieRecPromises, ...movieSimPromises, ...tvRecPromises, ...tvSimPromises, sharedCandidatesPromise, ...personPromises, ...keywordPromises, ...monitorPromises, plexRelatedPromise]);
 
   // ── Fetch details for all candidates ────────────────────────────────────
   // Shared candidates are pre-enriched — only fetch details for per-user candidates.
@@ -575,6 +658,13 @@ async function buildDiscoverPools(userId, userToken) {
   }
 
   // ── Score items ───────────────────────────────────────────────────────────
+
+  // Signed affinity against THIS candidate universe (TMDB genre/keyword
+  // vocabulary), so "you watch far less superhero than the pool offers"
+  // becomes a negative multiplier. See recommend/affinity.js.
+  if (profile) {
+    profile.affinity = affinity.computeAffinities(profile, affinity.buildCategoryBaseline(detailedItems));
+  }
 
   const scoreFallback = (item) => ({
     ...item,
@@ -885,4 +975,6 @@ module.exports = {
   scheduleRebuild,
   refreshSharedCandidatePools,
   warmAllUserDiscoverCaches,
+  // Exported for tests and the rec-debug script
+  scoreTmdbItem,
 };

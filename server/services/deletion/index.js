@@ -28,7 +28,13 @@ function getAllLibraryItems() {
   const sectionIds = new Set([String(plexService.MOVIES_SECTION), String(plexService.TV_SECTION)]);
   try { for (const id of db.getEnabledSectionIds()) sectionIds.add(String(id)); } catch {}
   const items = [];
-  for (const sectionId of sectionIds) items.push(...db.getLibraryItemsFromDb(sectionId));
+  for (const sectionId of sectionIds) {
+    // Deletion is Plex-only: play stats come from Tautulli and the fallback
+    // delete path talks to the Plex server, so Jellyfin items (jf_ sections)
+    // would always look unwatched and could never be deleted correctly.
+    if (sectionId.startsWith('jf_')) continue;
+    items.push(...db.getLibraryItemsFromDb(sectionId).filter(i => (i.source || 'plex') === 'plex'));
+  }
   return items;
 }
 

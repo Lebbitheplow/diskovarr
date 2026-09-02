@@ -16,6 +16,71 @@
   vertical-align: middle;
 }
 
+/* ── Admin header bar ───────────────────────────────────────
+   The admin panel keeps its own top bar rather than the app shell's rail +
+   TopBar. These five rules lived in style.css until 2.7.0 removed them along
+   with NavigationBar, which left the wordmark, "← App" and "Sign out" stacked
+   in one corner — AdminNav is their only consumer now, so they live here. */
+
+.nav {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-topbar);
+  isolation: isolate;
+  height: var(--topbar-h);
+  background: rgba(15, 15, 15, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border);
+  overflow-x: clip;
+}
+
+.nav-inner {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 0 24px;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.nav-logo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  font-size: 1.2rem;
+  letter-spacing: -0.02em;
+}
+
+.nav-user {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.nav-logout {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  transition: color var(--dur-med) var(--ease-out),
+    border-color var(--dur-med) var(--ease-out),
+    background var(--dur-med) var(--ease-out);
+}
+
+.nav-logout:hover {
+  color: var(--text-primary);
+  border-color: var(--border-hover);
+  background: var(--bg-elevated);
+}
+
+@media (max-width: 960px) {
+  .nav-inner { padding: 0 14px; }
+}
+
 /* ── Admin sections ─────────────────────────────────────── */
 
 .admin-section {

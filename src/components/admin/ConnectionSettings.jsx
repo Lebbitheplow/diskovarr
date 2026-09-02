@@ -678,9 +678,9 @@ function RadarrSection({ radarrUrl, radarrApiKey, radarrEnabled, radarrQualityPr
   const realKey = apiKey === MASKED ? '' : apiKey
 
   // Sync local fields from props (render-phase adjustment).
-  const [prevRadarrConn, setPrevRadarrConn] = useState(`${radarrUrl} ${radarrApiKey}`)
-  if (`${radarrUrl} ${radarrApiKey}` !== prevRadarrConn) {
-    setPrevRadarrConn(`${radarrUrl} ${radarrApiKey}`)
+  const [prevRadarrConn, setPrevRadarrConn] = useState(`${radarrUrl}\u0000${radarrApiKey}`)
+  if (`${radarrUrl}\u0000${radarrApiKey}` !== prevRadarrConn) {
+    setPrevRadarrConn(`${radarrUrl}\u0000${radarrApiKey}`)
     setHost(parseHost(radarrUrl))
     setPort(parsePort(radarrUrl))
     setApiKey(radarrApiKey ? MASKED : '')

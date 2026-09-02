@@ -194,6 +194,19 @@ export const userApi = {
   unlinkJellyfin: () => api.delete('/user/link/jellyfin'),
 }
 
+/** Taste Profile (quiz) */
+export const tasteApi = {
+  getTaste: () => api.get('/user/taste'),
+  saveTaste: (entries) => api.put('/user/taste', { entries }),
+  skipQuiz: () => api.post('/user/taste/skip'),
+  suggest: (type, q) => api.get('/user/taste/suggest', { params: { type, q } }),
+}
+
+/** Search interest tracking — fire-and-forget, errors deliberately swallowed */
+export function searchClick(payload) {
+  api.post('/search/click', payload).catch(() => { /* best-effort */ })
+}
+
 /** Poster proxy */
 export const posterApi = {
   getPoster: (path) => api.get('/poster', { params: { path } }),

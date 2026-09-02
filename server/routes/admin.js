@@ -52,7 +52,17 @@ function isNewerVersion(latest, current) {
 
 function requireAdmin(req, res, next) {
   if (req.session && req.session.isAdmin) return next();
-  res.redirect('/admin/login');
+
+  // Only a top-level navigation may be bounced to the login page. An XHR
+  // follows that redirect transparently and lands on GET /admin/login, which
+  // serves the SPA shell with a 200 — so the caller resolves successfully,
+  // reads its fields off an HTML string, and renders zeros and empty tables
+  // with no error to show. Those callers get a 401 they can act on instead.
+  const isDocument = req.get('Sec-Fetch-Dest') === 'document' ||
+    (!req.get('Sec-Fetch-Dest') && req.accepts(['json', 'html']) === 'html');
+
+  if (isDocument) return res.redirect('/admin/login');
+  res.status(401).json({ error: 'Admin session required' });
 }
 
 // ── Sync state (in-process — survives as long as server runs) ─────────────────
@@ -174,8 +184,14 @@ router.post('/sync/library', requireAdmin, async (req, res) => {
 
   try {
     plexService.invalidateCache();
-    const enabledIds = db.getEnabledSectionIds();
+    const enabledIds = db.getEnabledSectionIds().filter(id => !String(id).startsWith('jf_'));
     await plexService.warmCache(enabledIds);
+    // Jellyfin sections resync too (no-op when Jellyfin is disabled)
+    try {
+      await require('../services/jellyfin').resyncAll();
+    } catch (jfErr) {
+      console.warn('[Admin] Jellyfin library sync failed:', jfErr.message);
+    }
     recommender.invalidateAllCaches();
     discoverRecommender.invalidateAllCaches();
 
@@ -213,13 +229,17 @@ router.get('/sync/libraries', requireAdmin, async (req, res) => {
   try {
     const plexSections = await plexService.getPlexSections();
     const enabledSections = db.getSyncEnabledSections();
-    const enabledIds = new Set(enabledSections.filter(s => s.enabled).map(s => s.id));
+    const enabledIds = new Set(enabledSections.filter(s => s.enabled).map(s => String(s.id)));
+    const explicitIds = new Set(enabledSections.map(s => String(s.id)));
 
-    const result = plexSections.map(section => {
-      const enabled = enabledIds.has(section.id);
+    const sectionRow = (section, source) => {
+      // Jellyfin folders the admin has never toggled default to enabled — the
+      // Jellyfin sync has always synced every folder.
+      const enabled = explicitIds.has(String(section.id))
+        ? enabledIds.has(String(section.id))
+        : source === 'jellyfin';
       const itemCount = enabled ? db.getLibraryItemCount(section.id) : 0;
-      const syncTimeKey = `library_${section.id}`;
-      const lastSync = db.getSyncTime(syncTimeKey) > 0 ? db.getSyncTime(syncTimeKey) : 0;
+      const lastSync = db.getSyncTime(`library_${section.id}`);
       return {
         id: section.id,
         title: section.title,
@@ -227,8 +247,22 @@ router.get('/sync/libraries', requireAdmin, async (req, res) => {
         enabled,
         itemCount,
         lastSync: lastSync > 0 ? new Date(lastSync * 1000).toISOString() : null,
+        source,
       };
-    });
+    };
+
+    const result = plexSections.map(s => sectionRow(s, 'plex'));
+
+    const jellyfin = require('../services/jellyfin');
+    if (jellyfin.isEnabled()) {
+      try {
+        const folders = await jellyfin.getFolders();
+        result.push(...folders.map(f => sectionRow(
+          { id: jellyfin.SECTION_PREFIX + f.id, title: f.title, type: f.type }, 'jellyfin')));
+      } catch (err) {
+        console.warn('[Admin] Jellyfin folder list failed:', err.message);
+      }
+    }
 
     res.json({ sections: result });
   } catch (err) {
@@ -243,23 +277,36 @@ router.post('/sync/libraries', requireAdmin, async (req, res) => {
       return res.status(400).json({ error: 'Invalid request body. Expected { sections: [{ id, enabled }] }' });
     }
 
-    const currentEnabled = new Set(db.getSyncEnabledSections().filter(s => s.enabled).map(s => String(s.id)));
+    const stored = db.getSyncEnabledSections();
+    const explicit = new Map(stored.map(s => [String(s.id), !!s.enabled]));
+    // Jellyfin sections the admin never toggled are enabled by default (they've
+    // always been synced), so disabling one for the first time must still
+    // delete its data.
+    const wasEnabled = (sid) => explicit.has(sid) ? explicit.get(sid) : sid.startsWith('jf_');
 
     // Process changes: delete data for sections being disabled, track newly-enabled ones
     let removedAny = false;
     const newlyEnabledIds = [];
     for (const section of sections) {
       const sid = String(section.id);
-      if (!section.enabled && currentEnabled.has(sid)) {
+      if (!section.enabled && wasEnabled(sid)) {
         // Section was enabled but is now being disabled — delete its data
         db.deleteLibraryItems(sid);
         removedAny = true;
-      } else if (section.enabled && !currentEnabled.has(sid)) {
+      } else if (section.enabled && !wasEnabled(sid)) {
         newlyEnabledIds.push(sid);
       }
     }
 
-    db.setSyncEnabledSections(sections.map(s => ({ id: String(s.id), enabled: !!s.enabled })));
+    // Merge: preserve stored entries the caller didn't post (e.g. Jellyfin
+    // sections when Jellyfin is temporarily unreachable) instead of silently
+    // dropping them from the enabled set.
+    const posted = new Set(sections.map(s => String(s.id)));
+    const merged = sections.map(s => ({ id: String(s.id), enabled: !!s.enabled }));
+    for (const s of stored) {
+      if (!posted.has(String(s.id))) merged.push({ id: String(s.id), enabled: !!s.enabled });
+    }
+    db.setSyncEnabledSections(merged);
 
     // Removing a library invalidates recommendation caches so its items drop out immediately
     if (removedAny) {
@@ -275,7 +322,11 @@ router.post('/sync/libraries', requireAdmin, async (req, res) => {
       lastSyncError = null;
       (async () => {
         try {
-          await plexService.warmCache(newlyEnabledIds);
+          const plexIds = newlyEnabledIds.filter(id => !id.startsWith('jf_'));
+          if (plexIds.length > 0) await plexService.warmCache(plexIds);
+          if (newlyEnabledIds.some(id => id.startsWith('jf_'))) {
+            await require('../services/jellyfin').resyncAll();
+          }
           recommender.invalidateAllCaches();
           discoverRecommender.invalidateAllCaches();
           console.log(`[Admin] Auto-synced newly-enabled libraries: ${newlyEnabledIds.join(', ')}`);
@@ -297,6 +348,27 @@ router.post('/sync/libraries', requireAdmin, async (req, res) => {
 
 router.post('/sync/watched/:userId', requireAdmin, async (req, res) => {
   const { userId } = req.params;
+  const jellyfin = require('../services/jellyfin');
+
+  // Jellyfin users have no Plex token — mirror their data via the admin API key.
+  if (String(userId).startsWith('jf_')) {
+    if (!jellyfin.isEnabled()) {
+      return res.json({ success: false, message: 'Jellyfin is not enabled.' });
+    }
+    res.json({ success: true, message: 'Watched sync started for user ' + userId });
+    try {
+      const guid = String(userId).slice(3);
+      const jfUser = (await jellyfin.getUsers()).find(u => String(u.id) === guid);
+      if (!jfUser) throw new Error('user no longer exists on the Jellyfin server');
+      await jellyfin.syncUserData(jfUser);
+      recommender.invalidateUserCache(db.resolveCanonicalUserId(userId));
+      console.log(`[Admin] Jellyfin watched sync completed for user ${userId}`);
+    } catch (err) {
+      console.error(`[Admin] Jellyfin watched sync error for ${userId}:`, err.message);
+    }
+    return;
+  }
+
   // Find the user's token from active sessions
   const { DatabaseSync } = require('node:sqlite');
   const sessDb = new DatabaseSync(require('path').join(__dirname, '..', 'data', 'sessions.db'));
@@ -329,6 +401,17 @@ router.post('/sync/watched/:userId', requireAdmin, async (req, res) => {
 
   try {
     await plexService.syncUserWatched(userId, userToken);
+    // Linked Jellyfin account contributes to the same merged profile — refresh it too.
+    try {
+      const linked = db.getLinkedJellyfinRow(userId);
+      if (linked && jellyfin.isEnabled()) {
+        const guid = String(linked.user_id).replace(/^jf_/, '');
+        const jfUser = (await jellyfin.getUsers()).find(u => String(u.id) === guid);
+        if (jfUser) await jellyfin.syncUserData(jfUser);
+      }
+    } catch (jfErr) {
+      console.warn(`[Admin] Linked Jellyfin sync failed for ${userId}:`, jfErr.message);
+    }
     recommender.invalidateUserCache(userId);
     console.log(`[Admin] Watched sync completed for user ${userId}`);
   } catch (err) {
@@ -471,8 +554,8 @@ router.get('/connections/settings', requireAdmin, (req, res) => {
     youtube_enabled:             db.getSetting('youtube_enabled', '0') === '1',
     youtube_root_folder:         db.getSetting('youtube_root_folder', ''),
     tuberr_url:                  db.getSetting('tuberr_url', ''),
-    jellyfin_url:                db.getSetting('jellyfin_url', ''),
-    jellyfin_enabled:            !!(db.getSetting('jellyfin_url', '') && db.getSetting('jellyfin_api_key', '')) && db.getSetting('jellyfin_enabled', '0') === '1',
+    jellyfin_url:                db.getSetting('jellyfin_url', '') || process.env.JELLYFIN_URL || '',
+    jellyfin_enabled:            require('../services/jellyfin').isEnabled(),
     default_request_service:     db.getSetting('default_request_service', 'overseerr'),
     direct_request_access:       db.getSetting('direct_request_access', '0'),
   });
@@ -497,6 +580,8 @@ router.post('/connections/save', requireAdmin, (req, res) => {
   // waiting for the scheduled jobs.
   if ('jellyfin_url' in body || 'jellyfin_api_key' in body || 'jellyfin_enabled' in body) {
     const jellyfin = require('../services/jellyfin');
+    // Start/stop/reconnect the realtime LibraryChanged socket to match the settings
+    try { require('../services/jellyfin/socket').sync(); } catch (e) { console.warn('[jellyfin ws] sync failed:', e.message); }
     if (jellyfin.isEnabled()) {
       jellyfin.resyncAll()
         .then(() => jellyfin.syncAllUsers())
@@ -705,7 +790,7 @@ router.post('/connections/test/tautulli', requireAdmin, async (req, res) => {
 
 router.post('/connections/test/jellyfin', requireAdmin, async (req, res) => {
   const { url, apiKey } = req.body;
-  const effectiveKey = apiKey || db.getSetting('jellyfin_api_key', '');
+  const effectiveKey = apiKey || db.getSetting('jellyfin_api_key', '') || process.env.JELLYFIN_API_KEY || '';
   if (!url || !effectiveKey) return res.json({ ok: false, message: 'URL and API key required' });
   try {
     const jellyfin = require('../services/jellyfin');

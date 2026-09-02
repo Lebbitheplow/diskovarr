@@ -5,6 +5,7 @@ import {
   searchApi,
   watchlistApi,
   exploreApi,
+  searchClick,
 } from '../services/api'
 import MediaCard from '../components/MediaCard'
 import Carousel from '../components/Carousel'
@@ -284,6 +285,9 @@ export default function Search() {
   }, [debouncedSuggestions])
 
   const handleSuggestionClick = useCallback((suggestion) => {
+    if (suggestion.tmdbId) {
+      searchClick({ query: inputValue.trim(), tmdbId: suggestion.tmdbId, mediaType: suggestion.mediaType, title: suggestion.title })
+    }
     setInputValue(suggestion.title)
     setSuggestions([])
     setShowSuggestions(false)
@@ -292,7 +296,7 @@ export default function Search() {
     params.set('selectedTmdbId', suggestion.tmdbId)
     params.set('selectedType', suggestion.mediaType)
     navigate('/search?' + params.toString())
-  }, [navigate])
+  }, [navigate, inputValue])
 
   const handleKeyDown = useCallback((e) => {
     if (e.key === 'Enter') {
@@ -335,8 +339,11 @@ export default function Search() {
   // Morphs the clicked poster into the modal's poster where the browser
   // supports view transitions; a plain state update everywhere else.
   const handleOpenModal = useCallback((item) => {
+    if (item.tmdbId) {
+      searchClick({ query: urlQuery, tmdbId: item.tmdbId, mediaType: item.mediaType, title: item.title })
+    }
     withViewTransition(() => setSelectedItem(item))
-  }, [])
+  }, [urlQuery])
 
   const handleLoadMore = useCallback(() => {
     const nextPage = page + 1

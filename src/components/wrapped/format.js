@@ -15,11 +15,14 @@ export const fmtDayLong = (iso) =>
 export const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 export const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
-// Plex /library/ thumbs go through the token-hiding poster proxy; absolute
-// URLs (plex.tv avatars, Tautulli user thumbs) are safe to use directly.
+// Plex /library/ and Jellyfin /Items/ thumbs go through the token-hiding poster
+// proxy; absolute URLs (plex.tv avatars, Tautulli user thumbs) are safe to use
+// directly.
 export const posterSrc = (thumb) => {
   if (!thumb) return null
   if (/^https?:\/\//i.test(thumb)) return thumb
-  if (thumb.startsWith('/library/')) return `/api/poster?path=${encodeURIComponent(thumb)}`
+  if (thumb.startsWith('/library/') || thumb.startsWith('/Items/')) {
+    return `/api/poster?path=${encodeURIComponent(thumb)}`
+  }
   return null
 }

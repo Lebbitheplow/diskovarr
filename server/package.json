@@ -1,6 +1,6 @@
 {
   "name": "diskovarr",
-  "version": "2.7.1",
+  "version": "3.0.0",
   "description": "Personalized Plex and Jellyfin content recommendations powered by your watch history",
   "main": "server.js",
   "scripts": {

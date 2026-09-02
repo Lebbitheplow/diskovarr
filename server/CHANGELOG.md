@@ -4,6 +4,33 @@ All notable changes are documented here. Versioning follows [Semantic Versioning
 
 ---
 
+## v3.0.0 — 2026-09-02
+
+### Added
+
+- **Recommendation engine v2 — signed affinity.** Per-category affinities are now signed log-ratios of the user's share against the library baseline (`a_c = clamp(log2((u_c + α) / (b_c + α)), ±3)`), so a category the user demonstrably avoids pushes candidates *down* instead of merely not helping. Negative affinity feeds a multiplicative dampener with a floor (so one bad tag can't zero an otherwise strong match), dismissals nudge their categories negative with a bounded total effect, and actor scores scale with genre-context overlap so a liked actor in an unliked genre counts less. Cold users (under 20 watched items) get no negative affinities at all. Every knob lives in one place — `server/services/recommend/constants.js` — with a scratch-DB tuning workflow documented at the top of the file (`scripts/rec-debug.cjs`), and the scoring core is covered by new unit tests (`tests/affinity.test.js`, `tests/recommenderScoring.test.js`, `tests/tasteProfile.test.js`). Admins can inspect any user's score breakdowns with `?debug=1`.
+- **Taste profile quiz** (`src/components/TasteQuiz/`) — a four-step quiz (genres, moods, people, titles) reachable from Settings → Taste Profile. "Love" answers floor a category's affinity, "avoid" answers cap it below the normal clamp and lower the dampener's hard floor, so explicit taste beats inferred taste in both directions.
+- **Real-time Jellyfin library detection** (`server/services/jellyfin/socket.js`) — Diskovarr now listens on Jellyfin's native websocket (`/socket?api_key=…`, answering the ForceKeepAlive protocol, reconnecting with backoff), the analog of the Plex notification stream. `LibraryChanged` events trigger a debounced `pollNewItems()`, so fulfilled requests flip to available in seconds instead of up to ten minutes; the 10-minute poll and 6-hour resync remain as fallbacks. The admin connections save hook starts/stops/reconnects the socket to match the settings.
+- **Search click signals** — opening a search suggestion or result records the query→title pair (`POST /api/search/click` → `user_search_history`) as an interest signal for the recommender.
+
+### Changed
+
+- **Search is much faster.** TMDB result pages are fetched in parallel (page 1 establishes the count, the rest arrive together), and detail hydration goes through a bounded 8-way worker pool instead of serial fetches with 150 ms delays — a cold-cache search no longer serializes dozens of round-trips. The Sonarr lookup used by YouTube search is failure-tolerant and only runs when the integration is enabled.
+- **Jellyfin libraries are first-class in the admin panel.** `GET /admin/sync/libraries` now includes Jellyfin folders (`source` field, item counts, last-sync, per-folder enable/disable that `resyncAll()`/`pollNewItems()` honor); the save path merge-preserves sections the caller didn't post instead of silently dropping them, and disabling a never-toggled Jellyfin folder still deletes its data. "Sync Library Now" resyncs both servers, per-user "Re-sync Watched" works for `jf_` users (and refreshes a Plex user's linked Jellyfin account), dashboard sync timestamps are computed across all sections rather than hardcoded Plex section ids, and the users table exposes `auth_provider`/`linked_user_id` with a Jellyfin/linked badge in the UI.
+- **Env-var Jellyfin configuration works as documented** — `JELLYFIN_URL` + `JELLYFIN_API_KEY` enable the integration when the admin toggle was never set in the DB, and the admin connections form falls back to the env values instead of rendering empty.
+- **Monitors treat Jellyfin adds as library adds** — post-resync and new-item-poll evaluation fire for Jellyfin items, deduped against the Plex path so a title added on both servers notifies once; the notification wording says "added to the library".
+
+### Fixed
+
+- **Jellyfin favorites no longer flap for linked accounts.** The plex.tv watchlist reconciler deleted every `source='jellyfin'` watchlist row on each sync (they're never in its keep-set) only for the 15-minute favorites sync to re-add them; it now reconciles only Plex-sourced rows.
+- **Deletion automation can no longer touch Jellyfin items.** Candidates exclude `jf_` sections and non-Plex rows (their Tautulli-based play stats made them look permanently unwatched, i.e. maximally deletion-eligible), `deleteItem()` refuses non-Plex items outright, and trash-empty skips `jf_` sections.
+- **Explore filters and no-TMDB search cover the Jellyfin library** — facet/genre/decade dropdowns follow the active source (matching the browse pool), and the library-only search fallback spans both servers.
+- **Shared review cards and Wrapped render Jellyfin artwork** — `cardKit.fetchAsDataUri` resolves `/Items/…` posters and `/api/jellyfin/avatar/…` paths against the Jellyfin origin, and the Wrapped `posterSrc` helper proxies Jellyfin thumbs like Plex ones.
+- **Admin panel header restored.** The five `.nav` rules the admin top bar depends on were removed from `style.css` in 2.7.0 along with `NavigationBar`, leaving the wordmark, "← App" and "Sign out" stacked in a corner; they now live in `admin.css`, whose only consumer is `AdminNav`.
+- `ConnectionSettings.jsx` contained three literal NUL bytes (an escaped `\0` written as the raw byte), which made grep-based tooling treat the file as binary and skip it; account merges now also re-key `notification_queue`; two Jellyfin UI strings gained translations in all four locales.
+
+---
+
 ## v2.7.1 — 2026-09-01
 
 ### Fixed

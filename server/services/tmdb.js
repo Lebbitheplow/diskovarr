@@ -80,9 +80,6 @@ function tmdbFetch(path) {
   });
 }
 
-// Small delay helper for rate-limit–friendly batching
-function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
-
 function posterUrl(path, size = 'w342') {
   return path ? `${IMAGE_BASE}/${size}${path}` : null;
 }
@@ -200,6 +197,10 @@ function normalizeTV(details, credits) {
     adult: details.adult || isExplicit || isTvMa,
     keywords: (details.keywords?.results || []).map(k => k.name),
     keywordIds: (details.keywords?.results || []).slice(0, 20).map(k => ({ id: k.id, name: k.name })),
+    // TMDB has no belongs_to_collection for TV — emit nulls for shape parity
+    // with normalizeMovie so downstream collection checks are safe.
+    collection: null,
+    collectionName: null,
     trailerKey: (details.videos?.results || [])
       .filter(v => v.site === 'YouTube' && v.type === 'Trailer')
       .sort((a, b) => (b.official ? 1 : 0) - (a.official ? 1 : 0))[0]?.key || null,
@@ -448,18 +449,24 @@ async function getUpcoming(mediaType, page = 1, opts = {}) {
   }
 }
 
-// Batch fetch details for a list of { tmdbId, mediaType } candidates
-// Respects rate limits with small delays between uncached requests
+// Batch fetch details for a list of { tmdbId, mediaType } candidates.
+// A bounded worker pool keeps a cold cache from serializing dozens of
+// round-trips; 8 items in flight (2 TMDB requests each) stays well under
+// TMDB's ~50 req/s limit. Results preserve candidate order.
+const BATCH_DETAILS_CONCURRENCY = 8;
 async function batchGetDetails(candidates) {
-  const results = [];
-  for (const { tmdbId, mediaType } of candidates) {
-    const details = await getItemDetails(tmdbId, mediaType);
-    if (details) results.push(details);
-    // Only delay if item wasn't cached (would have returned instantly)
-    const wasCached = db.getTmdbCache(tmdbId, mediaType) !== null;
-    if (!wasCached) await delay(150);
+  const results = new Array(candidates.length);
+  let next = 0;
+  async function worker() {
+    while (next < candidates.length) {
+      const idx = next++;
+      const { tmdbId, mediaType } = candidates[idx];
+      results[idx] = await getItemDetails(tmdbId, mediaType);
+    }
   }
-  return results;
+  const workers = Math.min(BATCH_DETAILS_CONCURRENCY, candidates.length);
+  await Promise.all(Array.from({ length: workers }, worker));
+  return results.filter(Boolean);
 }
 
 // Test that the current API key is valid
@@ -503,10 +510,49 @@ async function discoverByGenreName(genreName, mediaType, page = 1, opts = {}) {
   return discoverByGenreIds(mediaType, genreIds, page, 'popularity.desc', opts);
 }
 
+// ── Lightweight search helpers for the taste quiz ─────────────────────────────
+
+async function searchPerson(query, limit = 8) {
+  try {
+    const json = await tmdbFetch(`/search/person?query=${encodeURIComponent(query)}&page=1`);
+    return (json?.results || []).slice(0, limit).map(r => ({
+      tmdbId: r.id,
+      name: r.name,
+      knownFor: (r.known_for || []).map(k => k.title || k.name).filter(Boolean).slice(0, 3),
+      profileUrl: r.profile_path ? posterUrl(r.profile_path) : null,
+    }));
+  } catch { return []; }
+}
+
+async function searchKeyword(query, limit = 10) {
+  try {
+    const json = await tmdbFetch(`/search/keyword?query=${encodeURIComponent(query)}&page=1`);
+    return (json?.results || []).slice(0, limit).map(r => ({ id: r.id, name: r.name }));
+  } catch { return []; }
+}
+
+async function searchTitles(query, limit = 10) {
+  try {
+    const json = await tmdbFetch(`/search/multi?query=${encodeURIComponent(query)}&page=1`);
+    return (json?.results || [])
+      .filter(r => r.media_type === 'movie' || r.media_type === 'tv')
+      .slice(0, limit)
+      .map(r => ({
+        tmdbId: r.id,
+        mediaType: r.media_type,
+        title: r.title || r.name,
+        year: parseInt((r.release_date || r.first_air_date || '').slice(0, 4)) || 0,
+        posterUrl: r.poster_path ? posterUrl(r.poster_path) : null,
+        voteAverage: r.vote_average || 0,
+      }));
+  } catch { return []; }
+}
+
 module.exports = {
   getItemDetails, getRecommendations, getSimilar, getPersonCandidates, getPersonCombinedCredits,
   discoverByGenreIds, discoverByKeywordId, discoverAnime, getTrending, getUpcoming,
   discoverByGenreName, batchGetDetails, testApiKey, posterUrl,
+  searchPerson, searchKeyword, searchTitles,
   tmdbFetchPublic: tmdbFetch,
   MOVIE_GENRE_MAP, TV_GENRE_MAP,
 };

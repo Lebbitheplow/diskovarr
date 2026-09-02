@@ -206,9 +206,13 @@ async function evaluateContent(content, source) {
     const { matched, matchedCriteria } = matchMonitor(monitor, criteria, content);
     if (!matched) continue;
 
-    const notificationType = source === 'plex' ? 'plex_added' : 'requestable';
+    // 'plex' and 'jellyfin' both mean "added to the library"; the stored type
+    // stays 'plex_added' so the same title added on both servers dedupes to
+    // one notification.
+    const isLibraryAdd = source === 'plex' || source === 'jellyfin';
+    const notificationType = isLibraryAdd ? 'plex_added' : 'requestable';
 
-    if (source === 'plex' && !monitor.notifyPlex) continue;
+    if (isLibraryAdd && !monitor.notifyPlex) continue;
     if (source === 'tmdb' && !monitor.notifyRequestable) continue;
 
     if (db.hasNotified(monitor.id, content.tmdbId, content.mediaType, notificationType)) continue;

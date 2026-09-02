@@ -1,5 +1,21 @@
 [
   {
+    "version": "3.0.0",
+    "date": "2026-09-02",
+    "changes": [
+      "Smarter recommendations — the recommendation engine has been rebuilt. It now learns what you avoid as well as what you love, comparing your viewing against the library as a whole, so genres and themes you consistently skip stop being recommended instead of just counting for nothing. Dismissing titles teaches it too, and a favorite actor showing up in a genre you never watch no longer carries the same weight. New users are eased in gently until there is enough history to judge.",
+      "Taste profile quiz — tell Diskovarr what you love and what to avoid directly. A short quiz in Settings → Taste Profile walks through genres, moods, people, and titles, and your answers immediately shape your recommendations — an explicit 'avoid' outweighs anything the engine inferred on its own.",
+      "Jellyfin updates are now instant — Diskovarr listens to Jellyfin's live event stream, so new items appear and requests flip to Available within seconds of being added, just like Plex. Previously Jellyfin was checked every ten minutes.",
+      "Search is much faster — result pages and title details are now fetched in parallel instead of one at a time, so searches that used to crawl now come back quickly. Diskovarr also learns from which search results you open.",
+      "Jellyfin libraries in the admin panel — Synced Libraries now lists Jellyfin folders alongside Plex sections with item counts, last-sync times, and their own on/off toggles; Sync Library Now covers both servers, and per-user watched re-sync works for Jellyfin accounts. The users list marks Jellyfin accounts and shows when they are linked to a Plex account.",
+      "Fixed: Jellyfin favorites no longer silently disappear from the watchlist for linked accounts — the Plex watchlist sync was deleting them every pass only for the Jellyfin sync to re-add them.",
+      "Fixed: the library cleanup automation can no longer target Jellyfin items — it only ever knew how to delete through Plex, and Jellyfin items looked permanently unwatched to it.",
+      "Fixed: Explore filter menus and library search now include Jellyfin titles when browsing the Jellyfin library, shared review cards and Wrapped show Jellyfin posters and avatars, and Monitors now alert when a matching title is added on Jellyfin.",
+      "Fixed: the admin panel header no longer collapses into a stacked pile of links in the corner.",
+      "Setting up Jellyfin with environment variables (docker-compose) now works as the documentation always said it did."
+    ]
+  },
+  {
     "version": "2.7.1",
     "date": "2026-09-01",
     "changes": [

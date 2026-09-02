@@ -163,6 +163,10 @@ function cleanupRequests(item) {
  * applicable path failed (nothing was deleted).
  */
 async function deleteItem(item, profile) {
+  if ((item.source || 'plex') !== 'plex') {
+    // Jellyfin items must never fall through to the Plex delete path.
+    throw new Error(`Deletion is Plex-only — refusing to delete ${item.source} item "${item.title}"`);
+  }
   const conn = db.getConnectionSettings();
   const notes = [];
   let method = null;
@@ -193,6 +197,7 @@ async function deleteItem(item, profile) {
 // items don't linger as "unavailable" entries.
 async function refreshAndEmptyTrash(sectionIds) {
   for (const sectionId of new Set(sectionIds)) {
+    if (String(sectionId).startsWith('jf_')) continue; // Plex API only
     try {
       await plexRequest(`/library/sections/${sectionId}/refresh`);
       await new Promise(r => setTimeout(r, 10000));

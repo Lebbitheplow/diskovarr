@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react'
+import React, { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { userApi } from '../services/api'
 import useNavSearch from '../hooks/useNavSearch'
 import useNotifications from '../hooks/useNotifications'
 import useShellMotion from '../hooks/useShellMotion'
@@ -12,7 +13,13 @@ import ChangelogModal from './ChangelogModal'
 import { renderTextWithLinks } from '../utils/renderRichText'
 import { useTranslation } from 'react-i18next'
 
+// Lazy so the quiz only loads for users who actually see it
+const TasteQuizModal = lazy(() => import('./TasteQuiz/TasteQuizModal'))
+
 const RAIL_KEY = 'dk-rail-collapsed'
+
+// Routes where the first-login taste quiz prompt must not appear
+const TASTE_QUIZ_EXCLUDED = ['/login', '/admin-login', '/admin', '/privacy', '/callback']
 
 /**
  * Application chrome: the collapsible rail, the sticky top bar, and every
@@ -45,6 +52,8 @@ export default function AppShell({ children }) {
   const [searchPos, setSearchPos] = useState(null)
   const [infoOpen, setInfoOpen] = useState(false)
   const [changelogOpen, setChangelogOpen] = useState(false)
+  const [tasteQuizOpen, setTasteQuizOpen] = useState(false)
+  const tasteQuizCheckedRef = useRef(false)
 
   const searchWrapRef = useRef(null)
   const searchDropdownRef = useRef(null)
@@ -89,6 +98,17 @@ export default function AppShell({ children }) {
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
   }, [])
+
+  // First-login taste quiz prompt: check once per session whether the user
+  // has answered (or skipped) the quiz, and open it if they never have.
+  useEffect(() => {
+    if (!user || tasteQuizCheckedRef.current) return
+    if (TASTE_QUIZ_EXCLUDED.some(p => currentPath === p || currentPath.startsWith(p + '/'))) return
+    tasteQuizCheckedRef.current = true
+    userApi.getSettings().then(({ data }) => {
+      if (data && data.taste_quiz_state === null) setTasteQuizOpen(true)
+    }).catch(() => { /* best-effort — never block the app on this */ })
+  }, [user, currentPath])
 
   const handleSourceChange = useCallback((src) => {
     if (activeSource === src) return
@@ -311,7 +331,7 @@ export default function AppShell({ children }) {
             <div className="info-modal-logo">
               <span className="logo-icon"><LogoIcon /></span>
               <span className="logo-text">Diskovarr</span>
-              <button className="info-modal-version" onClick={() => { setInfoOpen(false); setChangelogOpen(true) }}>v{import.meta.env.VITE_APP_VERSION || '2.7.1'}</button>
+              <button className="info-modal-version" onClick={() => { setInfoOpen(false); setChangelogOpen(true) }}>v{import.meta.env.VITE_APP_VERSION || '3.0.0'}</button>
             </div>
             <p className="info-modal-tagline">{t("Your personalized discovery and content management platform for Plex and Jellyfin. Diskovarr combines recommendations, requests, watch history, reviews, and community features into a single experience. It learns from your viewing habits to help you discover new content, track what you've watched, and share your thoughts with other users.")}</p>
             <div className="info-modal-sections">
@@ -363,6 +383,19 @@ export default function AppShell({ children }) {
       )}
 
       <ChangelogModal open={changelogOpen} onClose={() => setChangelogOpen(false)} />
+
+      {/* First-login taste quiz — lazy-loaded so it only ships when shown */}
+      {tasteQuizOpen && (
+        <Suspense fallback={null}>
+          <TasteQuizModal
+            open
+            initialEntries={[]}
+            canSkip
+            onClose={() => setTasteQuizOpen(false)}
+            onSaved={() => setTasteQuizOpen(false)}
+          />
+        </Suspense>
+      )}
 
       {/* Broadcast notification modal */}
       <Modal isOpen={!!bell.selectedBroadcast} onClose={() => bell.setSelectedBroadcast(null)}>

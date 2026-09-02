@@ -135,7 +135,7 @@
   "Chinese": "Chinês",
   "Choose Image": "Escolher imagem",
   "Choose a channel to post to and copy the webhook URL": "Escolha um canal para publicar e copie a URL do webhook",
-  "Choose which Plex libraries to sync. Only enabled libraries are included in sync operations. Removing a library deletes its synced data.": "Escolha quais bibliotecas do Plex sincronizar. Apenas as habilitadas são incluídas. Remover uma biblioteca exclui seus dados sincronizados.",
+  "Choose which media server libraries to sync. Only enabled libraries are included in sync operations. Removing a library deletes its synced data.": "Escolha quais bibliotecas do servidor de mídia sincronizar. Apenas as habilitadas são incluídas. Remover uma biblioteca exclui seus dados sincronizados.",
   "Choose which events trigger notifications across all your enabled channels.": "Escolha quais eventos disparam notificações em todos os seus canais habilitados.",
   "Clear": "Limpar",
   "Clear All Dismissals": "Limpar todas as dispensas",
@@ -1050,5 +1050,7 @@
   "✓ Issue Reported": "✓ Problema relatado",
   "✕ Not Interested": "✕ Não tenho interesse",
   "✕ Remove": "✕ Remover",
-  "❮ Prev": "❮ Anterior"
+  "❮ Prev": "❮ Anterior",
+  "Jellyfin Media Server — enables Jellyfin library sync, sign-in, and account linking": "Servidor de mídia Jellyfin — habilita a sincronização de biblioteca, o login e a vinculação de contas do Jellyfin",
+  "This server hosts both a Plex and a Jellyfin library. Use the Plex / Jellyfin switch in the navigation bar to choose which one you are browsing — recommendations, search, and availability all follow the selected source. Link both accounts in Settings to sign in with either one and keep a single combined watch profile.": "Este servidor hospeda uma biblioteca do Plex e uma do Jellyfin. Use o seletor Plex/Jellyfin na barra de navegação para escolher qual está navegando — recomendações, busca e disponibilidade seguem a fonte selecionada. Vincule as duas contas em Configurações para entrar com qualquer uma e manter um único perfil combinado."
 }

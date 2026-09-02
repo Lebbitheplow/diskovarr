@@ -13,7 +13,12 @@ function getJellyfinKey() {
   return db.getSetting('jellyfin_api_key', null) || process.env.JELLYFIN_API_KEY || '';
 }
 function isEnabled() {
-  return db.getSetting('jellyfin_enabled', '0') === '1' && !!getJellyfinUrl() && !!getJellyfinKey();
+  if (!getJellyfinUrl() || !getJellyfinKey()) return false;
+  const flag = db.getSetting('jellyfin_enabled', null);
+  // Never toggled in the admin UI: env-only deployments (JELLYFIN_URL +
+  // JELLYFIN_API_KEY in docker-compose) count as enabled, matching the docs.
+  if (flag === null) return !!(process.env.JELLYFIN_URL && process.env.JELLYFIN_API_KEY);
+  return flag === '1';
 }
 
 // Jellyfin requires this header shape on anonymous auth endpoints; on

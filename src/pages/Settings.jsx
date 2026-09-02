@@ -1,7 +1,8 @@
 import React, { useState, useCallback, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { userApi } from '../services/api'
+import { userApi, tasteApi } from '../services/api'
 import { useToast } from '../context/ToastContext'
+import TasteQuizModal from '../components/TasteQuiz/TasteQuizModal'
 import UserNotifications from '../components/UserNotifications/UserNotifications'
 import ConnectedAccounts from '../components/ConnectedAccounts'
 import MonitorManager from '../components/MonitorManager/MonitorManager'
@@ -50,6 +51,10 @@ export default function Settings() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [activeTab, setActiveTab] = useState('content')
+  const [tasteOpen, setTasteOpen] = useState(false)
+  const [tasteEntries, setTasteEntries] = useState([])
+  const [tasteCanSkip, setTasteCanSkip] = useState(false)
+  const [tasteLoading, setTasteLoading] = useState(false)
 
   // Sync the active tab from the URL ?tab= param. Render-phase adjustment
   // (React's recommended alternative to a state-syncing effect).
@@ -139,6 +144,20 @@ export default function Settings() {
       toastError(e.message || t('Save failed'))
     }
   }, [toastSuccess, toastError, t])
+
+  const handleEditTaste = useCallback(async () => {
+    setTasteLoading(true)
+    try {
+      const { data } = await tasteApi.getTaste()
+      setTasteEntries(data.entries || [])
+      setTasteCanSkip(!data.quiz_state)
+      setTasteOpen(true)
+    } catch (e) {
+      toastError(e?.message || t('Failed to load taste profile'))
+    } finally {
+      setTasteLoading(false)
+    }
+  }, [toastError, t])
 
   if (loading) {
     return (
@@ -247,6 +266,16 @@ export default function Settings() {
           </div>
         )}
 
+        {activeTab === 'content' && (
+          <div className="settings-section">
+            <p className="settings-section-title">{t('Taste Profile')}</p>
+            <p className="settings-desc" style={{ marginBottom: '20px' }}>{t('Tell Diskovarr what you love — and what to avoid — to tune your recommendations.')}</p>
+            <button className="btn-settings-save" type="button" onClick={handleEditTaste} disabled={tasteLoading}>
+              {tasteLoading ? t('Loading...') : t('Edit taste profile')}
+            </button>
+          </div>
+        )}
+
         {activeTab === 'notifications' && (
           <UserNotifications settings={s} onToast={toastError} onUpdateSettings={handleUpdateSettings} />
         )}
@@ -337,6 +366,14 @@ export default function Settings() {
             </div>
           </div>
         )}
+
+        <TasteQuizModal
+          open={tasteOpen}
+          initialEntries={tasteEntries}
+          canSkip={tasteCanSkip}
+          onClose={() => setTasteOpen(false)}
+          onSaved={() => { setTasteOpen(false); toastSuccess(t('Taste profile saved')) }}
+        />
       </div>
     </main>
   )

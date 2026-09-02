@@ -889,7 +889,17 @@ export default function UserManagement({ onToast, connections, onOpenUserSetting
                     <span className="user-id">
                       <Avatar url={user.thumb} username={user.username} />
                       <div>
-                        <span>{user.username}</span>
+                        <span>
+                          {user.username}
+                          {user.auth_provider === 'jellyfin' && (
+                            <span
+                              title={user.linked_user_id ? `Jellyfin account, linked to ${user.linked_user_id}` : 'Jellyfin account'}
+                              style={{ marginLeft: 6, padding: '1px 6px', borderRadius: 6, fontSize: '0.65rem', fontWeight: 600, letterSpacing: '0.03em', background: 'rgba(168,85,247,0.18)', color: '#c084fc', verticalAlign: 'middle' }}
+                            >
+                              {user.linked_user_id ? 'Jellyfin · linked' : 'Jellyfin'}
+                            </span>
+                          )}
+                        </span>
                         {user.user_id && (
                           <span className="user-id-sub">{user.user_id}</span>
                         )}

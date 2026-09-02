@@ -42,14 +42,28 @@ async function fetchAsDataUri(src) {
   if (!src) return null;
   try {
     let url;
+    const headers = {};
     if (src.startsWith('http://') || src.startsWith('https://')) {
       url = src;
     } else if (src.startsWith('/library/')) {
       url = `${plexService.getPlexUrl()}${src}?X-Plex-Token=${plexService.getPlexToken()}`;
+    } else if (/^\/Items\/[A-Za-z0-9-]+\/Images\//.test(src)) {
+      // Jellyfin poster/backdrop paths (same shape the poster proxy accepts)
+      const jellyfin = require('./jellyfin');
+      if (!jellyfin.isEnabled()) return null;
+      url = `${jellyfin.getJellyfinUrl()}${src}`;
+      headers['X-Emby-Token'] = jellyfin.getJellyfinKey();
+    } else if (src.startsWith('/api/jellyfin/avatar/')) {
+      // Jellyfin user avatars — resolve the proxy path back to the origin
+      const jellyfin = require('./jellyfin');
+      if (!jellyfin.isEnabled()) return null;
+      const m = src.match(/^\/api\/jellyfin\/avatar\/([A-Za-z0-9-]+)(?:\?tag=([A-Za-z0-9]+))?/);
+      if (!m) return null;
+      url = `${jellyfin.getJellyfinUrl()}/Users/${m[1]}/Images/Primary${m[2] ? `?tag=${m[2]}` : ''}`;
     } else {
       return null;
     }
-    const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    const res = await fetch(url, { headers, signal: AbortSignal.timeout(8000) });
     if (!res.ok) return null;
     const type = res.headers.get('content-type') || 'image/jpeg';
     if (!type.startsWith('image/')) return null;
