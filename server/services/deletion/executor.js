@@ -90,6 +90,23 @@ async function deleteViaPlex(item) {
   }
 }
 
+// Jellyfin fallback: DELETE /Items/{id} with the admin API key (the key's user
+// needs "Allow media deletion" in Jellyfin). Jellyfin removes the files itself.
+async function deleteViaJellyfin(item) {
+  const jellyfin = require('../jellyfin');
+  if (!jellyfin.isEnabled()) {
+    throw new Error(`Jellyfin is not enabled — cannot delete Jellyfin item "${item.title}" (configure Radarr/Sonarr or enable Jellyfin)`);
+  }
+  try {
+    await jellyfin.jfFetch(`/Items/${encodeURIComponent(String(item.ratingKey))}`, { method: 'DELETE', timeout: 60000 });
+  } catch (err) {
+    if (/ 40[13] /.test(err.message)) {
+      throw new Error('Jellyfin refused the delete — enable "Allow media deletion" for the API key\'s user in Jellyfin, or configure Radarr/Sonarr');
+    }
+    throw err;
+  }
+}
+
 // ── Riven / DUMB cleanup ──────────────────────────────────────────────────────
 
 const RIVEN_SETTINGS_PATH = process.env.RIVEN_SETTINGS_PATH || '/opt/riven/settings.json';
@@ -163,9 +180,9 @@ function cleanupRequests(item) {
  * applicable path failed (nothing was deleted).
  */
 async function deleteItem(item, profile) {
-  if ((item.source || 'plex') !== 'plex') {
-    // Jellyfin items must never fall through to the Plex delete path.
-    throw new Error(`Deletion is Plex-only — refusing to delete ${item.source} item "${item.title}"`);
+  const source = item.source || 'plex';
+  if (source !== 'plex' && source !== 'jellyfin') {
+    throw new Error(`Refusing to delete ${source} item "${item.title}" — no delete path for this source`);
   }
   const conn = db.getConnectionSettings();
   const notes = [];
@@ -175,6 +192,10 @@ async function deleteItem(item, profile) {
     method = 'radarr';
   } else if (item.type === 'show' && await deleteViaSonarr(item, profile, conn).catch(e => { if (e.noFallback) throw e; notes.push(`sonarr: ${e.message}`); return false; })) {
     method = 'sonarr';
+  } else if (source === 'jellyfin') {
+    // Never the Plex path for a Jellyfin GUID.
+    await deleteViaJellyfin(item);
+    method = 'jellyfin';
   } else {
     await deleteViaPlex(item);
     method = 'plex';
@@ -196,8 +217,21 @@ async function deleteItem(item, profile) {
 // After real deletions: make Plex notice missing files and clear its trash so
 // items don't linger as "unavailable" entries.
 async function refreshAndEmptyTrash(sectionIds) {
-  for (const sectionId of new Set(sectionIds)) {
-    if (String(sectionId).startsWith('jf_')) continue; // Plex API only
+  const unique = new Set(sectionIds);
+  // Jellyfin has no per-library trash; one library scan picks up the removals.
+  if ([...unique].some(id => String(id).startsWith('jf_'))) {
+    try {
+      const jellyfin = require('../jellyfin');
+      if (jellyfin.isEnabled()) {
+        await jellyfin.jfFetch('/Library/Refresh', { method: 'POST' });
+        logger.info('[deletion] triggered Jellyfin library refresh');
+      }
+    } catch (e) {
+      logger.warn(`[deletion] Jellyfin library refresh failed: ${e.message}`);
+    }
+  }
+  for (const sectionId of unique) {
+    if (String(sectionId).startsWith('jf_')) continue; // Plex API below
     try {
       await plexRequest(`/library/sections/${sectionId}/refresh`);
       await new Promise(r => setTimeout(r, 10000));
@@ -209,4 +243,4 @@ async function refreshAndEmptyTrash(sectionIds) {
   }
 }
 
-module.exports = { deleteItem, refreshAndEmptyTrash };
+module.exports = { deleteItem, refreshAndEmptyTrash, deleteViaJellyfin };

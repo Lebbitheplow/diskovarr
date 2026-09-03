@@ -98,7 +98,7 @@ function AgentInfoModal({ agent, onClose }) {
             </div>
             <div>
               <p style={{ fontWeight: 600, color: 'var(--text-primary)', margin: '0 0 4px' }}>{t('Notification types')}</p>
-              <p style={{ margin: 0 }}><strong>{t('New request pending / Auto-approved')}</strong> {t('— admin alerts for incoming requests.')} <strong>{t('Approved / Denied')}</strong> {t('— notify the requester when an admin acts.')} <strong>{t('Available')}</strong> {t('— notify when content appears in Plex.')} <strong>{t('Request processing error')}</strong> {t('— admin alert when a request fails to submit to Radarr/Sonarr/Overseerr.')}</p>
+              <p style={{ margin: 0 }}><strong>{t('New request pending / Auto-approved')}</strong> {t('— admin alerts for incoming requests.')} <strong>{t('Approved / Denied')}</strong> {t('— notify the requester when an admin acts.')} <strong>{t('Available')}</strong> {t('— notify when content appears in your library.')} <strong>{t('Request processing error')}</strong> {t('— admin alert when a request fails to submit to Radarr/Sonarr/Overseerr.')}</p>
             </div>
           </div>
         </div>

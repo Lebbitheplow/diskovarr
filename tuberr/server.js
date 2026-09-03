@@ -4,6 +4,7 @@ const { getSetting } = require('./db');
 const downloader = require('./lib/downloader');
 const ytdlp = require('./lib/ytdlp');
 const scheduler = require('./lib/scheduler');
+const janitor = require('./lib/janitor');
 
 const app = express();
 app.use(express.json());
@@ -23,5 +24,6 @@ app.listen(config.port, () => {
   console.log(`[tuberr] management api key: ${getSetting('api_key')}`);
   ytdlp.startAutoUpdate();   // bootstrap + daily self-update of the bundled yt-dlp
   scheduler.start();         // periodic episode/video re-sync + auto-match
+  janitor.start();           // purge staging copies Sonarr has already imported
   downloader.resumePending();
 });

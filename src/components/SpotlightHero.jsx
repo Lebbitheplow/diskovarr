@@ -1,6 +1,13 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { posterUrl } from '../utils/media'
+import useCastPlayer from '../hooks/useCastPlayer'
+
+const CAST_ICON = (
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="currentColor" style={{ verticalAlign: '-3px', marginRight: '6px' }} aria-hidden="true">
+    <path d="M1 18v3h3c0-1.66-1.34-3-3-3zm0-4v2c2.76 0 5 2.24 5 5h2c0-3.87-3.13-7-7-7zm0-4v2c4.97 0 9 4.03 9 9h2C12 14.14 7.03 9 1 10zm20-7H3C1.9 3 1 3.9 1 5v3h2V5h18v14h-7v2h7c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z" />
+  </svg>
+)
 
 const ROTATE_MS = 7000
 const MAX_SLIDES = 5
@@ -48,6 +55,7 @@ export default function SpotlightHero({
   isInWatchlist,
 }) {
   const { t } = useTranslation()
+  const { castOpen, castLoading, castingId, clients, handleCastClick, handleCastMedia, canCast, noClientsMessage } = useCastPlayer()
   const slides = (items || []).filter(Boolean).slice(0, MAX_SLIDES)
   const [active, setActive] = useState(0)
   const [paused, setPaused] = useState(false)
@@ -141,15 +149,35 @@ export default function SpotlightHero({
         {d.reason && <p className="spotlight-reason">{d.reason}</p>}
 
         <div className="spotlight-actions">
-          {item.deepLink && (
-            <a
-              className="spotlight-btn spotlight-btn-play"
-              href={item.deepLink}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              ▶ {t('Play')}
-            </a>
+          {canCast(item) && (
+            <div className="spotlight-cast-wrap">
+              <button
+                className="spotlight-btn spotlight-btn-play"
+                onClick={() => handleCastClick(item)}
+                disabled={castLoading}
+              >
+                {CAST_ICON}{castLoading ? t('Loading…') : t('Play')}
+              </button>
+              {castOpen && !castLoading && (
+                <div className="spotlight-cast-picker">
+                  {clients.length === 0 && (
+                    <span className="cast-no-clients">{noClientsMessage}</span>
+                  )}
+                  {clients.map(client => (
+                    <button
+                      key={client.machineIdentifier}
+                      className="cast-client-btn"
+                      onClick={() => handleCastMedia(item, client)}
+                      disabled={!!castingId}
+                    >
+                      {castingId === client.machineIdentifier
+                        ? t('Casting…')
+                        : client.name + (client.product ? ' · ' + client.product : '')}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           )}
           {item.ratingKey && onToggleWatchlist && (
             <button

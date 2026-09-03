@@ -7,6 +7,23 @@ const C = require('./recommend/constants');
 const affinity = require('./recommend/affinity');
 const tasteProfile = require('./recommend/tasteProfile');
 
+// "Related items" from whichever server owns the seed. Plex rating keys are
+// numeric (/library/metadata/<key>/related); Jellyfin items are GUIDs and go
+// through /Items/<id>/Similar. Both return the same hub shape. Never hands a
+// non-numeric key to Plex.
+async function getRelatedForItem(item) {
+  if (!item?.ratingKey) return [];
+  const key = String(item.ratingKey);
+  const source = item.source || (/^\d+$/.test(key) ? 'plex' : 'jellyfin');
+  try {
+    if (source === 'jellyfin') return await require('./jellyfin').getSimilar(key, 20);
+    if (!/^\d+$/.test(key)) return [];
+    return await plexService.getRelated(key);
+  } catch {
+    return [];
+  }
+}
+
 // Signal type priority for reason display — genre always shows after specific signals
 const SIGNAL_TYPE_RANK = { collection: 0, director: 1, similar: 2, taste: 3, actor: 3, social: 4, keyword: 5, studio: 6, rating: 7, new: 8, recent_release: 9, genre: 99 };
 
@@ -343,11 +360,12 @@ async function buildPreferenceProfile(userId, libraryMap) {
       }
     })),
 
-    // Plex /related — surfaces unwatched library items Plex considers related
-    // to watched seeds. All hub types used; labeled "[sourceTitle] watchers liked".
+    // Server "related" — surfaces unwatched library items the media server
+    // considers related to watched seeds (Plex /related hubs or Jellyfin
+    // /Similar). All hub types used; labeled "[sourceTitle] watchers liked".
     Promise.all(similarSeeds.slice(0, 12).map(async seedItem => {
       const seedWeight = seedImportanceMap.get(seedItem.ratingKey) || 1;
-      const hubs = await plexService.getRelated(seedItem.ratingKey).catch(() => []);
+      const hubs = await getRelatedForItem(seedItem);
       for (const hub of hubs) {
         for (const relItem of hub.items) {
           const key = String(relItem.ratingKey);
@@ -390,9 +408,9 @@ async function buildPreferenceProfile(userId, libraryMap) {
       }
     })),
 
-    // ── Interest: Plex /related from watchlisted library items ───────────────
+    // ── Interest: server related/similar from watchlisted library items ─────
     Promise.all(interestLibSeeds.slice(0, 6).map(async seedItem => {
-      const hubs = await plexService.getRelated(seedItem.ratingKey).catch(() => []);
+      const hubs = await getRelatedForItem(seedItem);
       for (const hub of hubs) {
         for (const relItem of hub.items) {
           const key = String(relItem.ratingKey);
@@ -1247,7 +1265,7 @@ async function warmAllUserCaches() {
 module.exports = {
   getRecommendations, invalidateUserCache, invalidateAllCaches, warmAllUserCaches,
   // Exported for use by discoverRecommender
-  buildPreferenceProfile, partialShuffle, tieredSample,
+  buildPreferenceProfile, partialShuffle, tieredSample, getRelatedForItem,
   // Exported for tests and the rec-debug script
   scoreItem, scoreFallback,
 };

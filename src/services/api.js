@@ -159,8 +159,8 @@ export const notificationsApi = {
   markAllAsRead: () => api.post('/notifications/read-all'),
 }
 
-/** Plex (clients, cast, dismiss, trailer) */
-export const plexApi = {
+/** Library server (clients, cast, dismiss, trailer) — Plex today, source-aware later */
+export const libraryApi = {
   getClients: () => api.get('/clients'),
   prepareCast: (data) => api.post('/cast/prepare', data),
   castMedia: (data) => api.post('/cast', data),
@@ -192,6 +192,8 @@ export const userApi = {
   getAccountLinks: () => api.get('/user/link'),
   linkJellyfin: (username, password) => api.post('/user/link/jellyfin', { username, password }),
   unlinkJellyfin: () => api.delete('/user/link/jellyfin'),
+  // Only valid for a Jellyfin-identity session linked to a Plex user
+  unlinkPlex: () => api.delete('/user/link/plex'),
 }
 
 /** Taste Profile (quiz) */

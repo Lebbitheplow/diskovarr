@@ -20,6 +20,7 @@ function buildContext() {
     watchlistedKeys: new Set(
       db.prepare('SELECT DISTINCT rating_key FROM watchlist').all().map(r => String(r.rating_key))
     ),
+    // Any mirrored history counts (Tautulli or Jellyfin) — getWatchHistoryCount spans both.
     watchHistoryAvailable: tautulliService.hasWatchHistoryData(),
   };
 }
@@ -27,13 +28,15 @@ function buildContext() {
 function getAllLibraryItems() {
   const sectionIds = new Set([String(plexService.MOVIES_SECTION), String(plexService.TV_SECTION)]);
   try { for (const id of db.getEnabledSectionIds()) sectionIds.add(String(id)); } catch {}
+  // Jellyfin sections join the candidate pool only while Jellyfin is enabled:
+  // their play stats come from the mirrored watch_history (source='jellyfin')
+  // and the fallback delete path is Jellyfin's own DELETE /Items/{id}.
+  const jellyfinEnabled = (() => { try { return require('../jellyfin').isEnabled(); } catch { return false; } })();
   const items = [];
   for (const sectionId of sectionIds) {
-    // Deletion is Plex-only: play stats come from Tautulli and the fallback
-    // delete path talks to the Plex server, so Jellyfin items (jf_ sections)
-    // would always look unwatched and could never be deleted correctly.
-    if (sectionId.startsWith('jf_')) continue;
-    items.push(...db.getLibraryItemsFromDb(sectionId).filter(i => (i.source || 'plex') === 'plex'));
+    const isJellyfin = sectionId.startsWith('jf_');
+    if (isJellyfin && !jellyfinEnabled) continue;
+    items.push(...db.getLibraryItemsFromDb(sectionId).filter(i => (i.source || 'plex') === (isJellyfin ? 'jellyfin' : 'plex')));
   }
   return items;
 }

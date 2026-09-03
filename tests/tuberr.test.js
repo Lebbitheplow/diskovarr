@@ -16,6 +16,9 @@ const bencode = nodeRequire('../tuberr/lib/bencode.js')
 const torrent = nodeRequire('../tuberr/lib/torrent.js')
 const naming = nodeRequire('../tuberr/lib/naming.js')
 const matcher = nodeRequire('../tuberr/lib/matcher.js')
+const nfo = nodeRequire('../tuberr/lib/nfo.js')
+const janitor = nodeRequire('../tuberr/lib/janitor.js')
+const config = nodeRequire('../tuberr/config.js')
 
 describe('bencode', () => {
   it('encodes with sorted dict keys', () => {
@@ -52,6 +55,7 @@ describe('torrent', () => {
     const built = torrent.buildTorrent({ releaseTitle: 'A.S01E02.720p.WEB-DL-TUBERR', sizeBytes: 999, videoId: 'abc123DEF-_' })
     const parsed = torrent.parseTorrent(built.buffer)
     expect(parsed.videoId).toBe('abc123DEF-_')
+    expect(parsed.attempt).toBe(0)
     expect(parsed.infoHash).toBe(built.infoHash)
     expect(parsed.name).toBe('A.S01E02.720p.WEB-DL-TUBERR')
     expect(parsed.size).toBe(999)
@@ -61,6 +65,20 @@ describe('torrent', () => {
     const a = torrent.buildTorrent({ releaseTitle: 'T.S01E01.WEB-DL-TUBERR', sizeBytes: 100, videoId: 'video-one01' })
     const b = torrent.buildTorrent({ releaseTitle: 'T.S01E01.WEB-DL-TUBERR', sizeBytes: 100, videoId: 'video-two02' })
     expect(a.infoHash).not.toBe(b.infoHash)
+  })
+
+  it('changes the infohash per download attempt and still recovers the videoId', () => {
+    const base = { releaseTitle: 'T.S01E01.WEB-DL-TUBERR', sizeBytes: 100, videoId: 'video-one01' }
+    const first = torrent.buildTorrent(base)
+    const retry = torrent.buildTorrent({ ...base, attempt: 1 })
+    const retry2 = torrent.buildTorrent({ ...base, attempt: 2 })
+    expect(retry.infoHash).not.toBe(first.infoHash)
+    expect(retry2.infoHash).not.toBe(retry.infoHash)
+    // attempt 0 is encoded exactly like a pre-counter torrent
+    expect(torrent.buildTorrent({ ...base, attempt: 0 }).infoHash).toBe(first.infoHash)
+    const parsed = torrent.parseTorrent(retry2.buffer)
+    expect(parsed.videoId).toBe('video-one01')
+    expect(parsed.attempt).toBe(2)
   })
 })
 
@@ -73,6 +91,11 @@ describe('naming', () => {
   it('handles empty episode titles and pads numbers', () => {
     expect(naming.buildReleaseTitle('Show', 2, 3, ''))
       .toBe('Show.S02E03.1080p.WEB-DL-TUBERR')
+  })
+
+  it('builds the series+SxxExx prefix used for blocklist matching', () => {
+    expect(naming.releasePrefix('Angry Video Game Nerd', 16, 6)).toBe('Angry.Video.Game.Nerd.S16E06')
+    expect(naming.buildReleaseTitle('Angry Video Game Nerd', 16, 6, 'Garfield').startsWith(naming.releasePrefix('Angry Video Game Nerd', 16, 6) + '.')).toBe(true)
   })
 
   it('estimates plausible sizes from duration', () => {
@@ -175,5 +198,152 @@ describe('matcher scoring', () => {
     const perSeason = video({ title: 'Some Other Thing (PART 1)' })
     expect(matcher.scorePair(ep, absolute, ctx)).toBeGreaterThan(matcher.AUTO_THRESHOLD)
     expect(matcher.scorePair(ep, perSeason, ctx)).toBeLessThan(matcher.AUTO_THRESHOLD)
+  })
+})
+
+// Real titles from the 2026-09-02 audit — every case was < 0.70 before.
+describe('matcher regressions (short titles, segments, counters)', () => {
+  const T = matcher.AUTO_THRESHOLD
+  const avgn = {
+    seriesTitle: 'Angry Video Game Nerd', channelTitle: 'Cinemassacre', runtimeSec: 0, seasonIndexOf: new Map(),
+    seasonCounts: new Map([[12, 9], [16, 6]]),
+  }
+  const botw = {
+    seriesTitle: 'Best of the Worst', channelTitle: 'RedLetterMedia', runtimeSec: 0, seasonIndexOf: new Map(),
+    seasonCounts: new Map([[2014, 14], [2017, 14]]),
+  }
+  const snapcube = {
+    seriesTitle: 'SnapCubes Real Time Fandub', channelTitle: 'SnapCube', runtimeSec: 0, seasonIndexOf: new Map(),
+    seasonCounts: new Map([[2020, 1]]),
+  }
+  const ep = (season, episode, episode_title, air_date) => ({ season, episode, episode_title, air_date, source: 'auto' })
+  const vid = (title, published_at, duration_sec = 1500, over = {}) => ({
+    video_id: title, title, description: '', published_at, duration_sec, playlist_id: null, position: -1, status: 'ok', ...over,
+  })
+
+  it('matches one-word AVGN titles through the "<title> - <series> (<acronym>)" segment', () => {
+    const garfield = ep(16, 6, 'Garfield', '2022-12-22')
+    expect(matcher.scorePair(garfield, vid('Garfield - Angry Video Game Nerd (AVGN)', '2022-12-22T18:30:24Z', 1576), avgn))
+      .toBeGreaterThanOrEqual(T)
+    expect(matcher.scorePair(garfield, vid('Garfield Kart - James and Mike Mondays', '2020-04-20T19:30:02Z', 1096), avgn))
+      .toBeLessThan(T)
+    expect(matcher.scorePair(garfield, vid("Garfield's Halloween Adventure (1980s) - Monster Madness 2023", '2023-10-12T19:31:14Z', 956), avgn))
+      .toBeLessThan(T)
+
+    const doom = ep(16, 5, 'DOOM', '2022-10-30')
+    expect(matcher.scorePair(doom, vid('DOOM - Angry Video Game Nerd (AVGN)', '2022-10-30T23:02:39Z', 1749), avgn))
+      .toBeGreaterThanOrEqual(T)
+    expect(matcher.scorePair(doom, vid('DOOM: The Shores of Hell - James & Mike Mondays', '2016-07-18T04:44:43Z', 907), avgn))
+      .toBeLessThan(T)
+  })
+
+  it('ignores platform tags and the series acronym', () => {
+    expect(matcher.stripNoise('Earthbound (SNES) - Angry Video Game Nerd (AVGN)', 'Angry Video Game Nerd', 'Cinemassacre'))
+      .toBe('earthbound')
+    expect(matcher.stripNoise('Castlevania (Sega Genesis) [4K] Full Episode', 'Angry Video Game Nerd', 'Cinemassacre'))
+      .toBe('castlevania')
+    const earthbound = ep(12, 1, 'EarthBound', '2018-04-18')
+    expect(matcher.scorePair(earthbound, vid('Earthbound (SNES) - Angry Video Game Nerd (AVGN)', '2018-04-25T18:45:34Z', 2371), avgn))
+      .toBeGreaterThanOrEqual(T)
+    expect(matcher.scorePair(earthbound, vid("Earthbound Scratch N' Sniff Nintendo Power Magazines (James & Mike)", '2018-04-30T10:10:02Z', 603), avgn))
+      .toBeLessThan(T)
+  })
+
+  it('normalizes leading zeros so "#07" equals "#7"', () => {
+    expect(matcher.normalize('Wheel of the Worst #07')).toBe('wheel of the worst 7')
+    const wheel = ep(2014, 12, 'The Wheel of the Worst #07', '2014-12-18')
+    expect(matcher.scorePair(wheel, vid('Best of the Worst: Wheel of the Worst #7', '2014-12-24T07:18:12Z', 3296), botw))
+      .toBeGreaterThanOrEqual(T)
+    expect(matcher.scorePair(wheel, vid('Best of the Worst: Wheel of the Worst #8', '2015-05-28T06:01:28Z', 3100), botw))
+      .toBeLessThan(T)
+  })
+
+  it('treats a number beyond the season length as an absolute counter, not a mismatch', () => {
+    const plinketto = ep(2017, 1, 'Plinketto #03', '2017-02-05')
+    const v = vid('Best of the Worst: Episode 48: Plinketto #3', '2017-02-05T23:07:13Z', 3399)
+    expect(matcher.scorePair(plinketto, v, botw)).toBeGreaterThanOrEqual(T)
+    // without season counts the "Episode 48" still zeroes the number signal
+    expect(matcher.scorePair(plinketto, v, { ...botw, seasonCounts: undefined }))
+      .toBeLessThan(matcher.scorePair(plinketto, v, botw))
+  })
+
+  it('credits a video segment that equals one segment of a multi-part episode title', () => {
+    const sonic = ep(2020, 1, "Sonic Riders: SnapCube's Real-Time Fandub and the Necessity of Change", '2020-03-14')
+    expect(matcher.scorePair(sonic, vid('Sonic Riders | Real-Time Fandub Games', '2020-03-15T00:30:10Z', 4031), snapcube))
+      .toBeGreaterThanOrEqual(T)
+  })
+
+  it('penalizes trailers/teasers/clips', () => {
+    const sonic = ep(2020, 1, "Sonic Riders: SnapCube's Real-Time Fandub and the Necessity of Change", '2020-03-14')
+    // long enough not to be filtered as a Short, published on the air date: only the penalty keeps it out
+    const trailer = vid('Sonic Riders (TRAILER) | Real-Time Fandub Games', '2020-03-14T21:39:07Z', 300)
+    expect(matcher.scorePair(sonic, trailer, snapcube)).toBeLessThan(T)
+    const full = vid('Sonic Riders | Real-Time Fandub Games', '2020-03-14T21:39:07Z', 300)
+    expect(matcher.scorePair(sonic, full, snapcube) - matcher.scorePair(sonic, trailer, snapcube)).toBeGreaterThan(0.25)
+  })
+
+  it('allows containment for a single long token but not a short one', () => {
+    const garfield = ep(16, 6, 'Garfield', '2022-12-22')
+    const noisy = vid('Garfield Kart Furious Racing Review', '2022-12-22T18:30:24Z', 1576)
+    expect(matcher.titleScore(garfield.episode_title, noisy.title, avgn)).toBeGreaterThanOrEqual(0.95)
+    expect(matcher.titleScore('DOOM', 'DOOM 64 (N64) Retrospective', avgn)).toBeLessThan(0.95)
+  })
+
+  it('accepts a generic-title episode on date alone when it is the only nearby upload', () => {
+    const ctx = { seriesTitle: 'My Web Series', channelTitle: 'MyChannel', runtimeSec: 1200, seasonIndexOf: new Map() }
+    const generic = ep(1, 5, 'Episode 5', '2024-06-01')
+    const only = vid('A fun upload with no number in it', '2024-06-01T15:00:00Z', 1300, { video_id: 'only' })
+    const other = vid('Another upload the same week', '2024-06-02T15:00:00Z', 1300, { video_id: 'other' })
+    // without the index (old behaviour) the best a numberless video can do is 0.675
+    expect(matcher.scorePair(generic, only, ctx)).toBeLessThan(T)
+    const sole = { ...ctx, soleNearbyVideo: matcher.nearbyVideoIndex([generic], [only]) }
+    expect(matcher.scorePair(generic, only, sole)).toBe(T)
+    const ambiguous = { ...ctx, soleNearbyVideo: matcher.nearbyVideoIndex([generic], [only, other]) }
+    expect(matcher.scorePair(generic, only, ambiguous)).toBeLessThan(T)
+    // a trailer on the right date does not qualify
+    const trailer = vid('Episode trailer', '2024-06-01T15:00:00Z', 1300, { video_id: 'only' })
+    expect(matcher.scorePair(generic, trailer, sole)).toBeLessThan(T)
+  })
+})
+
+describe('nfo', () => {
+  it('builds a Kodi episodedetails document from yt-dlp info json', () => {
+    const info = {
+      id: 'QYlAed4EaPc', title: 'Garfield - Angry Video Game Nerd (AVGN)', channel: 'Cinemassacre',
+      description: 'The Nerd plays Garfield <on NES> & more', upload_date: '20221222', duration: 1576,
+      thumbnail: 'https://i.ytimg.com/vi/QYlAed4EaPc/maxresdefault.jpg',
+    }
+    const xml = nfo.buildEpisodeNfo(nfo.fromInfoJson(info, { showTitle: 'Angry Video Game Nerd', season: 16, episode: 6, title: 'Garfield' }))
+    expect(xml.startsWith('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<episodedetails>')).toBe(true)
+    expect(xml).toContain('<title>Garfield</title>')
+    expect(xml).toContain('<showtitle>Angry Video Game Nerd</showtitle>')
+    expect(xml).toContain('<season>16</season>')
+    expect(xml).toContain('<episode>6</episode>')
+    expect(xml).toContain('<plot>The Nerd plays Garfield &lt;on NES&gt; &amp; more</plot>')
+    expect(xml).toContain('<aired>2022-12-22</aired>')
+    expect(xml).toContain('<runtime>26</runtime>')
+    expect(xml).toContain('<thumb>https://i.ytimg.com/vi/QYlAed4EaPc/maxresdefault.jpg</thumb>')
+    expect(xml).toContain('<uniqueid type="youtube" default="true">QYlAed4EaPc</uniqueid>')
+    expect(xml.trim().endsWith('</episodedetails>')).toBe(true)
+  })
+
+  it('omits unknown fields instead of writing empty tags', () => {
+    const xml = nfo.buildEpisodeNfo(nfo.fromInfoJson({ id: 'abc', title: 'T' }, {}))
+    expect(xml).not.toContain('<season>')
+    expect(xml).not.toContain('<aired>')
+    expect(xml).not.toContain('<runtime>')
+    expect(xml).toContain('<uniqueid type="youtube" default="true">abc</uniqueid>')
+  })
+})
+
+describe('janitor safety', () => {
+  it('only ever deletes paths strictly inside the downloads dir', () => {
+    expect(janitor.insideDownloadsDir(path.join(config.downloadsDir, 'tv-youtube', 'Some.Release'))).toBe(true)
+    expect(janitor.insideDownloadsDir(config.downloadsDir)).toBe(false)
+    expect(janitor.insideDownloadsDir(config.downloadsDir + '-sibling/x')).toBe(false)
+    expect(janitor.insideDownloadsDir(path.join(config.downloadsDir, '..', 'escape'))).toBe(false)
+    expect(janitor.insideDownloadsDir('/NAS/YT Videos/Show/Season 1')).toBe(false)
+    expect(janitor.insideDownloadsDir('')).toBe(false)
+    expect(janitor.insideDownloadsDir(null)).toBe(false)
   })
 })

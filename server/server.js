@@ -157,6 +157,8 @@ if (process.env.TUBERR_URL) {
 // (no-op in the Docker image, where the entrypoint runs Tuberr itself)
 const tuberrProcess = require('./services/tuberrProcess')
 tuberrProcess.sync()
+// Poll Tuberr health / Sonarr wiring / pipeline status; alerts admins on outages
+require('./services/tuberrHealth').start()
 
 // Track last visit for logged-in users (throttled to once per 5 minutes per user)
 const _lastVisitTouch = new Map()
@@ -381,6 +383,41 @@ const server = app.listen(PORT, '0.0.0.0', () => {
       logger.info(`DB backup written: ${dest}`)
     } catch (err) {
       logger.warn('DB backup failed:', err.message)
+    }
+    runTuberrBackup()
+  }
+  // Tuberr's data (mappings/matches DB, YouTube cookies, management key) lives
+  // outside diskovarr.db but is just as painful to lose — snapshot it into the
+  // same rotation whenever the YouTube integration is enabled.
+  const runTuberrBackup = () => {
+    try {
+      if (db.getSetting('youtube_enabled', '0') !== '1') return
+      const srcDir = tuberrProcess.dataDir()
+      const srcDb = path.join(srcDir, 'tuberr.db')
+      if (!fs.existsSync(srcDb)) return
+      const backupsDir = path.join(dataDir, 'backups')
+      const stamp = new Date().toISOString().slice(0, 10)
+      const destDir = path.join(backupsDir, `tuberr-${stamp}`)
+      fs.rmSync(destDir, { recursive: true, force: true })
+      fs.mkdirSync(destDir, { recursive: true })
+      const { DatabaseSync } = require('node:sqlite')
+      const src = new DatabaseSync(srcDb, { readOnly: true })
+      try {
+        src.exec(`VACUUM INTO '${path.join(destDir, 'tuberr.db').replace(/'/g, "''")}'`)
+      } finally {
+        src.close()
+      }
+      for (const f of ['cookies.txt', 'api_key.txt']) {
+        const p = path.join(srcDir, f)
+        if (fs.existsSync(p)) fs.copyFileSync(p, path.join(destDir, f))
+      }
+      const old = fs.readdirSync(backupsDir)
+        .filter(f => /^tuberr-\d{4}-\d{2}-\d{2}$/.test(f))
+        .sort()
+      while (old.length > BACKUP_KEEP) fs.rmSync(path.join(backupsDir, old.shift()), { recursive: true, force: true })
+      logger.info(`Tuberr backup written: ${destDir}`)
+    } catch (err) {
+      logger.warn('Tuberr backup failed:', err.message)
     }
   }
   setTimeout(runDbBackup, 5 * 60 * 1000)

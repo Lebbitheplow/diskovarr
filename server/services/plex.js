@@ -283,7 +283,8 @@ async function warmCache(sectionIds = null) {
 // lazy path, which serves DB rows without pruning, so their deletions would never
 // be reconciled. Falls back to movies+TV if nothing is configured yet.
 async function resyncAllSections() {
-  const enabled = db.getEnabledSectionIds();
+  // Jellyfin folders (jf_*) live in the same enabled list but sync via jellyfin/library.js.
+  const enabled = db.getEnabledSectionIds().filter(id => !String(id).startsWith('jf_'));
   const sectionIds = enabled.length > 0 ? enabled : [getMoviesSection(), getTvSection()];
   for (const id of sectionIds) {
     const sid = String(id);
@@ -997,11 +998,16 @@ module.exports = {
   getPlexToken,
   getPlexServerId,
   startWebSocket,
+  isSseConnected,
 };
 
 // ── Plex SSE — real-time new-content detection ───────────────────────────────
 // Connects to PMS /:/eventsource/notifications (Server-Sent Events), the same
 // endpoint Tautulli uses. Fires onNewItem for fully-analyzed items (state 5).
+let _sseConnected = false;
+// True while the Plex notification stream is open (admin status pill).
+function isSseConnected() { return _sseConnected; }
+
 function startWebSocket(onNewItem) {
   const logger = require('./logger');
   let dead = false;
@@ -1025,6 +1031,7 @@ function startWebSocket(onNewItem) {
         return;
       }
       logger.info('[plex sse] Connected to Plex notification stream');
+      _sseConnected = true;
       let buf = '';
       const decoder = new TextDecoder();
       for await (const chunk of res.body) {
@@ -1059,9 +1066,11 @@ function startWebSocket(onNewItem) {
         }
       }
     } catch (err) {
+      _sseConnected = false;
       if (dead) return;
       logger.warn('[plex sse] Stream error:', err.message);
     }
+    _sseConnected = false;
     if (!dead) {
       logger.info('[plex sse] Disconnected — reconnecting in 30 s');
       setTimeout(connect, 30000);
@@ -1070,5 +1079,5 @@ function startWebSocket(onNewItem) {
 
   connect();
 
-  return { close: () => { dead = true; try { abortCtrl?.abort(); } catch {} } };
+  return { close: () => { dead = true; _sseConnected = false; try { abortCtrl?.abort(); } catch {} } };
 }

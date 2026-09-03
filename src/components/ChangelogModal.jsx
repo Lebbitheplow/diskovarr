@@ -20,7 +20,7 @@ const DATE_STYLE = { fontWeight: '400', color: 'var(--text-secondary)', fontSize
 export default function ChangelogModal({ open, onClose }) {
   const { t } = useTranslation()
   if (!open) return null
-  const currentVersion = import.meta.env.VITE_APP_VERSION || '3.0.0'
+  const currentVersion = import.meta.env.VITE_APP_VERSION || '3.0.1'
 
   return (
     <div className="info-modal-backdrop open" onClick={onClose}>
@@ -33,6 +33,30 @@ export default function ChangelogModal({ open, onClose }) {
           <div className="info-modal-section">
             <div className="info-modal-section-title">
               v{currentVersion}{' '}
+              <span style={DATE_STYLE}>2026-09-02</span>
+            </div>
+            <p style={SECTION_LABEL_STYLE}>{t('New')}</p>
+            <ul style={LIST_STYLE}>
+              <li style={ITEM_STYLE}>Cast from the home spotlight — the spotlight's Play button is now a Cast button: pick a TV or player and Diskovarr starts the title there, the same casting the detail window already offered</li>
+              <li style={ITEM_STYLE}>Jellyfin now matches Plex almost everywhere — Jellyfin users can cast to their devices, build a Wrapped playlist, and have their real per-play watch history tracked, and list-based collections, the library cleanup automation, and unlinking a Plex account all work for Jellyfin too</li>
+              <li style={ITEM_STYLE}>The YouTube downloader is now a first-class part of Diskovarr — a new YouTube tab in the admin panel shows its health, the download queue, failures, and match progress, and Diskovarr alerts admins when the downloader goes offline, YouTube quota runs out, or its cookies expire</li>
+            </ul>
+            <p style={SECTION_LABEL_STYLE}>{t('Changes')}</p>
+            <ul style={LIST_STYLE}>
+              <li style={ITEM_STYLE}>YouTube downloader alerts can now be relayed through every notification channel — Slack, Gotify, ntfy, Telegram, Pushbullet, Email, Webhook and browser push, not just Discord and Pushover. Tick "YouTube downloader alerts" in a channel's settings to turn it on; the in-app bell always shows them</li>
+              <li style={ITEM_STYLE}>Any TV show can now be downloaded from YouTube, not only shows that exist solely on TVDB</li>
+              <li style={ITEM_STYLE}>Better YouTube episode matching — short titles, platform tags like "(NES)", and "#7" vs "#07" now line up correctly, and channels with nothing left to match stop burning through your daily quota</li>
+              <li style={ITEM_STYLE}>Downloaded YouTube videos now carry their real title, thumbnail, and metadata, so Plex and Jellyfin stop labelling them "Episode 35"</li>
+            </ul>
+            <p style={SECTION_LABEL_STYLE}>{t('Fixes')}</p>
+            <ul style={LIST_STYLE_LAST}>
+              <li style={ITEM_STYLE}>YouTube requests now turn Available when their episodes land in the library, and finished downloads are cleaned up instead of piling up hundreds of gigabytes on disk</li>
+              <li style={ITEM_STYLE}>The Cast button no longer appears on items or for accounts that can't actually be cast</li>
+            </ul>
+          </div>
+          <div className="info-modal-section">
+            <div className="info-modal-section-title">
+              v3.0.0{' '}
               <span style={DATE_STYLE}>2026-09-02</span>
             </div>
             <p style={SECTION_LABEL_STYLE}>{t('New')}</p>
@@ -68,35 +92,6 @@ export default function ChangelogModal({ open, onClose }) {
             <p style={SECTION_LABEL_STYLE}>{t('Changes')}</p>
             <ul style={LIST_STYLE_LAST}>
               <li style={ITEM_STYLE}>On phones, the floating profile button in the bottom right is now a menu button at the top left. It opens the same navigation drawer, from the side the drawer actually comes from, using the same icon as the sidebar toggle on desktop</li>
-            </ul>
-          </div>
-          <div className="info-modal-section">
-            <div className="info-modal-section-title">
-              v2.7.0{' '}
-              <span style={DATE_STYLE}>2026-09-01</span>
-            </div>
-            <p style={SECTION_LABEL_STYLE}>{t('New')}</p>
-            <ul style={LIST_STYLE}>
-              <li style={ITEM_STYLE}>A new sidebar — the top navigation bar has moved to a collapsible rail down the left side, with every page one click away instead of hidden behind the avatar menu. Click ☰ to shrink it to icons; Diskovarr remembers your choice</li>
-              <li style={ITEM_STYLE}>A spotlight on the home page — your strongest recommendation now leads the page as full-width artwork with its rating, runtime, description, and Play and Watchlist buttons</li>
-              <li style={ITEM_STYLE}>Redesigned artwork cards — posters are larger and cleaner, with the title, year, and rating laid over the artwork and the reasons a title was recommended revealed on hover</li>
-            </ul>
-            <p style={SECTION_LABEL_STYLE}>{t('Changes')}</p>
-            <ul style={LIST_STYLE}>
-              <li style={ITEM_STYLE}>A refreshed look across every page — frosted panels, a new display typeface for headings, and shelf headings that pin below the top bar as you scroll</li>
-              <li style={ITEM_STYLE}>Moving between pages no longer reloads the app, so navigation is instant, and opening a title now expands its poster into the detail window</li>
-              <li style={ITEM_STYLE}>Shelves now animate in as you scroll to them rather than all at once on load</li>
-              <li style={ITEM_STYLE}>Diskovarr Requests now has the same full-width spotlight as the home page, and both cycle through your top picks every few seconds — hover to hold one in place, or use the dots to jump</li>
-              <li style={ITEM_STYLE}>Added a privacy notice, linked in the footer, covering what this server stores, who it talks to, and what other members can see</li>
-            </ul>
-            <p style={SECTION_LABEL_STYLE}>{t('Fixes')}</p>
-            <ul style={LIST_STYLE_LAST}>
-              <li style={ITEM_STYLE}>The "Show mature content" switch on the home page now applies to every shelf — it previously only affected the two Most Popular rows, leaving R and TV-MA titles filtered out of your recommendations no matter how it was set</li>
-              <li style={ITEM_STYLE}>Esc now closes the title detail window, and stops the trailer with it</li>
-              <li style={ITEM_STYLE}>If your session expires while you're browsing, Diskovarr now returns you to the sign-in page instead of quietly failing to load anything</li>
-              <li style={ITEM_STYLE}>Email notifications now actually send — set the address you want them delivered to in Settings → Notifications → Email. The feature previously looked for an address that was never stored</li>
-              <li style={ITEM_STYLE}>Saving one notification channel no longer clears the others — Telegram, Pushbullet and email settings were being reset whenever any other notification setting was saved</li>
-              <li style={ITEM_STYLE}>Trailers now use YouTube's privacy-enhanced player, so YouTube doesn't set tracking cookies unless you press play</li>
             </ul>
           </div>
         </div>

@@ -41,63 +41,144 @@ async function getPlayedItems(jfUserId) {
   return { movies, episodes };
 }
 
-// Mirror one Jellyfin user's played state into user_watched + watch_history.
-function historyRowsOf(jfUserId, canonicalId, userName, userThumb, movies, episodes) {
+// One watch_history row for a Jellyfin item. `play` (optional) is a real
+// per-play record { ts, duration } from the Playback Reporting plugin or the
+// websocket session tracker; without it the item-level played state stands in
+// (runtime as duration, LastPlayedDate as the timestamp).
+function historyRowFor(jfUserId, canonicalId, userName, userThumb, item, play = null) {
+  const isEpisode = item.Type === 'Episode' || !!item.SeriesId;
+  const runtimeSec = item.RunTimeTicks ? Math.round(item.RunTimeTicks / 10_000_000) : 0;
+  const played = !!item.UserData?.Played;
+  const watchedAt = play ? play.ts : tsOf(item.UserData?.LastPlayedDate);
+  let duration, percent;
+  if (play) {
+    duration = Math.max(0, Math.round(play.duration || 0));
+    percent = runtimeSec ? Math.min(100, Math.round((duration / runtimeSec) * 100)) : (played ? 100 : 0);
+  } else {
+    duration = played && runtimeSec ? runtimeSec : 0;
+    percent = percentOf(item.UserData, item.RunTimeTicks);
+  }
+  return {
+    historyId: `jf:${jfUserId}:${item.Id}:${watchedAt}`,
+    userId: canonicalId,
+    ratingKey: String(item.Id),
+    grandparentRatingKey: isEpisode && item.SeriesId ? String(item.SeriesId) : null,
+    parentRatingKey: isEpisode && item.SeasonId ? String(item.SeasonId) : null,
+    title: item.Name || 'Unknown',
+    parentTitle: isEpisode ? (item.SeriesName || null) : null,
+    year: item.ProductionYear || null,
+    mediaType: isEpisode ? 'episode' : 'movie',
+    thumb: isEpisode
+      ? (item.SeriesId ? `/Items/${item.SeriesId}/Images/Primary` : null)
+      : (item.ImageTags?.Primary ? `/Items/${item.Id}/Images/Primary` : null),
+    watchedAt,
+    duration,
+    percentComplete: percent,
+    watchedStatus: play ? (percent >= COMPLETE_PERCENT ? 'complete' : 'incomplete') : (played ? 'complete' : 'incomplete'),
+    userName,
+    userThumb,
+    seasonNumber: isEpisode ? (item.ParentIndexNumber ?? null) : null,
+    episodeNumber: isEpisode ? (item.IndexNumber ?? null) : null,
+    bitrate: null,
+    resolution: null,
+    source: 'jellyfin',
+  };
+}
+
+// A play counts as complete past this share of the runtime (Tautulli's default).
+const COMPLETE_PERCENT = 85;
+
+// Mirror one Jellyfin user's played state into watch_history rows. With
+// `plays` ([{ itemId, ts, duration }] from Playback Reporting), items that have
+// real plays emit one row per play instead of the item-level stand-in.
+function historyRowsOf(jfUserId, canonicalId, userName, userThumb, movies, episodes, plays = null) {
+  const playsByItem = new Map();
+  for (const p of (plays || [])) {
+    if (!p?.itemId || !p.ts) continue;
+    const list = playsByItem.get(String(p.itemId)) || [];
+    list.push(p);
+    playsByItem.set(String(p.itemId), list);
+  }
   const rows = [];
-  for (const m of movies) {
-    const watchedAt = tsOf(m.UserData?.LastPlayedDate);
-    rows.push({
-      historyId: `jf:${jfUserId}:${m.Id}:${watchedAt}`,
-      userId: canonicalId,
-      ratingKey: String(m.Id),
-      grandparentRatingKey: null,
-      parentRatingKey: null,
-      title: m.Name || 'Unknown',
-      parentTitle: null,
-      year: m.ProductionYear || null,
-      mediaType: 'movie',
-      thumb: m.ImageTags?.Primary ? `/Items/${m.Id}/Images/Primary` : null,
-      watchedAt,
-      // No per-session length in the core API — runtime stands in when played.
-      duration: m.UserData?.Played && m.RunTimeTicks ? Math.round(m.RunTimeTicks / 10_000_000) : 0,
-      percentComplete: percentOf(m.UserData, m.RunTimeTicks),
-      watchedStatus: m.UserData?.Played ? 'complete' : 'incomplete',
-      userName,
-      userThumb,
-      seasonNumber: null,
-      episodeNumber: null,
-      bitrate: null,
-      resolution: null,
-      source: 'jellyfin',
-    });
-  }
-  for (const e of episodes) {
-    const watchedAt = tsOf(e.UserData?.LastPlayedDate);
-    rows.push({
-      historyId: `jf:${jfUserId}:${e.Id}:${watchedAt}`,
-      userId: canonicalId,
-      ratingKey: String(e.Id),
-      grandparentRatingKey: e.SeriesId ? String(e.SeriesId) : null,
-      parentRatingKey: e.SeasonId ? String(e.SeasonId) : null,
-      title: e.Name || 'Unknown',
-      parentTitle: e.SeriesName || null,
-      year: e.ProductionYear || null,
-      mediaType: 'episode',
-      thumb: e.SeriesId ? `/Items/${e.SeriesId}/Images/Primary` : null,
-      watchedAt,
-      duration: e.UserData?.Played && e.RunTimeTicks ? Math.round(e.RunTimeTicks / 10_000_000) : 0,
-      percentComplete: percentOf(e.UserData, e.RunTimeTicks),
-      watchedStatus: e.UserData?.Played ? 'complete' : 'incomplete',
-      userName,
-      userThumb,
-      seasonNumber: e.ParentIndexNumber ?? null,
-      episodeNumber: e.IndexNumber ?? null,
-      bitrate: null,
-      resolution: null,
-      source: 'jellyfin',
-    });
-  }
+  const emit = (item) => {
+    const itemPlays = playsByItem.get(String(item.Id));
+    if (itemPlays?.length) {
+      const seen = new Set();
+      for (const play of itemPlays) {
+        if (seen.has(play.ts)) continue; // two plugin rows on the same second collapse
+        seen.add(play.ts);
+        rows.push(historyRowFor(jfUserId, canonicalId, userName, userThumb, item, play));
+      }
+    } else {
+      rows.push(historyRowFor(jfUserId, canonicalId, userName, userThumb, item));
+    }
+  };
+  for (const m of movies) emit({ ...m, Type: 'Movie', SeriesId: null });
+  for (const e of episodes) emit({ ...e, Type: 'Episode' });
   return rows;
+}
+
+// True when a Jellyfin history row for this user+item already sits within
+// ±windowSec of `ts` — the websocket tracker and the item-level sync would
+// otherwise each add their own row for the same play.
+const DEDUPE_WINDOW_SEC = 6 * 3600;
+function hasRecentJellyfinHistory(userId, itemId, ts, windowSec = DEDUPE_WINDOW_SEC) {
+  const row = db.prepare(`
+    SELECT 1 FROM watch_history
+    WHERE user_id = ? AND rating_key = ? AND source = 'jellyfin' AND watched_at BETWEEN ? AND ?
+    LIMIT 1
+  `).get(String(userId), String(itemId), ts - windowSec, ts + windowSec);
+  return !!row;
+}
+
+// Replace any Jellyfin rows for the same user+item inside the window with
+// `row` (used by the websocket tracker, whose durations are the real ones).
+function replaceJellyfinHistoryRow(row, windowSec = DEDUPE_WINDOW_SEC) {
+  db.prepare(`
+    DELETE FROM watch_history
+    WHERE user_id = ? AND rating_key = ? AND source = 'jellyfin' AND watched_at BETWEEN ? AND ?
+  `).run(String(row.userId), String(row.ratingKey), row.watchedAt - windowSec, row.watchedAt + windowSec);
+  return db.upsertWatchHistoryBatch([row]);
+}
+
+// ── Playback Reporting plugin (optional per-play backfill) ───────────────────
+// When installed, the plugin answers POST /user_usage_stats/submit_custom_query
+// with real per-session rows. Probed at most once per PROBE_TTL; absence is
+// cached too so unsupported servers aren't hit every sync.
+const PROBE_TTL_MS = 6 * 60 * 60 * 1000;
+let _playbackReporting = { available: null, at: 0 };
+
+async function customQuery(sql) {
+  const res = await client.jfFetch('/user_usage_stats/submit_custom_query', {
+    method: 'POST', body: { CustomQueryString: sql, ReplaceUserId: false }, timeout: 30000,
+  });
+  const cols = (res?.colums || res?.columns || []).map(c => String(c));
+  return (res?.results || []).map(r => Object.fromEntries(cols.map((c, i) => [c, r[i]])));
+}
+
+async function probePlaybackReporting(force = false) {
+  if (!force && _playbackReporting.available !== null && Date.now() - _playbackReporting.at < PROBE_TTL_MS) {
+    return _playbackReporting.available;
+  }
+  let available = false;
+  try {
+    await customQuery("SELECT COUNT(*) AS c FROM PlaybackActivity WHERE ItemType IN ('Movie','Episode') LIMIT 1");
+    available = true;
+  } catch { available = false; }
+  _playbackReporting = { available, at: Date.now() };
+  return available;
+}
+
+// Per-play records for one user: [{ itemId, ts, duration }] (duration in seconds).
+async function getPlaybackReportingPlays(jfUserId) {
+  const guid = String(jfUserId).replace(/[^0-9a-fA-F-]/g, '');
+  const rows = await customQuery(
+    "SELECT DateCreated, ItemId, PlayDuration, UserId FROM PlaybackActivity " +
+    `WHERE ItemType IN ('Movie','Episode') AND REPLACE(UserId, '-', '') = REPLACE('${guid}', '-', '')`
+  );
+  return rows
+    .map(r => ({ itemId: String(r.ItemId || ''), ts: tsOf(r.DateCreated), duration: Number(r.PlayDuration) || 0 }))
+    .filter(r => r.itemId && r.ts > 0);
 }
 
 async function syncUserData(jfUser) {
@@ -115,7 +196,17 @@ async function syncUserData(jfUser) {
   for (const e of episodes) if (e.SeriesId) watchedKeys.add(String(e.SeriesId));
   db.replaceWatchedBatch(canonicalId, [...watchedKeys], 'jellyfin');
 
-  db.upsertWatchHistoryBatch(historyRowsOf(jfUserId, canonicalId, jfUser.name, userThumb, movies, episodes));
+  // Per-play rows from Playback Reporting when the plugin is installed; else
+  // one item-level row. Either way, plays the websocket tracker already wrote
+  // (real durations) win over a same-window item-level stand-in.
+  let plays = null;
+  if (await probePlaybackReporting()) {
+    try { plays = await getPlaybackReportingPlays(jfUserId); }
+    catch (err) { console.warn(`[jellyfin] Playback Reporting query failed for ${jfUser.name}: ${err.message}`); }
+  }
+  const rows = historyRowsOf(jfUserId, canonicalId, jfUser.name, userThumb, movies, episodes, plays)
+    .filter(r => plays?.length || !hasRecentJellyfinHistory(canonicalId, r.ratingKey, r.watchedAt));
+  db.upsertWatchHistoryBatch(rows);
 
   // Likes/dislikes → the 0–10 user_ratings scale the recommender consumes.
   try {
@@ -251,6 +342,8 @@ function getFullHistoryFromDb(userId) {
 }
 
 module.exports = {
-  getPlayedItems, syncUserData, syncAllUsers, syncFavoritesWatchlist,
+  getPlayedItems, historyRowsOf, historyRowFor, syncUserData, syncAllUsers, syncFavoritesWatchlist,
   setFavorite, setLikes, syncReviewRating, getFullHistoryFromDb,
+  hasRecentJellyfinHistory, replaceJellyfinHistoryRow, probePlaybackReporting, getPlaybackReportingPlays,
+  COMPLETE_PERCENT, DEDUPE_WINDOW_SEC,
 };

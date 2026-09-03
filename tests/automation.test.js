@@ -442,6 +442,72 @@ describe('deletion executor', () => {
   })
 })
 
+describe('deletion executor — Jellyfin items', () => {
+  const realFetch = global.fetch
+  let calls
+  const jfItem = (overrides = {}) => makeItem({ ratingKey: 'guid-1', sectionId: 'jf_f', source: 'jellyfin', ...overrides })
+
+  beforeEach(() => {
+    calls = []
+    db.setSetting('radarr_enabled', '0')
+    db.setSetting('sonarr_enabled', '0')
+    db.setSetting('riven_enabled', '0')
+    db.setSetting('jellyfin_url', 'http://jellyfin.test:8096')
+    db.setSetting('jellyfin_api_key', 'admin-key')
+    db.setSetting('jellyfin_enabled', '1')
+    global.fetch = vi.fn(async (url, opts = {}) => {
+      calls.push({ url: String(url), method: opts.method || 'GET' })
+      return { ok: true, status: 200, text: async () => '', json: async () => null }
+    })
+  })
+  afterEach(() => { global.fetch = realFetch; vi.restoreAllMocks() })
+
+  it('deletes via Jellyfin when no arr manages the item, never touching Plex', async () => {
+    db.upsertManyItems([{ ...jfItem(), sectionId: 'jf_f' }])
+    const { method } = await executor.deleteItem(jfItem(), { arrImportExclusion: false })
+    expect(method).toBe('jellyfin')
+    expect(calls).toEqual([{ url: 'http://jellyfin.test:8096/Items/guid-1', method: 'DELETE' }])
+    expect(db.getLibraryItemByKey('guid-1')).toBeNull()
+  })
+
+  it('prefers Radarr for Jellyfin movies too', async () => {
+    db.setSetting('radarr_enabled', '1'); db.setSetting('radarr_url', 'http://radarr.test'); db.setSetting('radarr_api_key', 'rk')
+    global.fetch = vi.fn(async (url, opts = {}) => {
+      calls.push({ url: String(url), method: opts.method || 'GET' })
+      if (String(url).includes('/api/v3/movie?tmdbId=550')) return { ok: true, status: 200, text: async () => JSON.stringify([{ id: 7 }]) }
+      return { ok: true, status: 200, text: async () => '' }
+    })
+    const { method } = await executor.deleteItem(jfItem({ ratingKey: 'guid-2' }), { arrImportExclusion: false })
+    expect(method).toBe('radarr')
+    expect(calls.some(c => c.url.includes('/Items/guid-2'))).toBe(false)
+  })
+
+  it('refuses when Jellyfin is disabled and no arr applies; surfaces permission errors', async () => {
+    db.setSetting('jellyfin_enabled', '0')
+    await expect(executor.deleteItem(jfItem(), {})).rejects.toThrow(/Jellyfin is not enabled/)
+    expect(calls).toEqual([])
+    db.setSetting('jellyfin_enabled', '1')
+    global.fetch = vi.fn(async () => ({ ok: false, status: 403, text: async () => '' }))
+    await expect(executor.deleteItem(jfItem(), {})).rejects.toThrow(/Allow media deletion/)
+  })
+
+  it('refreshAndEmptyTrash triggers one Jellyfin library refresh for jf_ sections', async () => {
+    await executor.refreshAndEmptyTrash(['jf_a', 'jf_b'])
+    expect(calls).toEqual([{ url: 'http://jellyfin.test:8096/Library/Refresh', method: 'POST' }])
+  })
+
+  it('previewProfile includes Jellyfin items only while Jellyfin is enabled', () => {
+    db.setSyncEnabledSections([{ id: 'jf_f', enabled: true }])
+    db.upsertManyItems([{ ...jfItem({ ratingKey: 'guid-p', year: 1990 }), sectionId: 'jf_f' }])
+    const profile = { name: 'old', mode: 'dry_run', criteria: [{ field: 'year', op: 'lt', value: 2000 }], match: 'all' }
+    expect(deletionService.previewProfile(profile).matches.map(m => m.ratingKey)).toContain('guid-p')
+    db.setSetting('jellyfin_enabled', '0')
+    expect(deletionService.previewProfile(profile).matches.map(m => m.ratingKey)).not.toContain('guid-p')
+    db.setSetting('jellyfin_enabled', '1')
+    db.setSyncEnabledSections([])
+  })
+})
+
 // ── runProfiles safety ────────────────────────────────────────────────────────
 
 describe('deletion runProfiles', () => {

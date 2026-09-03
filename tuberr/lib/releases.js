@@ -4,7 +4,7 @@ const torrentLib = require('./torrent');
 
 // Turns a matched episode row into a grab-able release: builds the release
 // title + torrent, records it in `grabs` so the download link and the fake
-// qBittorrent can recover the videoId later.
+// qBittorrent can recover the videoId (and attempt counter) later.
 
 function buildRelease(mapping, match) {
   const releaseTitle = naming.buildReleaseTitle(
@@ -12,12 +12,14 @@ function buildRelease(mapping, match) {
   const video = db.prepare('SELECT duration_sec, published_at FROM videos WHERE video_id = ? AND mapping_id = ?')
     .get(match.video_id, mapping.id);
   const sizeBytes = naming.estimateSizeBytes(video ? video.duration_sec : 0);
-  const { infoHash } = torrentLib.buildTorrent({ releaseTitle, sizeBytes, videoId: match.video_id });
+  const attempt = Number(match.attempts) || 0;
+  const { infoHash } = torrentLib.buildTorrent({ releaseTitle, sizeBytes, videoId: match.video_id, attempt });
   db.prepare(`
-    INSERT INTO grabs (info_hash, video_id, mapping_id, season, episode, release_title, size_bytes, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(info_hash) DO UPDATE SET release_title = excluded.release_title, size_bytes = excluded.size_bytes
-  `).run(infoHash, match.video_id, mapping.id, match.season, match.episode, releaseTitle, sizeBytes,
+    INSERT INTO grabs (info_hash, video_id, mapping_id, season, episode, release_title, size_bytes, attempt, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(info_hash) DO UPDATE SET release_title = excluded.release_title, size_bytes = excluded.size_bytes,
+      attempt = excluded.attempt
+  `).run(infoHash, match.video_id, mapping.id, match.season, match.episode, releaseTitle, sizeBytes, attempt,
     Math.floor(Date.now() / 1000));
   return {
     infoHash,
@@ -37,6 +39,7 @@ function torrentFor(infoHash) {
     releaseTitle: grab.release_title,
     sizeBytes: grab.size_bytes,
     videoId: grab.video_id,
+    attempt: grab.attempt || 0,
   }).buffer;
 }
 

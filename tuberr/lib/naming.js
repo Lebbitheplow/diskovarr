@@ -31,9 +31,15 @@ function buildReleaseTitle(seriesTitle, season, episode, episodeTitle) {
   return parts.filter(Boolean).join('.');
 }
 
+// "Series.Name.S01E05" — the part of a release title that identifies the
+// episode regardless of episode-title text (used to find blocklist entries).
+function releasePrefix(seriesTitle, season, episode) {
+  return [sanitizeToken(seriesTitle), `S${pad2(season)}E${pad2(episode)}`].filter(Boolean).join('.');
+}
+
 function estimateSizeBytes(durationSec) {
   const seconds = Number(durationSec) > 0 ? Number(durationSec) : FALLBACK_DURATION_SEC;
   return Math.round(seconds * ESTIMATE_BITRATE_BPS / 8);
 }
 
-module.exports = { sanitizeToken, buildReleaseTitle, estimateSizeBytes, RELEASE_SUFFIX };
+module.exports = { sanitizeToken, buildReleaseTitle, releasePrefix, estimateSizeBytes, RELEASE_SUFFIX };

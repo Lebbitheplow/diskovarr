@@ -9,7 +9,7 @@ import adminApi, {
 
 const PER_PAGE_OPTIONS = [10, 25, 50]
 
-const WATCHLIST_MODES = ['Plex Watchlist', 'Diskovarr Playlist']
+const WATCHLIST_MODES = ['Server Watchlist', 'Diskovarr Playlist']
 
 const USER_AVATAR_FALLBACK = 'data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'28\' height=\'28\' viewBox=\'0 0 28\'28\'%3E%3Ccircle cx=\'14\' cy=\'14\' r=\'14\' fill=\'%236366f1\'/%3E%3Ctext x=\'14\' y=\'18\' text-anchor=\'middle\' font-size=\'12\' fill=\'white\' font-family=\'sans-serif\'%3E?%3C/text%3E%3C/svg%3E'
 
@@ -509,7 +509,7 @@ export default function UserManagement({ onToast, connections, onOpenUserSetting
       const newMode = watchlistMode === 'watchlist' ? 'playlist' : 'watchlist'
       await adminSettings.setWatchlistMode(newMode)
       setWatchlistMode(newMode)
-      const displayName = newMode === 'watchlist' ? 'Plex Watchlist' : 'Diskovarr Playlist'
+      const displayName = newMode === 'watchlist' ? 'Server Watchlist' : 'Diskovarr Playlist'
       showToast(`Watchlist mode set to ${displayName}`)
     } catch (err) {
       const msg = err.message || 'Failed to update watchlist mode'
@@ -719,7 +719,7 @@ export default function UserManagement({ onToast, connections, onOpenUserSetting
           <div>
             <h2 className="section-title">Server Owner &amp; Watchlist Mode</h2>
             <p className="section-desc">
-              {t('Select the server owner user. The owner has full access to all admin features. Toggle the watchlist mode to switch between Plex Watchlist and Diskovarr Playlist.')}
+              {t('Select the server owner user. The owner has full access to all admin features. Toggle the watchlist mode to switch between the media server watchlist (Plex Watchlist / Jellyfin Favorites) and Diskovarr Playlist.')}
             </p>
           </div>
         </div>
@@ -761,13 +761,13 @@ export default function UserManagement({ onToast, connections, onOpenUserSetting
             <div>
               <span className="conn-field-label" style={{ marginBottom: 4 }}>{t('Watchlist Mode')}</span>
               <p className="section-desc" style={{ margin: 0 }}>
-                {t('Toggle between Plex Watchlist and Diskovarr Playlist. This determines how the watchlist is populated and managed.')}
+                {t('Toggle between the media server watchlist (Plex Watchlist / Jellyfin Favorites) and Diskovarr Playlist. This determines how the watchlist is populated and managed.')}
               </p>
             </div>
             <div className="conn-toggle-row">
               <div style={{ display: 'flex', gap: 10, fontSize: '0.85rem', color: 'var(--text-muted)', alignItems: 'center' }}>
                 <span style={{ fontWeight: watchlistMode === 'watchlist' ? 600 : 400, color: watchlistMode === 'watchlist' ? 'var(--accent)' : 'var(--text-muted)' }}>
-                  {t('Plex Watchlist')}
+                  {t('Server Watchlist')}
                 </span>
                 <label className="slide-toggle slide-toggle-choice" style={{ width: 56 }}>
                   <input
@@ -1117,7 +1117,7 @@ export default function UserManagement({ onToast, connections, onOpenUserSetting
                 {t('Auto-Request Watchlist')}
               </p>
               <p className="section-desc" style={{ marginBottom: 14, fontSize: '0.82rem' }}>
-                When enabled, items added to a user's Plex watchlist are automatically submitted as requests.
+                {t("When enabled, items added to a user's server watchlist (Plex Watchlist / Jellyfin Favorites) are automatically submitted as requests.")}
               </p>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>

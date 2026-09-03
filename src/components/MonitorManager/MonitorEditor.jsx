@@ -118,7 +118,7 @@ export default function MonitorEditor({ monitor, onSave, onCancel, prefillName, 
             <div className="monitor-notif-types">
               <label className="monitor-checkbox">
                 <input type="checkbox" checked={notifyPlex} onChange={e => setNotifyPlex(e.target.checked)} />
-                <span>{t('Notify when added to Plex')}</span>
+                <span>{t('Notify when added to the library')}</span>
               </label>
               <label className="monitor-checkbox">
                 <input type="checkbox" checked={notifyRequestable} onChange={e => setNotifyRequestable(e.target.checked)} />

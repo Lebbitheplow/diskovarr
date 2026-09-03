@@ -4,6 +4,33 @@ All notable changes are documented here. Versioning follows [Semantic Versioning
 
 ---
 
+## v3.0.1 — 2026-09-02
+
+### Added
+
+- **Cast from the home spotlight.** `SpotlightHero` now drives the shared `useCastPlayer` hook: the former inline "Play" button (`spotlight-btn-play`) is a Cast control that opens a device picker (`spotlight-cast-picker`) and issues the same cast the detail modal already offered. It is gated behind `canCast(item)` and shows per-device "Casting…" state.
+- **Jellyfin parity with Plex.** Cast/play on Jellyfin via a new `server/services/jellyfin/sessions.js` (`GET /Sessions?ControllableByUserId=`, `POST /Sessions/{id}/Playing?PlayCommand=PlayNow`); `/api/clients` and `/api/cast` branch on item/active source. Jellyfin deletion in the cleanup automation (`DELETE /Items/{id}` + `POST /Library/Refresh`), list→collection mirroring via `server/services/jellyfin/collections.js` (BoxSets), Wrapped playlists via `server/services/jellyfin/playlists.js`, real per-play watch history from the websocket `PlaybackStopped` stream (real duration/percent instead of one row per item), BoxSet/Tag/last-episode enrichment on items, realtime adds by id (`ItemsAdded` → `upsertItemsByIds`), a Jellyfin `/settings/jellyfin` shim stub, per-source library counts and `plexSse`/`jellyfinWs` flags on `/admin/status`, and `DELETE /api/user/link/plex` to unlink a Plex account from a Jellyfin identity (`ConnectedAccounts.jsx`). New tests: `tests/jellyfin*.test.js`, `tests/canonicalUser.test.js`.
+- **YouTube (Tuberr) admin tab.** The old Manage-Series modal is promoted to a YouTube tab (`YoutubeMappings.jsx`): health strip, download queue with progress, failures with reasons, unmatched-episode counts, and per-series last-video/last-grab. The child process's stdout/stderr are piped through Diskovarr's logger with a `[tuberr]` prefix and kept in a ring buffer (`GET /admin/tuberr/logs`).
+- **YouTube downloader health monitoring + alerts.** `server/services/tuberrHealth.js` polls `/manage/health` and `/manage/status` every ten minutes and raises admin notifications on state transitions: unreachable > 15 min, refresh failing > 12 h, download failures, YouTube quota exhaustion, and "Sign in to confirm you're not a bot" (expired cookies). Sonarr wiring is re-validated idempotently on enable and on the health job.
+- **`tuberr_alert` reaches every notification agent.** `tuberr_alert` is now a first-class type in `server/services/notificationAgents/types.js` (`TYPE_MAP`/`TYPE_LABELS`/`TYPE_TARGET`/`TYPE_COLORS`), and `tuberrHealth.notifyAdmins()` fans out to every active agent (`manager.getActiveAgents()`) instead of a hardcoded Discord+Pushover pair. Each agent still self-filters on its "YouTube downloader alerts" toggle; the in-app bell fires unconditionally. WebPush has no per-type filter by design, so it relays whenever enabled.
+
+### Changed
+
+- **Any TV show can be requested "from YouTube."** `isYoutubeItem` no longer requires a TVDB-only show; "Download from YouTube" is offered as a downloader choice for any TV item when Tuberr is enabled (`RequestModal.jsx`, `server/routes/api.js`), keeping the channel picker.
+- **Matcher quality.** `tuberr/lib/matcher.js` splits video titles on separators and scores segments (exact segment = 1.0), strips series acronyms and parenthetical platform tags, allows containment for unique long single-token titles, treats absolute episode numbers as neutral rather than zeroing the number signal, penalizes trailer/teaser/clip tokens, normalizes `#07`↔`#7`, and lets a strongly-dated sole candidate carry a generic-titled episode. Regression cases added to `tests/tuberr.test.js`.
+- **Dead-mapping and per-episode states.** `series_mappings` gains `paused`/`unavailable` and per-episode `skipped` (with reason); a mapping is auto-flagged after three consecutive zero-progress refreshes and skipped in refresh/RSS (`tuberr/lib/state.js`, `scheduler.js`), reactivated from the YouTube tab. The uploads pool cap is raised (5000) with a weekly full rebuild plus an incremental first-page poll, and playlist ids are settable from the mapping editor.
+- **YouTube episode metadata.** `tuberr/lib/downloader.js` embeds metadata and thumbnail and writes a Kodi-style `.nfo` per file (`tuberr/lib/nfo.js`), so Plex/Jellyfin stop rendering "Episode N".
+- **Backups include Tuberr.** The nightly rotation (`server/server.js`) now also copies `tuberr/data/tuberr.db`, `cookies.txt`, and `api_key.txt`.
+
+### Fixed
+
+- **YouTube requests never turned "available."** Fulfillment matched `discover_requests.tmdb_id` against `library_items.tmdb_id`, but YouTube requests have `tmdb_id = 0` and a `tvdb_id`; matching now also uses `tvdb_id` (`server/db/database.js`), so a fully-imported YouTube show flips to Available.
+- **Completed YouTube downloads were never cleaned up** (211 GB of staging leftovers observed). The qbit shim now reports seed limits reached (`ratio_limit: 0`, `seeding_time_limit: 0`) so Sonarr removes each imported item, and a Tuberr janitor (`tuberr/lib/janitor.js`) deletes imported `completed` rows/files by cross-checking Sonarr's `downloadFolderImported` history.
+- **Cast/Play button showed for un-castable items and accounts.** The control is gated on `user.isPlexLinked` and a numeric rating key across `useCastPlayer.js`, `DetailModal.jsx`, and `SpotlightHero.jsx`; the Wrapped-playlist button is hidden for Jellyfin-only users until Jellyfin playlists apply. Overseerr-shim user/issue lookups no longer drop or mis-hash `jf_` ids.
+- Failed YouTube downloads can no longer dead-lock on Sonarr's blocklist (per-retry infohash + blocklist cleanup), and transient download errors retry with backoff before being marked broken.
+
+---
+
 ## v3.0.0 — 2026-09-02
 
 ### Added

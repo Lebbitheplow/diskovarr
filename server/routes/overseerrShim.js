@@ -265,13 +265,14 @@ router.get('/user', (req, res) => {
   }
 
   // Admin-key caller — return real Diskovarr users with request counts.
-  // Bot/service user_ids start with '__'; real Plex user_ids are numeric.
+  // Bot/service user_ids start with '__' (__svc_*, __app_*); real users are
+  // numeric Plex ids or jf_<guid> Jellyfin ids, so exclude rather than match.
   const rows = db.prepare(`
     SELECT ku.rowid AS rid, ku.user_id, ku.username, ku.thumb,
            COUNT(dr.id) AS requestCount
     FROM known_users ku
     LEFT JOIN discover_requests dr ON dr.user_id = ku.user_id
-    WHERE ku.user_id GLOB '[0-9]*'
+    WHERE ku.user_id NOT LIKE '\\_\\_%' ESCAPE '\\'
     GROUP BY ku.user_id
     ORDER BY requestCount DESC, ku.username ASC
   `).all();
@@ -981,6 +982,54 @@ router.get('/settings/plex/library', (req, res) => {
   res.json({ results: [] });
 });
 
+// GET /api/v1/settings/jellyfin — stub for clients that probe it (mirrors
+// /settings/plex). Host/port/ssl derive from the configured jellyfin_url;
+// libraries are the jf_ entries of the synced-sections list.
+router.get('/settings/jellyfin', (req, res) => {
+  const c = db.getConnectionSettings();
+  let hostname = '';
+  let port = 8096;
+  let useSsl = false;
+  let urlBase = '';
+  if (c.jellyfinUrl) {
+    try {
+      const u = new URL(c.jellyfinUrl);
+      hostname = u.hostname;
+      useSsl = u.protocol === 'https:';
+      port = u.port ? Number(u.port) : (useSsl ? 443 : 80);
+      urlBase = u.pathname.replace(/\/+$/, '');
+    } catch { hostname = c.jellyfinUrl; }
+  }
+  const libraries = db.getSyncEnabledSections()
+    .filter(s => String(s.id).startsWith('jf_'))
+    .map(s => ({
+      id: String(s.id).slice(3),
+      name: s.title || String(s.id),
+      enabled: !!s.enabled,
+      type: s.type === 'show' ? 'show' : 'movie',
+    }));
+  res.json({
+    name: 'Jellyfin',
+    hostname,
+    port,
+    useSsl,
+    urlBase,
+    externalHostname: c.jellyfinUrl || '',
+    jellyfinForgotPasswordUrl: '',
+    libraries,
+    serverId: '',
+    apiKey: c.jellyfinApiKey ? '***' : '',
+  });
+});
+
+// GET /api/v1/settings/jellyfin/library
+router.get('/settings/jellyfin/library', (req, res) => {
+  const libraries = db.getSyncEnabledSections()
+    .filter(s => String(s.id).startsWith('jf_'))
+    .map(s => ({ id: String(s.id).slice(3), name: s.title || String(s.id), enabled: !!s.enabled }));
+  res.json(libraries);
+});
+
 // GET /api/v1/settings/radarr
 router.get('/settings/radarr', (req, res) => {
   const c = db.getConnectionSettings();
@@ -1186,6 +1235,20 @@ function issueStatusToOverseerr(status) {
   return status === 'open' ? 1 : 2;
 }
 
+// Overseerr media ids are integers. Plex rating keys already are; Jellyfin GUIDs
+// get a stable positive 31-bit FNV-1a hash so clients see a consistent non-zero id.
+function mediaIdOf(ratingKey) {
+  if (!ratingKey) return 0;
+  const s = String(ratingKey);
+  if (/^\d+$/.test(s)) return Number(s);
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return (h & 0x7fffffff) || 1;
+}
+
 function toOverseerrIssue(row, comments = null) {
   return {
     id: row.id,
@@ -1194,7 +1257,7 @@ function toOverseerrIssue(row, comments = null) {
     status: issueStatusToOverseerr(row.status),
     message: row.description || '',
     media: {
-      id: row.rating_key ? Number(row.rating_key) || 0 : 0,
+      id: mediaIdOf(row.rating_key),
       mediaType: row.media_type || 'movie',
       title: row.title || null,
       posterPath: row.poster_path || null,

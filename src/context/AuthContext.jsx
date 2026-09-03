@@ -74,7 +74,11 @@ export function AuthProvider({ children }) {
     }
   }, [activeSource])
 
-  const value = { user, loading, logout, checkAuth, discoverAvailable, wrappedAvailable, activeSource, availableSources, setActiveSource }
+  // Server-derived link flags (from /auth/check-auth) so gating is one line
+  // everywhere: Plex-only features (cast, Wrapped playlist) key off isPlexLinked.
+  const isPlexLinked = !!user?.isPlexLinked
+  const hasJellyfin = !!user?.hasJellyfin
+  const value = { user, loading, logout, checkAuth, discoverAvailable, wrappedAvailable, activeSource, availableSources, setActiveSource, isPlexLinked, hasJellyfin }
   return (
     <AuthContext.Provider value={value}>
       {children}

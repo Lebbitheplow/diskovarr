@@ -735,14 +735,65 @@ router.get('/discover/facets', async (req, res) => {
 const _clientsCache = new Map(); // userId -> { clients, at }
 const CLIENTS_CACHE_TTL = 5 * 60 * 1000;
 
+// Jellyfin sessions the signed-in user may control, in the same client shape
+// (+ source: 'jellyfin'). Live — Jellyfin sessions come and go every minute.
+async function jellyfinClientsFor(user) {
+  if (!user?.jellyfin?.userId || !jellyfinService.isEnabled()) return [];
+  try {
+    const jellyfinSessions = require('../services/jellyfin/sessions');
+    const sessions = await jellyfinSessions.listControllableSessions(user.jellyfin.userId, { token: user.jellyfin.token });
+    return sessions.map(jellyfinSessions.toClient);
+  } catch (err) {
+    logger.warn('/api/clients: Jellyfin sessions fetch failed:', err.message);
+    return [];
+  }
+}
+
+// Handles /cast and /cast/prepare for Jellyfin-owned items. Returns true when
+// it answered the request (success or error); false → the Plex path continues.
+// Dispatch is on the item's source, so a GUID never reaches Plex validation.
+async function tryJellyfinCast(req, res, ratingKey, clientId) {
+  const key = String(ratingKey);
+  const libItem = db.getLibraryItemByKey(key);
+  const isJellyfinItem = libItem ? (libItem.source || 'plex') === 'jellyfin' : !/^\d+$/.test(key);
+  if (!isJellyfinItem) return false;
+  const jf = req.session.plexUser?.jellyfin;
+  if (!jf?.userId || !jellyfinService.isEnabled()) {
+    res.status(400).json({ error: 'Playing on a device requires a linked Jellyfin account' });
+    return true;
+  }
+  try {
+    const jellyfinSessions = require('../services/jellyfin/sessions');
+    const sessions = await jellyfinSessions.listControllableSessions(jf.userId, { token: jf.token });
+    const session = sessions.find(s => s.id === String(clientId));
+    if (!session) {
+      res.status(400).json({ error: 'Player not found. Make sure the Jellyfin app is open on your device.' });
+      return true;
+    }
+    const itemIds = await jellyfinSessions.resolvePlayableItemIds(key, jf.userId, { token: jf.token, type: libItem?.type });
+    if (!itemIds.length) {
+      res.status(400).json({ error: 'Nothing playable found for this title' });
+      return true;
+    }
+    await jellyfinSessions.playOnSession(session.id, itemIds, { token: jf.token });
+    res.json({ ok: true, success: true, source: 'jellyfin', clientName: session.name, itemIds });
+  } catch (err) {
+    logger.error('/api/cast (jellyfin) error:', err.message);
+    res.status(502).json({ error: 'Jellyfin refused the playback command. Check the app is still open on the device.' });
+  }
+  return true;
+}
+
 router.get('/clients', async (req, res) => {
   try {
     const { token: userToken, id: clientsUserId } = req.session.plexUser;
-    // Casting is Plex-only; unlinked Jellyfin identities have no Plex token.
-    if (!userToken) return res.json({ clients: [] });
+    const jfClients = await jellyfinClientsFor(req.session.plexUser);
+    // Plex players need the user's own plex.tv token; a Jellyfin-only identity
+    // still gets its Jellyfin sessions.
+    if (!userToken) return res.json({ clients: jfClients });
     const cachedClients = _clientsCache.get(String(clientsUserId));
     if (cachedClients && Date.now() - cachedClients.at < CLIENTS_CACHE_TTL) {
-      return res.json({ clients: cachedClients.clients });
+      return res.json({ clients: [...cachedClients.clients, ...jfClients] });
     }
     const clients = [];
     const seenIds = new Set();
@@ -812,9 +863,9 @@ router.get('/clients', async (req, res) => {
       logger.debug('/api/clients: devices.xml fetch skipped or failed:', devicesXmlResult.reason?.message || devicesXmlResult.value?.status);
     }
 
-    logger.debug(`/api/clients: user=${req.session.plexUser.id} total=${clients.length}`);
+    logger.debug(`/api/clients: user=${req.session.plexUser.id} plex=${clients.length} jellyfin=${jfClients.length}`);
     _clientsCache.set(String(req.session.plexUser.id), { clients, at: Date.now() });
-    res.json({ clients });
+    res.json({ clients: [...clients, ...jfClients] });
   } catch (err) {
     logger.error('/api/clients error:', err.message);
     res.json({ clients: [] });
@@ -835,6 +886,8 @@ router.post('/cast/prepare', async (req, res) => {
   try {
     const { ratingKey, clientId } = req.body;
     if (!ratingKey || !clientId) return res.status(400).json({ error: 'ratingKey and clientId required' });
+    // Jellyfin items play server-side in one step: { ok, source: 'jellyfin', clientName }.
+    if (await tryJellyfinCast(req, res, ratingKey, clientId)) return;
     if (!/^\d+$/.test(String(ratingKey))) return res.status(400).json({ error: 'Invalid ratingKey' });
 
     const { serverToken, token: userToken } = req.session.plexUser;
@@ -868,6 +921,7 @@ router.post('/cast', async (req, res) => {
   try {
     const { ratingKey, clientId } = req.body;
     if (!ratingKey || !clientId) return res.status(400).json({ error: 'ratingKey and clientId required' });
+    if (await tryJellyfinCast(req, res, ratingKey, clientId)) return;
     if (!/^\d+$/.test(String(ratingKey))) return res.status(400).json({ error: 'Invalid ratingKey' });
 
     // The frontend races this route against browser-side delivery and aborts
@@ -2367,6 +2421,7 @@ router.get('/queue', async (req, res) => {
   //   available = approved + IN library
   // Both require fetching all approved and filtering in memory.
   const libraryTmdbKeys = db.getLibraryTmdbKeys();
+  const libraryTvdbKeys = db.getLibraryTvdbKeys();
   const isComputedFilter = status === 'requested' || status === 'available';
   const dbStatus = isComputedFilter ? 'approved' : status;
 
@@ -2405,7 +2460,7 @@ router.get('/queue', async (req, res) => {
 
   const enriched = rows.map(r => {
     const cached = db.getTmdbCache(r.tmdb_id, r.media_type);
-    const isAvailable = libraryTmdbKeys.has(`${r.tmdb_id}:${r.media_type}`);
+    const isAvailable = db.requestIsInLibrary(r, libraryTmdbKeys, libraryTvdbKeys);
     let displayStatus = r.status;
     if (r.status === 'approved') displayStatus = isAvailable ? 'available' : 'requested';
     // Backfill seasons_json for TV requests that predate the seasons feature.
@@ -2472,8 +2527,7 @@ router.put('/queue/:id', async (req, res) => {
     return res.status(400).json({ error: 'Request is not editable' });
   }
   if (request.status === 'approved') {
-    const libraryTmdbKeys = db.getLibraryTmdbKeys();
-    if (libraryTmdbKeys.has(`${request.tmdb_id}:${request.media_type}`)) {
+    if (db.requestIsInLibrary(request, db.getLibraryTmdbKeys(), db.getLibraryTvdbKeys())) {
       return res.status(400).json({ error: 'Content is already available in the library' });
     }
   }
@@ -3087,6 +3141,40 @@ router.delete('/user/link/jellyfin', (req, res) => {
   db.unlinkJellyfinAccount(jfRow.user_id);
   req.session.plexUser = { ...user, jellyfin: null };
   res.json({ success: true });
+});
+
+// DELETE /api/user/link/plex — the reverse of the above, from a Jellyfin
+// sign-in whose account is linked to a Plex user (session id = the Plex id,
+// provider 'jellyfin'). Clears the link and drops the session back to the
+// standalone Jellyfin identity. Merged data stays with the Plex (canonical)
+// row — exactly what unlinking from the Plex side does.
+router.delete('/user/link/plex', (req, res) => {
+  const user = req.session.plexUser;
+  const userId = String(user.id);
+  const jfGuid = user.jellyfin?.userId;
+  if (user.provider !== 'jellyfin' || !jfGuid) {
+    return res.status(400).json({ error: 'Sign in with Jellyfin to unlink Plex from it' });
+  }
+  if (userId.startsWith('jf_')) return res.status(404).json({ error: 'No linked Plex account' });
+  const jfDiskovarrId = `jf_${jfGuid}`;
+  const jfRow = db.getKnownUserById(jfDiskovarrId);
+  if (!jfRow?.linked_user_id || String(jfRow.linked_user_id) !== userId) {
+    return res.status(404).json({ error: 'No linked Plex account' });
+  }
+  db.unlinkJellyfinAccount(jfDiskovarrId);
+  req.session.plexUser = {
+    ...user,
+    id: jfDiskovarrId,
+    username: jfRow.username || user.username,
+    thumb: jfRow.thumb || user.thumb,
+    token: null,
+    serverToken: null,
+    provider: 'jellyfin',
+  };
+  req.session.isPlexAdminUser = db.isAdminUser(jfDiskovarrId);
+  if (req.session.activeSource === 'plex' && jellyfinService.isEnabled()) req.session.activeSource = 'jellyfin';
+  logger.info(`Jellyfin user ${jfDiskovarrId} unlinked Plex account ${userId}`);
+  res.json({ success: true, userId: jfDiskovarrId });
 });
 
 // GET /api/user/settings — load user's current preferences + notification prefs
@@ -3713,6 +3801,10 @@ router.get('/history', async (req, res) => {
   // cold start with nothing cached yet, prime it once so the first load isn't empty.
   if (db.getWatchHistoryCount() === 0 && db.getSyncTime('watch_history') === 0) {
     try { await tautulliService.syncWatchHistory(); } catch { /* fall through to empty */ }
+    // Jellyfin plays are mirrored by the same kind of all-users sync.
+    if (jellyfinService.isEnabled()) {
+      try { await jellyfinService.syncAllUsers(); } catch { /* fall through to empty */ }
+    }
   }
 
   const result = db.queryWatchHistory({

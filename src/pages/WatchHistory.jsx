@@ -46,9 +46,10 @@ function StarBadge({ rating }) {
 
 export default function WatchHistory() {
   const { t } = useTranslation()
-  const { user } = useAuth()
+  const { user, availableSources } = useAuth()
   const { error: toastError } = useToast()
-  const isAdmin = !!(user?.isAdmin || user?.isPlexAdminUser || user?.isElevated || user?.isPrivileged)
+  const hasPlexSource = !availableSources || availableSources.includes('plex')
+  const isAdmin = !!(user?.isAdmin || user?.isElevated || user?.isPrivileged)
 
   const [historyItems, setHistoryItems] = useState([])
   const [loading, setLoading] = useState(true)
@@ -457,7 +458,9 @@ export default function WatchHistory() {
         <div className="queue-empty">
           {hasActiveFilters
             ? 'No matching history found. Try adjusting your filters.'
-            : 'No watch history found. Make sure Tautulli is connected.'}
+            : hasPlexSource
+              ? t('No watch history found. Make sure Tautulli is connected.')
+              : t('No watch history found yet.')}
         </div>
       ) : (
         <div className="table-scroll-wrap">

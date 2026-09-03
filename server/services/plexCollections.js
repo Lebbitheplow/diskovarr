@@ -1,9 +1,24 @@
 // Plex collection mirroring for monitored lists. A Plex collection lives in one
 // section, so a mixed-media list maps to up to two collections (movie + TV,
 // "<name> (TV)"); list_sources.collection_rating_key stores them as a JSON
-// object {"movie": key, "tv": key}.
+// object {"movie": key, "tv": key, "jfMovie": boxSetId, "jfTv": boxSetId} —
+// the jf* entries are the Jellyfin BoxSets mirrored by jellyfin/collections.js.
 const db = require('../db/database');
 const plexService = require('./plex');
+
+const PLEX_KEY_NAMES = ['movie', 'tv'];
+
+function plexConfigured() {
+  return !!(plexService.getPlexUrl() && plexService.getPlexToken());
+}
+
+function jellyfinCollections() {
+  return require('./jellyfin/collections');
+}
+
+function jellyfinEnabled() {
+  try { return require('./jellyfin').isEnabled(); } catch { return false; }
+}
 
 const HEADERS = {
   'Accept': 'application/json',
@@ -133,7 +148,8 @@ async function syncListCollection(listSource, entries) {
   const keys = parseCollectionKeys(listSource.collectionRatingKey);
 
   const byType = { movie: [], tv: [] };
-  const stmt = db.prepare('SELECT rating_key FROM library_items WHERE tmdb_id = ? AND type = ?');
+  // Plex rows only — a Jellyfin GUID would be built into a Plex metadata URI.
+  const stmt = db.prepare("SELECT rating_key FROM library_items WHERE tmdb_id = ? AND type = ? AND source = 'plex'");
   for (const entry of entries) {
     const plexItemType = entry.mediaType === 'tv' ? 'show' : 'movie';
     const row = stmt.get(String(entry.tmdbId), plexItemType);
@@ -145,23 +161,37 @@ async function syncListCollection(listSource, entries) {
     { media: 'tv', sectionId: plexService.TV_SECTION, plexType: 2, title: listSource.mediaType === 'all' ? `${name} (TV)` : name },
   ];
   const updatedKeys = { ...keys };
-  for (const plan of plans) {
-    if (listSource.mediaType !== 'all' && listSource.mediaType !== plan.media) continue;
-    const key = await syncTypeCollection({
-      title: plan.title,
-      sectionId: plan.sectionId,
-      plexType: plan.plexType,
-      ratingKeys: byType[plan.media],
-      existingKey: updatedKeys[plan.media] || null,
-      visibility: listSource.collectionVisibility,
-    });
-    if (key) updatedKeys[plan.media] = key;
-    else delete updatedKeys[plan.media];
+  const errors = [];
+  // Each server mirrors independently so a Plex outage (or a Jellyfin-only
+  // deployment) never blocks the other; keys are persisted either way.
+  if (plexConfigured()) {
+    try {
+      for (const plan of plans) {
+        if (listSource.mediaType !== 'all' && listSource.mediaType !== plan.media) continue;
+        const key = await syncTypeCollection({
+          title: plan.title,
+          sectionId: plan.sectionId,
+          plexType: plan.plexType,
+          ratingKeys: byType[plan.media],
+          existingKey: updatedKeys[plan.media] || null,
+          visibility: listSource.collectionVisibility,
+        });
+        if (key) updatedKeys[plan.media] = key;
+        else delete updatedKeys[plan.media];
+      }
+    } catch (e) {
+      errors.push(`plex: ${e.message}`);
+    }
+  }
+  if (jellyfinEnabled()) {
+    try { await jellyfinCollections().syncListBoxSets(listSource, entries, updatedKeys); }
+    catch (e) { errors.push(`jellyfin: ${e.message}`); }
   }
 
   automation.updateListSource(listSource.id, {
     collectionRatingKey: Object.keys(updatedKeys).length ? JSON.stringify(updatedKeys) : null,
   });
+  if (errors.length) throw new Error(errors.join('; '));
   return updatedKeys;
 }
 
@@ -176,7 +206,8 @@ async function applyVisibility(listSource) {
 // admin opts to also remove its collection).
 async function deleteListCollections(listSource) {
   const keys = parseCollectionKeys(listSource.collectionRatingKey);
-  for (const key of Object.values(keys)) await deleteCollection(key);
+  for (const name of PLEX_KEY_NAMES) if (keys[name]) await deleteCollection(keys[name]);
+  if (keys.jfMovie || keys.jfTv) await jellyfinCollections().deleteListBoxSets(keys);
 }
 
 module.exports = { syncListCollection, applyVisibility, deleteListCollections, parseCollectionKeys };

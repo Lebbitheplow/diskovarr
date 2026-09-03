@@ -72,7 +72,7 @@ export default function DeletionProfiles({ onToast }) {
           <div>
             <h2 className="section-title">{t('Deletion Profiles')}</h2>
             <p className="section-desc">
-              {t('Profiles match library items by criteria and delete via Radarr/Sonarr (with re-grab protection) or Plex, then empty Plex trash. With no profiles, nothing is ever deleted. New profiles start in dry-run.')}
+              {t('Profiles match library items by criteria and delete via Radarr/Sonarr (with re-grab protection) or Plex, then empty Plex trash. With no profiles, nothing is ever deleted. New profiles start in dry-run. (Jellyfin items are never targeted)')}
             </p>
           </div>
           <div style={{ display: 'flex', gap: 8 }}>

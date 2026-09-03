@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react'
 import {
   discoverApi,
-  plexApi,
+  libraryApi,
   watchlistApi,
 } from '../services/api'
 import MediaCard from '../components/MediaCard'
@@ -193,7 +193,7 @@ export default function Discover() {
 
   const handleDismiss = useCallback(async (item) => {
     try {
-      await plexApi.dismissItem(item.ratingKey)
+      await libraryApi.dismissItem(item.ratingKey)
       const key = item.ratingKey
       setResults(prev => prev.filter(i => i.ratingKey !== key))
       setTotalResults(prev => prev - 1)

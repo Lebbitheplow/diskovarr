@@ -17,6 +17,7 @@ const NotificationType = {
   ISSUE_REOPENED:        2048,
   MEDIA_AUTO_REQUESTED:  4096,
   MONITOR_MATCH:         8192,
+  TUBERR_ALERT:          16384,
 };
 
 // All notification types combined (for "select all")
@@ -38,6 +39,7 @@ const TYPE_MAP = {
   issue_comment_added_user:    NotificationType.ISSUE_COMMENT,
   test:                        NotificationType.TEST_NOTIFICATION,
   monitor_match:               NotificationType.MONITOR_MATCH,
+  tuberr_alert:                NotificationType.TUBERR_ALERT,
 };
 
 // Human-readable labels for each type
@@ -53,6 +55,7 @@ const TYPE_LABELS = {
   issue_comment_added_admin:   'Issue comment (admin)',
   issue_comment_added_user:    'Issue comment (user)',
   monitor_match:               'Monitor match',
+  tuberr_alert:                'YouTube downloader alerts',
 };
 
 // Who receives each type: 'admin', 'user', or 'both'
@@ -68,6 +71,7 @@ const TYPE_TARGET = {
   issue_comment_added_admin:   'admin',
   issue_comment_added_user:    'both',
   monitor_match:               'user',
+  tuberr_alert:                'admin',
 };
 
 // Color map for Discord embeds
@@ -83,6 +87,7 @@ const TYPE_COLORS = {
   issue_comment_added_admin:   0xff8c00,
   issue_comment_added_user:    0x00b4d8,
   monitor_match:               0x9c27b0,
+  tuberr_alert:                0xff0000,
 };
 
 // ── Helper functions ──────────────────────────────────────────────────────────

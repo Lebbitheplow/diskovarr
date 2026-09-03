@@ -134,13 +134,45 @@ router.get('/', requireAdmin, (req, res) => {
 
 // ── API: Status (polled by admin UI) ─────────────────────────────────────────
 
+// Per-media-server status for the admin Connections blocks: library row counts
+// by source plus the realtime-feed flags (Plex SSE / Jellyfin websocket).
+function sourceStatus() {
+  const counts = {};
+  try {
+    for (const r of db.prepare('SELECT source, COUNT(*) AS c FROM library_items GROUP BY source').all()) {
+      counts[r.source || 'plex'] = r.c;
+    }
+  } catch { /* table missing on a fresh boot */ }
+  const jellyfin = require('../services/jellyfin');
+  const jfSocket = require('../services/jellyfin/socket');
+  let jfLastSync = 0;
+  try {
+    jfLastSync = db.prepare("SELECT MAX(last_sync) AS t FROM sync_log WHERE key LIKE 'library_jf\\_%' ESCAPE '\\'").get()?.t || 0;
+  } catch { /* no sync_log yet */ }
+  return {
+    plex: {
+      configured: !!(plexService.getPlexUrl() && plexService.getPlexToken()),
+      libraryItems: counts.plex || 0,
+      sseConnected: plexService.isSseConnected(),
+    },
+    jellyfin: {
+      enabled: jellyfin.isEnabled(),
+      libraryItems: counts.jellyfin || 0,
+      wsConnected: jfSocket.isConnected(),
+      lastSyncAt: jfLastSync > 0 ? new Date(jfLastSync * 1000).toISOString() : null,
+    },
+  };
+}
+
 router.get('/status', requireAdmin, (req, res) => {
   const stats = db.getAdminStats();
   const compatApp = db.listApiApps().find(a => a.type === 'compat');
   const syncSections = db.getSyncEnabledSections();
   res.json({
     stats, autoSyncEnabled, syncInProgress, lastSyncError,
+    tuberr: require('../services/tuberrHealth').getStatus(),
     syncSections,
+    sources: sourceStatus(),
     watchlistMode: db.getAdminWatchlistMode(),
     discoverEnabled: db.isDiscoverEnabled(),
     individualSeasonsEnabled: db.isIndividualSeasonsEnabled(),
@@ -576,6 +608,15 @@ router.post('/connections/save', requireAdmin, (req, res) => {
   discoverRecommender.invalidateAllCaches();
   // Start/stop the bundled Tuberr instance to match the YouTube toggle
   try { require('../services/tuberrProcess').sync(); } catch (e) { console.warn('[tuberr] process sync failed:', e.message); }
+  // Re-check Tuberr health + Sonarr wiring shortly after any YouTube-related
+  // change (the bundled child needs a moment to boot before Sonarr can test the
+  // indexer). The health job auto-repairs missing/stale indexer + client entries.
+  if (['youtube_enabled', 'tuberr_url', 'tuberr_api_key', 'sonarr_url', 'sonarr_api_key'].some(k => k in body)) {
+    setTimeout(() => {
+      require('../services/tuberrHealth').check({ force: true })
+        .catch(e => console.warn('[tuberr] post-save health check failed:', e.message));
+    }, 20_000).unref();
+  }
   // First Jellyfin enable: pull the library + user data right away instead of
   // waiting for the scheduled jobs.
   if ('jellyfin_url' in body || 'jellyfin_api_key' in body || 'jellyfin_enabled' in body) {
@@ -1647,6 +1688,22 @@ router.post('/compat/regenerate-key', requireAdmin, (req, res) => {
     db.updateApiApp(legacy.id, { enabled: false });
   }
   res.json({ ok: true, apiKey: newKey });
+});
+
+// ── Tuberr (YouTube downloader) supervision ───────────────────────────────────
+// Served by Diskovarr itself (not proxied): child-process log ring + state, and
+// an on-demand health/wiring check. Registered before the catch-all proxy.
+router.get('/tuberr/logs', requireAdmin, (req, res) => {
+  const tuberrProcess = require('../services/tuberrProcess');
+  res.json({ lines: tuberrProcess.getLogs(req.query.limit), process: tuberrProcess.getProcessInfo() });
+});
+
+router.post('/tuberr/health-check', requireAdmin, async (req, res) => {
+  try {
+    res.json(await require('../services/tuberrHealth').check({ force: true }));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ── Tuberr (YouTube downloader) management proxy ──────────────────────────────

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { tmdbApi, userApi } from '../services/api'
 import { useToast } from '../context/ToastContext'
+import { useAuth } from '../context/AuthContext'
 import { useTranslation } from 'react-i18next'
 
 // Plex ↔ Jellyfin account linking. Rendered only when the server has Jellyfin
@@ -8,6 +9,7 @@ import { useTranslation } from 'react-i18next'
 function MediaServerAccounts() {
   const { t } = useTranslation()
   const { success: toastSuccess, error: toastError } = useToast()
+  const { user, isPlexLinked, checkAuth } = useAuth()
   const [links, setLinks] = useState(null)
   const [jfUsername, setJfUsername] = useState('')
   const [jfPassword, setJfPassword] = useState('')
@@ -54,6 +56,23 @@ function MediaServerAccounts() {
     }
   }, [load, toastSuccess, toastError, t])
 
+  // Only a Jellyfin-signed-in session can drop its Plex link (the reverse is
+  // handled by unlinkJellyfin). Re-check auth so isPlexLinked flips app-wide.
+  const canUnlinkPlex = user?.provider === 'jellyfin' && isPlexLinked
+  const handleUnlinkPlex = useCallback(async () => {
+    if (!window.confirm(t('Unlink your Plex account? Signing in with Plex will no longer open this profile.'))) return
+    setBusy(true)
+    try {
+      await userApi.unlinkPlex()
+      toastSuccess(t('Plex account unlinked'))
+      await Promise.all([load(), checkAuth()])
+    } catch (err) {
+      toastError(err.response?.data?.error || err.message || t('Failed to unlink'))
+    } finally {
+      setBusy(false)
+    }
+  }, [load, checkAuth, toastSuccess, toastError, t])
+
   // Jellyfin-identity users link Plex through the regular PIN flow with link=1
   const handleLinkPlex = useCallback(async () => {
     setBusy(true)
@@ -93,7 +112,15 @@ function MediaServerAccounts() {
       <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 0', borderTop: '1px solid var(--border)' }}>
         <div style={{ fontWeight: 600, fontSize: '0.9rem', width: '80px' }}>Plex</div>
         {links.plex ? (
-          <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>{links.plex.username}</span>
+          <>
+            <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>{links.plex.username}</span>
+            {canUnlinkPlex && (
+              <button className="btn-queue-delete" onClick={handleUnlinkPlex} disabled={busy}
+                style={{ marginLeft: 'auto', fontSize: '0.8rem', padding: '6px 16px' }}>
+                {t('Unlink')}
+              </button>
+            )}
+          </>
         ) : (
           <>
             <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>{t('Not linked')}</span>

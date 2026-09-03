@@ -30,7 +30,10 @@ const modalStyle = {
   position: 'relative', maxHeight: '90vh', overflowY: 'auto',
 }
 
-export default function ListEditorModal({ list, presets, onClose, onSaved, onToast }) {
+// `plexConfigured` comes from /admin/status `sources.plex.configured`; the
+// collection mirror is Plex-only until Jellyfin BoxSets land, so the toggle is
+// disabled (with a hint) when there is no Plex server. Absent → assume enabled.
+export default function ListEditorModal({ list, presets, onClose, onSaved, onToast, plexConfigured = true }) {
   const { t } = useTranslation()
   const editing = !!list
   const [sourceMode, setSourceMode] = useState(
@@ -242,9 +245,14 @@ export default function ListEditorModal({ list, presets, onClose, onSaved, onToa
 
         <div style={{ borderTop: '1px solid var(--border)', paddingTop: 14, marginBottom: 14 }}>
           <div className="conn-toggle-row" style={{ marginBottom: 8 }}>
-            <span className="conn-toggle-label">{t('Create a Plex collection from this list')}</span>
-            <label className="slide-toggle">
-              <input type="checkbox" checked={form.collectionEnabled} onChange={(e) => set('collectionEnabled', e.target.checked)} />
+            <span className="conn-toggle-label">
+              {t('Create a Plex collection from this list')}
+              {!plexConfigured && (
+                <span className="conn-hint" style={{ display: 'block' }}>{t('Requires a configured Plex server — collections are not mirrored to Jellyfin yet.')}</span>
+              )}
+            </span>
+            <label className="slide-toggle" title={!plexConfigured ? t('Plex is not configured') : ''}>
+              <input type="checkbox" checked={form.collectionEnabled && plexConfigured} disabled={!plexConfigured} onChange={(e) => set('collectionEnabled', e.target.checked)} />
               <span className="slide-track" />
             </label>
           </div>

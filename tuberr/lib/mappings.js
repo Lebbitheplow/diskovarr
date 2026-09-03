@@ -34,14 +34,26 @@ function getMapping(id) {
   return db.prepare('SELECT * FROM series_mappings WHERE id = ?').get(Number(id));
 }
 
+// Skipped episodes (admin said "never download this") are left out of the
+// totals so a series with a few permanently missing episodes can reach 'matched'.
 function refreshMatchStatus(mappingId) {
-  const { total, matched } = db.prepare(`
-    SELECT COUNT(*) AS total, SUM(CASE WHEN video_id IS NOT NULL AND broken = 0 THEN 1 ELSE 0 END) AS matched
+  const { total, matched, skipped } = db.prepare(`
+    SELECT SUM(CASE WHEN skipped = 0 THEN 1 ELSE 0 END) AS total,
+      SUM(CASE WHEN skipped = 0 AND video_id IS NOT NULL AND broken = 0 THEN 1 ELSE 0 END) AS matched,
+      SUM(CASE WHEN skipped = 1 THEN 1 ELSE 0 END) AS skipped
     FROM episode_matches WHERE mapping_id = ?
   `).get(Number(mappingId));
-  const status = total === 0 ? 'pending' : (matched >= total ? 'matched' : (matched > 0 ? 'partial' : 'pending'));
+  const t = total || 0;
+  const m = matched || 0;
+  const status = t === 0 ? 'pending' : (m >= t ? 'matched' : (m > 0 ? 'partial' : 'pending'));
   db.prepare('UPDATE series_mappings SET match_status = ? WHERE id = ?').run(status, Number(mappingId));
-  return { total, matched: matched || 0, status };
+  return { total: t, matched: m, skipped: skipped || 0, status };
 }
 
-module.exports = { syncEpisodesFromSonarr, getMapping, refreshMatchStatus };
+function setMappingState(mappingId, state, reason) {
+  db.prepare(`UPDATE series_mappings SET state = ?, state_reason = ?,
+    zero_progress_runs = CASE WHEN ? = 'active' THEN 0 ELSE zero_progress_runs END WHERE id = ?`)
+    .run(state, reason || null, state, Number(mappingId));
+}
+
+module.exports = { syncEpisodesFromSonarr, getMapping, refreshMatchStatus, setMappingState };

@@ -10,6 +10,7 @@ import {
 
 import { useTheme } from '../../context/ThemeContext'
 import { useTranslation } from 'react-i18next'
+import ServersStatus from './ServersStatus'
 
 const PRESET_COLORS = [
   { label: 'Plex Gold',   hex: '#e5a00d' },
@@ -343,7 +344,7 @@ function LibrarySelectionSection({ onToast }) {
       </div>
       <div style={{ padding: '4px 0 0', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
         {libraries.length === 0
-          ? 'No Movie or TV libraries found from Plex. Ensure your Plex connection is configured in the Connections tab.'
+          ? t('No Movie or TV libraries found. Make sure Plex or Jellyfin is configured in the Connections tab.')
           : `${enabledCount} of ${libraries.length} ${libraries.length === 1 ? 'library' : 'libraries'} synced.`}
       </div>
 
@@ -376,7 +377,7 @@ function LibrarySelectionSection({ onToast }) {
             </div>
             {libraries.length === 0 ? (
               <div style={{ padding: '12px 0', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-                {t('No Movie or TV libraries found from Plex. Ensure your Plex connection is configured in the Connections tab.')}
+                {t('No Movie or TV libraries found. Make sure Plex or Jellyfin is configured in the Connections tab.')}
               </div>
             ) : (
               <div className="library-list">
@@ -853,6 +854,7 @@ export default function GeneralSettings({ onDataLoaded, onToast }) {
         themeColor={themeColor}
         onThemeColorChange={setThemeColor}
       />
+      <ServersStatus />
       <LibrarySyncSection
         stats={stats}
         syncStatus={syncStatus}

@@ -135,6 +135,15 @@ export const adminTuberr = {
   searchEpisode: (id, season, episode) => adminApi.post(`/tuberr/mappings/${id}/search-episode`, { season, episode }),
   searchChannels: (q) => adminApi.get('/tuberr/youtube/channels', { params: { q } }),
   getDownloads: () => adminApi.get('/tuberr/downloads'),
+  // T14 dashboard: live status, process logs, options, mapping states, skips
+  getStatus: () => adminApi.get('/tuberr/status'),
+  getLogs: () => adminApi.get('/tuberr/logs'),
+  getConfig: () => adminApi.get('/tuberr/config'),
+  updateMapping: (id, data) => adminApi.put(`/tuberr/mappings/${id}`, data),
+  setEpisodeSkip: (id, season, episode, data) => adminApi.put(`/tuberr/mappings/${id}/matches/${season}/${episode}`, data),
+  refreshAll: () => adminApi.post('/tuberr/refresh'),
+  runJanitor: () => adminApi.post('/tuberr/janitor/run'),
+  healthCheck: () => adminApi.post('/tuberr/health-check'),
 }
 
 /** Plex OAuth */

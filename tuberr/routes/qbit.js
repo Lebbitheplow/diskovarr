@@ -6,6 +6,8 @@ const config = require('../config');
 const torrent = require('../lib/torrent');
 const multipart = require('../lib/multipart');
 const downloader = require('../lib/downloader');
+const { insideDownloadsDir } = require('../lib/janitor');
+const runtime = require('../lib/state');
 
 // qBittorrent WebUI API v2 — the subset Sonarr v4's QBittorrentProxyV2 calls.
 // States: queued→queuedDL, downloading→downloading, error→error, and
@@ -63,13 +65,17 @@ router.get('/app/preferences', (req, res) => {
     max_active_downloads: 10,
     max_active_torrents: 10,
     dht: true,
-    max_ratio_enabled: false,
-    max_ratio: -1,
+    // Seed limits "reached" the moment a download completes: Sonarr's
+    // HasReachedSeedLimit is then true for pausedUP items, so it MOVES the file
+    // into the library and, with removeCompletedDownloads on, asks us to
+    // delete the torrent + data instead of copying and leaving it forever.
+    max_ratio_enabled: true,
+    max_ratio: 0,
     max_ratio_act: 0,
-    max_seeding_time_enabled: false,
-    max_seeding_time: -1,
-    max_inactive_seeding_time_enabled: false,
-    max_inactive_seeding_time: -1,
+    max_seeding_time_enabled: true,
+    max_seeding_time: 0,
+    max_inactive_seeding_time_enabled: true,
+    max_inactive_seeding_time: 0,
   });
 });
 
@@ -86,10 +92,10 @@ function toInfoEntry(row) {
     save_path: row.save_path,
     content_path: row.content_path,
     ratio: 0,
-    ratio_limit: -2,
+    ratio_limit: 0,
     seeding_time: 0,
-    seeding_time_limit: -2,
-    inactive_seeding_time_limit: -2,
+    seeding_time_limit: 0,
+    inactive_seeding_time_limit: 0,
     added_on: row.added_on,
     completion_on: row.completed_on || 0,
     dlspeed: row.dlspeed,
@@ -163,11 +169,17 @@ function addTorrentBuffer(buf, category) {
   }
   const savePath = categorySavePath(category);
   const contentPath = path.join(savePath, parsed.name);
-  db.prepare(`
+  const now = Math.floor(Date.now() / 1000);
+  const { changes } = db.prepare(`
     INSERT INTO downloads (info_hash, video_id, release_title, category, save_path, content_path, state, progress, size_bytes, added_on)
     VALUES (?, ?, ?, ?, ?, ?, 'queued', 0, ?, ?)
     ON CONFLICT(info_hash) DO NOTHING
-  `).run(parsed.infoHash, parsed.videoId, parsed.name, category || '', savePath, contentPath, parsed.size, Math.floor(Date.now() / 1000));
+  `).run(parsed.infoHash, parsed.videoId, parsed.name, category || '', savePath, contentPath, parsed.size, now);
+  if (changes > 0) {
+    runtime.state.lastGrabAt = Date.now();
+    db.prepare('UPDATE series_mappings SET last_grab_at = ? WHERE id = (SELECT mapping_id FROM grabs WHERE info_hash = ?)')
+      .run(now, parsed.infoHash);
+  }
   downloader.enqueue(parsed.infoHash);
 }
 
@@ -195,6 +207,7 @@ router.post('/torrents/add', (req, res) => {
           releaseTitle: grab.release_title,
           sizeBytes: grab.size_bytes || naming.estimateSizeBytes(0),
           videoId: grab.video_id,
+          attempt: grab.attempt || 0,
         }).buffer);
       }
     }
@@ -212,7 +225,7 @@ router.post('/torrents/delete', (req, res) => {
   const { hashes, deleteFiles } = req.body;
   for (const h of String(hashes || '').toLowerCase().split('|').filter(Boolean)) {
     const row = db.prepare('SELECT * FROM downloads WHERE info_hash = ?').get(h);
-    if (row && String(deleteFiles) === 'true' && row.content_path && row.content_path.startsWith(config.downloadsDir)) {
+    if (row && String(deleteFiles) === 'true' && insideDownloadsDir(row.content_path)) {
       fs.rmSync(row.content_path, { recursive: true, force: true });
     }
     db.prepare('DELETE FROM downloads WHERE info_hash = ?').run(h);

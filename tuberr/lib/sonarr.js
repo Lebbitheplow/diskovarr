@@ -1,5 +1,9 @@
 const { getSetting } = require('../db');
 
+function isConfigured() {
+  return !!(getSetting('sonarr_url') && getSetting('sonarr_api_key'));
+}
+
 async function sonarrFetch(path, options = {}) {
   const url = getSetting('sonarr_url');
   const apiKey = getSetting('sonarr_api_key');
@@ -17,7 +21,9 @@ async function sonarrFetch(path, options = {}) {
     const body = await res.text().catch(() => '');
     throw new Error(`Sonarr ${path} → ${res.status}: ${body.slice(0, 300)}`);
   }
-  return res.json();
+  // DELETE and some commands answer 200/204 with an empty body
+  const text = await res.text();
+  return text ? JSON.parse(text) : null;
 }
 
 async function getSeriesByTvdbId(tvdbId) {
@@ -27,6 +33,10 @@ async function getSeriesByTvdbId(tvdbId) {
 
 function getEpisodes(seriesId) {
   return sonarrFetch(`/episode?seriesId=${Number(seriesId)}`);
+}
+
+function getEpisode(episodeId) {
+  return sonarrFetch(`/episode/${Number(episodeId)}`);
 }
 
 // Series carrying a given tag label (e.g. 'yt') — used to discover shows the
@@ -54,8 +64,71 @@ function episodeSearch(episodeIds) {
   });
 }
 
+// Asks Sonarr to re-pull the series from TVDB (new episodes show up sooner
+// than its own 12h cycle). Costly for Sonarr — callers rate-limit per series.
+function refreshSeries(seriesId) {
+  return sonarrFetch('/command', {
+    method: 'POST',
+    body: JSON.stringify({ name: 'RefreshSeries', seriesId: Number(seriesId) }),
+  });
+}
+
+function monitorEpisodes(episodeIds, monitored) {
+  return sonarrFetch('/episode/monitor', {
+    method: 'PUT',
+    body: JSON.stringify({ episodeIds: episodeIds.map(Number), monitored: !!monitored }),
+  });
+}
+
+// History rows for one download client id (our fake infohash). Sonarr stores
+// the id uppercased; pass whichever case you have and both are tried.
+async function historyForDownload(infoHash) {
+  const hash = String(infoHash || '');
+  const seen = new Set();
+  for (const id of [hash.toUpperCase(), hash.toLowerCase()]) {
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    const data = await sonarrFetch(`/history?pageSize=50&downloadId=${encodeURIComponent(id)}`);
+    const records = Array.isArray(data) ? data : (Array.isArray(data?.records) ? data.records : []);
+    if (records.length) return records;
+  }
+  return [];
+}
+
 function systemStatus() {
   return sonarrFetch('/system/status');
 }
 
-module.exports = { sonarrFetch, getSeriesByTvdbId, getEpisodes, ensureTag, episodeSearch, systemStatus, seriesWithTag };
+// Best-effort blocklist cleanup after an episode is "un-broken" (cookies fixed,
+// manual match set): removes entries whose sourceTitle starts with any of the
+// given Series.SxxExx prefixes and ends with -TUBERR, so Sonarr will accept
+// the same release title again. Returns the number of entries removed.
+function normalizeTitle(text) {
+  return String(text || '').toLowerCase().replace(/[.\s_]+/g, ' ').trim();
+}
+
+async function clearBlocklistFor(prefixes) {
+  const wanted = (prefixes || []).map(normalizeTitle).filter(Boolean);
+  if (wanted.length === 0) return 0;
+  const data = await sonarrFetch('/blocklist?pageSize=500');
+  const records = Array.isArray(data?.records) ? data.records : [];
+  let removed = 0;
+  for (const r of records) {
+    const title = normalizeTitle(r.sourceTitle);
+    if (!title.endsWith('-tuberr')) continue;
+    if (!wanted.some(p => title === p || title.startsWith(p + ' '))) continue;
+    try {
+      await sonarrFetch(`/blocklist/${r.id}`, { method: 'DELETE' });
+      removed++;
+      console.log(`[sonarr] removed blocklist entry ${r.id} "${r.sourceTitle}"`);
+    } catch (e) {
+      console.error(`[sonarr] blocklist delete ${r.id} failed: ${e.message}`);
+    }
+  }
+  return removed;
+}
+
+module.exports = {
+  sonarrFetch, isConfigured, getSeriesByTvdbId, getEpisodes, getEpisode, ensureTag, episodeSearch,
+  refreshSeries, monitorEpisodes, historyForDownload, systemStatus, seriesWithTag, clearBlocklistFor,
+};

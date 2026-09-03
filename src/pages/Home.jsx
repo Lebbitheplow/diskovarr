@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import {
   recommendationsApi,
   popularApi,
-  plexApi,
+  libraryApi,
   watchlistApi,
   searchApi,
 } from '../services/api'
@@ -204,7 +204,7 @@ export default function Home() {
     const matches = (i) => i.ratingKey === key
     const positions = capturePositions(recommendations, matches)
     try {
-      await plexApi.dismissItem(key)
+      await libraryApi.dismissItem(key)
       setRecommendations(prev => {
         if (!prev) return prev
         return {
@@ -216,7 +216,7 @@ export default function Home() {
       })
       toastUndo(t('Not interested'), t('Undo'), async () => {
         try {
-          await plexApi.restoreItem(key)
+          await libraryApi.restoreItem(key)
           setRecommendations(prev => restorePositions(prev, positions, item, matches))
           toastSuccess(t('Restored'))
         } catch (e) {

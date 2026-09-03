@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import { adminAutomation } from '../../../services/adminApi'
+import { adminAutomation, adminStatus } from '../../../services/adminApi'
 import ListEditorModal from './ListEditorModal'
 
 function formatAgo(ts) {
@@ -76,6 +76,9 @@ export default function AutoRequest({ onToast }) {
   const { t } = useTranslation()
   const [lists, setLists] = useState([])
   const [presets, setPresets] = useState([])
+  // Collection mirror is Plex-only; `sources.plex.configured` gates the toggle.
+  // Older backends don't send `sources` — fall back to enabled.
+  const [plexConfigured, setPlexConfigured] = useState(true)
   const [editorOpen, setEditorOpen] = useState(false)
   const [editingList, setEditingList] = useState(null)
   const pollRef = useRef(null)
@@ -97,6 +100,17 @@ export default function AutoRequest({ onToast }) {
 
   useEffect(() => { load() }, [load])
   useEffect(() => () => clearInterval(pollRef.current), [])
+  useEffect(() => {
+    let cancelled = false
+    adminStatus.get()
+      .then(({ data }) => {
+        if (cancelled) return
+        const configured = data?.sources?.plex?.configured
+        if (typeof configured === 'boolean') setPlexConfigured(configured)
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [])
 
   // Poll while any list is syncing so lastStatus updates appear
   const startPolling = useCallback(() => {
@@ -154,7 +168,7 @@ export default function AutoRequest({ onToast }) {
           <div>
             <h2 className="section-title">{t('Monitored Lists')}</h2>
             <p className="section-desc">
-              {t('Lists are checked on their own schedule; new items are requested automatically (or queued for approval) and can be mirrored into a Plex collection.')}
+              {t('Lists are checked on their own schedule; new items are requested automatically (or queued for approval) and can be mirrored into a Plex collection (Plex servers only for now).')}
             </p>
           </div>
           <button className="btn-admin btn-primary" onClick={() => openEditor()}>{t('+ Add List')}</button>
@@ -211,6 +225,7 @@ export default function AutoRequest({ onToast }) {
 
       {editorOpen && (
         <ListEditorModal
+          plexConfigured={plexConfigured}
           list={editingList}
           presets={presets}
           onClose={() => setEditorOpen(false)}

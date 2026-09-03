@@ -1,7 +1,7 @@
 const plexService = require('./plex');
 const tautulliService = require('./tautulli');
 const tmdbService = require('./tmdb');
-const { buildPreferenceProfile, partialShuffle, tieredSample } = require('./recommender');
+const { buildPreferenceProfile, partialShuffle, tieredSample, getRelatedForItem } = require('./recommender');
 const db = require('../db/database');
 const C = require('./recommend/constants');
 const affinity = require('./recommend/affinity');
@@ -492,16 +492,21 @@ async function buildDiscoverPools(userId, userToken) {
     return pages.map(p => tmdbService.getSimilar(id, 'tv', p).then(recs => recs.forEach(r => addCandidate(r.tmdbId, 'tv', r.title, r.year))));
   });
 
-  // 3. Plex /related seeds — uses same.director and same.actor hubs from the user's top watched
-  // items to find second-hop library items, then pulls TMDB recommendations from those too.
+  // 3. Server related seeds — Plex same.director/same.actor hubs (or Jellyfin
+  // /Similar for Jellyfin-owned seeds) from the user's top watched items find
+  // second-hop library items, then TMDB recommendations are pulled from those too.
   // Capped at top 8 movies + 5 shows to avoid excessive API calls.
   const plexRelatedPromise = (async () => {
     const relatedSeeds = new Set();
     const relatedKeys = [...topMovieKeys.slice(0, 8), ...topTvKeys.slice(0, 5)];
-    const hubs = await Promise.all(relatedKeys.map(k => plexService.getRelated(k)));
+    const hubs = await Promise.all(relatedKeys.map(k => {
+      const seed = libraryMap.get(String(k)) || db.getLibraryItemByKey(k) || { ratingKey: k };
+      return getRelatedForItem(seed);
+    }));
     for (const itemHubs of hubs) {
       for (const hub of itemHubs) {
-        if (!hub.context.includes('same.director') && !hub.context.includes('same.actor')) continue;
+        const ctx = hub.context || '';
+        if (!ctx.includes('same.director') && !ctx.includes('same.actor') && !ctx.startsWith('hub.jellyfin')) continue;
         for (const relItem of hub.items) {
           if (!relItem.ratingKey) continue;
           const libItem = db.getLibraryItemByKey(relItem.ratingKey);

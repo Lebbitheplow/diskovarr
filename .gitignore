@@ -31,6 +31,7 @@ tuberr/data/
 # Internal planning / migration docs
 FINAL_PLAN_SUMMARY.md
 IMPLEMENTATION_PLAN.md
+docs/plans/
 
 # Build and deployment scripts (contain personal info / credentials)
 scripts/

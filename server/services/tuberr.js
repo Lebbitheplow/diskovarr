@@ -24,6 +24,53 @@ function health() {
   return manageFetch('/health');
 }
 
+// Pipeline status (queue, failures, refresh timestamps, staging usage). Newer
+// Tuberr builds only — callers must tolerate a 404 from older instances.
+function status() {
+  return manageFetch('/status');
+}
+
+// Read-only check that Sonarr still carries the Tuberr indexer + download
+// client and that they point at the configured address/key. Used by the health
+// job to detect drift (key rotation, address change, admin deleted the entry).
+async function verifySonarrWiring() {
+  const c = db.getConnectionSettings();
+  if (!c.sonarrUrl || !c.sonarrApiKey) return { ok: false, indexer: false, downloadClient: false, message: 'Sonarr is not configured' };
+  if (!c.tuberrUrl || !c.tuberrApiKey) return { ok: false, indexer: false, downloadClient: false, message: 'Tuberr is not configured' };
+  const sonarrGet = async (path) => {
+    const res = await fetch(`${c.sonarrUrl.replace(/\/$/, '')}/api/v3${path}`, {
+      headers: { 'X-Api-Key': c.sonarrApiKey },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!res.ok) throw new Error(`Sonarr ${path} → ${res.status}`);
+    return res.json();
+  };
+  const field = (entry, name) => (entry.fields || []).find(f => f.name === name)?.value;
+  const [indexers, clients] = await Promise.all([sonarrGet('/indexer'), sonarrGet('/downloadclient')]);
+  const tuberrUrl = new URL(c.tuberrUrl);
+  const problems = [];
+  const indexer = indexers.find(x => x.name === SONARR_ENTRY_NAME);
+  if (!indexer) problems.push('indexer missing');
+  else {
+    if (!indexer.enableRss || !indexer.enableAutomaticSearch) problems.push('indexer RSS/automatic search disabled');
+    if (String(field(indexer, 'baseUrl') || '').replace(/\/$/, '') !== `${c.tuberrUrl.replace(/\/$/, '')}/torznab`) problems.push('indexer URL differs from Tuberr address');
+    if (field(indexer, 'apiKey') !== c.tuberrApiKey) problems.push('indexer API key is stale');
+  }
+  const client = clients.find(x => x.name === SONARR_ENTRY_NAME);
+  if (!client) problems.push('download client missing');
+  else {
+    if (!client.enable) problems.push('download client disabled');
+    if (field(client, 'host') !== tuberrUrl.hostname || Number(field(client, 'port')) !== (Number(tuberrUrl.port) || 9832)) problems.push('download client host/port differ from Tuberr address');
+    if (indexer && client && indexer.downloadClientId && indexer.downloadClientId !== client.id) problems.push('indexer is pinned to a different download client');
+  }
+  return {
+    ok: problems.length === 0,
+    indexer: !!indexer,
+    downloadClient: !!client,
+    message: problems.length ? problems.join('; ') : 'Sonarr indexer and download client are wired',
+  };
+}
+
 // Keeps Tuberr's own config in sync with what the admin saves in Diskovarr
 function pushConfig({ sonarrUrl, sonarrApiKey, youtubeApiKey }) {
   return manageFetch('/config', {
@@ -164,4 +211,4 @@ async function setupSonarr() {
   };
 }
 
-module.exports = { manageFetch, health, pushConfig, searchChannels, createMapping, isConfigured, setupSonarr, regenerateKey };
+module.exports = { manageFetch, health, status, verifySonarrWiring, pushConfig, searchChannels, createMapping, isConfigured, setupSonarr, regenerateKey };

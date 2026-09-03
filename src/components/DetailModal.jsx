@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  plexApi,
+  libraryApi,
   watchlistApi,
   issuesApi,
   exploreApi,
@@ -12,7 +12,7 @@ import CastCrewTab from './CastCrewTab'
 import RatingBadges from './RatingBadges'
 import MonitorDropdown from './MonitorManager/MonitorDropdown'
 import { posterUrl } from '../utils/media'
-import { sendPlayMedia, probeLocalNetwork, isChromiumBrowser, localNetworkPermission } from '../utils/castPlayer'
+import useCastPlayer from '../hooks/useCastPlayer'
 import { useTranslation } from 'react-i18next'
 
 const CAST_ICON = (
@@ -143,10 +143,7 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
     setTrailerLoading(!!item?.tmdbId)
   }
   const [inWatchlist, setInWatchlist] = useState(item?.isInWatchlist || false)
-  const [castOpen, setCastOpen] = useState(false)
-  const [castLoading, setCastLoading] = useState(false)
-  const [castingId, setCastingId] = useState(null)
-  const [clients, setClients] = useState([])
+  const { castOpen, castLoading, castingId, clients, handleCastClick, handleCastMedia, canCast, noClientsMessage } = useCastPlayer()
   const [activeTab, setActiveTab] = useState('overview')
   const [credits, setCredits] = useState(
     item?.structuredCast ? { cast: item.structuredCast, crew: item.structuredCrew } : null
@@ -164,7 +161,7 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
     setFetchedRatings(null)
   }
   const trailerRef = useRef(null)
-  const { success, error: toastError, info } = useToast()
+  const { success, error: toastError } = useToast()
 
   const inLibrary = item?.inLibrary ?? !!item?.ratingKey
 
@@ -188,7 +185,7 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
   const handleDismiss = useCallback(async () => {
     try {
       if (inLibrary) {
-        await plexApi.dismissItem(item.ratingKey)
+        await libraryApi.dismissItem(item.ratingKey)
         if (onRefresh) onRefresh(item.ratingKey)
       } else {
         await exploreApi.dismissRecommendation(item.tmdbId, item.mediaType)
@@ -216,31 +213,6 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
     }
   }, [onRequest, item, onClose])
 
-  const handleCastClick = useCallback(async () => {
-    if (castOpen) {
-      setCastOpen(false)
-      return
-    }
-    setCastLoading(true)
-    try {
-      const { data } = await plexApi.getClients()
-      setClients(data.clients || [])
-      setCastOpen(true)
-      if (!isChromiumBrowser() && !sessionStorage.getItem('castLnaNoticeShown')) {
-        sessionStorage.setItem('castLnaNoticeShown', '1')
-        info(t('Heads up: casting from this browser may not reach your TV — it needs local network access, which only Chrome and Edge support. If casting fails, try Chrome.'))
-      }
-      // Surface Chrome's local-network permission prompt now, while the user
-      // is picking a device, instead of mid-cast where it stalled delivery.
-      const probeUri = (data.clients || []).map(c => c.probeUri).find(Boolean)
-      probeLocalNetwork(probeUri)
-    } catch (e) {
-      toastError(t('Could not fetch clients'))
-    } finally {
-      setCastLoading(false)
-    }
-  }, [castOpen, toastError, info, t])
-
   // Jump to the search page's "More with X" browse for a cast/crew member.
   const handlePersonClick = useCallback((person) => {
     if (!person?.id) return
@@ -265,50 +237,11 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
     }
   }, [success, toastError, t])
 
-  // Chromium: the page delivers playMedia itself (it's on the same LAN as the
-  // user's TV; the server usually isn't), then falls back to server-side
-  // delivery — sequentially, so the player can never get the command twice.
-  // Other browsers block page→LAN requests outright, so they cast through the
-  // server directly (reaches players on the server's own LAN only).
-  const handleCastMedia = useCallback(async (client) => {
-    setCastingId(client.machineIdentifier)
-    const castArgs = { ratingKey: item.ratingKey, clientId: client.machineIdentifier }
-    try {
-      if (isChromiumBrowser()) {
-        // If the local-network permission is still undecided, delivery will
-        // sit behind a browser prompt — tell the user to look for it.
-        if (await localNetworkPermission() === 'prompt') {
-          info(t('If your browser asks to access devices on your network, choose Allow — that is how the play command reaches your TV.'))
-        }
-        const { data: prep } = await plexApi.prepareCast(castArgs)
-        const result = await sendPlayMedia(prep)
-        if (!result.ok) {
-          try {
-            await plexApi.castMedia(castArgs)
-          } catch {
-            toastError(result.reason === 'rejected'
-              ? t('The device refused the playback command. Try restarting the Plex app on it.')
-              : t('Could not reach the device from this browser. Make sure you are on the same Wi-Fi network as your TV, and allow local network access if prompted.'))
-            return
-          }
-        }
-      } else {
-        await plexApi.castMedia(castArgs)
-      }
-      success('Playing on ' + client.name)
-      setCastOpen(false)
-    } catch (e) {
-      toastError(e.message || t('Cast failed'))
-    } finally {
-      setCastingId(null)
-    }
-  }, [item, success, toastError, info, t])
-
   useEffect(() => {
     if (!item?.tmdbId) return
     const mt = item.type === 'movie' || item.mediaType === 'movie' ? 'movie' : 'tv'
     let active = true
-    plexApi.getTrailer(item.tmdbId, mt)
+    libraryApi.getTrailer(item.tmdbId, mt)
       .then(({ data }) => {
         if (active && data.trailerKey) setTrailerKey(data.trailerKey)
       })
@@ -495,16 +428,16 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
                   <button className={'modal-btn modal-btn-watchlist' + (inWatchlist ? ' in-watchlist' : '')} onClick={handleWatchlist}>
                     {inWatchlist ? '✓ In Watchlist' : '+ Watchlist'}
                   </button>
-                  {item.ratingKey && (
+                  {canCast(item) && (
                     <div className="modal-cast-wrap">
-                      <button className="modal-btn modal-btn-cast" onClick={handleCastClick} disabled={castLoading} style={{ display: castLoading ? 'flex' : 'inline-flex' }}>
+                      <button className="modal-btn modal-btn-cast" onClick={() => handleCastClick(item)} disabled={castLoading} style={{ display: castLoading ? 'flex' : 'inline-flex' }}>
                         {castLoading ? '…' : CAST_ICON}
                       </button>
                       {castOpen && !castLoading && (
                         <div className="modal-cast-picker">
-                          {clients.length === 0 && <span className="cast-no-clients">{t('No Plex clients found.')}<br />{t('Open your Plex app on your TV first.')}</span>}
+                          {clients.length === 0 && <span className="cast-no-clients">{noClientsMessage}</span>}
                           {clients.map(client => (
-                            <button key={client.machineIdentifier} className="cast-client-btn" onClick={() => handleCastMedia(client)} disabled={!!castingId}>
+                            <button key={client.machineIdentifier} className="cast-client-btn" onClick={() => handleCastMedia(item, client)} disabled={!!castingId}>
                               {castingId === client.machineIdentifier
                                 ? t('Casting…')
                                 : client.name + (client.product ? ' · ' + client.product : '')}

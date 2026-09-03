@@ -8,13 +8,18 @@ const SOURCE_PREFIX = 'tuberr:yt:';
 // download (invalid tracker, synthetic pieces). It only exists so Sonarr can
 // grab a "release" and hand it back to our fake qBittorrent, which recovers
 // the videoId from info.source. Piece bytes are derived from the videoId so
-// the same (videoId, title, size) always yields the same infohash.
-function buildTorrent({ releaseTitle, sizeBytes, videoId }) {
+// the same (videoId, title, size, attempt) always yields the same infohash.
+// `attempt` (download attempt counter) is folded into info.source as
+// "tuberr:yt:<videoId>#<n>" so a retry after a failed download is a brand new
+// release for Sonarr rather than a blocklisted infohash. n=0 is omitted for
+// backward compatibility with torrents minted before the counter existed.
+function buildTorrent({ releaseTitle, sizeBytes, videoId, attempt = 0 }) {
   const numPieces = Math.max(1, Math.ceil(sizeBytes / PIECE_LENGTH));
   const pieces = Buffer.concat(
     Array.from({ length: numPieces }, (_, i) =>
       crypto.createHash('sha1').update(`${videoId}:${i}`).digest())
   );
+  const n = Number(attempt) || 0;
   const torrent = {
     announce: 'http://tracker.tuberr.invalid/announce',
     'creation date': 0,
@@ -23,11 +28,19 @@ function buildTorrent({ releaseTitle, sizeBytes, videoId }) {
       name: releaseTitle,
       'piece length': PIECE_LENGTH,
       pieces,
-      source: SOURCE_PREFIX + videoId,
+      source: SOURCE_PREFIX + videoId + (n > 0 ? `#${n}` : ''),
     },
   };
   const buffer = bencode.encode(torrent);
   return { buffer, infoHash: bencode.infoHashOf(buffer) };
+}
+
+function parseSource(source) {
+  if (!source.startsWith(SOURCE_PREFIX)) return { videoId: null, attempt: 0 };
+  const rest = source.slice(SOURCE_PREFIX.length);
+  const m = /^([^#]+)(?:#(\d+))?$/.exec(rest);
+  if (!m) return { videoId: rest, attempt: 0 };
+  return { videoId: m[1], attempt: Number(m[2]) || 0 };
 }
 
 function parseTorrent(buffer) {
@@ -37,11 +50,13 @@ function parseTorrent(buffer) {
     .update(buffer.subarray(infoRange[0], infoRange[1]))
     .digest('hex');
   const source = value.info.source ? value.info.source.toString('utf8') : '';
+  const { videoId, attempt } = parseSource(source);
   return {
     infoHash,
     name: value.info.name ? value.info.name.toString('utf8') : '',
     size: Number(value.info.length) || 0,
-    videoId: source.startsWith(SOURCE_PREFIX) ? source.slice(SOURCE_PREFIX.length) : null,
+    videoId,
+    attempt,
   };
 }
 

@@ -23,7 +23,7 @@ function requireUser(req, res) {
   const userId = String(plexUser.id ?? plexUser.userId);
   const isAdmin = !!(req.session.isAdmin || req.session.isPlexAdminUser || plexUser.isAdmin)
     || db.getPrivilegedUserIds().includes(userId);
-  return { userId, isAdmin, token: plexUser.token };
+  return { userId, isAdmin, token: plexUser.token, jellyfin: plexUser.jellyfin || null };
 }
 
 function parseYear(req, res) {
@@ -69,26 +69,48 @@ router.post('/:year(\\d+)/playlist', async (req, res) => {
   if (!wrappedStats.isYearUnlocked(year) && !auth.isAdmin) {
     return res.status(403).json({ error: 'This Wrapped has not unlocked yet' });
   }
-  if (!auth.token) return res.status(400).json({ error: 'No Plex token on session — sign in again' });
+  // Plex when the session has a Plex token; otherwise a Jellyfin identity
+  // builds the playlist on Jellyfin instead.
+  const useJellyfin = !auth.token && !!auth.jellyfin?.userId;
+  if (!auth.token && !useJellyfin) return res.status(400).json({ error: 'No Plex token on session — sign in again' });
 
   const wrapped = wrappedStats.getWrapped(auth.userId, year);
   if (wrapped.notEnoughData) return res.status(400).json({ error: 'Not enough watch data for a playlist' });
 
   // Top 10 movies + top 5 shows by watch time. libraryKey is the item's
   // CURRENT rating key (drift-resolved at compute time); skip anything that
-  // no longer exists in the library at all.
+  // no longer exists in the library at all (or lives on the other server).
   const picks = [
     ...wrapped.payload.topMovies.bySeconds.slice(0, 10),
     ...wrapped.payload.topShows.bySeconds.slice(0, 5),
   ];
-  const keys = picks.map((p) => p.libraryKey || p.ratingKey).filter((rk) => rk && db.getLibraryItemByKey(rk));
+  const wantSource = useJellyfin ? 'jellyfin' : 'plex';
+  const keys = picks
+    .map((p) => p.libraryKey || p.ratingKey)
+    .filter((rk) => rk && (db.getLibraryItemByKey(rk)?.source || 'plex') === wantSource);
   if (!keys.length) return res.status(400).json({ error: 'None of your top titles are in the library anymore' });
 
+  const title = `Diskovarr Wrapped ${year}`;
+  if (useJellyfin) {
+    try {
+      const jellyfin = require('../services/jellyfin');
+      const playlists = require('../services/jellyfin/playlists');
+      if (!jellyfin.isEnabled()) return res.status(400).json({ error: 'Jellyfin is not enabled' });
+      const { playlistId, count } = await playlists.createPlaylistWithItems(auth.jellyfin.userId, title, keys, { token: auth.jellyfin.token });
+      const url = playlists.getPlaylistDeepLink(playlistId);
+      logger.info(`wrapped Jellyfin playlist "${title}" created for ${auth.userId} (${count} items)`);
+      return res.json({ ok: true, source: 'jellyfin', title, count, url, deepLink: url });
+    } catch (err) {
+      logger.error(`wrapped Jellyfin playlist failed for ${auth.userId}: ${err.message}`);
+      return res.status(502).json({ error: 'Jellyfin refused the playlist — try again' });
+    }
+  }
+
   try {
-    const title = `Diskovarr Wrapped ${year}`;
     const { playlistId, count } = await plexService.createPlaylistWithItems(auth.token, title, keys);
     logger.info(`wrapped playlist "${title}" created for ${auth.userId} (${count} items)`);
-    res.json({ title, count, deepLink: plexService.getPlaylistDeepLink(playlistId) });
+    const deepLink = plexService.getPlaylistDeepLink(playlistId);
+    res.json({ ok: true, source: 'plex', title, count, deepLink, url: deepLink });
   } catch (err) {
     logger.error(`wrapped playlist failed for ${auth.userId}: ${err.message}`);
     res.status(502).json({ error: 'Plex refused the playlist — try again' });

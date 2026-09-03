@@ -89,6 +89,21 @@ db.exec(`
 // Migrations for columns added after first release
 for (const migration of [
   'ALTER TABLE series_mappings ADD COLUMN detect_attempts INTEGER DEFAULT 0',
+  // Mapping lifecycle: 'active' | 'paused' | 'unavailable' (skipped by the
+  // scheduler and hidden from Torznab), plus activity timestamps for status.
+  "ALTER TABLE series_mappings ADD COLUMN state TEXT DEFAULT 'active'",
+  'ALTER TABLE series_mappings ADD COLUMN state_reason TEXT',
+  'ALTER TABLE series_mappings ADD COLUMN zero_progress_runs INTEGER DEFAULT 0',
+  'ALTER TABLE series_mappings ADD COLUMN last_new_video_at INTEGER DEFAULT 0',
+  'ALTER TABLE series_mappings ADD COLUMN last_grab_at INTEGER DEFAULT 0',
+  'ALTER TABLE series_mappings ADD COLUMN last_full_refresh_at INTEGER DEFAULT 0',
+  'ALTER TABLE series_mappings ADD COLUMN last_tvdb_refresh_at INTEGER DEFAULT 0',
+  // Per-episode skip (never offered to Sonarr) and download attempt counter
+  // (folded into the fake infohash so a retry is a fresh release for Sonarr).
+  'ALTER TABLE episode_matches ADD COLUMN skipped INTEGER DEFAULT 0',
+  'ALTER TABLE episode_matches ADD COLUMN skip_reason TEXT',
+  'ALTER TABLE episode_matches ADD COLUMN attempts INTEGER DEFAULT 0',
+  'ALTER TABLE grabs ADD COLUMN attempt INTEGER DEFAULT 0',
 ]) {
   try { db.exec(migration); } catch { /* column already exists */ }
 }

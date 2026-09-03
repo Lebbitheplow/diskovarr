@@ -36,7 +36,7 @@ export default function Issues() {
   const { user } = useAuth()
   const { error: toastError, success: toastSuccess } = useToast()
 
-  const isAdmin = !!(user?.isAdmin || user?.isPlexAdminUser || user?.isElevated || user?.isPrivileged)
+  const isAdmin = !!(user?.isAdmin || user?.isElevated || user?.isPrivileged)
 
   const {
     searchQuery, setSearchQuery, debouncedSearchQuery,
@@ -403,8 +403,8 @@ export default function Issues() {
             <input className="filter-select" value={newIssueData.title} onChange={e => setNewIssueData(prev => ({ ...prev, title: e.target.value }))} style={{ width: '100%', padding: '7px 10px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg-elevated)', color: 'var(--text)', fontSize: '0.88rem', boxSizing: 'border-box' }} placeholder={t('Issue title')} />
           </div>
           <div style={{ marginBottom: '14px' }}>
-            <label className="edit-field-label">{t('Plex Rating Key')} <span style={{ fontWeight: 400, color: 'var(--text-secondary)' }}>(optional)</span></label>
-            <input className="filter-select" value={newIssueData.ratingKey} onChange={e => setNewIssueData(prev => ({ ...prev, ratingKey: e.target.value }))} style={{ width: '100%', padding: '7px 10px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg-elevated)', color: 'var(--text)', fontSize: '0.88rem', boxSizing: 'border-box' }} placeholder={t('Plex ratingKey (leave blank if unknown)')} />
+            <label className="edit-field-label">{t('Library Item ID')} <span style={{ fontWeight: 400, color: 'var(--text-secondary)' }}>(optional)</span></label>
+            <input className="filter-select" value={newIssueData.ratingKey} onChange={e => setNewIssueData(prev => ({ ...prev, ratingKey: e.target.value }))} style={{ width: '100%', padding: '7px 10px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg-elevated)', color: 'var(--text)', fontSize: '0.88rem', boxSizing: 'border-box' }} placeholder={t('Plex rating key or Jellyfin item id (leave blank if unknown)')} />
           </div>
           <div style={{ marginBottom: '14px' }}>
             <label className="edit-field-label">{t('Media Type')}</label>

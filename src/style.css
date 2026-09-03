@@ -1078,6 +1078,29 @@ img {
   color: var(--accent);
 }
 
+.spotlight-cast-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+/* Floats above the actions row so the flex layout doesn't reflow when the
+   device list opens. */
+.spotlight-cast-picker {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  z-index: 5;
+  min-width: 220px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+}
+
 .spotlight-dots {
   position: absolute;
   right: 28px;

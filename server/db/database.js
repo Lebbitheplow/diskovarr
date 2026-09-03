@@ -935,7 +935,10 @@ const stmtUpsertItem = db.prepare(`
     source=excluded.source
 `);
 
-function upsertManyItems(items) {
+// `withDetails: true` also writes producers/labels and stamps detail_synced_at in
+// the same transaction — for sources whose listing already carries the detail
+// fields (Jellyfin), so those rows never enter the Plex-only detail backfill.
+function upsertManyItems(items, { withDetails = false } = {}) {
   withTransaction(() => {
     for (const item of items) {
       stmtUpsertItem.run(
@@ -951,6 +954,7 @@ function upsertManyItems(items) {
         item.videoResolution || null, item.fileSize ?? null,
         item.source || 'plex'
       );
+      if (withDetails) updateItemDetailFields(item.ratingKey, item);
     }
   });
 }
@@ -996,9 +1000,11 @@ function updateLastEpisodeAdded(showKey, ts) {
 }
 
 // Items that still need the per-item detail backfill (producers/labels). Movies + shows only.
+// Plex rows only — the backfill hits /library/metadata/<key>, which a Jellyfin GUID
+// would 404 forever. Newest rows first so a stuck row can't starve fresh ones.
 function getItemsNeedingDetailSync(limit = 50) {
   return db.prepare(
-    "SELECT rating_key, section_id FROM library_items WHERE detail_synced_at = 0 LIMIT ?"
+    "SELECT rating_key, section_id FROM library_items WHERE detail_synced_at = 0 AND source = 'plex' ORDER BY rowid DESC LIMIT ?"
   ).all(limit).map(r => ({ ratingKey: r.rating_key, sectionId: r.section_id }));
 }
 
@@ -2882,15 +2888,30 @@ function deleteIssueComment(commentId, requesterId, isAdmin) {
 
 // ── Request fulfillment notifications ─────────────────────────────────────────
 
+// Set of "<tvdbId>:tv" keys for shows the library knows by TVDB id. TVDB-only
+// requests (YouTube series absent from TMDB, tmdb_id sentinel 0) can only be
+// recognized as available through this set.
+function getLibraryTvdbKeys() {
+  const rows = db.prepare("SELECT tvdb_id FROM library_items WHERE tvdb_id IS NOT NULL AND tvdb_id != '' AND type = 'show'").all();
+  return new Set(rows.map(r => `${r.tvdb_id}:tv`));
+}
+
+// True when a request row's media is in the library, by TMDB id or (for
+// TVDB-only requests) by TVDB id.
+function requestIsInLibrary(row, tmdbKeys, tvdbKeys) {
+  if (row.tmdb_id && tmdbKeys.has(`${row.tmdb_id}:${row.media_type}`)) return true;
+  return !!(row.tvdb_id && row.media_type === 'tv' && tvdbKeys.has(`${row.tvdb_id}:tv`));
+}
+
 function getUnnotifiedFulfilledRequests() {
-  const lib = db.prepare('SELECT tmdb_id, type FROM library_items WHERE tmdb_id IS NOT NULL').all();
-  const ids = new Set(lib.map(r => `${r.tmdb_id}:${r.type === 'show' ? 'tv' : 'movie'}`));
+  const ids = getLibraryTmdbKeys();
+  const tvdbIds = getLibraryTvdbKeys();
   const rows = db.prepare(`
     SELECT * FROM discover_requests
     WHERE status != 'denied'
     AND notified_available_at IS NULL
   `).all();
-  return rows.filter(r => ids.has(`${r.tmdb_id}:${r.media_type}`));
+  return rows.filter(r => requestIsInLibrary(r, ids, tvdbIds));
 }
 
 function markRequestsNotifiedAvailable(ids) {
@@ -3597,7 +3618,7 @@ module.exports = {
   enqueueNotification, getPendingQueuedNotifications, markQueueItemSent, deleteQueueItem,
   createIssue, setIssueSearchStatus, getIssueById, getAllIssues, getUserIssues, getIssueUsers, updateIssueStatus, deleteIssue, deleteIssuesByIds,
   addIssueComment, getIssueComments, deleteIssueComment,
-  getUnnotifiedFulfilledRequests, markRequestsNotifiedAvailable,
+  getUnnotifiedFulfilledRequests, markRequestsNotifiedAvailable, getLibraryTvdbKeys, requestIsInLibrary,
   // Reviews
   createReview, getReview, getReviewByRatingKey, getUserReviews, getUserReviewsCount, updateReview, deleteReview, getReviewById, setReviewTmdbSyncedRating, getReviewsForRecommendation,
   // Review social features

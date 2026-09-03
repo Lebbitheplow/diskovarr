@@ -35,8 +35,12 @@ const CAPS = `<?xml version="1.0" encoding="UTF-8"?>
   </categories>
 </caps>`;
 
+function isActive(mapping) {
+  return !mapping.state || mapping.state === 'active';
+}
+
 function matchedRowsFor(mapping, season, ep) {
-  let sql = 'SELECT * FROM episode_matches WHERE mapping_id = ? AND video_id IS NOT NULL AND broken = 0';
+  let sql = 'SELECT * FROM episode_matches WHERE mapping_id = ? AND video_id IS NOT NULL AND broken = 0 AND skipped = 0';
   const params = [mapping.id];
   if (season !== undefined && ep !== undefined && String(ep).includes('/')) {
     // Daily series: season=YYYY & ep=MM/DD → look up by air date
@@ -90,7 +94,8 @@ router.get('/api', (req, res) => {
       FROM episode_matches em
       JOIN series_mappings m ON m.id = em.mapping_id
       JOIN videos v ON v.video_id = em.video_id AND v.mapping_id = em.mapping_id
-      WHERE em.video_id IS NOT NULL AND em.broken = 0
+      WHERE em.video_id IS NOT NULL AND em.broken = 0 AND em.skipped = 0
+        AND COALESCE(m.state, 'active') = 'active'
       ORDER BY v.published_at DESC
       LIMIT 50
     `).all();
@@ -109,7 +114,8 @@ router.get('/api', (req, res) => {
     } else {
       mappings = db.prepare('SELECT * FROM series_mappings WHERE title LIKE ?').all(`%${String(q).slice(0, 100)}%`);
     }
-    for (const mapping of mappings) {
+    // paused/unavailable mappings are invisible to Sonarr
+    for (const mapping of mappings.filter(isActive)) {
       for (const match of matchedRowsFor(mapping, season, ep)) {
         items.push(itemXml(releases.buildRelease(mapping, match), baseUrlOf(req), req.query.apikey));
         if (items.length >= 100) break;

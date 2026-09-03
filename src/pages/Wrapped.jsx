@@ -18,7 +18,7 @@ import WrappedShareButton from '../components/wrapped/WrappedShareButton'
 
 // Spotify-Wrapped-style story: one stat per slide, walked through in order,
 // each with its own share button. Slides without data are skipped.
-function buildSlides({ payload, global, currentUserId, t }) {
+function buildSlides({ payload, global, currentUserId, t, canPlaylist }) {
   const a = payload.activity
   const slides = [
     {
@@ -98,8 +98,12 @@ function buildSlides({ payload, global, currentUserId, t }) {
           <div className="wrapped-hero-label">
             {fmtInt(hoursOf(payload.totals.seconds))} {t('hours')} · {fmtInt(payload.totals.distinctTitles)} {t('titles')} · {t('one great year')}
           </div>
-          <p className="wrapped-caption">{t('Take your favorites with you — build the playlist in your own Plex account.')}</p>
-          <WrappedPlaylistButton year={payload.year} />
+          {canPlaylist && (
+            <>
+              <p className="wrapped-caption">{t('Take your favorites with you — build the playlist in your own media server account.')}</p>
+              <WrappedPlaylistButton year={payload.year} />
+            </>
+          )}
           <p className="wrapped-caption">{t('See you next December!')}</p>
         </div>
       ),
@@ -112,7 +116,9 @@ export default function Wrapped() {
   const { t } = useTranslation()
   const { year: yearParam } = useParams()
   const navigate = useNavigate()
-  const { user } = useAuth()
+  const { user, isPlexLinked, hasJellyfin, availableSources } = useAuth()
+  const canPlaylist = isPlexLinked || hasJellyfin
+  const hasPlexSource = !availableSources || availableSources.includes('plex')
   const { success: toastSuccess, error: toastError } = useToast() || {}
   const isAdmin = !!(user?.isAdmin || user?.isElevated)
 
@@ -156,9 +162,9 @@ export default function Wrapped() {
 
   const slides = useMemo(() => (
     data?.payload
-      ? buildSlides({ payload: data.payload, global: data.global, currentUserId: user ? String(user.id) : null, t })
+      ? buildSlides({ payload: data.payload, global: data.global, currentUserId: user ? String(user.id) : null, t, canPlaylist })
       : []
-  ), [data, user, t])
+  ), [data, user, t, canPlaylist])
 
   const clamp = useCallback((i) => Math.max(0, Math.min(slides.length - 1, i)), [slides.length])
   const goTo = useCallback((i) => setSlideIdx(clamp(i)), [clamp])
@@ -197,7 +203,7 @@ export default function Wrapped() {
     try {
       const { data } = await wrappedApi.backfill()
       toastSuccess?.(`${t('Backfill complete')} — ${data.rows} ${t('rows')}`)
-    } catch { toastError?.(t('Backfill failed — check Tautulli connection')) }
+    } catch { toastError?.(t('Backfill failed — check the Tautulli connection')) }
     setAdminWorking(false)
   }
 
@@ -289,7 +295,7 @@ export default function Wrapped() {
         <div className="wrapped-admin-row">
           <span>{t('Admin')}:</span>
           <button onClick={recompute} disabled={adminWorking}>{t('Recompute this year')}</button>
-          <button onClick={backfill} disabled={adminWorking}>{t('Backfill full Tautulli history')}</button>
+          {hasPlexSource && <button onClick={backfill} disabled={adminWorking}>{t('Backfill full Tautulli history')}</button>}
         </div>
       )}
     </div>

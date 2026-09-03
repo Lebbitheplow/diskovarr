@@ -1,5 +1,24 @@
 [
   {
+    "version": "3.0.1",
+    "date": "2026-09-02",
+    "changes": [
+      "Cast from the home spotlight — the spotlight's Play button is now a Cast button. Pick one of your TVs or players and Diskovarr starts the title there, the same casting the title's detail window already offered, so the biggest recommendation on the page is one click from your screen.",
+      "Jellyfin reaches parity with Plex — Jellyfin users can now cast to their own devices, get a one-click Wrapped playlist, and have their real per-play watch history tracked (plays and durations, not one row per title). List-to-collection mirroring, the library cleanup automation, and unlinking a Plex account from a Jellyfin login all work for Jellyfin now, and the admin dashboard shows a live status card for each connected server.",
+      "The bundled YouTube downloader is now a first-class part of Diskovarr — a new YouTube tab in the admin panel shows the downloader's health, the current download queue, failures with their reasons, episodes needing review, and per-series match progress, with its log streamed into Diskovarr's own logs.",
+      "Diskovarr now watches the YouTube downloader for you — a health check every ten minutes raises an admin notification when the downloader goes offline, when refreshes keep failing, when downloads fail, when YouTube's daily quota is exhausted, or when its sign-in cookies expire, instead of silently falling behind.",
+      "YouTube downloader alerts can be relayed through every notification channel — Slack, Gotify, ntfy, Telegram, Pushbullet, Email, Webhook, and browser push, not just Discord and Pushover. Tick 'YouTube downloader alerts' in a channel's notification types to turn it on; the in-app bell always shows them regardless.",
+      "Any TV show can now be downloaded from YouTube — the 'Download from YouTube' option is offered for any show when the integration is enabled, not only shows that exist solely on TVDB, and the channel picker still suggests the source channel.",
+      "Better YouTube episode matching — short one- and two-word episode titles, platform tags like '(NES)' or '(SEGA Genesis)', series acronyms, and '#7' versus '#07' now line up with the right video, and a well-dated upload can carry a match on its own. Whole back-catalogs that used to sit unmatched now import.",
+      "Dead or unavailable YouTube series stop wasting effort — a mapping with nothing left to match is flagged after a few empty refreshes and skipped (reactivate it from the YouTube tab), and individual episodes that will never exist can be marked skipped, so refreshes and searches stop burning YouTube quota on them.",
+      "Downloaded YouTube videos now carry their real title, thumbnail, and metadata, with a Kodi-style .nfo written next to each file (which Jellyfin reads natively), so Plex and Jellyfin stop showing generic 'Episode 35' titles.",
+      "Fixed: YouTube requests now turn Available when their episodes arrive in the library — they were matched by a TMDB id these shows don't have, so they stayed stuck on Approved even after every episode was in Plex.",
+      "Fixed: finished YouTube downloads are cleaned up after import instead of piling up — the download shim now reports its seed limits as reached so Sonarr removes each item, and a janitor clears out imported leftovers, recovering hundreds of gigabytes of staging space.",
+      "Fixed: the Cast button no longer appears on items or for accounts that can't be cast, so Jellyfin-only titles and logins no longer show a Play button that returns a Plex-worded error.",
+      "The YouTube downloader's own database, cookies, and API key are now included in Diskovarr's nightly backup alongside the main database."
+    ]
+  },
+  {
     "version": "3.0.0",
     "date": "2026-09-02",
     "changes": [

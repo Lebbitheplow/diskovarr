@@ -8,7 +8,8 @@ import { useTranslation } from 'react-i18next'
 // Shared request dialog used by Explore, Search, and DetailModal flows.
 // Handles season selection and alternate-service choice. YouTube-sourced items
 // (TVDB-only shows, when the admin has enabled YouTube requests) default to the
-// YouTube downloader with channel suggestions; regular TMDB items never see it.
+// YouTube downloader with channel suggestions; any other TV show can opt into
+// the same flow with the "Download from YouTube" toggle (T9).
 export default function RequestModal({ item, services, onClose, onSubmitted }) {
   const { t } = useTranslation()
   const { error: toastError, success: toastSuccess } = useToast()
@@ -18,7 +19,11 @@ export default function RequestModal({ item, services, onClose, onSubmitted }) {
   // TVDB-only items can only go to Sonarr (other services key off TMDB ids);
   // they are how YouTube series enter search results, so they get the YouTube flow
   const tvdbOnly = !!item && !item.tmdbId && !!item.tvdbId
-  const isYoutubeItem = tvdbOnly && item.mediaType === 'tv' && !!services.tuberr && !!services.sonarr
+  const youtubeAvailable = !!item && item.mediaType === 'tv' && !!services.tuberr && !!services.sonarr
+  // TMDB-known shows can opt in; TVDB-only shows are always YouTube (no other service keys off TVDB)
+  const [youtubeMode, setYoutubeMode] = useState(false)
+  const youtubeOptIn = youtubeAvailable && !tvdbOnly
+  const isYoutubeItem = youtubeAvailable && (tvdbOnly || youtubeMode)
 
   const [seasons, setSeasons] = useState([])
   const [selectedSeasons, setSelectedSeasons] = useState(['all'])
@@ -39,6 +44,7 @@ export default function RequestModal({ item, services, onClose, onSubmitted }) {
     setSelectedChannel(null)
     setChannelQuery('')
     setAdvancedOpen(false)
+    setYoutubeMode(false)
     // TVDB-sourced items carry their season list from the Sonarr lookup
     setSeasons(item && item.mediaType === 'tv' && Array.isArray(item.seasons) ? item.seasons : [])
   }
@@ -133,8 +139,9 @@ export default function RequestModal({ item, services, onClose, onSubmitted }) {
     : 'none'
   const altOptions = []
   if (isYoutubeItem) {
-    // TVDB-only items already go straight to Sonarr for everyone, so no directRequestAccess gate
-    altOptions.push({ svc: 'sonarr', name: 'Sonarr (Torrent)', dl: 'torrent' })
+    // TVDB-only items already go straight to Sonarr for everyone, so no directRequestAccess gate.
+    // Opted-in TMDB shows just flip the toggle back off instead.
+    if (tvdbOnly) altOptions.push({ svc: 'sonarr', name: 'Sonarr (Torrent)', dl: 'torrent' })
   } else if (!tvdbOnly) {
     if (defaultSvc !== 'overseerr' && hasOverseerr) altOptions.push({ svc: 'overseerr', name: 'Overseerr' })
     if (defaultSvc !== 'riven' && hasRiven) altOptions.push({ svc: 'riven', name: 'DUMB' })
@@ -176,6 +183,24 @@ export default function RequestModal({ item, services, onClose, onSubmitted }) {
                 </button>
               ))}
             </div>
+          </div>
+        )}
+        {youtubeOptIn && (
+          <div style={{ marginBottom: '14px' }}>
+            <button
+              type="button"
+              className={'chip-sm' + (youtubeMode ? ' active' : '')}
+              style={{ border: '1px solid var(--border)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+              aria-pressed={youtubeMode}
+              onClick={() => setYoutubeMode(m => !m)}
+            >
+              <span aria-hidden="true">{youtubeMode ? '☑' : '☐'}</span> {t('Download from YouTube')}
+            </button>
+            {youtubeMode && (
+              <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', margin: '6px 0 0' }}>
+                {t('Episodes are fetched from the selected YouTube channel and delivered through Sonarr.')}
+              </p>
+            )}
           </div>
         )}
         {isYoutubeItem && (

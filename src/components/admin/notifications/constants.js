@@ -24,12 +24,14 @@ export const SHARED_NOTIFICATION_TYPES = [
   { value: 'issue_new', label: 'New issue reported', meta: '(admin)' },
   { value: 'issue_updated', label: 'Issue status updated', meta: '(requester)' },
   { value: 'issue_comment_added_admin,issue_comment_added_user', label: 'Issue Comments' },
+  { value: 'tuberr_alert', label: 'YouTube downloader alerts', meta: '(admin)' },
 ]
 
 export const DEFAULT_AGENT_TYPES = [
   'request_pending', 'request_auto_approved', 'request_approved', 'request_denied',
   'request_available', 'request_process_failed',
   'issue_new', 'issue_updated', 'issue_comment_added_admin,issue_comment_added_user',
+  'tuberr_alert',
 ]
 
 export const WEBHOOK_NOTIFICATION_TYPES = SHARED_NOTIFICATION_TYPES.map(t => ({ ...t }))
@@ -44,19 +46,23 @@ export const PUSHOVER_NOTIFICATION_TYPES = [
   { value: 'issue_new', label: 'New issue reported' },
   { value: 'issue_updated', label: 'Issue status updated' },
   { value: 'issue_comment_added_admin,issue_comment_added_user', label: 'Issue Comments' },
+  { value: 'tuberr_alert', label: 'YouTube downloader alerts', meta: '(admin)' },
 ]
 
 export const DEFAULT_WEBHOOK_TYPES = [
   'request_pending', 'request_auto_approved', 'request_approved', 'request_denied',
   'issue_new', 'issue_updated', 'issue_comment_added_admin,issue_comment_added_user',
+  'tuberr_alert',
 ]
 export const DEFAULT_BOT_TYPES = [
   'request_pending', 'request_auto_approved', 'request_approved', 'request_denied',
   'issue_new', 'issue_updated', 'issue_comment_added_admin,issue_comment_added_user',
+  'tuberr_alert',
 ]
 export const DEFAULT_PUSHOVER_TYPES = [
   'request_pending', 'request_approved', 'request_denied', 'request_available',
   'issue_new', 'issue_updated', 'issue_comment_added_admin,issue_comment_added_user',
+  'tuberr_alert',
 ]
 
 export const DEFAULT_WEBHOOK_PAYLOAD = btoa(JSON.stringify({

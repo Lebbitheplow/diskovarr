@@ -33,7 +33,7 @@ export default function Queue() {
   const { user } = useAuth()
   const { error: toastError, success: toastSuccess } = useToast()
 
-  const isAdmin = !!(user?.isAdmin || user?.isPlexAdminUser || user?.isElevated || user?.isPrivileged)
+  const isAdmin = !!(user?.isAdmin || user?.isElevated || user?.isPrivileged)
 
   const {
     searchQuery, setSearchQuery, debouncedSearchQuery,
@@ -497,7 +497,12 @@ export default function Queue() {
                         <span className={'queue-user-link' + (isSelected ? ' active' : '')} onClick={() => handleUsernameClick(r.user_id)}>{r.username || r.user_id}</span>
                       )}
                     </td>}
-                    <td><span className={'type-badge type-' + mediaType}>{mediaType === 'movie' ? t('Movie') : t('TV')}</span></td>
+                    <td>
+                      <span className={'type-badge type-' + mediaType}>{mediaType === 'movie' ? t('Movie') : t('TV')}</span>
+                      {r.downloader === 'youtube' && (
+                        <span title={t('Downloads via the YouTube downloader')} style={{ marginLeft: 6, fontSize: '0.68rem', background: '#ff0000', color: '#fff', padding: '1px 6px', borderRadius: 4, fontWeight: 700, letterSpacing: '0.02em', verticalAlign: 'middle' }}>YouTube</span>
+                      )}
+                    </td>
                     <td>{fmtDate(r.requested_at)}</td>
                     <td><span className={'status-badge-' + ds}>{t(STATUS_LABELS[ds] || ds)}</span></td>
                     <td><div className="queue-actions">

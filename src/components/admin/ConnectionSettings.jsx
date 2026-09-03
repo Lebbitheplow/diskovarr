@@ -132,7 +132,7 @@ function PlexSection({ plexUrl, plexToken, onUpdate, onSave, onToast }) {
         <div className="conn-block-header">
           <div className="conn-block-meta">
             <span className="conn-block-name">{t('Plex')}</span>
-            <span className="conn-block-desc">{t('Your Plex Media Server — required for library sync and authentication')}</span>
+            <span className="conn-block-desc">{t('Plex Media Server — library sync and sign-in (required unless Jellyfin is enabled)')}</span>
           </div>
         </div>
         <div className="conn-block-fields">
@@ -230,7 +230,7 @@ function TautulliSection({ tautulliUrl, tautulliApiKey, onUpdate, onSave, onToas
         <div className="conn-block-header">
           <div className="conn-block-meta">
             <span className="conn-block-name">{t('Tautulli')}</span>
-            <span className="conn-block-desc">{t('Watch history source — required for personalized recommendations')}</span>
+            <span className="conn-block-desc">{t('Plex watch history source — required for personalized recommendations on Plex libraries (Jellyfin history syncs natively)')}</span>
           </div>
         </div>
         <div className="conn-block-fields">
@@ -274,6 +274,7 @@ function JellyfinSection({ jellyfinUrl, jellyfinApiKey, jellyfinEnabled, onUpdat
   const [apiKey, setApiKey] = useState(jellyfinApiKey ? MASKED : '')
   const [apiKeyVisible, setApiKeyVisible] = useState(false)
   const [testLoading, setTestLoading] = useState(false)
+  const [saveLoading, setSaveLoading] = useState(false)
   const [enabled, setEnabled] = useState(jellyfinEnabled)
   const realKey = apiKey === MASKED ? '' : apiKey
 
@@ -310,6 +311,21 @@ function JellyfinSection({ jellyfinUrl, jellyfinApiKey, jellyfinEnabled, onUpdat
     setEnabled(checked)
     onUpdate?.({ jellyfin_enabled: checked })
     try { await adminConnections.save({ jellyfin_enabled: checked }) } catch { /* ignore */ }
+  }
+
+  // Explicit Save mirrors PlexSection: the blur auto-save is silent, so admins
+  // had no confirmation that the Jellyfin fields were persisted.
+  const handleSave = async () => {
+    setSaveLoading(true)
+    try {
+      const patch = { jellyfin_url: buildUrl(host, port) }
+      if (apiKey !== MASKED) patch.jellyfin_api_key = apiKey
+      await adminConnections.save(patch)
+      onUpdate?.(patch)
+      onToast?.('Jellyfin settings saved')
+    } catch (err) {
+      onToast?.(err.message || 'Failed to save Jellyfin settings', 'error')
+    } finally { setSaveLoading(false) }
   }
 
   const handleTest = async () => {
@@ -364,6 +380,9 @@ function JellyfinSection({ jellyfinUrl, jellyfinApiKey, jellyfinEnabled, onUpdat
         </div>
         <button className="btn-admin conn-action-btn" onClick={handleTest} disabled={testLoading || !hasBothFields}>
           {testLoading ? 'Testing...' : 'Test'}
+        </button>
+        <button className="btn-admin btn-primary conn-action-btn" onClick={handleSave} disabled={saveLoading}>
+          {saveLoading ? 'Saving...' : 'Save'}
         </button>
       </div>
     </div>
