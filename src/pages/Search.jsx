@@ -69,6 +69,15 @@ function SearchCard({ item, inWatchlist, onOpenModal, onToggleWatchlist, onReque
               {item.isRequested ? t('Requested') + ' \u2713' : t('Request')}
             </button>
           )}
+          {item.inLibrary && item.mediaType === 'tv' && item.tmdbId && (
+            <button
+              className="btn-icon btn-request"
+              onClick={(e) => { e.stopPropagation(); onRequest(item) }}
+              title={t('Request missing seasons')}
+            >
+              {t('Request missing')}
+            </button>
+          )}
         </div>
       </div>
       <div className="card-info">

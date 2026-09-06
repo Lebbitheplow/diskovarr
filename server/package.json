@@ -1,6 +1,6 @@
 {
   "name": "diskovarr",
-  "version": "3.0.1",
+  "version": "3.1.0",
   "description": "Personalized Plex and Jellyfin content recommendations powered by your watch history",
   "main": "server.js",
   "scripts": {
@@ -10,7 +10,7 @@
   "dependencies": {
     "@resvg/resvg-js": "^2.6.2",
     "dotenv": "^16.4.5",
-    "express": "^4.22.2",
+    "express": "^5.2.1",
     "express-rate-limit": "^8.5.1",
     "express-session": "^1.18.0",
     "nodemailer": "^9.0.1",

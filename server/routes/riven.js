@@ -114,7 +114,7 @@ router.get('/config', (req, res) => {
 
 // POST /admin/riven/config/save
 router.post('/config/save', (req, res) => {
-  const { url, apiKey, rdApiKey, enabled, dumbRequestMode } = req.body;
+  const { url, apiKey, rdApiKey, enabled, dumbRequestMode } = req.body || {};
   if (url !== undefined) db.setSetting('riven_url', url.trim());
   if (apiKey && apiKey !== '••••••••') db.setSetting('riven_api_key', apiKey.trim());
   if (rdApiKey && rdApiKey !== '••••••••') db.setSetting('riven_rd_api_key', rdApiKey.trim());
@@ -150,7 +150,7 @@ router.get('/dumb/config', (req, res) => {
 
 // POST /admin/riven/dumb/enable — toggle DUMB integration on/off
 router.post('/dumb/enable', (req, res) => {
-  const { enabled } = req.body;
+  const { enabled } = req.body || {};
   let app = db.listApiApps().find(a => a.type === 'dumb');
   if (!app) app = db.createApiApp('DUMB', 'dumb');
   db.updateApiApp(app.id, { enabled: !!enabled });

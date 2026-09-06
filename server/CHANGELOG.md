@@ -4,6 +4,24 @@ All notable changes are documented here. Versioning follows [Semantic Versioning
 
 ---
 
+## v3.1.0 — 2026-09-06
+
+### Added
+
+- **Request missing seasons.** `GET /api/search/seasons` now takes an optional `ratingKey` and returns per-season `details` (TMDB episode count, library episode count from Plex `/library/metadata/:key/children` or Jellyfin `/Shows/:id/Seasons`, `complete`, `requested`, `selectable`) alongside the plain `seasons` list. Merge logic lives in `server/services/seasonAvailability.js` (pure, tested in `tests/seasonAvailability.test.js`); `normalizeTV` now caches `seasonDetails`. `RequestModal` grays out complete/requested seasons, treats "All" as "All missing" when anything is blocked, and always submits an explicit season list for library shows. `DetailModal` shows **Request missing seasons** for library shows on every page (rendering its own `RequestModal` through a portal where the page has no `onRequest`), and Search cards get a **Request missing** button.
+- **Sonarr: series already present.** `submitRequestToService` no longer fails when `POST /api/v3/series` rejects a duplicate: it fetches the existing series by `tvdbId`, monitors the requested seasons (`PUT /series/:id`), and queues `SeasonSearch`/`SeriesSearch` commands. The YouTube-tag re-use path is folded into the same branch.
+
+### Changed
+
+- **Search responds before enrichment.** The text-search pool is built from cached TMDB details where present and lightweight `/search/multi` entries otherwise (`server/services/searchCandidates.js`, tested in `tests/searchCandidates.test.js`); placeholders are upgraded in place by a background pass (`kickEnrichment`) so later pages and filter passes see full data. Results carry `enriched` and `backdropUrl`; `DetailModal` back-fills credits/studio/genres from `/search/details` for un-enriched items. The Sonarr TVDB lookup gets a 1.5 s budget (`SONARR_LOOKUP_BUDGET_MS`) and late hits merge into the cached pool. `/search/similar` batches uncached detail fetches through `batchGetDetails` instead of a serial loop.
+- **Express 5** (`server` and `tuberr`, closes Snyk SNYK-JS-QS-19432019 / SNYK-JS-QS-19432017 via `qs` 6.16). Route syntax updated for path-to-regexp 8: `app.get('/{*splat}')` SPA fallback, `router.all('/tuberr/*splat')`, and inline regex constraints (`:id(\\d+)`, `:slug([0-9a-f]{16})`, `:year(\\d+)`) replaced by handler-side validation in `routes/og.js` and `routes/wrapped.js`. `app.set('query parser', 'extended')` keeps the v4 `req.query` shape; handlers that read `req.body` on possibly body-less requests now default to `{}` (`routes/auth.js`, `routes/riven.js`, `tuberr/routes/qbit.js`).
+
+### Fixed
+
+- Missing-season requests for a show already in the library are stamped `notified_available_at` on creation, so the show-level fulfillment check no longer fires an immediate "now available" notification. (Queue status is still per show, so such requests display as Available.)
+
+---
+
 ## v3.0.1 — 2026-09-02
 
 ### Added

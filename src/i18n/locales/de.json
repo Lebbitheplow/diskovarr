@@ -1052,5 +1052,16 @@
   "✕ Remove": "✕ Entfernen",
   "❮ Prev": "❮ Zurück",
   "Jellyfin Media Server — enables Jellyfin library sync, sign-in, and account linking": "Jellyfin-Medienserver — ermöglicht Jellyfin-Bibliothekssynchronisierung, Anmeldung und Kontoverknüpfung",
-  "This server hosts both a Plex and a Jellyfin library. Use the Plex / Jellyfin switch in the navigation bar to choose which one you are browsing — recommendations, search, and availability all follow the selected source. Link both accounts in Settings to sign in with either one and keep a single combined watch profile.": "Dieser Server bietet sowohl eine Plex- als auch eine Jellyfin-Bibliothek. Wähle mit dem Plex/Jellyfin-Schalter in der Navigationsleiste, welche du durchstöberst — Empfehlungen, Suche und Verfügbarkeit folgen der gewählten Quelle. Verknüpfe beide Konten in den Einstellungen, um dich mit beiden anzumelden und ein gemeinsames Profil zu behalten."
+  "This server hosts both a Plex and a Jellyfin library. Use the Plex / Jellyfin switch in the navigation bar to choose which one you are browsing — recommendations, search, and availability all follow the selected source. Link both accounts in Settings to sign in with either one and keep a single combined watch profile.": "Dieser Server bietet sowohl eine Plex- als auch eine Jellyfin-Bibliothek. Wähle mit dem Plex/Jellyfin-Schalter in der Navigationsleiste, welche du durchstöberst — Empfehlungen, Suche und Verfügbarkeit folgen der gewählten Quelle. Verknüpfe beide Konten in den Einstellungen, um dich mit beiden anzumelden und ein gemeinsames Profil zu behalten.",
+  "Request missing seasons of “{{title}}”?": "Fehlende Staffeln von „{{title}}“ anfragen?",
+  "Request missing seasons": "Fehlende Staffeln anfragen",
+  "Request missing": "Fehlendes anfragen",
+  "Every season is already in the library or requested.": "Alle Staffeln sind bereits in der Bibliothek oder angefragt.",
+  "Grayed-out seasons are already in the library or requested.": "Ausgegraute Staffeln sind bereits in der Bibliothek oder angefragt.",
+  "In library ({{have}}/{{total}})": "In der Bibliothek ({{have}}/{{total}})",
+  "In library": "In der Bibliothek",
+  "Partial ({{have}}/{{total}})": "Teilweise ({{have}}/{{total}})",
+  "No missing seasons to request": "Keine fehlenden Staffeln zum Anfragen",
+  "All missing": "Alle fehlenden",
+  "Loading seasons…": "Staffeln werden geladen…"
 }

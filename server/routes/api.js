@@ -21,6 +21,8 @@ const cryptoUtil = require('../utils/crypto');
 const { mapReviewToTmdb } = require('../services/integrationCapabilities');
 const monitorMatcher = require('../services/monitorMatcher');
 const monitorNotifier = require('../services/monitorNotifier');
+const searchCandidates = require('../services/searchCandidates');
+const seasonAvailability = require('../services/seasonAvailability');
 
 // Reverse maps: TMDB genre ID → genre name (built once at startup)
 const MOVIE_ID_TO_GENRE = {};
@@ -1169,27 +1171,45 @@ router.get('/search/details', async (req, res) => {
   }
 });
 
-// GET /api/search/seasons?tmdbId=X — returns season numbers for a TV show
+// GET /api/search/seasons?tmdbId=X[&ratingKey=Y] — seasons of a TV show.
+// `seasons` is the plain number list (Queue's editor still uses it);
+// `details` adds per-season episode counts, what the library already holds,
+// and whether a season is already requested, so the request modal can gray
+// out seasons that don't need requesting. ratingKey pins the library copy;
+// without it the show is resolved by TMDB id.
 router.get('/search/seasons', async (req, res) => {
-  const { tmdbId } = req.query;
-  if (!tmdbId) return res.status(400).json({ error: 'tmdbId required' });
-  if (!db.hasTmdbKey()) return res.json({ seasons: [] });
+  const { tmdbId, ratingKey } = req.query;
+  if (!tmdbId || !/^\d+$/.test(String(tmdbId))) return res.status(400).json({ error: 'tmdbId required' });
+  if (ratingKey && !/^[A-Za-z0-9-]+$/.test(String(ratingKey))) return res.status(400).json({ error: 'Invalid ratingKey' });
+  if (!db.hasTmdbKey()) return res.json({ seasons: [], details: [], inLibrary: false });
   try {
-    // Check TMDB cache for already-fetched details that include seasons
-    const cached = db.getTmdbCache(tmdbId, 'tv');
-    if (cached && cached.seasonNumbers) {
-      return res.json({ seasons: cached.seasonNumbers });
+    const tmdbSeasons = await seasonAvailability.fetchTmdbSeasons(Number(tmdbId));
+
+    let libItem = ratingKey ? db.getLibraryItemByKey(ratingKey) : null;
+    if (!libItem) {
+      const row = db.getLibraryItemByTmdbId(tmdbId, 'tv');
+      if (row) libItem = db.getLibraryItemByKey(row.rating_key);
     }
-    // Fetch base TV details — always includes seasons array
-    const json = await tmdbService.tmdbFetchPublic(`/tv/${tmdbId}`);
-    const seasons = (json?.seasons || [])
-      .filter(s => s.season_number > 0)
-      .map(s => s.season_number)
-      .sort((a, b) => a - b);
-    res.json({ seasons });
+    let librarySeasons = null;
+    if (libItem) {
+      try {
+        librarySeasons = await seasonAvailability.fetchLibrarySeasons(libItem);
+      } catch (e) {
+        // Show is owned but the media server didn't answer: keep every season
+        // selectable rather than pretend nothing is there.
+        logger.warn(`seasons: library lookup failed for ${libItem.ratingKey}: ${e.message}`);
+        librarySeasons = [];
+      }
+    }
+
+    const requested = seasonAvailability.parseRequestedSeasons(
+      db.getRequestedSeasonRows(tmdbId, libItem?.tvdbId || null)
+    );
+    const details = seasonAvailability.mergeSeasonAvailability({ tmdbSeasons, librarySeasons, requested });
+    res.json({ seasons: details.map(d => d.number), inLibrary: !!libItem, details });
   } catch (err) {
     console.error('seasons error:', err);
-    res.json({ seasons: [] });
+    res.json({ seasons: [], details: [], inLibrary: false });
   }
 });
 
@@ -1246,6 +1266,9 @@ const SEARCH_POOL_TTL_MS = 10 * 60 * 1000;
 const SEARCH_POOL_MAX_ENTRIES = 100;
 const _searchPoolCache = new Map();
 
+// Entry: { items, pending, enriching, ts }. `pending` holds the lightweight
+// placeholders still awaiting TMDB details; `enriching` is the in-flight
+// background pass (or null).
 function getSearchPool(key) {
   const entry = _searchPoolCache.get(key);
   if (!entry) return null;
@@ -1256,16 +1279,47 @@ function getSearchPool(key) {
   // Refresh LRU position
   _searchPoolCache.delete(key);
   _searchPoolCache.set(key, entry);
-  return entry.items;
+  return entry;
 }
 
-function setSearchPool(key, items) {
+function setSearchPool(key, items, pending = []) {
   if (_searchPoolCache.size >= SEARCH_POOL_MAX_ENTRIES) {
     const firstKey = _searchPoolCache.keys().next().value;
     if (firstKey !== undefined) _searchPoolCache.delete(firstKey);
   }
-  _searchPoolCache.set(key, { items, ts: Date.now() });
+  const entry = { items, pending, enriching: null, ts: Date.now() };
+  _searchPoolCache.set(key, entry);
+  return entry;
 }
+
+// Fill in TMDB details for a pool's placeholders off the request path. The
+// placeholders are the same objects the pool holds, so later pages and filter
+// passes over the cached pool see the upgraded data. Failed items keep their
+// placeholder and are retried on the next hit for this pool.
+function kickEnrichment(entry) {
+  if (!entry || entry.enriching) return;
+  const pending = (entry.pending || []).filter(i => i.enriched === false);
+  if (pending.length === 0) return;
+  entry.enriching = searchCandidates.enrichPending(pending, tmdbService.getItemDetails)
+    .catch(err => { logger.warn('search enrichment failed:', err.message); return 0; })
+    .finally(() => { entry.enriching = null; });
+}
+
+// Resolve with the promise's value, or null once `ms` has elapsed. Never rejects.
+function withTimeout(promise, ms) {
+  return new Promise(resolve => {
+    const timer = setTimeout(() => resolve(null), Math.max(0, ms));
+    promise.then(
+      v => { clearTimeout(timer); resolve(v); },
+      () => { clearTimeout(timer); resolve(null); }
+    );
+  });
+}
+
+// How long a text search waits for Sonarr's TVDB lookup before answering
+// without it. The lookup proxies to Skyhook and regularly takes 2–8s; late
+// hits are merged into the cached pool for the next page/filter pass.
+const SONARR_LOOKUP_BUDGET_MS = 1500;
 
 function parseCsv(v) {
   if (!v) return [];
@@ -1380,9 +1434,11 @@ router.get('/search', async (req, res) => {
       ? `g:${genre.toLowerCase()}:${userLanguage || ''}:${userRegion || ''}:${type}`
       : `q:${q.toLowerCase()}:${userLanguage || ''}:${userRegion || ''}`;
 
-    let externalResults = getSearchPool(poolKey);
+    let poolEntry = getSearchPool(poolKey);
+    let externalResults = poolEntry ? poolEntry.items : null;
 
     if (!externalResults) {
+      let poolPending = [];
       if (isGenreSearch) {
         let cachedMovies = db.getItemsByGenre('movie', genre);
         let cachedTV = db.getItemsByGenre('tv', genre);
@@ -1416,6 +1472,7 @@ router.get('/search', async (req, res) => {
           }
         }
       } else {
+        const startedAt = Date.now();
         // Start Sonarr's TVDB lookup immediately so it overlaps the TMDB
         // fetches below instead of adding its latency on top. Only for text
         // search, only when YouTube requests are enabled, always failure-tolerant.
@@ -1432,8 +1489,7 @@ router.get('/search', async (req, res) => {
         const searchPage = (p) => tmdbService.tmdbFetchPublic(
           `/search/multi?query=${encodeURIComponent(q)}&page=${p}&include_adult=false`
         );
-        const pageItemsOf = (json) =>
-          (json?.results || []).filter(r => r.media_type === 'movie' || r.media_type === 'tv');
+        const pageItemsOf = (json) => (json?.results || []).filter(searchCandidates.isTitle);
 
         // Page 1 tells us how many pages exist; the rest fetch in parallel.
         const firstPage = await searchPage(1);
@@ -1445,48 +1501,37 @@ router.get('/search', async (req, res) => {
           );
           for (const json of restPages) allMatches.push(...pageItemsOf(json));
         }
-        const enriched = await tmdbService.batchGetDetails(
-          allMatches.map(r => ({ tmdbId: r.id, mediaType: r.media_type }))
-        );
-        externalResults = enriched.filter(item => item !== null);
+
+        // Answer from what's on hand: cached TMDB details where we have them,
+        // lightweight entries from the search payload otherwise. Missing
+        // details are fetched after the response goes out (kickEnrichment) —
+        // previously every candidate was enriched first, which cost seconds
+        // whenever a query surfaced titles not yet in the cache.
+        const built = searchCandidates.buildPool(allMatches, db.getTmdbCache);
+        externalResults = built.pool;
+        poolPending = built.pending;
 
         // Merge Sonarr's TVDB lookup so shows absent from TMDB (YouTube web
-        // series, mostly) are still findable.
+        // series, mostly) are still findable — but don't let a slow Skyhook
+        // proxy hold the page: past the budget, merge whenever it lands.
         if (sonarrLookupPromise) {
-          try {
-            const lookup = await sonarrLookupPromise;
-            const normTitle = (t) => String(t || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-            const seen = new Set(externalResults.map(i => `${normTitle(i.title)}|${i.year || ''}`));
-            for (const s of lookup.slice(0, 20)) {
-              if (!s.tvdbId) continue;
-              const key = `${normTitle(s.title)}|${s.year || ''}`;
-              if (seen.has(key) || seen.has(`${normTitle(s.title)}|`)) continue;
-              seen.add(key);
-              externalResults.push({
-                tmdbId: null,
-                tvdbId: s.tvdbId,
-                mediaType: 'tv',
-                title: s.title,
-                year: s.year || null,
-                overview: s.overview || '',
-                posterUrl: (s.images || []).find(i => i.coverType === 'poster')?.remoteUrl || null,
-                voteAverage: s.ratings?.value || 0,
-                genres: s.genres || [],
-                contentRating: s.certification || null,
-                seasons: (s.seasons || []).map(x => x.seasonNumber).filter(n => n > 0),
-                source: 'tvdb',
-              });
-            }
-          } catch (e) {
-            logger.warn('sonarr lookup merge failed:', e.message);
+          const pool = externalResults;
+          const lookup = await withTimeout(sonarrLookupPromise, SONARR_LOOKUP_BUDGET_MS - (Date.now() - startedAt));
+          if (lookup) {
+            searchCandidates.mergeSonarrLookup(pool, lookup);
+          } else {
+            sonarrLookupPromise
+              .then(late => { if (Array.isArray(late) && late.length) searchCandidates.mergeSonarrLookup(pool, late); })
+              .catch(() => {});
           }
         }
       }
 
-      setSearchPool(poolKey, externalResults);
+      poolEntry = setSearchPool(poolKey, externalResults, poolPending);
     } else {
       console.log(`[search] pool cache hit "${poolKey}" (${externalResults.length} items)`);
     }
+    kickEnrichment(poolEntry);
 
     // Common path: enrich, filter, paginate (works for both genre and text search)
     // For genre search we historically hide items already in library; preserve that.
@@ -1528,9 +1573,13 @@ router.get('/search', async (req, res) => {
         releaseDate: item.releaseDate || null,
         overview: item.overview || '',
         posterUrl: item.posterUrl,
+        backdropUrl: item.backdropUrl || null,
         voteAverage: item.voteAverage || 0,
         genres: item.genres || [],
         contentRating: item.contentRating || null,
+        // false while the TMDB details pass is still pending for this title;
+        // the detail modal fetches credits/studio itself in that case.
+        enriched: item.enriched !== false,
         inLibrary,
         ratingKey: inLibrary ? libItem.ratingKey : null,
         ...mediaLinks(inLibrary ? libItem : null),
@@ -1644,20 +1693,19 @@ router.get('/search/similar', async (req, res) => {
         allCandidates.push(r);
       }
 
-      // Enrich from cache (fast — most items already cached from pool builds).
-      // Preserve insertion rank so TMDB's relevance ordering (similar > recs p1 > recs p2)
-      // is not destroyed by a raw popularity re-sort later.
+      // Enrich from cache (fast — most items already cached from pool builds);
+      // uncached ones are fetched together through the bounded worker pool
+      // rather than one at a time. Preserve insertion rank so TMDB's relevance
+      // ordering (recs p1 > p2 > p3) is not destroyed by a raw popularity re-sort later.
+      const uncached = allCandidates.filter(c => !db.getTmdbCache(c.tmdbId, c.mediaType));
+      if (uncached.length > 0) {
+        await tmdbService.batchGetDetails(uncached.map(c => ({ tmdbId: c.tmdbId, mediaType: c.mediaType })));
+      }
       const enriched = [];
       for (let i = 0; i < allCandidates.length; i++) {
         const c = allCandidates[i];
-        const cached = db.getTmdbCache(c.tmdbId, c.mediaType);
-        if (cached) {
-          enriched.push({ ...cached, _rank: i });
-        } else {
-          // Fetch details for uncached items
-          const details = await tmdbService.getItemDetails(c.tmdbId, c.mediaType).catch(() => null);
-          if (details) enriched.push({ ...details, _rank: i });
-        }
+        const details = db.getTmdbCache(c.tmdbId, c.mediaType);
+        if (details) enriched.push({ ...details, _rank: i });
       }
 
       // Content-safety filter: block Kids TV (10762) and Reality/Talk (10764, 10767)
@@ -2034,6 +2082,11 @@ async function submitRequestToService(requestData) {
     if (!c.sonarrEnabled || !c.sonarrUrl || !c.sonarrApiKey) {
       throw new Error('Sonarr not configured');
     }
+    const sonarrFetch = (path, opts = {}) => fetch(`${c.sonarrUrl.replace(/\/$/, '')}/api/v3${path}`, {
+      headers: { 'X-Api-Key': c.sonarrApiKey, 'Content-Type': 'application/json' },
+      signal: AbortSignal.timeout(8000),
+      ...opts,
+    });
     const [profilesRes, foldersRes, langRes] = await Promise.all([
       fetch(`${c.sonarrUrl.replace(/\/$/, '')}/api/v3/qualityprofile`, {
         headers: { 'X-Api-Key': c.sonarrApiKey }, signal: AbortSignal.timeout(8000),
@@ -2093,11 +2146,6 @@ async function submitRequestToService(requestData) {
     // indexer + download client configured with that tag in Sonarr
     let ytTagId = null;
     if (downloader === 'youtube') {
-      const sonarrFetch = (path, opts = {}) => fetch(`${c.sonarrUrl.replace(/\/$/, '')}/api/v3${path}`, {
-        headers: { 'X-Api-Key': c.sonarrApiKey, 'Content-Type': 'application/json' },
-        signal: AbortSignal.timeout(8000),
-        ...opts,
-      });
       const tags = await (await sonarrFetch('/tag')).json();
       ytTagId = tags.find(t => t.label === 'yt')?.id;
       if (!ytTagId) {
@@ -2147,24 +2195,40 @@ async function submitRequestToService(requestData) {
       sonarrSeries = await r.json().catch(() => null);
     } else {
       const body = await r.text();
-      // A YouTube-routed request for a series already in Sonarr shouldn't fail:
-      // reuse the existing series and make sure it carries the yt tag
-      if (downloader === 'youtube') {
-        const existing = await fetch(`${c.sonarrUrl.replace(/\/$/, '')}/api/v3/series?tvdbId=${tvdbId}`, {
-          headers: { 'X-Api-Key': c.sonarrApiKey }, signal: AbortSignal.timeout(8000),
-        }).then(x => x.ok ? x.json() : []).catch(() => []);
-        sonarrSeries = existing[0] || null;
-        if (sonarrSeries && ytTagId && !(sonarrSeries.tags || []).includes(ytTagId)) {
-          sonarrSeries.tags = [...(sonarrSeries.tags || []), ytTagId];
-          await fetch(`${c.sonarrUrl.replace(/\/$/, '')}/api/v3/series/${sonarrSeries.id}`, {
-            method: 'PUT',
-            headers: { 'X-Api-Key': c.sonarrApiKey, 'Content-Type': 'application/json' },
-            body: JSON.stringify(sonarrSeries),
-            signal: AbortSignal.timeout(10000),
-          }).catch(() => {});
-        }
-      }
+      // Sonarr rejects adding a series it already has. That's the normal case
+      // for "request missing seasons" on a library show (and for YouTube
+      // re-routes): monitor the requested seasons on the existing entry and
+      // kick off a search instead of failing the request.
+      const existing = await sonarrFetch(`/series?tvdbId=${tvdbId}`)
+        .then(x => (x.ok ? x.json() : []))
+        .catch(() => []);
+      sonarrSeries = existing[0] || null;
       if (!sonarrSeries) throw new Error(`Sonarr error: ${body}`);
+
+      const selected = (Array.isArray(seasons) && seasons.length > 0) ? new Set(seasons.map(Number)) : null;
+      const updated = {
+        ...sonarrSeries,
+        monitored: true,
+        seasons: (sonarrSeries.seasons || []).map(s => ({
+          ...s,
+          monitored: s.monitored || (selected ? selected.has(s.seasonNumber) : s.seasonNumber > 0),
+        })),
+      };
+      if (ytTagId && !(updated.tags || []).includes(ytTagId)) updated.tags = [...(updated.tags || []), ytTagId];
+      const put = await sonarrFetch(`/series/${sonarrSeries.id}`, {
+        method: 'PUT', body: JSON.stringify(updated), signal: AbortSignal.timeout(10000),
+      });
+      if (!put.ok) throw new Error(`Sonarr error: ${await put.text().catch(() => put.status)}`);
+      sonarrSeries = await put.json().catch(() => updated);
+
+      const commands = selected
+        ? [...selected].map(n => ({ name: 'SeasonSearch', seriesId: sonarrSeries.id, seasonNumber: n }))
+        : [{ name: 'SeriesSearch', seriesId: sonarrSeries.id }];
+      for (const cmd of commands) {
+        await sonarrFetch('/command', { method: 'POST', body: JSON.stringify(cmd) })
+          .catch(e => logger.warn(`Sonarr ${cmd.name} failed for series ${sonarrSeries.id}: ${e.message}`));
+      }
+      logger.info(`Sonarr already had tvdb=${tvdbId}; monitored ${selected ? [...selected].join(',') : 'all'} season(s) and queued a search`);
     }
 
     // Create the Tuberr series↔channel mapping so episodes can be matched and
@@ -2300,9 +2364,16 @@ router.post('/request', async (req, res) => {
 
     const requestExtras = { tvdbId, downloader, youtube };
 
+    // "Request missing seasons" on a show the library already has. The
+    // fulfillment check only knows the show is present, so left alone it would
+    // fire a "now available" alert immediately — stamp it as notified instead.
+    const fillingMissingSeasons = mediaType === 'tv' && Array.isArray(seasons) && seasons.length > 0
+      && !!tmdbId && db.getLibraryTmdbKeys().has(`${tmdbId}:tv`);
+
     if (!autoApprove) {
       // Store as pending — do NOT submit to service
-      db.addDiscoverRequestWithStatus(userId, tmdbId, mediaType, title || '', effectiveService, seasonsCount, 'pending', seasons || null, storedPosterUrl, requestExtras);
+      const requestId = db.addDiscoverRequestWithStatus(userId, tmdbId, mediaType, title || '', effectiveService, seasonsCount, 'pending', seasons || null, storedPosterUrl, requestExtras);
+      if (fillingMissingSeasons) db.markRequestsNotifiedAvailable([requestId]);
       logger.info(`Request queued (pending approval): user=${userId} tmdbId=${tmdbId} type=${mediaType} title="${title}" service=${service}`);
       // Notify admins of new pending request
       try {
@@ -2329,8 +2400,9 @@ router.post('/request', async (req, res) => {
     // Auto-approve: submit to service immediately (skip if no service configured)
     if (effectiveService !== 'none') await submitRequestToService({ tmdbId, mediaType, title, service: effectiveService, seasons, tvdbId, downloader, youtube });
 
-    db.addDiscoverRequestWithStatus(userId, tmdbId, mediaType, title || '', effectiveService, seasonsCount, 'approved', seasons || null, storedPosterUrl, requestExtras);
-    logger.info(`Request submitted: user=${userId} tmdbId=${tmdbId} type=${mediaType} title="${title}" service=${effectiveService}`);
+    const requestId = db.addDiscoverRequestWithStatus(userId, tmdbId, mediaType, title || '', effectiveService, seasonsCount, 'approved', seasons || null, storedPosterUrl, requestExtras);
+    if (fillingMissingSeasons) db.markRequestsNotifiedAvailable([requestId]);
+    logger.info(`Request submitted: user=${userId} tmdbId=${tmdbId} type=${mediaType} title="${title}" service=${effectiveService}${fillingMissingSeasons ? ' (missing seasons of a library show)' : ''}`);
 
 
     // Add the item to the user's native Plex.tv Watchlist so they can track it

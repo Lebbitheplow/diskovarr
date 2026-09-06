@@ -1,5 +1,16 @@
 [
   {
+    "version": "3.1.0",
+    "date": "2026-09-06",
+    "changes": [
+      "Request missing seasons — shows already in your library now offer a 'Request missing seasons' button in the details window and on search cards. The season picker grays out seasons that are complete in the library or already requested (hover a season for its episode count), so you only ask for what's actually missing.",
+      "Requesting a show Sonarr already has now works — the existing series gets the chosen seasons monitored and a search is started, instead of the request failing with 'already exists'.",
+      "Search is much faster — results appear from what Diskovarr already knows while full TMDB details fill in behind the scenes, a slow TVDB lookup no longer holds up the page, and 'More Like This' loads in parallel. Searches that took four or five seconds now come back in well under one.",
+      "Security: the web framework was upgraded to Express 5 in both Diskovarr and the bundled YouTube downloader, closing two query-string parsing advisories (SNYK-JS-QS-19432019, SNYK-JS-QS-19432017).",
+      "Fixed: requesting missing seasons of a show you already have no longer triggers an immediate 'now available' alert."
+    ]
+  },
+  {
     "version": "3.0.1",
     "date": "2026-09-02",
     "changes": [

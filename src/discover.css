@@ -303,6 +303,27 @@
   color: var(--accent);
 }
 
+/* Season chips the request dialog can't offer: already complete in the
+   library, or already requested. */
+.chip-sm.chip-disabled,
+.chip-sm:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  border-style: dashed;
+}
+
+.chip-sm.chip-disabled:hover,
+.chip-sm:disabled:hover {
+  color: var(--text-muted);
+  border-color: var(--border);
+}
+
+.season-legend {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin: 6px 0 0;
+}
+
 /* ── Initial / empty state ──────────────────────────────── */
 
 .discover-empty {

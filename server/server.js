@@ -74,6 +74,9 @@ app.use((req, res, next) => {
   next()
 })
 
+// Express 5 defaults to its "simple" query parser (no nested keys or a[]=
+// arrays); keep the extended qs behaviour the routes were written against.
+app.set('query parser', 'extended')
 app.use(express.json())
 app.use(express.urlencoded({ extended: true }))
 
@@ -337,7 +340,7 @@ app.get(REVIEW_PATH, (req, res, next) => {
 })
 
 // SPA fallback — serve index.html for all non-API routes
-app.get('*', (req, res) => {
+app.get('/{*splat}', (req, res) => {
   res.sendFile(path.join(__dirname, '../dist/index.html'))
 })
 

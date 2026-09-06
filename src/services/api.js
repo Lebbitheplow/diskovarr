@@ -101,7 +101,9 @@ export const searchApi = {
   }),
   getSuggestions: (query) => api.get('/search/suggest', { params: { q: query } }),
   getDetails: (tmdbId, type) => api.get('/search/details', { params: { tmdbId, type } }),
-  getSeasons: (tmdbId) => api.get('/search/seasons', { params: { tmdbId } }),
+  // ratingKey pins the library copy so the response can flag seasons already
+  // complete in the library (and ones already requested) for graying out.
+  getSeasons: (tmdbId, ratingKey) => api.get('/search/seasons', { params: { tmdbId, ratingKey: ratingKey || undefined } }),
   getSimilar: (tmdbId, type, hideLibrary) => api.get('/search/similar', { params: { tmdbId, type, hideLibrary } }),
   getPersonCredits: (personId, hideLibrary) => api.get('/search/person', { params: { personId, hideLibrary } }),
 }

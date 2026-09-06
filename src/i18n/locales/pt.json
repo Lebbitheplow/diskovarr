@@ -1052,5 +1052,16 @@
   "✕ Remove": "✕ Remover",
   "❮ Prev": "❮ Anterior",
   "Jellyfin Media Server — enables Jellyfin library sync, sign-in, and account linking": "Servidor de mídia Jellyfin — habilita a sincronização de biblioteca, o login e a vinculação de contas do Jellyfin",
-  "This server hosts both a Plex and a Jellyfin library. Use the Plex / Jellyfin switch in the navigation bar to choose which one you are browsing — recommendations, search, and availability all follow the selected source. Link both accounts in Settings to sign in with either one and keep a single combined watch profile.": "Este servidor hospeda uma biblioteca do Plex e uma do Jellyfin. Use o seletor Plex/Jellyfin na barra de navegação para escolher qual está navegando — recomendações, busca e disponibilidade seguem a fonte selecionada. Vincule as duas contas em Configurações para entrar com qualquer uma e manter um único perfil combinado."
+  "This server hosts both a Plex and a Jellyfin library. Use the Plex / Jellyfin switch in the navigation bar to choose which one you are browsing — recommendations, search, and availability all follow the selected source. Link both accounts in Settings to sign in with either one and keep a single combined watch profile.": "Este servidor hospeda uma biblioteca do Plex e uma do Jellyfin. Use o seletor Plex/Jellyfin na barra de navegação para escolher qual está navegando — recomendações, busca e disponibilidade seguem a fonte selecionada. Vincule as duas contas em Configurações para entrar com qualquer uma e manter um único perfil combinado.",
+  "Request missing seasons of “{{title}}”?": "Solicitar as temporadas em falta de “{{title}}”?",
+  "Request missing seasons": "Solicitar temporadas em falta",
+  "Request missing": "Solicitar em falta",
+  "Every season is already in the library or requested.": "Todas as temporadas já estão na biblioteca ou foram solicitadas.",
+  "Grayed-out seasons are already in the library or requested.": "As temporadas esbatidas já estão na biblioteca ou foram solicitadas.",
+  "In library ({{have}}/{{total}})": "Na biblioteca ({{have}}/{{total}})",
+  "In library": "Na biblioteca",
+  "Partial ({{have}}/{{total}})": "Parcial ({{have}}/{{total}})",
+  "No missing seasons to request": "Não há temporadas em falta para solicitar",
+  "All missing": "Todas em falta",
+  "Loading seasons…": "A carregar temporadas…"
 }

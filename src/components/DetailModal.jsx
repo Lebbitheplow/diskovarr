@@ -1,5 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
+import RequestModal from './RequestModal'
 import {
   libraryApi,
   watchlistApi,
@@ -152,6 +154,9 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
   // RT scores live on the Plex library item. Pages that build modal items without
   // them (Reviews, profiles…) can still get them via a lazy getDetails fetch below.
   const [fetchedRatings, setFetchedRatings] = useState(null)
+  // Search results arrive before their TMDB details pass has run (enriched:
+  // false) — credits, studio and content rating fill in from getDetails here.
+  const [fetchedMeta, setFetchedMeta] = useState(null)
   const [prevCreditsTmdbId, setPrevCreditsTmdbId] = useState(item?.tmdbId)
   if (item?.tmdbId !== prevCreditsTmdbId) {
     setPrevCreditsTmdbId(item?.tmdbId)
@@ -159,7 +164,13 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
     setCredits(item?.structuredCast ? { cast: item.structuredCast, crew: item.structuredCrew } : null)
     setCreditsLoading(!item?.structuredCast && !!item?.tmdbId)
     setFetchedRatings(null)
+    setFetchedMeta(null)
   }
+  // "Request missing seasons" for a show the library already has. Pages that
+  // own a RequestModal (Search, Explore) receive the item through onRequest;
+  // the rest (Home, Discover, Queue, profiles) get one rendered from here.
+  const [missingItem, setMissingItem] = useState(null)
+  const [services, setServices] = useState(null)
   const trailerRef = useRef(null)
   const { success, error: toastError } = useToast()
 
@@ -213,6 +224,33 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
     }
   }, [onRequest, item, onClose])
 
+  const handleRequestMissing = useCallback(async () => {
+    const reqItem = {
+      ...item,
+      tmdbId: item.tmdbId,
+      tvdbId: item.tvdbId || null,
+      mediaType: 'tv',
+      title: item.title,
+      year: item.year || null,
+      ratingKey: item.ratingKey || null,
+      inLibrary: true,
+    }
+    if (onRequest) {
+      onRequest(reqItem)
+      onClose()
+      return
+    }
+    if (!services) {
+      try {
+        const { data } = await exploreApi.getServices()
+        setServices(data || {})
+      } catch {
+        setServices({})
+      }
+    }
+    setMissingItem(reqItem)
+  }, [item, onRequest, onClose, services])
+
   // Jump to the search page's "More with X" browse for a cast/crew member.
   const handlePersonClick = useCallback((person) => {
     if (!person?.id) return
@@ -261,11 +299,13 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
   // Lazy fetch structured credits and/or RT scores when the parent didn't provide
   // them. Both come from getDetails, so a single fetch covers either gap.
   const hasItemRatings = !!(item?.ratingImage || item?.audienceRatingImage || item?.rating || item?.audienceRating)
+  const itemUnenriched = item?.enriched === false
   useEffect(() => {
     if (!item?.tmdbId) return
     const needCredits = !credits && creditsLoading
     const needRatings = !hasItemRatings && !fetchedRatings
-    if (!needCredits && !needRatings) return
+    const needMeta = itemUnenriched && !fetchedMeta
+    if (!needCredits && !needRatings && !needMeta) return
     const mediaType = item.mediaType || (item.type === 'show' ? 'tv' : 'movie')
     let active = true
     searchApi.getDetails(item.tmdbId, mediaType)
@@ -282,15 +322,26 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
             audienceRatingImage: data.audienceRatingImage || null,
           })
         }
+        if (needMeta) {
+          setFetchedMeta({
+            overview: data.overview || '',
+            genres: data.genres || [],
+            directors: data.directors || [],
+            cast: data.cast || [],
+            studio: data.studio || '',
+            contentRating: data.contentRating || null,
+          })
+        }
       })
       .catch(() => {
         if (!active) return
         if (needCredits) setCredits({ cast: [], crew: [] })
         if (needRatings) setFetchedRatings({})
+        if (needMeta) setFetchedMeta({})
       })
       .finally(() => { if (active) setCreditsLoading(false) })
     return () => { active = false }
-  }, [item?.tmdbId, item?.mediaType, item?.type, credits, creditsLoading, hasItemRatings, fetchedRatings])
+  }, [item?.tmdbId, item?.mediaType, item?.type, credits, creditsLoading, hasItemRatings, fetchedRatings, itemUnenriched, fetchedMeta])
 
   // Set when a popstate closed us, so the unmount cleanup doesn't pop again.
   const closedByPopRef = useRef(false)
@@ -305,11 +356,12 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
 
   // Escape closes, matching the shared Modal component. Routed through
   // handleClose so the trailer iframe is torn down rather than left playing.
+  // While the missing-seasons dialog is up, Escape belongs to it instead.
   useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape') handleClose() }
+    const onKey = (e) => { if (e.key === 'Escape' && !missingItem) handleClose() }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [handleClose])
+  }, [handleClose, missingItem])
 
   // Give the modal its own history entry so Android's Back gesture and the
   // browser's back button close it instead of leaving the page. Closing by any
@@ -332,11 +384,14 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
 
   if (!item) return null
 
-  const mediaTypeLabel = item.type === 'show' ? 'TV Show' : (item.isAnime ? 'Anime' : 'Movie')
+  const isShow = item.type === 'show' || item.mediaType === 'tv'
+  const mediaTypeLabel = isShow ? 'TV Show' : (item.isAnime ? 'Anime' : 'Movie')
   const metaParts = []
   if (item.year) metaParts.push(item.year)
   metaParts.push(mediaTypeLabel)
   const heroPath = item.art || item.thumb
+  // Overview-tab fields, with the lazily fetched details filling any gaps
+  const view = fetchedMeta ? { ...item, ...fetchedMeta } : item
 
   return (
     <div className="detail-modal-wrap open" aria-hidden="false" onClick={handleClose}>
@@ -351,10 +406,10 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
             <div className="detail-modal-title">{item.title}</div>
             <div className="detail-modal-meta">
               {metaParts.join(' · ')}
-              {item.contentRating && (
+              {view.contentRating && (
                 <>
                   {' · '}
-                  <span className={'content-rating-badge rating-' + item.contentRating.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase()}>{item.contentRating}</span>
+                  <span className={'content-rating-badge rating-' + view.contentRating.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase()}>{view.contentRating}</span>
                 </>
               )}
               {item.isWatched && (
@@ -373,7 +428,7 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
               ))}
             </div>
             <div className="detail-modal-genres">
-              {(item.genres || []).filter(g => g && g.trim()).slice(0, 5).map((g, i) => (
+              {(view.genres || []).filter(g => g && g.trim()).slice(0, 5).map((g, i) => (
                 <span key={i} className="genre-tag">{g}</span>
               ))}
             </div>
@@ -393,21 +448,21 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
             </div>
             {activeTab === 'overview' ? (
               <>
-                <p className="detail-modal-overview">{item.summary || item.overview || ''}</p>
+                <p className="detail-modal-overview">{view.summary || view.overview || ''}</p>
                 <div className="detail-modal-credits">
-                  {item.directors && item.directors.length > 0 && (
+                  {view.directors && view.directors.length > 0 && (
                     <div className="detail-credit-row">
-                      <span className="detail-credit-label">{item.type === 'show' ? 'Created by' : 'Director'}:</span> {item.directors.join(', ')}
+                      <span className="detail-credit-label">{isShow ? 'Created by' : 'Director'}:</span> {view.directors.join(', ')}
                     </div>
                   )}
-                  {item.cast && item.cast.length > 0 && (
+                  {view.cast && view.cast.length > 0 && (
                     <div className="detail-credit-row">
-                      <span className="detail-credit-label">{t('Cast:')}</span> {item.cast.slice(0, 6).join(', ')}
+                      <span className="detail-credit-label">{t('Cast:')}</span> {view.cast.slice(0, 6).join(', ')}
                     </div>
                   )}
-                  {item.studio && (
+                  {view.studio && (
                     <div className="detail-credit-row">
-                      <span className="detail-credit-label">{item.type === 'show' ? 'Network' : 'Studio'}:</span> {item.studio}
+                      <span className="detail-credit-label">{isShow ? 'Network' : 'Studio'}:</span> {view.studio}
                     </div>
                   )}
                 </div>
@@ -447,6 +502,15 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
                       )}
                     </div>
                   )}
+                  {isShow && item.tmdbId && (
+                    <button
+                      className="modal-btn modal-btn-watchlist"
+                      onClick={handleRequestMissing}
+                      style={{ background: 'rgba(0,180,216,0.18)', color: '#00b4d8' }}
+                    >
+                      {t('Request missing seasons')}
+                    </button>
+                  )}
                   <MonitorDropdown item={item} />
                   <button className="modal-btn modal-btn-dismiss" onClick={handleDismiss}>{t('✕ Not Interested')}</button>
                   <ReportIssueForm item={item} />
@@ -484,6 +548,14 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
               />
             )}
           </div>
+        )}
+        {missingItem && createPortal(
+          // Stops the dialog's backdrop click from bubbling (in React's tree)
+          // up to the detail wrapper's close handler.
+          <div onClick={e => e.stopPropagation()}>
+            <RequestModal item={missingItem} services={services || {}} onClose={() => setMissingItem(null)} />
+          </div>,
+          document.body
         )}
       </div>
     </div>

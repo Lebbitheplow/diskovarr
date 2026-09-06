@@ -43,7 +43,7 @@ router.get('/years', (req, res) => {
 });
 
 // GET /api/wrapped/:year — own payload + global (leaderboard) + share slug
-router.get('/:year(\\d+)', (req, res) => {
+router.get('/:year', (req, res) => {
   const auth = requireUser(req, res);
   if (!auth) return;
   const year = parseYear(req, res);
@@ -61,7 +61,7 @@ router.get('/:year(\\d+)', (req, res) => {
 
 // POST /api/wrapped/:year/playlist — build "Diskovarr Wrapped {year}" in the
 // user's own Plex account from their top content (replace semantics).
-router.post('/:year(\\d+)/playlist', async (req, res) => {
+router.post('/:year/playlist', async (req, res) => {
   const auth = requireUser(req, res);
   if (!auth) return;
   const year = parseYear(req, res);
@@ -118,7 +118,7 @@ router.post('/:year(\\d+)/playlist', async (req, res) => {
 });
 
 // POST /api/wrapped/:year/recompute — admin: force a fresh compute
-router.post('/:year(\\d+)/recompute', (req, res) => {
+router.post('/:year/recompute', (req, res) => {
   const auth = requireUser(req, res);
   if (!auth) return;
   if (!auth.isAdmin) return res.status(403).json({ error: 'Admin only' });

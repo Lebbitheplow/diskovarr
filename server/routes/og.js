@@ -34,8 +34,9 @@ async function serveCard(req, res, variant) {
   }
 }
 
-router.get('/review/:id(\\d+).png', (req, res) => serveCard(req, res, 'og'));
-router.get('/review/:id(\\d+)/square.png', (req, res) => serveCard(req, res, 'square'));
+// Express 5 dropped inline regex constraints on params; serveCard validates id.
+router.get('/review/:id.png', (req, res) => serveCard(req, res, 'og'));
+router.get('/review/:id/square.png', (req, res) => serveCard(req, res, 'square'));
 
 // ── Wrapped stat cards ─────────────────────────────────────────────────────────
 // Also public (the share flow needs crawler/no-session access), but unlike review
@@ -48,6 +49,7 @@ const WRAPPED_CATEGORIES = new Set(wrappedCard.CATEGORIES);
 
 async function serveWrappedCard(req, res, variant) {
   const { slug, category } = req.params;
+  if (!/^[0-9a-f]{16}$/.test(String(slug))) return res.status(404).send('Not found');
   if (!WRAPPED_CATEGORIES.has(category)) return res.status(400).send('Bad request');
 
   const data = wrappedStats.getWrappedBySlug(slug);
@@ -71,7 +73,7 @@ async function serveWrappedCard(req, res, variant) {
   }
 }
 
-router.get('/wrapped/:slug([0-9a-f]{16})/:category.png', (req, res) => serveWrappedCard(req, res, 'og'));
-router.get('/wrapped/:slug([0-9a-f]{16})/:category/square.png', (req, res) => serveWrappedCard(req, res, 'square'));
+router.get('/wrapped/:slug/:category.png', (req, res) => serveWrappedCard(req, res, 'og'));
+router.get('/wrapped/:slug/:category/square.png', (req, res) => serveWrappedCard(req, res, 'square'));
 
 module.exports = router;

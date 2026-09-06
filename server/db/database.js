@@ -1921,6 +1921,17 @@ function getAllRequestedTmdbIds() {
   return requestKeysOf(rows);
 }
 
+// Live (non-denied) TV requests for one show, by TMDB id and/or TVDB id.
+// seasons_json is NULL for whole-show requests. tmdb_id 0 is the TVDB-only
+// sentinel, so a missing tmdbId must not match those rows.
+function getRequestedSeasonRows(tmdbId, tvdbId = null) {
+  return db.prepare(`
+    SELECT id, status, seasons_json FROM discover_requests
+    WHERE media_type = 'tv' AND status != 'denied'
+      AND ((tmdb_id = ? AND tmdb_id != 0) OR (tvdb_id IS NOT NULL AND tvdb_id = ?))
+  `).all(Number(tmdbId) || 0, Number(tvdbId) || 0);
+}
+
 function getRecentRequests(userId, limit = 20) {
   return db.prepare(
     'SELECT tmdb_id, media_type, title FROM discover_requests WHERE user_id = ? ORDER BY requested_at DESC LIMIT ?'
@@ -2186,7 +2197,7 @@ function saveUserSettings(userId, settings) {
 
 function addDiscoverRequestWithStatus(userId, tmdbId, mediaType, title, service, seasonsCount, status = 'approved', seasonsArray = null, posterUrl = null, extra = {}) {
   // tmdb_id is NOT NULL; TVDB-only items (YouTube shows absent from TMDB) use sentinel 0 + tvdb_id
-  db.prepare(`
+  const result = db.prepare(`
     INSERT INTO discover_requests (user_id, tmdb_id, media_type, title, service, seasons_count, requested_at, status, seasons_json, poster_url, tvdb_id, downloader, youtube_json)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(String(userId), Number(tmdbId) || 0, mediaType, title, service,
@@ -2198,6 +2209,7 @@ function addDiscoverRequestWithStatus(userId, tmdbId, mediaType, title, service,
          extra.tvdbId ? Number(extra.tvdbId) : null,
          extra.downloader || null,
          extra.youtube ? JSON.stringify(extra.youtube) : null);
+  return Number(result.lastInsertRowid);
 }
 
 function updateRequest(id, { service, seasonsJson, seasonsCount }) {
@@ -3592,7 +3604,7 @@ module.exports = {
   getSetting, setSetting, getConnectionSettings, isDiscoverEnabled, hasTmdbKey,
   getTmdbCache, setTmdbCache, deleteTmdbCache, getAllTmdbCacheItems, getItemsByGenre,
   getLibraryTmdbKeys, getLibraryTitleYearSet, libraryMediaType,
-  addDiscoverRequest, getRequestedTmdbIds, getAllRequestedTmdbIds, getRecentRequests,
+  addDiscoverRequest, getRequestedTmdbIds, getAllRequestedTmdbIds, getRecentRequests, getRequestedSeasonRows,
   addExploreDismissal, getExploreDismissedIds, getUserExploreDismissalRows, removeExploreDismissal,
   getDiscoverPool, setDiscoverPool, getKnownUserIds,
   getDiscoverCandidates, setDiscoverCandidates, getAllUserPrefsForDiscover,

@@ -200,6 +200,20 @@ async function getLibraryItems(sectionId) {
   return fetchSection(String(sectionId));
 }
 
+// Seasons of one show with how many episodes each holds. The bulk season
+// listing (type=3) omits leafCount, so this is the per-show children call.
+async function getShowSeasons(ratingKey) {
+  const data = await plexFetch(`/library/metadata/${encodeURIComponent(String(ratingKey))}/children`);
+  return (data?.MediaContainer?.Metadata || [])
+    .filter(m => m.type === 'season' && Number(m.index) > 0)
+    .map(m => ({
+      number: Number(m.index),
+      episodeCount: parseInt(m.leafCount) || 0,
+      ratingKey: String(m.ratingKey),
+    }))
+    .sort((a, b) => a.number - b.number);
+}
+
 // Fetch a single item by ratingKey and upsert it into the DB + in-memory cache.
 // Used by the Plex WebSocket handler to process individual new items exactly as
 // Tautulli does — no full library scan, just the specific item that was added.
@@ -968,6 +982,7 @@ module.exports = {
   get MOVIES_SECTION() { return getMoviesSection(); },
   get TV_SECTION()     { return getTvSection(); },
   getLibraryItems,
+  getShowSeasons,
   getLibraryMap,
   getWatchedKeys,
   syncUserWatched,

@@ -140,17 +140,19 @@ router.get('/torrents/files', (req, res) => {
 router.get('/torrents/categories', (req, res) => res.json(getCategories()));
 
 router.post('/torrents/createCategory', (req, res) => {
-  saveCategory(req.body.category, req.body.savePath);
+  const { category, savePath } = req.body || {};
+  saveCategory(category, savePath);
   res.type('text/plain').send('Ok.');
 });
 
 router.post('/torrents/editCategory', (req, res) => {
-  saveCategory(req.body.category, req.body.savePath);
+  const { category, savePath } = req.body || {};
+  saveCategory(category, savePath);
   res.type('text/plain').send('Ok.');
 });
 
 router.post('/torrents/setCategory', (req, res) => {
-  const { hashes, category } = req.body;
+  const { hashes, category } = req.body || {};
   if (category) saveCategory(category);
   if (hashes) {
     const stmt = db.prepare('UPDATE downloads SET category = ? WHERE info_hash = ?');
@@ -194,10 +196,10 @@ router.post('/torrents/add', (req, res) => {
         if (f.name === 'torrents' || f.filename.endsWith('.torrent')) torrents.push(f.data);
       }
     } else {
-      category = req.body.category || '';
+      category = req.body?.category || '';
       // urls= form: fetch our own torznab download links synchronously is
       // unnecessary — the infohash is the last path segment before .torrent
-      for (const url of String(req.body.urls || '').split('\n').filter(Boolean)) {
+      for (const url of String(req.body?.urls || '').split('\n').filter(Boolean)) {
         const m = /([0-9a-f]{40})\.torrent/i.exec(url);
         if (!m) throw new Error(`unsupported url: ${url}`);
         const grab = db.prepare('SELECT * FROM grabs WHERE info_hash = ?').get(m[1].toLowerCase());
@@ -222,7 +224,7 @@ router.post('/torrents/add', (req, res) => {
 });
 
 router.post('/torrents/delete', (req, res) => {
-  const { hashes, deleteFiles } = req.body;
+  const { hashes, deleteFiles } = req.body || {};
   for (const h of String(hashes || '').toLowerCase().split('|').filter(Boolean)) {
     const row = db.prepare('SELECT * FROM downloads WHERE info_hash = ?').get(h);
     if (row && String(deleteFiles) === 'true' && insideDownloadsDir(row.content_path)) {

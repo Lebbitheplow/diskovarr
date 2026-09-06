@@ -329,8 +329,23 @@ async function getSimilar(itemId, limit = 20, jfUserId = null) {
   }
 }
 
+// Seasons of one series with per-season episode counts, in the same shape
+// plex.getShowSeasons returns.
+async function getShowSeasons(seriesId) {
+  const params = new URLSearchParams({ Fields: 'RecursiveItemCount,ChildCount' });
+  const page = await client.jfFetch(`/Shows/${encodeURIComponent(String(seriesId))}/Seasons?${params}`);
+  return (page?.Items || [])
+    .filter(s => Number(s.IndexNumber) > 0)
+    .map(s => ({
+      number: Number(s.IndexNumber),
+      episodeCount: parseInt(s.RecursiveItemCount ?? s.ChildCount) || 0,
+      ratingKey: String(s.Id),
+    }))
+    .sort((a, b) => a.number - b.number);
+}
+
 module.exports = {
-  parseItem, getFolders, syncFolder, resyncAll, pollNewItems, upsertItemsByIds,
+  parseItem, getFolders, syncFolder, resyncAll, pollNewItems, upsertItemsByIds, getShowSeasons,
   getSimilar, fetchBoxSetMap, syncLastEpisodeAdded, isFolderEnabled,
   SECTION_PREFIX, ITEM_FIELDS,
 };

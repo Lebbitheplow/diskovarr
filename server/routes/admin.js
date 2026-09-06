@@ -1709,7 +1709,7 @@ router.post('/tuberr/health-check', requireAdmin, async (req, res) => {
 // ── Tuberr (YouTube downloader) management proxy ──────────────────────────────
 // The review UI talks to Tuberr's /manage API exclusively through this proxy so
 // the Tuberr API key never reaches the browser.
-router.all('/tuberr/*', requireAdmin, async (req, res) => {
+router.all('/tuberr/*splat', requireAdmin, async (req, res) => {
   const tuberrService = require('../services/tuberr');
   const subPath = req.path.replace(/^\/tuberr/, '');
   try {

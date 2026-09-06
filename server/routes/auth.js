@@ -94,7 +94,7 @@ router.post('/create-pin', async (req, res) => {
 // marks this PIN flow as an account-link for a signed-in Jellyfin user rather
 // than a fresh login.
 router.post('/callback', (req, res) => {
-  const { pinId, pinCode, link } = req.body;
+  const { pinId, pinCode, link } = req.body || {};
   logger.info(`POST callback: sessionID=${req.sessionID} pinId=${pinId || 'missing'}${link ? ' (link mode)' : ''}`);
   if (pinId && pinCode) {
     req.session.plexPinId = pinId;

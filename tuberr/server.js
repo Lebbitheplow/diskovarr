@@ -7,6 +7,8 @@ const scheduler = require('./lib/scheduler');
 const janitor = require('./lib/janitor');
 
 const app = express();
+// Express 5 defaults to the "simple" query parser; keep qs semantics.
+app.set('query parser', 'extended');
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 // torrents/add uploads arrive as multipart; keep the raw body for lib/multipart

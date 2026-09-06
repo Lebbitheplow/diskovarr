@@ -159,6 +159,20 @@ function normalizeMovie(details, credits) {
   };
 }
 
+// TMDB's base /tv/{id} payload lists every season with its episode count.
+// Season 0 (specials) is skipped — it's never requestable.
+function seasonDetailsOf(details) {
+  return (details?.seasons || [])
+    .filter(s => Number(s.season_number) > 0)
+    .map(s => ({
+      number: Number(s.season_number),
+      name: s.name || `Season ${s.season_number}`,
+      episodeCount: s.episode_count == null ? null : Number(s.episode_count),
+      airDate: s.air_date || null,
+    }))
+    .sort((a, b) => a.number - b.number);
+}
+
 function normalizeTV(details, credits) {
   const originCountries = details.origin_country || [];
   const isAnime = originCountries.includes('JP') &&
@@ -205,6 +219,7 @@ function normalizeTV(details, credits) {
       .filter(v => v.site === 'YouTube' && v.type === 'Trailer')
       .sort((a, b) => (b.official ? 1 : 0) - (a.official ? 1 : 0))[0]?.key || null,
     numberOfSeasons: details.number_of_seasons || null,
+    seasonDetails: seasonDetailsOf(details),
     imdbId: details.external_ids?.imdb_id || null,
     originalLanguage: details.original_language || null,
     popularity: details.popularity || 0,
@@ -551,7 +566,7 @@ async function searchTitles(query, limit = 10) {
 module.exports = {
   getItemDetails, getRecommendations, getSimilar, getPersonCandidates, getPersonCombinedCredits,
   discoverByGenreIds, discoverByKeywordId, discoverAnime, getTrending, getUpcoming,
-  discoverByGenreName, batchGetDetails, testApiKey, posterUrl,
+  discoverByGenreName, batchGetDetails, testApiKey, posterUrl, seasonDetailsOf,
   searchPerson, searchKeyword, searchTitles,
   tmdbFetchPublic: tmdbFetch,
   MOVIE_GENRE_MAP, TV_GENRE_MAP,

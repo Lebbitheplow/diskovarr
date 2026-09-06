@@ -1052,5 +1052,16 @@
   "✕ Remove": "✕ Retirer",
   "❮ Prev": "❮ Précédent",
   "Jellyfin Media Server — enables Jellyfin library sync, sign-in, and account linking": "Serveur multimédia Jellyfin — active la synchronisation de bibliothèque, la connexion et la liaison de comptes Jellyfin",
-  "This server hosts both a Plex and a Jellyfin library. Use the Plex / Jellyfin switch in the navigation bar to choose which one you are browsing — recommendations, search, and availability all follow the selected source. Link both accounts in Settings to sign in with either one and keep a single combined watch profile.": "Ce serveur héberge une bibliothèque Plex et une bibliothèque Jellyfin. Utilisez le sélecteur Plex/Jellyfin dans la barre de navigation pour choisir celle que vous parcourez — recommandations, recherche et disponibilité suivent la source sélectionnée. Liez les deux comptes dans les Réglages pour vous connecter avec l'un ou l'autre et conserver un profil unique combiné."
+  "This server hosts both a Plex and a Jellyfin library. Use the Plex / Jellyfin switch in the navigation bar to choose which one you are browsing — recommendations, search, and availability all follow the selected source. Link both accounts in Settings to sign in with either one and keep a single combined watch profile.": "Ce serveur héberge une bibliothèque Plex et une bibliothèque Jellyfin. Utilisez le sélecteur Plex/Jellyfin dans la barre de navigation pour choisir celle que vous parcourez — recommandations, recherche et disponibilité suivent la source sélectionnée. Liez les deux comptes dans les Réglages pour vous connecter avec l'un ou l'autre et conserver un profil unique combiné.",
+  "Request missing seasons of “{{title}}”?": "Demander les saisons manquantes de « {{title}} » ?",
+  "Request missing seasons": "Demander les saisons manquantes",
+  "Request missing": "Demander manquants",
+  "Every season is already in the library or requested.": "Toutes les saisons sont déjà dans la bibliothèque ou demandées.",
+  "Grayed-out seasons are already in the library or requested.": "Les saisons grisées sont déjà dans la bibliothèque ou demandées.",
+  "In library ({{have}}/{{total}})": "Dans la bibliothèque ({{have}}/{{total}})",
+  "In library": "Dans la bibliothèque",
+  "Partial ({{have}}/{{total}})": "Partiel ({{have}}/{{total}})",
+  "No missing seasons to request": "Aucune saison manquante à demander",
+  "All missing": "Toutes les manquantes",
+  "Loading seasons…": "Chargement des saisons…"
 }
