@@ -3325,6 +3325,22 @@ function getPublicReviews(limit, offset, followedUserIds) {
   return rows;
 }
 
+// Every review of one title visible to `viewerUserId`: public reviews plus the
+// viewer's own (even when their reviews are private). Powers the Reviews tab
+// on the item detail modal.
+function getReviewsForMedia(mediaType, tmdbId, viewerUserId) {
+  const rows = db.prepare(`
+    SELECT r.*, ku.username, ku.thumb
+    FROM reviews r
+    LEFT JOIN known_users ku ON ku.user_id = r.user_id
+    LEFT JOIN user_request_limits urp ON urp.user_id = r.user_id
+    WHERE r.media_type = ? AND r.tmdb_id = ?
+      AND ((urp.review_privacy IS NULL OR urp.review_privacy != 'private') OR r.user_id = ?)
+    ORDER BY r.created_at DESC
+  `).all(String(mediaType), Number(tmdbId), String(viewerUserId ?? ''));
+  return rows;
+}
+
 function getPublicReviewsCount(followedUserIds) {
   const clauses = [];
   const params = [];
@@ -3736,7 +3752,7 @@ module.exports = {
   getReviewComments, getReviewCommentCount, createReviewComment, getReviewComment, updateReviewComment, deleteReviewComment,
   followUser, unfollowUser, isFollowing, getFollowedUserIds, getFollowers, getFollowing,
   getFollowerCount, getFollowingCount, seedDefaultFollows, getFollowStats,
-  getPublicReviews, getPublicReviewsCount,
+  getPublicReviews, getPublicReviewsCount, getReviewsForMedia,
   // API apps (Agregarr / external integrations)
   createApiApp, getApiApp, getApiAppByKey, listApiApps, updateApiApp, regenerateApiAppKey, deleteApiApp,
   createServiceUser, getServiceUserByKey, getServiceUserById, getServiceUsersByApp, deleteServiceUser,

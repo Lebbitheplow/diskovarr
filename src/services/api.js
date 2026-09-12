@@ -258,6 +258,7 @@ export const reviewsApi = {
 /** Social Reviews Feed */
 export const socialReviewsApi = {
   getFeed: (params) => api.get('/reviews/feed', { params }),
+  getForMedia: (mediaType, tmdbId) => api.get(`/reviews/media/${mediaType}/${tmdbId}`),
   getReview: (id) => api.get(`/reviews/${id}`),
   toggleReaction: (id) => api.post(`/reviews/${id}/react`),
   getComments: (id) => api.get(`/reviews/${id}/comments`),
@@ -292,6 +293,7 @@ export const profileApi = {
 /** TMDB Per-User Integration */
 export const tmdbApi = {
   getConnection: () => api.get('/tmdb/connection'),
+  getReviews: (mediaType, tmdbId) => api.get(`/tmdb/reviews/${mediaType}/${tmdbId}`),
   initiateConnect: () => api.post('/tmdb/connect/initiate'),
   disconnect: () => api.post('/tmdb/disconnect'),
   verifySession: () => api.post('/tmdb/verify'),

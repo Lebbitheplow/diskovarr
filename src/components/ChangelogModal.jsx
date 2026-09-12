@@ -20,7 +20,7 @@ const DATE_STYLE = { fontWeight: '400', color: 'var(--text-secondary)', fontSize
 export default function ChangelogModal({ open, onClose }) {
   const { t } = useTranslation()
   if (!open) return null
-  const currentVersion = import.meta.env.VITE_APP_VERSION || '3.2.0'
+  const currentVersion = import.meta.env.VITE_APP_VERSION || '3.3.0'
 
   return (
     <div className="info-modal-backdrop open" onClick={onClose}>
@@ -33,6 +33,22 @@ export default function ChangelogModal({ open, onClose }) {
           <div className="info-modal-section">
             <div className="info-modal-section-title">
               v{currentVersion}{' '}
+              <span style={DATE_STYLE}>2026-09-12</span>
+            </div>
+            <p style={SECTION_LABEL_STYLE}>{t('New')}</p>
+            <ul style={LIST_STYLE}>
+              <li style={ITEM_STYLE}>Guided DUMB setup — a new Admin → Setup tab installs and connects a DUMB Traktless stack step by step: find or install DUMB, validate your AllDebrid or Real-Debrid key, pick extra apps (Zilean, Sonarr, Radarr, Prowlarr, Tautulli…), let DUMB install and wire everything to Diskovarr, then add the symlink library to your Plex movie and TV libraries with debrid-friendly scan settings, or get exact instructions to do it by hand</li>
+              <li style={ITEM_STYLE}>Reviews tab in the item details window — what people on this server thought of a title, with reactions and comments, followed by public reviews from TMDB</li>
+            </ul>
+            <p style={SECTION_LABEL_STYLE}>{t('Changes')}</p>
+            <ul style={LIST_STYLE_LAST}>
+              <li style={ITEM_STYLE}>Tautulli is required for Plex watch history, so the setup wizard marks it "Required for Plex" and installs it when Plex is connected without one</li>
+              <li style={ITEM_STYLE}>External tools like DUMB can use the Diskovarr API key for admin operations instead of an admin login</li>
+            </ul>
+          </div>
+          <div className="info-modal-section">
+            <div className="info-modal-section-title">
+              v3.2.0{' '}
               <span style={DATE_STYLE}>2026-09-12</span>
             </div>
             <p style={SECTION_LABEL_STYLE}>{t('New')}</p>
@@ -72,30 +88,6 @@ export default function ChangelogModal({ open, onClose }) {
             <p style={SECTION_LABEL_STYLE}>{t('Fixes')}</p>
             <ul style={LIST_STYLE_LAST}>
               <li style={ITEM_STYLE}>Requesting missing seasons of a show you already have no longer triggers an immediate "now available" alert</li>
-            </ul>
-          </div>
-          <div className="info-modal-section">
-            <div className="info-modal-section-title">
-              v3.0.1{' '}
-              <span style={DATE_STYLE}>2026-09-02</span>
-            </div>
-            <p style={SECTION_LABEL_STYLE}>{t('New')}</p>
-            <ul style={LIST_STYLE}>
-              <li style={ITEM_STYLE}>Cast from the home spotlight — the spotlight's Play button is now a Cast button: pick a TV or player and Diskovarr starts the title there, the same casting the detail window already offered</li>
-              <li style={ITEM_STYLE}>Jellyfin now matches Plex almost everywhere — Jellyfin users can cast to their devices, build a Wrapped playlist, and have their real per-play watch history tracked, and list-based collections, the library cleanup automation, and unlinking a Plex account all work for Jellyfin too</li>
-              <li style={ITEM_STYLE}>The YouTube downloader is now a first-class part of Diskovarr — a new YouTube tab in the admin panel shows its health, the download queue, failures, and match progress, and Diskovarr alerts admins when the downloader goes offline, YouTube quota runs out, or its cookies expire</li>
-            </ul>
-            <p style={SECTION_LABEL_STYLE}>{t('Changes')}</p>
-            <ul style={LIST_STYLE}>
-              <li style={ITEM_STYLE}>YouTube downloader alerts can now be relayed through every notification channel — Slack, Gotify, ntfy, Telegram, Pushbullet, Email, Webhook and browser push, not just Discord and Pushover. Tick "YouTube downloader alerts" in a channel's settings to turn it on; the in-app bell always shows them</li>
-              <li style={ITEM_STYLE}>Any TV show can now be downloaded from YouTube, not only shows that exist solely on TVDB</li>
-              <li style={ITEM_STYLE}>Better YouTube episode matching — short titles, platform tags like "(NES)", and "#7" vs "#07" now line up correctly, and channels with nothing left to match stop burning through your daily quota</li>
-              <li style={ITEM_STYLE}>Downloaded YouTube videos now carry their real title, thumbnail, and metadata, so Plex and Jellyfin stop labelling them "Episode 35"</li>
-            </ul>
-            <p style={SECTION_LABEL_STYLE}>{t('Fixes')}</p>
-            <ul style={LIST_STYLE_LAST}>
-              <li style={ITEM_STYLE}>YouTube requests now turn Available when their episodes land in the library, and finished downloads are cleaned up instead of piling up hundreds of gigabytes on disk</li>
-              <li style={ITEM_STYLE}>The Cast button no longer appears on items or for accounts that can't actually be cast</li>
             </ul>
           </div>
         </div>

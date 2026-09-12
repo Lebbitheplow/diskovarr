@@ -4,6 +4,19 @@ All notable changes are documented here. Versioning follows [Semantic Versioning
 
 ---
 
+## v3.3.0 — 2026-09-12
+
+### Added
+
+- **Guided DUMB setup (Admin → Setup).** A five-step wizard installs and wires a [DUMB Traktless](https://github.com/Lebbitheplow/DUMB-traktless) stack from the admin panel. Step 1 finds a running DUMB (health plus a real `/auth/status` check, so a stray service on port 8000 is not mistaken for it), saves its URL and login, and — when Docker is reachable from Diskovarr — writes the compose file and starts the container (`server/services/dumbInstaller.js`; otherwise it shows the compose file). Step 2 validates an AllDebrid key (recommended, with sign-up and API-key links) or a Real-Debrid token (fewer cached results; served by Zurg instead of Decypharr) against the provider's API. Step 3 picks extra apps — Zilean, Sonarr, Radarr, Prowlarr, Seerr, Tautulli, Riven UI — with running/already-connected badges; Tautulli is marked *Required for Plex* and pre-selected whenever Plex is connected without it, since Diskovarr needs it for Plex watch history. Step 4 attaches Riven's symlink `movies/` and `shows/` folders to chosen (or new) Plex libraries with debrid-friendly scan settings — video preview thumbnails off, TV intro/credits/voice detection off, partial scans on, a 30-minute scheduled scan, auto-empty-trash off — after checking the path through Plex's own directory browser, or prints exact instructions. Step 5 sends the plan to DUMB's new `/diskovarr/provision` API, streams both sides' progress, then switches Diskovarr's default request service to DUMB pull mode. Backend: `server/services/dumbClient.js` (JWT login, token cache), `dumbSetup.js` (orchestration, job persisted in the `dumb_setup_state` setting), `plexLibrarySetup.js`, route `/admin/dumb-setup/*`; settings `dumb_url`, `dumb_username`, `dumb_password`.
+- **Reviews tab in the item detail window.** Every title's modal now has a Reviews tab alongside Overview and Cast & Crew. It lists reviews from users on this server (public ones plus your own private ones, with reactions and comments intact — `GET /api/reviews/media/:mediaType/:tmdbId`, `db.getReviewsForMedia`) and, below them, TMDB's public reviews with author, rating out of 10, date and a read-more/link (`GET /api/tmdb/reviews/:mediaType/:tmdbId`, cached for an hour). The tab label carries the server review count. TVDB has no reviews API, so TMDB is the only external source.
+
+### Changed
+
+- The admin API (`/admin/*`, including the previously unguarded `/admin/riven/*`) now also accepts the Diskovarr API key from Admin → General via `X-Api-Key` or a bearer token, so DUMB can provision the Riven bridge and push connections without an admin session (`requireAuth.hasApiKey`).
+
+---
+
 ## v3.2.0 — 2026-09-12
 
 ### Added

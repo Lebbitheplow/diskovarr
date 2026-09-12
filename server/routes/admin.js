@@ -52,6 +52,9 @@ function isNewerVersion(latest, current) {
 
 function requireAdmin(req, res, next) {
   if (req.session && req.session.isAdmin) return next();
+  // The Diskovarr API key (Admin → General) grants admin access to external
+  // integrations — DUMB uses it to provision the Riven bridge and connections.
+  if (require('../middleware/requireAuth').hasApiKey(req)) return next();
 
   // Only a top-level navigation may be bounced to the login page. An XHR
   // follows that redirect transparently and lands on GET /admin/login, which

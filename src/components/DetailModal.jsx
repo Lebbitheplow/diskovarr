@@ -8,9 +8,11 @@ import {
   issuesApi,
   exploreApi,
   searchApi,
+  socialReviewsApi,
 } from '../services/api'
 import { useToast } from '../context/ToastContext'
 import CastCrewTab from './CastCrewTab'
+import ReviewsTab from './ReviewsTab'
 import RatingBadges from './RatingBadges'
 import MonitorDropdown from './MonitorManager/MonitorDropdown'
 import { posterUrl } from '../utils/media'
@@ -158,10 +160,14 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
   // Search results arrive before their TMDB details pass has run (enriched:
   // false) — credits, studio and content rating fill in from getDetails here.
   const [fetchedMeta, setFetchedMeta] = useState(null)
+  // Reviews from users on this server — fetched on open so the tab can show a
+  // count; TMDB's reviews load inside the tab itself.
+  const [serverReviews, setServerReviews] = useState(null)
   const [prevCreditsTmdbId, setPrevCreditsTmdbId] = useState(item?.tmdbId)
   if (item?.tmdbId !== prevCreditsTmdbId) {
     setPrevCreditsTmdbId(item?.tmdbId)
     setActiveTab('overview')
+    setServerReviews(null)
     setCredits(item?.structuredCast ? { cast: item.structuredCast, crew: item.structuredCrew } : null)
     setCreditsLoading(!item?.structuredCast && !!item?.tmdbId)
     setFetchedRatings(null)
@@ -174,6 +180,16 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
   const [services, setServices] = useState(null)
   const trailerRef = useRef(null)
   const { success, error: toastError } = useToast()
+
+  const reviewMediaType = item?.mediaType || (item?.type === 'show' ? 'tv' : 'movie')
+  useEffect(() => {
+    if (!item?.tmdbId) return undefined
+    let cancelled = false
+    socialReviewsApi.getForMedia(reviewMediaType, item.tmdbId)
+      .then(r => { if (!cancelled) setServerReviews(r.data?.reviews || []) })
+      .catch(() => { if (!cancelled) setServerReviews([]) })
+    return () => { cancelled = true }
+  }, [item?.tmdbId, reviewMediaType])
 
   const inLibrary = item?.inLibrary ?? !!item?.ratingKey
   // Only offer "Request missing seasons" when the library copy is actually
@@ -449,8 +465,22 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
               >
                 {t('Cast & Crew')}
               </button>
+              <button
+                className={'detail-modal-tab' + (activeTab === 'reviews' ? ' active' : '')}
+                onClick={() => setActiveTab('reviews')}
+              >
+                {t('Reviews')}{serverReviews?.length ? ` (${serverReviews.length})` : ''}
+              </button>
             </div>
-            {activeTab === 'overview' ? (
+            {activeTab === 'reviews' ? (
+              <ReviewsTab
+                mediaType={reviewMediaType}
+                tmdbId={item.tmdbId}
+                serverReviews={serverReviews}
+                serverLoading={serverReviews === null}
+                posterUrl={posterUrl(item.thumb)}
+              />
+            ) : activeTab === 'overview' ? (
               <>
                 <p className="detail-modal-overview">{view.summary || view.overview || ''}</p>
                 <div className="detail-modal-credits">

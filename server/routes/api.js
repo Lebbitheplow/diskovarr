@@ -4285,6 +4285,53 @@ router.get('/reviews/feed', (req, res) => {
   });
 });
 
+// GET /api/reviews/media/:mediaType/:tmdbId — every visible review of one
+// title (public + the viewer's own), for the Reviews tab in the detail modal.
+router.get('/reviews/media/:mediaType/:tmdbId', (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  const currentUserId = String(req.session.plexUser.id);
+  const { mediaType, tmdbId } = req.params;
+  if (!['movie', 'tv'].includes(mediaType) || !/^\d+$/.test(String(tmdbId))) {
+    return res.status(400).json({ error: 'Invalid media' });
+  }
+  const rows = db.getReviewsForMedia(mediaType, tmdbId, currentUserId);
+  const reactedSet = new Set(db.getUserReactedReviewIds(currentUserId, rows.map(r => r.id)));
+  const followedSet = new Set(db.getFollowedUserIds(currentUserId));
+  // Same artwork resolution as the feed: the matching library item's thumb.
+  const lib = db.getLibraryItemByTmdbId(Number(tmdbId), mediaType);
+  const thumbPath = lib?.thumb || lib?.art || null;
+  const posterUrl = thumbPath
+    ? (thumbPath.startsWith('http') ? thumbPath : `/api/poster?path=${encodeURIComponent(thumbPath)}`)
+    : null;
+  res.json({
+    reviews: rows.map(r => ({
+      id: r.id,
+      userId: r.user_id,
+      username: r.username || r.user_id,
+      userAvatar: r.thumb || null,
+      mediaType: r.media_type,
+      tmdbId: r.tmdb_id,
+      title: r.title,
+      year: r.year,
+      posterUrl,
+      contentRating: lib?.content_rating || '',
+      rating: r.rating,
+      reviewText: r.review_text,
+      spoiler: !!r.spoiler,
+      rewatch: !!r.rewatch,
+      watchedDate: r.watched_date,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+      reactionCount: r.reaction_count || 0,
+      commentCount: r.comment_count || 0,
+      hasReacted: reactedSet.has(r.id),
+      isOwn: r.user_id === currentUserId,
+      isFollowing: followedSet.has(r.user_id),
+    })),
+    total: rows.length,
+  });
+});
+
 // GET /api/reviews/:id — single review by ID (for feed detail / share link)
 router.get('/reviews/:id', (req, res) => {
   if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
@@ -4662,6 +4709,23 @@ function isInternalUrl(url) {
     return true;
   }
 }
+
+// GET /api/tmdb/reviews/:mediaType/:tmdbId — public TMDB reviews for a title
+// (TVDB has no reviews API, so TMDB is the only external source).
+router.get('/tmdb/reviews/:mediaType/:tmdbId', async (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  const { mediaType, tmdbId } = req.params;
+  if (!['movie', 'tv'].includes(mediaType) || !/^\d+$/.test(String(tmdbId))) {
+    return res.status(400).json({ error: 'Invalid media' });
+  }
+  if (!db.hasTmdbKey()) return res.json({ reviews: [], available: false });
+  try {
+    const reviews = await tmdbService.getReviews(Number(tmdbId), mediaType);
+    res.json({ reviews, available: true });
+  } catch (err) {
+    res.status(502).json({ error: err.message || 'TMDB reviews unavailable' });
+  }
+});
 
 // GET /api/tmdb/connection — get current user's TMDB connection status (no secrets)
 router.get('/tmdb/connection', (req, res) => {

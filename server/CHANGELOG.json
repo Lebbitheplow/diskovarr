@@ -1,5 +1,15 @@
 [
   {
+    "version": "3.3.0",
+    "date": "2026-09-12",
+    "changes": [
+      "Guided DUMB setup — a new Admin → Setup tab walks you through installing and connecting a DUMB Traktless stack: it finds (or installs, via Docker) DUMB, validates your AllDebrid or Real-Debrid key, lets you pick extra apps like Zilean, Sonarr, Radarr, Prowlarr and Tautulli, has DUMB install and wire everything to Diskovarr, and adds the symlink library to your Plex movie and TV libraries with debrid-friendly scan settings — or gives you exact instructions to do it by hand.",
+      "Tautulli is required for Plex watch history, so the setup wizard marks it 'Required for Plex' and installs it automatically when Plex is connected without one.",
+      "Reviews tab in the item details window — see what people on this server thought of a title (with reactions and comments), followed by public reviews from TMDB.",
+      "External tools like DUMB can now use the Diskovarr API key for admin operations instead of an admin login."
+    ]
+  },
+  {
     "version": "3.2.0",
     "date": "2026-09-12",
     "changes": [

@@ -485,6 +485,35 @@ async function batchGetDetails(candidates) {
 }
 
 // Test that the current API key is valid
+// Public TMDB user reviews for a title. Cached in memory for an hour — the
+// detail modal asks for them on every open and TMDB's quota is shared.
+const REVIEWS_TTL_MS = 60 * 60 * 1000;
+const _reviewsCache = new Map(); // `${type}:${id}` -> { at, reviews }
+function normalizeReview(r) {
+  const rating = r.author_details?.rating;
+  return {
+    id: r.id,
+    author: r.author_details?.username || r.author || 'TMDB user',
+    avatar: r.author_details?.avatar_path
+      ? (r.author_details.avatar_path.startsWith('/http') ? r.author_details.avatar_path.slice(1) : `https://image.tmdb.org/t/p/w64_and_h64_face${r.author_details.avatar_path}`)
+      : null,
+    rating: typeof rating === 'number' ? rating : null, // TMDB's 0-10 scale
+    content: r.content || '',
+    createdAt: r.created_at || null,
+    url: r.url || (r.id ? `https://www.themoviedb.org/review/${r.id}` : null),
+  };
+}
+async function getReviews(tmdbId, mediaType) {
+  const type = mediaType === 'tv' ? 'tv' : 'movie';
+  const key = `${type}:${tmdbId}`;
+  const hit = _reviewsCache.get(key);
+  if (hit && Date.now() - hit.at < REVIEWS_TTL_MS) return hit.reviews;
+  const json = await tmdbFetch(`/${type}/${tmdbId}/reviews?language=en-US&page=1`);
+  const reviews = (json?.results || []).map(normalizeReview);
+  _reviewsCache.set(key, { at: Date.now(), reviews });
+  return reviews;
+}
+
 async function testApiKey() {
   try {
     await tmdbFetch('/configuration');
@@ -564,6 +593,7 @@ async function searchTitles(query, limit = 10) {
 }
 
 module.exports = {
+  getReviews, normalizeReview,
   getItemDetails, getRecommendations, getSimilar, getPersonCandidates, getPersonCombinedCredits,
   discoverByGenreIds, discoverByKeywordId, discoverAnime, getTrending, getUpcoming,
   discoverByGenreName, batchGetDetails, testApiKey, posterUrl, seasonDetailsOf,

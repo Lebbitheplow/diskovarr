@@ -243,4 +243,21 @@ export const adminRiven = {
   setMode: (mode) => adminApi.post('/connections/save', { dumb_request_mode: mode }),
 }
 
+/** DUMB Traktless guided setup (Admin → Setup) */
+export const adminDumbSetup = {
+  state: () => adminApi.get('/dumb-setup/state', { timeout: 30000 }),
+  saveConnection: (data) => adminApi.post('/dumb-setup/connection', data, { timeout: 30000 }),
+  validateDebrid: (provider, apiKey) => adminApi.post('/dumb-setup/debrid/validate', { provider, apiKey }, { timeout: 20000 }),
+  capabilities: () => adminApi.get('/dumb-setup/capabilities', { timeout: 20000 }),
+  plexLibraries: () => adminApi.get('/dumb-setup/plex/libraries'),
+  verifyPlexPath: (path) => adminApi.post('/dumb-setup/plex/verify-path', { path }),
+  plexInstructions: (params) => adminApi.get('/dumb-setup/plex/instructions', { params }),
+  applyPlex: (plex) => adminApi.post('/dumb-setup/plex/apply', { plex }, { timeout: 60000 }),
+  compose: (image) => adminApi.get('/dumb-setup/compose', { params: image ? { image } : {}, responseType: 'text' }),
+  install: (data) => adminApi.post('/dumb-setup/install', data, { timeout: 11 * 60 * 1000 }),
+  apply: (data) => adminApi.post('/dumb-setup/apply', data, { timeout: 30000 }),
+  job: () => adminApi.get('/dumb-setup/job'),
+  reset: () => adminApi.post('/dumb-setup/reset'),
+}
+
 export default adminApi
