@@ -161,7 +161,31 @@ function collectionHubId(sectionId, collectionKey) {
   return `custom.collection.${sectionId}.${collectionKey}`;
 }
 
+// Rolling-window request limits. Global defaults apply unless the list
+// overrides them; 0 = unlimited. Returns the effective limits for a list.
+function effectiveLimits(globalLimits, list) {
+  const g = globalLimits || {};
+  if (list && list.limitOverride) {
+    return {
+      movieLimit: Math.max(0, list.movieLimit || 0), movieWindowDays: Math.max(1, list.movieWindowDays || 7),
+      seasonLimit: Math.max(0, list.seasonLimit || 0), seasonWindowDays: Math.max(1, list.seasonWindowDays || 7),
+    };
+  }
+  if (!g.enabled) return { movieLimit: 0, movieWindowDays: 7, seasonLimit: 0, seasonWindowDays: 7 };
+  return {
+    movieLimit: Math.max(0, g.movieLimit || 0), movieWindowDays: Math.max(1, g.movieWindowDays || 7),
+    seasonLimit: Math.max(0, g.seasonLimit || 0), seasonWindowDays: Math.max(1, g.seasonWindowDays || 7),
+  };
+}
+
+// What a list may still request now: Infinity when unlimited.
+function requestBudget(limits, used) {
+  const remaining = (limit, u) => (limit > 0 ? Math.max(0, limit - (u || 0)) : Infinity);
+  return { movies: remaining(limits.movieLimit, used.movies), seasons: remaining(limits.seasonLimit, used.seasons) };
+}
+
 module.exports = {
+  effectiveLimits, requestBudget,
   keyOf, exclusionSet, applyListPolicy, pickSeasons,
   visibilityFlags, visibilityFromFlags, sortTitlePrefix,
   SMART_SORT, smartFilterPath, listLabel, orderItems, planMoves,

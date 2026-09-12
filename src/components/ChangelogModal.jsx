@@ -39,6 +39,7 @@ export default function ChangelogModal({ open, onClose }) {
             <ul style={LIST_STYLE}>
               <li style={ITEM_STYLE}>Diskovarr can now run your whole collection setup — everything Agregarr did. Monitored lists gained a top-N item cap, per-list and global exclusions, combining several list URLs into one collection, "unwatched only" smart collections, item ordering, home and library ordering, owner-only home visibility, a first/latest season mode for TV requests, and an optional summary. An import script moves an Agregarr config over in one go</li>
               <li style={ITEM_STYLE}>Plex Home Layout — every row Plex shows on the home and Recommended tab of each library, with owner/users/Recommended toggles and ordering, re-applied after every sync</li>
+              <li style={ITEM_STYLE}>Auto-request limits — monitored lists obey rolling-window quotas (N movies per X days, N seasons per Y days) with a global default and per-list overrides, and the queue shows which list made each request</li>
               <li style={ITEM_STYLE}>New list sources: FlixPatrol streaming top 10s (via FlareSolverr), TMDB trending, AniList's most popular anime, and Hulu/Paramount+ charts from TMDB</li>
             </ul>
             <p style={SECTION_LABEL_STYLE}>{t('Changes')}</p>

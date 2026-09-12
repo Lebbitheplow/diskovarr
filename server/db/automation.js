@@ -67,6 +67,11 @@ function listSourceRow(r) {
     maxItems: r.max_items || 0,
     seasonMode: VALID_SEASON_MODES.includes(r.season_mode) ? r.season_mode : 'all',
     exclusions,
+    limitOverride: !!r.limit_override,
+    movieLimit: r.movie_limit || 0,
+    movieWindowDays: r.movie_window_days || 7,
+    seasonLimit: r.season_limit || 0,
+    seasonWindowDays: r.season_window_days || 7,
     lastSyncedAt: r.last_synced_at || 0,
     lastStatus: r.last_status || null,
     lastError: r.last_error || null,
@@ -80,6 +85,7 @@ function createListSource({
   syncIntervalHours, maxRequestsPerRun, collectionEnabled, collectionName, collectionVisibility,
   collectionUnwatchedOnly, collectionSort, collectionSummary, homeOrder, libraryOrder,
   maxItems, seasonMode, exclusions, collectionRatingKey,
+  limitOverride, movieLimit, movieWindowDays, seasonLimit, seasonWindowDays,
 }) {
   // 0 is valid (collection-only list that never requests); absent/garbage → 10
   const maxPerRun = Number.isFinite(parseInt(maxRequestsPerRun)) ? Math.max(0, parseInt(maxRequestsPerRun)) : 10;
@@ -89,8 +95,9 @@ function createListSource({
        sync_interval_hours, max_requests_per_run,
        collection_enabled, collection_name, collection_visibility,
        collection_unwatched_only, collection_sort, collection_summary, home_order, library_order,
-       max_items, season_mode, exclusions_json, collection_rating_key)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       max_items, season_mode, exclusions_json, collection_rating_key,
+       limit_override, movie_limit, movie_window_days, season_limit, season_window_days)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     String(name), String(sourceType), url || null, presetKey || null,
     Array.isArray(criteria) && criteria.length ? JSON.stringify(criteria) : null,
@@ -110,7 +117,10 @@ function createListSource({
     Math.max(0, parseInt(maxItems) || 0),
     VALID_SEASON_MODES.includes(seasonMode) ? seasonMode : 'all',
     serializeExclusions(exclusions),
-    collectionRatingKey || null
+    collectionRatingKey || null,
+    limitOverride ? 1 : 0,
+    Math.max(0, parseInt(movieLimit) || 0), Math.max(1, parseInt(movieWindowDays) || 7),
+    Math.max(0, parseInt(seasonLimit) || 0), Math.max(1, parseInt(seasonWindowDays) || 7)
   );
   return Number(result.lastInsertRowid);
 }
@@ -134,10 +144,15 @@ const LIST_SOURCE_COLUMNS = {
 };
 const LIST_SOURCE_BOOLS = {
   enabled: 'enabled', collectionEnabled: 'collection_enabled',
-  collectionUnwatchedOnly: 'collection_unwatched_only',
+  collectionUnwatchedOnly: 'collection_unwatched_only', limitOverride: 'limit_override',
 };
 const LIST_SOURCE_TIMES = { lastSyncedAt: 'last_synced_at' };
-const LIST_SOURCE_INTS = { homeOrder: 'home_order', libraryOrder: 'library_order', maxItems: 'max_items' };
+const LIST_SOURCE_INTS = {
+  homeOrder: 'home_order', libraryOrder: 'library_order', maxItems: 'max_items',
+  movieLimit: 'movie_limit', seasonLimit: 'season_limit',
+};
+// Window days floor at 1 (a 0-day window would never count anything).
+const LIST_SOURCE_DAYS = { movieWindowDays: 'movie_window_days', seasonWindowDays: 'season_window_days' };
 const LIST_SOURCE_ENUMS = {
   collectionSort: ['collection_sort', VALID_COLLECTION_SORTS, 'list'],
   seasonMode: ['season_mode', VALID_SEASON_MODES, 'all'],
@@ -163,6 +178,9 @@ function updateListSource(id, fields) {
   }
   for (const [key, col] of Object.entries(LIST_SOURCE_INTS)) {
     if (fields[key] !== undefined) { updates.push(`${col} = ?`); params.push(Math.max(0, parseInt(fields[key]) || 0)); }
+  }
+  for (const [key, col] of Object.entries(LIST_SOURCE_DAYS)) {
+    if (fields[key] !== undefined) { updates.push(`${col} = ?`); params.push(Math.max(1, parseInt(fields[key]) || 7)); }
   }
   for (const [key, [col, valid, dflt]] of Object.entries(LIST_SOURCE_ENUMS)) {
     if (fields[key] !== undefined) { updates.push(`${col} = ?`); params.push(valid.includes(fields[key]) ? fields[key] : dflt); }
@@ -422,6 +440,21 @@ function getDeletionHistory(limit = 200) {
   `).all(Math.min(1000, Number(limit) || 200)).map(r => ({ ...candidateRow(r), profileName: r.profile_name }));
 }
 
+// Requests this list made inside the rolling windows (denied ones don't
+// count): movies as a count, TV as the sum of requested seasons.
+function getListRequestUsage(listId, movieWindowDays, seasonWindowDays) {
+  const now = Math.floor(Date.now() / 1000);
+  const movies = db.prepare(`
+    SELECT COUNT(*) AS c FROM discover_requests
+    WHERE origin_list_id = ? AND media_type = 'movie' AND status != 'denied' AND requested_at > ?
+  `).get(Number(listId), now - Math.max(1, movieWindowDays || 7) * 86400).c;
+  const seasons = db.prepare(`
+    SELECT COALESCE(SUM(seasons_count), 0) AS c FROM discover_requests
+    WHERE origin_list_id = ? AND media_type = 'tv' AND status != 'denied' AND requested_at > ?
+  `).get(Number(listId), now - Math.max(1, seasonWindowDays || 7) * 86400).c;
+  return { movies, seasons };
+}
+
 // Lists that mirror a collection in a given media type, for home/library
 // ordering passes (a mixed list contributes to both sections).
 function getCollectionListsForMedia(media) {
@@ -432,7 +465,7 @@ function getCollectionListsForMedia(media) {
 module.exports = {
   VALID_COLLECTION_SORTS, VALID_SEASON_MODES, VALID_VISIBILITIES,
   createListSource, getListSources, getListSource, updateListSource, deleteListSource, getDueListSources,
-  getCollectionListsForMedia,
+  getCollectionListsForMedia, getListRequestUsage,
   upsertListItem, getListItems, getListItemsInOrder, countListItems,
   createDeletionProfile, getDeletionProfiles, getDeletionProfile, updateDeletionProfile, deleteDeletionProfile, getEnabledDeletionProfiles,
   upsertCandidate, getCandidates, getCandidateById, setCandidateStatus, pruneStaleCandidates, getDeletionHistory,

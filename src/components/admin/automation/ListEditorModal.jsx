@@ -72,6 +72,11 @@ export default function ListEditorModal({ list, presets, onClose, onSaved, onToa
     collectionSummary: list?.collectionSummary || '',
     homeOrder: list?.homeOrder ?? 0,
     libraryOrder: list?.libraryOrder ?? 0,
+    limitOverride: list?.limitOverride || false,
+    movieLimit: list?.movieLimit ?? 0,
+    movieWindowDays: list?.movieWindowDays ?? 7,
+    seasonLimit: list?.seasonLimit ?? 0,
+    seasonWindowDays: list?.seasonWindowDays ?? 7,
   })
   const [preview, setPreview] = useState(null)
   const [validating, setValidating] = useState(false)
@@ -140,6 +145,10 @@ export default function ListEditorModal({ list, presets, onClose, onSaved, onToa
         maxItems: Number(form.maxItems) || 0,
         homeOrder: Number(form.homeOrder) || 0,
         libraryOrder: Number(form.libraryOrder) || 0,
+        movieLimit: Number(form.movieLimit) || 0,
+        movieWindowDays: Number(form.movieWindowDays) || 7,
+        seasonLimit: Number(form.seasonLimit) || 0,
+        seasonWindowDays: Number(form.seasonWindowDays) || 7,
       }
       if (editing) await adminAutomation.updateList(list.id, payload)
       else await adminAutomation.createList(payload)
@@ -351,6 +360,47 @@ export default function ListEditorModal({ list, presets, onClose, onSaved, onToa
                 <input type="text" className="conn-input" value={form.collectionSummary} onChange={(e) => set('collectionSummary', e.target.value)} placeholder={t('Shown on the collection in Plex')} />
               </div>
             </>
+          )}
+        </div>
+
+        <div style={dividerStyle}>
+          <div className="conn-toggle-row" style={{ marginBottom: 8 }}>
+            <span className="conn-toggle-label">
+              {t('Override the global auto-request limits')}
+              <span className="conn-hint" style={{ display: 'block' }}>{t('Rolling windows for this list only; 0 = unlimited.')}</span>
+            </span>
+            <label className="slide-toggle">
+              <input type="checkbox" checked={form.limitOverride} onChange={(e) => set('limitOverride', e.target.checked)} />
+              <span className="slide-track" />
+            </label>
+          </div>
+          {form.limitOverride && (
+            <div style={rowStyle}>
+              {form.mediaType !== 'tv' && (
+                <>
+                  <div className="conn-field-group">
+                    <label className="conn-field-label">{t('Movies')}</label>
+                    <input type="number" min="0" className="conn-input" style={{ maxWidth: 90 }} value={form.movieLimit} onChange={(e) => set('movieLimit', e.target.value)} />
+                  </div>
+                  <div className="conn-field-group">
+                    <label className="conn-field-label">{t('every (days)')}</label>
+                    <input type="number" min="1" className="conn-input" style={{ maxWidth: 90 }} value={form.movieWindowDays} onChange={(e) => set('movieWindowDays', e.target.value)} />
+                  </div>
+                </>
+              )}
+              {isTv && (
+                <>
+                  <div className="conn-field-group">
+                    <label className="conn-field-label">{t('Seasons')}</label>
+                    <input type="number" min="0" className="conn-input" style={{ maxWidth: 90 }} value={form.seasonLimit} onChange={(e) => set('seasonLimit', e.target.value)} />
+                  </div>
+                  <div className="conn-field-group">
+                    <label className="conn-field-label">{t('every (days)')}</label>
+                    <input type="number" min="1" className="conn-input" style={{ maxWidth: 90 }} value={form.seasonWindowDays} onChange={(e) => set('seasonWindowDays', e.target.value)} />
+                  </div>
+                </>
+              )}
+            </div>
           )}
         </div>
 

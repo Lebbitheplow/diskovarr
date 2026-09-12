@@ -954,6 +954,31 @@ db.exec(`CREATE TABLE IF NOT EXISTS migrations (name TEXT PRIMARY KEY, ran_at IN
         try { db.exec('ALTER TABLE list_source_items ADD COLUMN position INTEGER DEFAULT NULL'); } catch {}
       },
     },
+    {
+      // Rolling-window auto-request limits per monitored list (movies per X
+      // days, seasons per Y days) with a global default, and the originating
+      // list on each request so the queue can show which list asked for it.
+      name: 'automation_limits_v1',
+      sql: () => {
+        for (const col of [
+          'limit_override INTEGER NOT NULL DEFAULT 0',
+          'movie_limit INTEGER NOT NULL DEFAULT 0',
+          'movie_window_days INTEGER NOT NULL DEFAULT 7',
+          'season_limit INTEGER NOT NULL DEFAULT 0',
+          'season_window_days INTEGER NOT NULL DEFAULT 7',
+        ]) {
+          try { db.exec(`ALTER TABLE list_sources ADD COLUMN ${col}`); } catch {}
+        }
+        try { db.exec('ALTER TABLE discover_requests ADD COLUMN origin_list_id INTEGER DEFAULT NULL'); } catch {}
+        try { db.exec('CREATE INDEX IF NOT EXISTS idx_discover_requests_origin ON discover_requests(origin_list_id, requested_at)'); } catch {}
+        // Back-fill from the list item links so existing auto-requests count.
+        try {
+          db.exec(`UPDATE discover_requests SET origin_list_id = (
+            SELECT li.list_id FROM list_source_items li WHERE li.request_id = discover_requests.id LIMIT 1
+          ) WHERE origin_list_id IS NULL AND user_id = 'autorequest'`);
+        } catch {}
+      },
+    },
   ].forEach(({ name, sql }) => {
    const already = db.prepare('SELECT 1 FROM migrations WHERE name = ?').get(name);
    if (!already) {
@@ -2069,9 +2094,10 @@ function getDirectRequestAccess() {
 
 function getPendingRequests() {
   return db.prepare(`
-    SELECT dr.*, COALESCE(ku.username, dr.user_id) AS username, ku.thumb AS user_thumb
+    SELECT dr.*, COALESCE(ku.username, dr.user_id) AS username, ku.thumb AS user_thumb, ls.name AS origin_list
     FROM discover_requests dr
     LEFT JOIN known_users ku ON ku.user_id = dr.user_id
+    LEFT JOIN list_sources ls ON ls.id = dr.origin_list_id
     WHERE dr.status = 'pending'
     ORDER BY dr.requested_at ASC
   `).all();
@@ -2126,9 +2152,10 @@ function getAllRequests(limit = 20, offset = 0, statusFilter = null, orderBy = '
   appendServiceClause(clauses, params, serviceFilter);
   const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
   const rows = db.prepare(`
-    SELECT dr.*, COALESCE(ku.username, dr.user_id) AS username, ku.thumb AS user_thumb
+    SELECT dr.*, COALESCE(ku.username, dr.user_id) AS username, ku.thumb AS user_thumb, ls.name AS origin_list
     FROM discover_requests dr
     LEFT JOIN known_users ku ON ku.user_id = dr.user_id
+    LEFT JOIN list_sources ls ON ls.id = dr.origin_list_id
     ${where}
     ORDER BY ${col} ${dir}
     LIMIT ? OFFSET ?
@@ -2148,6 +2175,10 @@ function getRequestUsers() {
     LEFT JOIN known_users ku ON ku.user_id = dr.user_id
     ORDER BY name COLLATE NOCASE ASC
   `).all();
+}
+
+function setRequestOriginList(id, listId) {
+  db.prepare('UPDATE discover_requests SET origin_list_id = ? WHERE id = ?').run(Number(listId) || null, Number(id));
 }
 
 function updateRequestStatus(id, status, denialNote = null) {
@@ -2512,9 +2543,10 @@ function getUserRequests(userId, limit = 20, offset = 0, statusFilter = null, or
   appendServiceClause(clauses, params, serviceFilter);
   const where = `WHERE ${clauses.join(' AND ')}`;
   const rows = db.prepare(`
-    SELECT dr.*, COALESCE(ku.username, dr.user_id) AS username, ku.thumb AS user_thumb
+    SELECT dr.*, COALESCE(ku.username, dr.user_id) AS username, ku.thumb AS user_thumb, ls.name AS origin_list
     FROM discover_requests dr
     LEFT JOIN known_users ku ON ku.user_id = dr.user_id
+    LEFT JOIN list_sources ls ON ls.id = dr.origin_list_id
     ${where}
     ORDER BY ${col} ${dir}
     LIMIT ? OFFSET ?
@@ -3670,7 +3702,7 @@ module.exports = {
   getSetting, setSetting, getConnectionSettings, isDiscoverEnabled, hasTmdbKey,
   getTmdbCache, setTmdbCache, deleteTmdbCache, getAllTmdbCacheItems, getItemsByGenre,
   getLibraryTmdbKeys, getLibraryTitleYearSet, libraryMediaType,
-  addDiscoverRequest, getRequestedTmdbIds, getAllRequestedTmdbIds, getRecentRequests, getRequestedSeasonRows,
+  addDiscoverRequest, setRequestOriginList, getRequestedTmdbIds, getAllRequestedTmdbIds, getRecentRequests, getRequestedSeasonRows,
   addExploreDismissal, getExploreDismissedIds, getUserExploreDismissalRows, removeExploreDismissal,
   getDiscoverPool, setDiscoverPool, getKnownUserIds,
   getDiscoverCandidates, setDiscoverCandidates, getAllUserPrefsForDiscover,

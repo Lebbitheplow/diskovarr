@@ -496,6 +496,9 @@ export default function Queue() {
                       ) : (
                         <span className={'queue-user-link' + (isSelected ? ' active' : '')} onClick={() => handleUsernameClick(r.user_id)}>{r.username || r.user_id}</span>
                       )}
+                      {r.origin_list && (
+                        <span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)' }} title={t('Requested by the monitored list')}>{t('via')} {r.origin_list}</span>
+                      )}
                     </td>}
                     <td>
                       <span className={'type-badge type-' + mediaType}>{mediaType === 'movie' ? t('Movie') : t('TV')}</span>

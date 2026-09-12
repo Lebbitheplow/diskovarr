@@ -242,6 +242,21 @@ router.post('/credentials', (req, res) => {
   res.json({ ok: true });
 });
 
+// ── Auto-request limits (rolling windows, global default + per-list override) ─
+
+router.get('/limits', (req, res) => {
+  const limits = autoRequest.getGlobalLimits();
+  const usage = automation.getListSources().map(l => {
+    const eff = require('../services/collectionPolicy').effectiveLimits(limits, l);
+    return { listId: l.id, name: l.name, limits: eff, used: automation.getListRequestUsage(l.id, eff.movieWindowDays, eff.seasonWindowDays) };
+  });
+  res.json({ limits, usage });
+});
+
+router.post('/limits', (req, res) => {
+  res.json({ ok: true, limits: autoRequest.setGlobalLimits(req.body || {}) });
+});
+
 // ── Global exclusions (never requested / mirrored by any list) ────────────────
 
 router.get('/exclusions', (req, res) => {

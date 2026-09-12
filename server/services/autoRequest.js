@@ -17,6 +17,10 @@ const policy = require('./collectionPolicy');
 
 const SYSTEM_USER_ID = 'autorequest';
 const EXCLUSIONS_SETTING = 'autorequest_exclusions';
+const LIMITS_SETTING = 'autorequest_limits';
+// Default rolling-window limits for every list (the Agregarr-style per-user
+// quotas, applied per list instead): 20 movies / 7 days, 20 seasons / 3 days.
+const DEFAULT_LIMITS = { enabled: true, movieLimit: 20, movieWindowDays: 7, seasonLimit: 20, seasonWindowDays: 3 };
 const DEFAULT_FETCH_LIMIT = 500;
 let systemUserSeeded = false;
 
@@ -49,17 +53,36 @@ function setGlobalExclusions(list) {
   return deduped;
 }
 
+function getGlobalLimits() {
+  try {
+    const parsed = JSON.parse(db.getSetting(LIMITS_SETTING, '') || 'null');
+    if (!parsed || typeof parsed !== 'object') return { ...DEFAULT_LIMITS };
+    return {
+      enabled: parsed.enabled !== false,
+      movieLimit: Math.max(0, parseInt(parsed.movieLimit) || 0),
+      movieWindowDays: Math.max(1, parseInt(parsed.movieWindowDays) || 7),
+      seasonLimit: Math.max(0, parseInt(parsed.seasonLimit) || 0),
+      seasonWindowDays: Math.max(1, parseInt(parsed.seasonWindowDays) || 7),
+    };
+  } catch { return { ...DEFAULT_LIMITS }; }
+}
+
+function setGlobalLimits(limits) {
+  const clean = {
+    enabled: limits?.enabled !== false,
+    movieLimit: Math.max(0, parseInt(limits?.movieLimit) || 0),
+    movieWindowDays: Math.max(1, parseInt(limits?.movieWindowDays) || 7),
+    seasonLimit: Math.max(0, parseInt(limits?.seasonLimit) || 0),
+    seasonWindowDays: Math.max(1, parseInt(limits?.seasonWindowDays) || 7),
+  };
+  db.setSetting(LIMITS_SETTING, JSON.stringify(clean));
+  return clean;
+}
+
 function activeRequestExists(tmdbId, mediaType) {
   return !!db.prepare(
     "SELECT 1 FROM discover_requests WHERE tmdb_id = ? AND media_type = ? AND status != 'denied' LIMIT 1"
   ).get(Number(tmdbId), String(mediaType));
-}
-
-function lastInsertedRequestId(tmdbId, mediaType) {
-  const row = db.prepare(
-    'SELECT id FROM discover_requests WHERE user_id = ? AND tmdb_id = ? AND media_type = ? ORDER BY id DESC LIMIT 1'
-  ).get(SYSTEM_USER_ID, Number(tmdbId), String(mediaType));
-  return row ? row.id : null;
 }
 
 function notifyAdmins(title, body) {
@@ -118,8 +141,12 @@ async function syncList(listSource) {
   const inLibrary = db.getLibraryTmdbKeys();
   const summary = {
     total: items.length, unresolved: resolved.unresolved, excluded: excludedCount,
-    requested: 0, pending: 0, inLibrary: 0, skipped: 0, failed: 0,
+    requested: 0, pending: 0, inLibrary: 0, skipped: 0, failed: 0, limited: 0,
   };
+
+  // Rolling-window budget: what this list may still request right now.
+  const limits = policy.effectiveLimits(getGlobalLimits(), listSource);
+  const budget = policy.requestBudget(limits, automation.getListRequestUsage(listSource.id, limits.movieWindowDays, limits.seasonWindowDays));
 
   // Lazy requires: routes/api.js and the shim pull in heavy deps and would be a
   // require cycle at module load (they require services that require this file's
@@ -169,10 +196,20 @@ async function syncList(listSource) {
 
       const seasons = item.mediaType === 'tv' ? policy.pickSeasons(listSource.seasonMode, details?.seasonDetails) : null;
       const seasonsCount = seasons ? seasons.length : (details?.numberOfSeasons || 1);
+      // Window limit reached (or this show alone would exceed it): leave it
+      // for a later sync rather than requesting a partial set.
+      const cost = item.mediaType === 'tv' ? seasonsCount : 1;
+      const pool = item.mediaType === 'tv' ? 'seasons' : 'movies';
+      if (cost > budget[pool]) {
+        automation.upsertListItem({ ...base, status: 'seen' });
+        summary.limited++;
+        continue;
+      }
       const service = pickService(item.mediaType);
       const status = listSource.approvalMode === 'auto' ? 'approved' : 'pending';
-      db.addDiscoverRequestWithStatus(SYSTEM_USER_ID, item.tmdbId, item.mediaType, title, service, seasonsCount, status, seasons, posterUrl);
-      const requestId = lastInsertedRequestId(item.tmdbId, item.mediaType);
+      const requestId = db.addDiscoverRequestWithStatus(SYSTEM_USER_ID, item.tmdbId, item.mediaType, title, service, seasonsCount, status, seasons, posterUrl);
+      db.setRequestOriginList(requestId, listSource.id);
+      budget[pool] -= cost;
 
       if (status === 'approved' && service !== 'none') {
         await submitRequestToService({ tmdbId: item.tmdbId, mediaType: item.mediaType, title, service, seasons });
@@ -194,6 +231,7 @@ async function syncList(listSource) {
     (summary.failed ? `, ${summary.failed} failed` : '') +
     (summary.unresolved ? `, ${summary.unresolved} unresolved` : '') +
     (summary.excluded ? `, ${summary.excluded} excluded` : '') +
+    (summary.limited ? `, ${summary.limited} waiting on request limit` : '') +
     (summary.collectionError ? `, collection error: ${summary.collectionError}` : '');
   automation.updateListSource(listSource.id, {
     lastSyncedAt: startedTs,
@@ -270,4 +308,5 @@ async function runQuickSync({ force = false } = {}) {
 module.exports = {
   runDueLists, syncList, runQuickSync, SYSTEM_USER_ID,
   getGlobalExclusions, setGlobalExclusions, EXCLUSIONS_SETTING,
+  getGlobalLimits, setGlobalLimits, DEFAULT_LIMITS, LIMITS_SETTING,
 };

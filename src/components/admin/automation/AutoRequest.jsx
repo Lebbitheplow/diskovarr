@@ -15,6 +15,80 @@ function formatAgo(ts) {
 
 const VISIBILITY_LABELS = { home: 'Home', owner_home: 'Owner home', recommended: 'Recommended', library: 'Library' }
 
+function LimitsSection({ onToast }) {
+  const { t } = useTranslation()
+  const [limits, setLimits] = useState({ enabled: true, movieLimit: 20, movieWindowDays: 7, seasonLimit: 20, seasonWindowDays: 3 })
+  const [usage, setUsage] = useState([])
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    adminAutomation.getLimits()
+      .then(({ data }) => { setLimits(data.limits); setUsage(data.usage || []) })
+      .catch(() => {})
+  }, [])
+
+  const set = (k, v) => setLimits(prev => ({ ...prev, [k]: v }))
+  const handleSave = async () => {
+    setSaving(true)
+    try {
+      const { data } = await adminAutomation.setLimits(limits)
+      setLimits(data.limits)
+      onToast(t('Auto-request limits saved'))
+    } catch (e) {
+      onToast(e.response?.data?.error || e.message || 'Failed to save limits', 'error')
+    } finally {
+      setSaving(false)
+    }
+  }
+  const busy = usage.filter(u => (u.limits.movieLimit > 0 && u.used.movies >= u.limits.movieLimit) || (u.limits.seasonLimit > 0 && u.used.seasons >= u.limits.seasonLimit))
+
+  return (
+    <div className="admin-section">
+      <div className="admin-section-header">
+        <div>
+          <h2 className="section-title">{t('Auto-request Limits')}</h2>
+          <p className="section-desc">
+            {t('How much each monitored list may request inside a rolling window, the same way user request limits work. Items over the limit wait for a later sync. Lists can override these in their editor; 0 = unlimited.')}
+          </p>
+        </div>
+        <button className="btn-admin btn-primary" onClick={handleSave} disabled={saving}>{saving ? t('Saving...') : t('Save')}</button>
+      </div>
+      <div className="conn-toggle-row" style={{ marginBottom: 10 }}>
+        <span className="conn-toggle-label">{t('Limit auto-requests')}</span>
+        <label className="slide-toggle">
+          <input type="checkbox" checked={!!limits.enabled} onChange={(e) => set('enabled', e.target.checked)} />
+          <span className="slide-track" />
+        </label>
+      </div>
+      {limits.enabled && (
+        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+          <div className="conn-field-group">
+            <label className="conn-field-label">{t('Movies per list')}</label>
+            <input type="number" min="0" className="conn-input" style={{ maxWidth: 90 }} value={limits.movieLimit} onChange={(e) => set('movieLimit', e.target.value)} />
+          </div>
+          <div className="conn-field-group">
+            <label className="conn-field-label">{t('every (days)')}</label>
+            <input type="number" min="1" className="conn-input" style={{ maxWidth: 90 }} value={limits.movieWindowDays} onChange={(e) => set('movieWindowDays', e.target.value)} />
+          </div>
+          <div className="conn-field-group">
+            <label className="conn-field-label">{t('Seasons per list')}</label>
+            <input type="number" min="0" className="conn-input" style={{ maxWidth: 90 }} value={limits.seasonLimit} onChange={(e) => set('seasonLimit', e.target.value)} />
+          </div>
+          <div className="conn-field-group">
+            <label className="conn-field-label">{t('every (days)')}</label>
+            <input type="number" min="1" className="conn-input" style={{ maxWidth: 90 }} value={limits.seasonWindowDays} onChange={(e) => set('seasonWindowDays', e.target.value)} />
+          </div>
+        </div>
+      )}
+      {busy.length > 0 && (
+        <p className="conn-hint" style={{ marginTop: 8 }}>
+          {t('At their limit right now')}: {busy.map(u => `${u.name} (${u.used.movies} ${t('movies')}, ${u.used.seasons} ${t('seasons')})`).join(' · ')}
+        </p>
+      )}
+    </div>
+  )
+}
+
 function GlobalExclusionsSection({ onToast }) {
   const { t } = useTranslation()
   const [exclusions, setExclusions] = useState([])
@@ -291,6 +365,7 @@ export default function AutoRequest({ onToast }) {
         </div>
       </div>
 
+      <LimitsSection onToast={onToast} />
       <GlobalExclusionsSection onToast={onToast} />
       <CredentialsSection onToast={onToast} />
 

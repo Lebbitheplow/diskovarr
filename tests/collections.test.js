@@ -285,3 +285,34 @@ describe('list source persistence', () => {
     expect(autoRequest.getGlobalExclusions()).toEqual(saved)
   })
 })
+
+// ── Rolling-window request limits ────────────────────────────────────────────
+
+describe('auto-request limits', () => {
+  it('global limits apply unless the list overrides; 0 means unlimited', () => {
+    const g = { enabled: true, movieLimit: 20, movieWindowDays: 7, seasonLimit: 20, seasonWindowDays: 3 }
+    expect(policy.effectiveLimits(g, { limitOverride: false })).toEqual(g && { movieLimit: 20, movieWindowDays: 7, seasonLimit: 20, seasonWindowDays: 3 })
+    expect(policy.effectiveLimits(g, { limitOverride: true, movieLimit: 5, movieWindowDays: 1, seasonLimit: 0, seasonWindowDays: 0 }))
+      .toEqual({ movieLimit: 5, movieWindowDays: 1, seasonLimit: 0, seasonWindowDays: 7 })
+    expect(policy.effectiveLimits({ ...g, enabled: false }, {}).movieLimit).toBe(0)
+    const budget = policy.requestBudget({ movieLimit: 20, seasonLimit: 0 }, { movies: 18, seasons: 400 })
+    expect(budget).toEqual({ movies: 2, seasons: Infinity })
+    expect(policy.requestBudget({ movieLimit: 3, seasonLimit: 3 }, { movies: 9, seasons: 1 })).toEqual({ movies: 0, seasons: 2 })
+  })
+
+  it('counts a list\'s own requests inside the window, seasons summed, denied ignored', () => {
+    const id = automation.createListSource({ name: 'L', sourceType: 'preset', presetKey: 'tmdb_popular_tv', mediaType: 'tv', limitOverride: true, seasonLimit: 10, seasonWindowDays: 3 })
+    const db = nodeRequire('../server/db/database.js')
+    const r1 = db.addDiscoverRequestWithStatus('autorequest', 101, 'tv', 'A', 'none', 4, 'approved', [1, 2, 3, 4], null)
+    const r2 = db.addDiscoverRequestWithStatus('autorequest', 102, 'tv', 'B', 'none', 3, 'approved', null, null)
+    const r3 = db.addDiscoverRequestWithStatus('autorequest', 103, 'movie', 'C', 'none', 1, 'approved', null, null)
+    for (const r of [r1, r2, r3]) db.setRequestOriginList(r, id)
+    db.updateRequestStatus(r2, 'denied', 'nope')
+    const list = automation.getListSource(id)
+    expect(list).toMatchObject({ limitOverride: true, seasonLimit: 10, seasonWindowDays: 3, movieWindowDays: 7 })
+    expect(automation.getListRequestUsage(id, 7, 3)).toEqual({ movies: 1, seasons: 4 })
+    const stored = autoRequest.setGlobalLimits({ enabled: true, movieLimit: '7', movieWindowDays: '0', seasonLimit: 12, seasonWindowDays: 2 })
+    expect(stored).toEqual({ enabled: true, movieLimit: 7, movieWindowDays: 7, seasonLimit: 12, seasonWindowDays: 2 })
+    expect(autoRequest.getGlobalLimits()).toEqual(stored)
+  })
+})
