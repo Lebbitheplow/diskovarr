@@ -197,6 +197,15 @@ async function syncTypeCollection({ list, media, title, sectionId, plexType, row
   let key = existingKey || null;
   let existing = key ? await getCollection(key) : null;
   if (!existing) key = null;
+  // A collection holds one item type; an adopted one built from episodes or
+  // seasons (Agregarr did this for lists with episode entries) can't take
+  // shows, so it is rebuilt at the right level.
+  const expectedSubtype = media === 'tv' ? 'show' : 'movie';
+  if (existing && existing.subtype && existing.subtype !== expectedSubtype) {
+    await deleteCollection(key);
+    existing = null;
+    key = null;
+  }
 
   if (wantSmart) {
     // Keep the label set in step with the list, then point the smart filter at it.
