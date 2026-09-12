@@ -1,5 +1,19 @@
 [
   {
+    "version": "3.1.1",
+    "date": "2026-09-12",
+    "changes": [
+      "Diskovarr can now run your whole collection setup — everything Agregarr did. Monitored lists gained a top-N item cap, per-list and global exclusions, combining several list URLs into one collection, 'unwatched only' smart collections (each viewer sees only what they haven't finished), item ordering (list order, release date, title, date added, rating), home and library ordering, owner-only home visibility, a first/latest season mode for TV requests, and an optional collection summary. An import script moves an existing Agregarr config over in one go.",
+      "Plex Home Layout — a new Automation section lists every row Plex shows on the home and Recommended tab of each library (Recently Added, Rediscover, your collections…) with owner/users/Recommended toggles and up/down ordering, and re-applies it after every sync so Plex keeps it.",
+      "New list sources: FlixPatrol streaming top 10s (Netflix, HBO Max, Disney+, Paramount+, Prime Video, Apple TV+, Hulu, Peacock — via a FlareSolverr instance), TMDB trending this week/today, AniList's most popular anime, and Hulu/Paramount+ charts from TMDB.",
+      "Collections pick up newly added library titles every 30 minutes without re-fetching the list, and a Quick sync button does it on demand.",
+      "Fixed: the recommender no longer mixes up a movie and a show that share a TMDB id, the last trace of the mix-up that once put Lord of the Rings art on a Doctor Who notification.",
+      "Fixed: the 'Request missing seasons' button only appears when the show actually has a season left to request.",
+      "Fixed: monitored-list syncs failed before requesting anything (a wrong module path in the auto-request job).",
+      "Security: nodemailer upgraded to 9.1.0 (three Snyk advisories)."
+    ]
+  },
+  {
     "version": "3.1.0",
     "date": "2026-09-06",
     "changes": [

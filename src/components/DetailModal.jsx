@@ -15,6 +15,7 @@ import RatingBadges from './RatingBadges'
 import MonitorDropdown from './MonitorManager/MonitorDropdown'
 import { posterUrl } from '../utils/media'
 import useCastPlayer from '../hooks/useCastPlayer'
+import useMissingSeasons from '../hooks/useMissingSeasons'
 import { useTranslation } from 'react-i18next'
 
 const CAST_ICON = (
@@ -175,6 +176,9 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
   const { success, error: toastError } = useToast()
 
   const inLibrary = item?.inLibrary ?? !!item?.ratingKey
+  // Only offer "Request missing seasons" when the library copy is actually
+  // short a season that isn't already requested.
+  const hasMissingSeasons = useMissingSeasons(item)
 
   const handleWatchlist = useCallback(async () => {
     try {
@@ -502,7 +506,7 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
                       )}
                     </div>
                   )}
-                  {isShow && item.tmdbId && (
+                  {isShow && item.tmdbId && hasMissingSeasons && (
                     <button
                       className="modal-btn modal-btn-watchlist"
                       onClick={handleRequestMissing}

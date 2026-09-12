@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { adminAutomation } from '../../../services/adminApi'
+import ExclusionsEditor from './ExclusionsEditor'
 
 // Same criteria vocabulary as Content Monitors (server validates against
 // listSources.CRITERIA_TYPES) — values resolve against TMDB at sync time.
@@ -19,6 +20,15 @@ const CRITERIA_TYPES = [
   { value: 'language', label: 'Language', hint: 'e.g. Korean or ko' },
 ]
 
+const COLLECTION_SORTS = [
+  { value: 'list', label: 'List order' },
+  { value: 'release_desc', label: 'Release date (newest first)' },
+  { value: 'release_asc', label: 'Release date (oldest first)' },
+  { value: 'title', label: 'Title' },
+  { value: 'added_desc', label: 'Date added (newest first)' },
+  { value: 'rating_desc', label: 'Rating (highest first)' },
+]
+
 const overlayStyle = {
   position: 'fixed', inset: 0, zIndex: 1000,
   background: 'rgba(0,0,0,0.75)', display: 'flex',
@@ -26,9 +36,11 @@ const overlayStyle = {
 }
 const modalStyle = {
   background: 'var(--bg-secondary)', borderRadius: 14, padding: 28,
-  width: 'min(640px, 94vw)', border: '1px solid var(--border)',
+  width: 'min(680px, 94vw)', border: '1px solid var(--border)',
   position: 'relative', maxHeight: '90vh', overflowY: 'auto',
 }
+const rowStyle = { display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 12 }
+const dividerStyle = { borderTop: '1px solid var(--border)', paddingTop: 14, marginBottom: 14 }
 
 // `plexConfigured` comes from /admin/status `sources.plex.configured`; the
 // collection mirror is Plex-only until Jellyfin BoxSets land, so the toggle is
@@ -41,6 +53,7 @@ export default function ListEditorModal({ list, presets, onClose, onSaved, onToa
   )
   const [criteria, setCriteria] = useState(list?.criteria || [])
   const [matchMode, setMatchMode] = useState(list?.matchMode || 'ALL')
+  const [exclusions, setExclusions] = useState(list?.exclusions || [])
   const [form, setForm] = useState({
     name: list?.name || '',
     url: list?.url || '',
@@ -49,9 +62,16 @@ export default function ListEditorModal({ list, presets, onClose, onSaved, onToa
     approvalMode: list?.approvalMode || 'auto',
     syncIntervalHours: list?.syncIntervalHours ?? 24,
     maxRequestsPerRun: list?.maxRequestsPerRun ?? 10,
+    maxItems: list?.maxItems ?? 0,
+    seasonMode: list?.seasonMode || 'all',
     collectionEnabled: list?.collectionEnabled || false,
     collectionName: list?.collectionName || '',
     collectionVisibility: list?.collectionVisibility || 'library',
+    collectionUnwatchedOnly: list?.collectionUnwatchedOnly || false,
+    collectionSort: list?.collectionSort || 'list',
+    collectionSummary: list?.collectionSummary || '',
+    homeOrder: list?.homeOrder ?? 0,
+    libraryOrder: list?.libraryOrder ?? 0,
   })
   const [preview, setPreview] = useState(null)
   const [validating, setValidating] = useState(false)
@@ -76,6 +96,7 @@ export default function ListEditorModal({ list, presets, onClose, onSaved, onToa
       url: '',
       name: prev.name || preset?.label || '',
       mediaType: preset ? (preset.mediaType === 'tv' ? 'tv' : 'movie') : prev.mediaType,
+      maxItems: prev.maxItems || (preset?.limit && preset.limit <= 250 ? preset.limit : prev.maxItems),
     }))
     setPreview(null)
   }
@@ -94,7 +115,7 @@ export default function ListEditorModal({ list, presets, onClose, onSaved, onToa
       const { data } = await adminAutomation.validateList(payload)
       setPreview(data)
     } catch (e) {
-      setPreview({ error: e.message })
+      setPreview({ error: e.response?.data?.error || e.message })
     } finally {
       setValidating(false)
     }
@@ -113,19 +134,25 @@ export default function ListEditorModal({ list, presets, onClose, onSaved, onToa
         url: sourceMode === 'url' ? form.url.trim() : null,
         criteria: sourceMode === 'criteria' ? cleanCriteria() : null,
         matchMode,
+        exclusions,
         syncIntervalHours: Number(form.syncIntervalHours) || 24,
         maxRequestsPerRun: Number(form.maxRequestsPerRun),
+        maxItems: Number(form.maxItems) || 0,
+        homeOrder: Number(form.homeOrder) || 0,
+        libraryOrder: Number(form.libraryOrder) || 0,
       }
       if (editing) await adminAutomation.updateList(list.id, payload)
       else await adminAutomation.createList(payload)
       onToast(editing ? t('List updated') : t('List added'))
       onSaved()
     } catch (e) {
-      onToast(e.message || 'Save failed', 'error')
+      onToast(e.response?.data?.error || e.message || 'Save failed', 'error')
     } finally {
       setSaving(false)
     }
   }
+
+  const isTv = form.mediaType !== 'movie'
 
   return (
     <div style={overlayStyle} onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
@@ -186,7 +213,7 @@ export default function ListEditorModal({ list, presets, onClose, onSaved, onToa
                 <optgroup key={group} label={group}>
                   {items.map(p => (
                     <option key={p.key} value={p.key}>
-                      {p.label}{p.requiresCredential ? ` (${t('needs credential')})` : ''}
+                      {p.label}{p.requiresCredential ? ` (${t('needs credential')})` : ''}{p.needsFlareSolverr ? ` (${t('needs FlareSolverr')})` : ''}
                     </option>
                   ))}
                 </optgroup>
@@ -195,10 +222,10 @@ export default function ListEditorModal({ list, presets, onClose, onSaved, onToa
           </div>
         ) : (
           <div className="conn-field-group" style={{ marginBottom: 12 }}>
-            <label className="conn-field-label">{t('List URL')}</label>
-            <input type="url" className="conn-input" value={form.url} onChange={(e) => { set('url', e.target.value); setPreview(null) }}
-              placeholder="https://trakt.tv/users/…/lists/…  ·  https://letterboxd.com/…/list/…  ·  https://www.imdb.com/list/ls…" />
-            <span className="conn-hint">{t('Supported: Trakt, IMDb, TMDB, Letterboxd, MDBList, AniList')}</span>
+            <label className="conn-field-label">{t('List URL(s)')}</label>
+            <textarea className="conn-input" rows={2} value={form.url} onChange={(e) => { set('url', e.target.value); setPreview(null) }}
+              placeholder="https://trakt.tv/users/…/lists/…  ·  https://letterboxd.com/…/list/…  ·  https://www.imdb.com/list/ls…" style={{ resize: 'vertical', fontFamily: 'inherit' }} />
+            <span className="conn-hint">{t('Supported: Trakt, IMDb, TMDB, Letterboxd, MDBList, AniList. One URL per line to combine several lists in order.')}</span>
           </div>
         )}
 
@@ -216,7 +243,7 @@ export default function ListEditorModal({ list, presets, onClose, onSaved, onToa
           )}
         </div>
 
-        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 12 }}>
+        <div style={rowStyle}>
           <div className="conn-field-group">
             <label className="conn-field-label">{t('Media type')}</label>
             <select className="conn-select" value={form.mediaType} onChange={(e) => set('mediaType', e.target.value)}>
@@ -226,6 +253,18 @@ export default function ListEditorModal({ list, presets, onClose, onSaved, onToa
             </select>
           </div>
           <div className="conn-field-group">
+            <label className="conn-field-label">{t('Max items')}</label>
+            <input type="number" min="0" className="conn-input" style={{ maxWidth: 90 }} value={form.maxItems} onChange={(e) => set('maxItems', e.target.value)} />
+            <span className="conn-hint">{t('Top N of the list; 0 = whole list')}</span>
+          </div>
+          <div className="conn-field-group">
+            <label className="conn-field-label">{t('Sync every (hours)')}</label>
+            <input type="number" min="1" className="conn-input" style={{ maxWidth: 90 }} value={form.syncIntervalHours} onChange={(e) => set('syncIntervalHours', e.target.value)} />
+          </div>
+        </div>
+
+        <div style={rowStyle}>
+          <div className="conn-field-group">
             <label className="conn-field-label">{t('New items')}</label>
             <select className="conn-select" value={form.approvalMode} onChange={(e) => set('approvalMode', e.target.value)}>
               <option value="auto">{t('Auto-approve & request')}</option>
@@ -233,17 +272,23 @@ export default function ListEditorModal({ list, presets, onClose, onSaved, onToa
             </select>
           </div>
           <div className="conn-field-group">
-            <label className="conn-field-label">{t('Sync every (hours)')}</label>
-            <input type="number" min="1" className="conn-input" style={{ maxWidth: 90 }} value={form.syncIntervalHours} onChange={(e) => set('syncIntervalHours', e.target.value)} />
-          </div>
-          <div className="conn-field-group">
             <label className="conn-field-label">{t('Max requests per sync')}</label>
             <input type="number" min="0" className="conn-input" style={{ maxWidth: 90 }} value={form.maxRequestsPerRun} onChange={(e) => set('maxRequestsPerRun', e.target.value)} />
             <span className="conn-hint">{t('0 = collection only, never request')}</span>
           </div>
+          {isTv && (
+            <div className="conn-field-group">
+              <label className="conn-field-label">{t('Seasons to request')}</label>
+              <select className="conn-select" value={form.seasonMode} onChange={(e) => set('seasonMode', e.target.value)}>
+                <option value="all">{t('All seasons')}</option>
+                <option value="first">{t('First season only')}</option>
+                <option value="latest">{t('Latest season only')}</option>
+              </select>
+            </div>
+          )}
         </div>
 
-        <div style={{ borderTop: '1px solid var(--border)', paddingTop: 14, marginBottom: 14 }}>
+        <div style={dividerStyle}>
           <div className="conn-toggle-row" style={{ marginBottom: 8 }}>
             <span className="conn-toggle-label">
               {t('Create a Plex collection from this list')}
@@ -257,21 +302,62 @@ export default function ListEditorModal({ list, presets, onClose, onSaved, onToa
             </label>
           </div>
           {form.collectionEnabled && (
-            <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-              <div className="conn-field-group">
-                <label className="conn-field-label">{t('Collection name')}</label>
-                <input type="text" className="conn-input" placeholder={form.name || t('Defaults to list name')} value={form.collectionName} onChange={(e) => set('collectionName', e.target.value)} />
+            <>
+              <div style={rowStyle}>
+                <div className="conn-field-group">
+                  <label className="conn-field-label">{t('Collection name')}</label>
+                  <input type="text" className="conn-input" placeholder={form.name || t('Defaults to list name')} value={form.collectionName} onChange={(e) => set('collectionName', e.target.value)} />
+                </div>
+                <div className="conn-field-group">
+                  <label className="conn-field-label">{t('Show on')}</label>
+                  <select className="conn-select" value={form.collectionVisibility} onChange={(e) => set('collectionVisibility', e.target.value)}>
+                    <option value="home">{t('Everyone’s home + Recommended')}</option>
+                    <option value="owner_home">{t('Owner’s home + Recommended')}</option>
+                    <option value="recommended">{t('Library Recommended tab')}</option>
+                    <option value="library">{t('Library only (no promotion)')}</option>
+                  </select>
+                </div>
               </div>
-              <div className="conn-field-group">
-                <label className="conn-field-label">{t('Show on')}</label>
-                <select className="conn-select" value={form.collectionVisibility} onChange={(e) => set('collectionVisibility', e.target.value)}>
-                  <option value="home">{t('Home page + Recommended')}</option>
-                  <option value="recommended">{t('Library Recommended tab')}</option>
-                  <option value="library">{t('Library only (no promotion)')}</option>
-                </select>
+              <div style={rowStyle}>
+                <div className="conn-field-group">
+                  <label className="conn-field-label">{t('Item order')}</label>
+                  <select className="conn-select" value={form.collectionSort} onChange={(e) => set('collectionSort', e.target.value)}>
+                    {COLLECTION_SORTS.map(s => <option key={s.value} value={s.value}>{t(s.label)}</option>)}
+                  </select>
+                </div>
+                <div className="conn-field-group">
+                  <label className="conn-field-label">{t('Home position')}</label>
+                  <input type="number" min="0" className="conn-input" style={{ maxWidth: 90 }} value={form.homeOrder} onChange={(e) => set('homeOrder', e.target.value)} />
+                  <span className="conn-hint">{t('Row on the Plex home; 0 = leave')}</span>
+                </div>
+                <div className="conn-field-group">
+                  <label className="conn-field-label">{t('Library position')}</label>
+                  <input type="number" min="0" className="conn-input" style={{ maxWidth: 90 }} value={form.libraryOrder} onChange={(e) => set('libraryOrder', e.target.value)} />
+                  <span className="conn-hint">{t('Order in the Collections tab; 0 = alphabetical')}</span>
+                </div>
               </div>
-            </div>
+              <div className="conn-toggle-row" style={{ marginBottom: 8 }}>
+                <span className="conn-toggle-label">
+                  {t('Only show titles the viewer hasn’t watched')}
+                  <span className="conn-hint" style={{ display: 'block' }}>{t('Makes it a smart collection: each user sees only what they haven’t finished. Item order then follows the sort above (list order becomes newest release first).')}</span>
+                </span>
+                <label className="slide-toggle">
+                  <input type="checkbox" checked={form.collectionUnwatchedOnly} onChange={(e) => set('collectionUnwatchedOnly', e.target.checked)} />
+                  <span className="slide-track" />
+                </label>
+              </div>
+              <div className="conn-field-group" style={{ marginBottom: 8 }}>
+                <label className="conn-field-label">{t('Collection summary (optional)')}</label>
+                <input type="text" className="conn-input" value={form.collectionSummary} onChange={(e) => set('collectionSummary', e.target.value)} placeholder={t('Shown on the collection in Plex')} />
+              </div>
+            </>
           )}
+        </div>
+
+        <div style={dividerStyle}>
+          <label className="conn-field-label">{t('Exclude from this list')}</label>
+          <span className="conn-hint" style={{ display: 'block', marginBottom: 8 }}>{t('Titles never requested or added to the collection by this list. Global exclusions apply on top.')}</span>
+          <ExclusionsEditor value={exclusions} onChange={setExclusions} defaultMediaType={form.mediaType === 'tv' ? 'tv' : 'movie'} />
         </div>
 
         <div className="admin-actions">

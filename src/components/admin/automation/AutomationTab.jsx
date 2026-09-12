@@ -1,11 +1,13 @@
 import React, { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import AutoRequest from './AutoRequest'
+import HomeLayout from './HomeLayout'
 import DeletionProfiles from './DeletionProfiles'
 import DeletionQueue from './DeletionQueue'
 
 const SECTIONS = [
   { id: 'autorequest', label: 'Auto Request' },
+  { id: 'layout', label: 'Home Layout' },
   { id: 'deletion', label: 'Deletion Profiles' },
   { id: 'activity', label: 'Activity' },
 ]
@@ -28,6 +30,7 @@ export default function AutomationTab({ onToast }) {
         ))}
       </div>
       {section === 'autorequest' && <AutoRequest onToast={onToast} />}
+      {section === 'layout' && <HomeLayout onToast={onToast} />}
       {section === 'deletion' && <DeletionProfiles onToast={onToast} />}
       {section === 'activity' && <DeletionQueue onToast={onToast} />}
     </div>

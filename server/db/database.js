@@ -888,6 +888,72 @@ db.exec(`CREATE TABLE IF NOT EXISTS migrations (name TEXT PRIMARY KEY, ran_at IN
         `);
       },
     },
+    {
+      // Collection manager parity (Agregarr migration): per-list item cap,
+      // season grab mode for TV requests, per-list exclusions, multi-URL
+      // sources, and Plex presentation controls — unwatched-only smart
+      // collections, item sort, home hub order and library (titleSort) order.
+      name: 'automation_collections_v2',
+      sql: () => {
+        // The original CHECK on collection_visibility can't admit the new
+        // 'owner_home' value, and SQLite can't drop a CHECK in place, so the
+        // table is rebuilt (foreign keys off so the drop doesn't cascade into
+        // list_source_items, whose FK follows the rename).
+        db.exec('PRAGMA foreign_keys = OFF');
+        try {
+          db.exec(`
+            CREATE TABLE list_sources_v2 (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              name TEXT NOT NULL,
+              source_type TEXT NOT NULL,
+              url TEXT,
+              preset_key TEXT,
+              enabled INTEGER NOT NULL DEFAULT 1,
+              media_type TEXT NOT NULL DEFAULT 'all',
+              approval_mode TEXT NOT NULL DEFAULT 'auto' CHECK(approval_mode IN ('auto', 'pending')),
+              sync_interval_hours INTEGER NOT NULL DEFAULT 24,
+              max_requests_per_run INTEGER NOT NULL DEFAULT 10,
+              collection_enabled INTEGER NOT NULL DEFAULT 0,
+              collection_name TEXT,
+              collection_visibility TEXT NOT NULL DEFAULT 'library',
+              collection_rating_key TEXT,
+              criteria_json TEXT DEFAULT NULL,
+              match_mode TEXT NOT NULL DEFAULT 'ALL',
+              last_synced_at INTEGER DEFAULT 0,
+              last_status TEXT,
+              last_error TEXT,
+              created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+              updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+              max_items INTEGER NOT NULL DEFAULT 0,
+              season_mode TEXT NOT NULL DEFAULT 'all',
+              exclusions_json TEXT DEFAULT NULL,
+              collection_unwatched_only INTEGER NOT NULL DEFAULT 0,
+              collection_sort TEXT NOT NULL DEFAULT 'list',
+              home_order INTEGER NOT NULL DEFAULT 0,
+              library_order INTEGER NOT NULL DEFAULT 0,
+              collection_summary TEXT DEFAULT NULL
+            );
+            INSERT INTO list_sources_v2
+              (id, name, source_type, url, preset_key, enabled, media_type, approval_mode,
+               sync_interval_hours, max_requests_per_run, collection_enabled, collection_name,
+               collection_visibility, collection_rating_key, criteria_json, match_mode,
+               last_synced_at, last_status, last_error, created_at, updated_at)
+            SELECT id, name, source_type, url, preset_key, enabled, media_type, approval_mode,
+               sync_interval_hours, max_requests_per_run, collection_enabled, collection_name,
+               collection_visibility, collection_rating_key, criteria_json, match_mode,
+               last_synced_at, last_status, last_error, created_at, updated_at
+            FROM list_sources;
+            DROP TABLE list_sources;
+            ALTER TABLE list_sources_v2 RENAME TO list_sources;
+          `);
+        } finally {
+          db.exec('PRAGMA foreign_keys = ON');
+        }
+        // List position so collections can be rebuilt in source order without
+        // re-fetching the source (30-minute quick sync of newly added items).
+        try { db.exec('ALTER TABLE list_source_items ADD COLUMN position INTEGER DEFAULT NULL'); } catch {}
+      },
+    },
   ].forEach(({ name, sql }) => {
    const already = db.prepare('SELECT 1 FROM migrations WHERE name = ?').get(name);
    if (!already) {

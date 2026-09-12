@@ -3,8 +3,18 @@
 // "<name> (TV)"); list_sources.collection_rating_key stores them as a JSON
 // object {"movie": key, "tv": key, "jfMovie": boxSetId, "jfTv": boxSetId} —
 // the jf* entries are the Jellyfin BoxSets mirrored by jellyfin/collections.js.
+//
+// Two flavours per list:
+//   regular   – items added/removed explicitly, ordered per collection_sort
+//   unwatched – a smart collection filtered on a per-list label AND
+//               "unwatched" (evaluated per viewing user by Plex); the label is
+//               stamped on the list's items (plexLabels.js)
+// Presentation (hub promotion, home order, library sort-title prefix) is
+// applied here and by plexHubs.js.
 const db = require('../db/database');
 const plexService = require('./plex');
+const policy = require('./collectionPolicy');
+const labels = require('./plexLabels');
 
 const PLEX_KEY_NAMES = ['movie', 'tv'];
 
@@ -69,20 +79,41 @@ async function createCollection(sectionId, plexType, title, machineId, ratingKey
   return String(key);
 }
 
+async function createSmartCollection(sectionId, plexType, title, machineId, filterPath) {
+  const uri = encodeURIComponent(`server://${machineId}/com.plexapp.plugins.library${filterPath}`);
+  const json = await plexRequest(
+    `/library/collections?type=${plexType}&title=${encodeURIComponent(title)}&smart=1&sectionId=${sectionId}&uri=${uri}`,
+    { method: 'POST' }
+  );
+  const key = json?.MediaContainer?.Metadata?.[0]?.ratingKey;
+  if (!key) throw new Error('Plex did not return a collection ratingKey');
+  return String(key);
+}
+
+async function updateSmartFilter(collectionKey, machineId, filterPath) {
+  const uri = encodeURIComponent(`server://${machineId}/com.plexapp.plugins.library${filterPath}`);
+  await plexRequest(`/library/collections/${collectionKey}/items?uri=${uri}`, { method: 'PUT' });
+}
+
+// null when the collection no longer exists (admin deleted it in Plex).
+async function getCollection(collectionKey) {
+  try {
+    const json = await plexRequest(`/library/collections/${collectionKey}`);
+    return json?.MediaContainer?.Metadata?.[0] || null;
+  } catch (err) {
+    if (err.status === 404) return null;
+    throw err;
+  }
+}
+
 async function getCollectionItemKeys(collectionKey) {
   const json = await plexRequest(`/library/collections/${collectionKey}/children?X-Plex-Container-Size=5000`);
-  return new Set((json?.MediaContainer?.Metadata || []).map(m => String(m.ratingKey)));
+  return (json?.MediaContainer?.Metadata || []).map(m => String(m.ratingKey));
 }
 
 // Same hub-manage endpoint Kometa/plexapi use for collection visibility.
-// home → promoted on the server owner's home (and shared homes) + recommended;
-// recommended → only the library's Recommended tab; library → no promotion.
 async function setVisibility(sectionId, collectionKey, visibility) {
-  const flags = {
-    home: { rec: 1, own: 1, shared: 1 },
-    recommended: { rec: 1, own: 0, shared: 0 },
-    library: { rec: 0, own: 0, shared: 0 },
-  }[visibility] || { rec: 0, own: 0, shared: 0 };
+  const flags = policy.visibilityFlags(visibility);
   await plexRequest(
     `/hubs/sections/${sectionId}/manage?metadataItemId=${collectionKey}` +
     `&promotedToRecommended=${flags.rec}&promotedToOwnHome=${flags.own}&promotedToSharedHome=${flags.shared}`,
@@ -95,6 +126,37 @@ async function deleteCollection(collectionKey) {
     .catch(err => { if (err.status !== 404) throw err; });
 }
 
+async function setCollectionSortTitle(collectionKey, sortTitle) {
+  await plexRequest(
+    `/library/metadata/${collectionKey}?type=18&id=${collectionKey}&titleSort.value=${encodeURIComponent(sortTitle)}&titleSort.locked=1`,
+    { method: 'PUT' }
+  );
+}
+
+async function setCollectionSummary(collectionKey, summary) {
+  await plexRequest(
+    `/library/metadata/${collectionKey}?type=18&id=${collectionKey}&summary.value=${encodeURIComponent(summary)}&summary.locked=1`,
+    { method: 'PUT' }
+  );
+}
+
+// 0 = release date, 1 = alphabetical, 2 = custom (our explicit order)
+async function setCollectionCustomSort(collectionKey) {
+  await plexRequest(`/library/collections/${collectionKey}/prefs?collectionSort=2`, { method: 'PUT' });
+}
+
+async function arrangeItems(collectionKey, wantedKeys) {
+  const current = await getCollectionItemKeys(collectionKey);
+  const moves = policy.planMoves(current, wantedKeys);
+  for (const m of moves) {
+    await plexRequest(
+      `/library/collections/${collectionKey}/items/${m.key}/move${m.after ? `?after=${m.after}` : ''}`,
+      { method: 'PUT' }
+    ).catch(() => {});
+  }
+  return moves.length;
+}
+
 function parseCollectionKeys(raw) {
   if (!raw) return {};
   try {
@@ -105,56 +167,112 @@ function parseCollectionKeys(raw) {
   return { movie: String(raw) };
 }
 
+// Library rows for the list's entries (Plex only — a Jellyfin GUID would be
+// built into a Plex metadata URI), in list order, with the fields sorting needs.
+function plexRowsFor(entries, media) {
+  const stmt = db.prepare(
+    "SELECT rating_key, title, release_date, added_at, audience_rating, rating FROM library_items WHERE tmdb_id = ? AND type = ? AND source = 'plex'"
+  );
+  const plexItemType = media === 'tv' ? 'show' : 'movie';
+  const rows = [];
+  for (const entry of entries) {
+    if ((entry.mediaType === 'tv' ? 'tv' : 'movie') !== media) continue;
+    const row = stmt.get(String(entry.tmdbId), plexItemType);
+    if (row) {
+      rows.push({
+        ratingKey: String(row.rating_key), title: row.title, releaseDate: row.release_date,
+        addedAt: row.added_at, rating: row.audience_rating || row.rating || 0,
+      });
+    }
+  }
+  return rows;
+}
+
 // Mirror one media type of the list into a collection in its section.
 // Returns the (possibly newly created) collection key, or null if no items.
-async function syncTypeCollection({ title, sectionId, plexType, ratingKeys, existingKey, visibility }) {
+async function syncTypeCollection({ list, media, title, sectionId, plexType, rows, existingKey, sortPrefix }) {
   const machineId = await getMachineId();
-  let key = existingKey;
+  const wantSmart = !!list.collectionUnwatchedOnly;
+  const label = policy.listLabel(list.id);
+  let key = existingKey || null;
+  let existing = key ? await getCollection(key) : null;
+  if (!existing) key = null;
 
-  if (key) {
-    // Verify it still exists (admin may have deleted it in Plex)
-    try { await plexRequest(`/library/collections/${key}`); }
-    catch (err) { if (err.status === 404) key = null; else throw err; }
+  if (wantSmart) {
+    // Keep the label set in step with the list, then point the smart filter at it.
+    await labels.syncLabel({ sectionId, plexType, label, wantedKeys: rows.map(r => r.ratingKey) });
+    const filterPath = policy.smartFilterPath({ sectionId, mediaType: media, label, sort: list.collectionSort, maxItems: list.maxItems });
+    if (existing && String(existing.smart) !== '1') {
+      // Converting a regular collection: the smart one replaces it.
+      await deleteCollection(key);
+      key = null;
+    }
+    if (!key) {
+      if (rows.length === 0) return null;
+      key = await createSmartCollection(sectionId, plexType, title, machineId, filterPath);
+    } else {
+      await updateSmartFilter(key, machineId, filterPath);
+    }
+  } else {
+    const wanted = policy.orderItems(rows, list.collectionSort).map(r => r.ratingKey);
+    if (existing && String(existing.smart) === '1') {
+      await labels.syncLabel({ sectionId, plexType, label, wantedKeys: [] }).catch(() => {});
+      await deleteCollection(key);
+      key = null;
+    }
+    if (!key) {
+      if (wanted.length === 0) return null;
+      key = await createCollection(sectionId, plexType, title, machineId, wanted);
+    } else {
+      const current = new Set(await getCollectionItemKeys(key));
+      const wantedSet = new Set(wanted);
+      const toAdd = wanted.filter(k => !current.has(k));
+      const toRemove = [...current].filter(k => !wantedSet.has(k));
+      if (toAdd.length > 0) {
+        await plexRequest(`/library/collections/${key}/items?uri=${metadataUri(machineId, toAdd)}`, { method: 'PUT' });
+      }
+      for (const itemKey of toRemove) {
+        await plexRequest(`/library/collections/${key}/items/${itemKey}`, { method: 'DELETE' })
+          .catch(err => { if (err.status !== 404) throw err; });
+      }
+    }
+    await setCollectionCustomSort(key).catch(() => {});
+    await arrangeItems(key, wanted).catch(() => {});
   }
 
-  if (!key) {
-    if (ratingKeys.length === 0) return null;
-    key = await createCollection(sectionId, plexType, title, machineId, ratingKeys);
-    await setVisibility(sectionId, key, visibility);
-    return key;
+  await setVisibility(sectionId, key, list.collectionVisibility);
+  const current = existing || await getCollection(key);
+  const plainTitle = current?.title || title;
+  if (sortPrefix) {
+    const wantedSort = `${sortPrefix}${plainTitle}`;
+    if (current?.titleSort !== wantedSort) await setCollectionSortTitle(key, wantedSort).catch(() => {});
+  } else if (current?.titleSort && /^!+/.test(current.titleSort) && current.titleSort !== plainTitle) {
+    // No library order any more: drop the prefix we (or Agregarr) added.
+    await setCollectionSortTitle(key, plainTitle).catch(() => {});
   }
-
-  const current = await getCollectionItemKeys(key);
-  const wanted = new Set(ratingKeys.map(String));
-  const toAdd = ratingKeys.filter(k => !current.has(String(k)));
-  const toRemove = [...current].filter(k => !wanted.has(k));
-  if (toAdd.length > 0) {
-    await plexRequest(`/library/collections/${key}/items?uri=${metadataUri(machineId, toAdd)}`, { method: 'PUT' });
+  if (list.collectionSummary && current?.summary !== list.collectionSummary) {
+    await setCollectionSummary(key, list.collectionSummary).catch(() => {});
   }
-  for (const itemKey of toRemove) {
-    await plexRequest(`/library/collections/${key}/items/${itemKey}`, { method: 'DELETE' })
-      .catch(err => { if (err.status !== 404) throw err; });
-  }
-  await setVisibility(sectionId, key, visibility);
   return key;
 }
 
+// Library-order prefix for this list within its section, from every list
+// that mirrors into the same media type (max order defines the prefix length).
+function sortPrefixFor(list, media) {
+  const automation = require('../db/automation');
+  if (!(list.libraryOrder > 0)) return null;
+  const peers = automation.getCollectionListsForMedia(media);
+  const maxOrder = Math.max(list.libraryOrder, ...peers.map(p => p.libraryOrder || 0));
+  return policy.sortTitlePrefix(list.libraryOrder, maxOrder);
+}
+
 // Entry point used by the list sync job. `entries` are resolved list items
-// ({ tmdbId, mediaType }); only those present in the library end up in the
-// collection. Persists collection keys back onto the list source.
+// ({ tmdbId, mediaType }) in list order; only those present in the library end
+// up in the collection. Persists collection keys back onto the list source.
 async function syncListCollection(listSource, entries) {
   const automation = require('../db/automation');
   const name = listSource.collectionName || listSource.name;
   const keys = parseCollectionKeys(listSource.collectionRatingKey);
-
-  const byType = { movie: [], tv: [] };
-  // Plex rows only — a Jellyfin GUID would be built into a Plex metadata URI.
-  const stmt = db.prepare("SELECT rating_key FROM library_items WHERE tmdb_id = ? AND type = ? AND source = 'plex'");
-  for (const entry of entries) {
-    const plexItemType = entry.mediaType === 'tv' ? 'show' : 'movie';
-    const row = stmt.get(String(entry.tmdbId), plexItemType);
-    if (row) byType[entry.mediaType === 'tv' ? 'tv' : 'movie'].push(String(row.rating_key));
-  }
 
   const plans = [
     { media: 'movie', sectionId: plexService.MOVIES_SECTION, plexType: 1, title: name },
@@ -169,12 +287,14 @@ async function syncListCollection(listSource, entries) {
       for (const plan of plans) {
         if (listSource.mediaType !== 'all' && listSource.mediaType !== plan.media) continue;
         const key = await syncTypeCollection({
+          list: listSource,
+          media: plan.media,
           title: plan.title,
           sectionId: plan.sectionId,
           plexType: plan.plexType,
-          ratingKeys: byType[plan.media],
+          rows: plexRowsFor(entries, plan.media),
           existingKey: updatedKeys[plan.media] || null,
-          visibility: listSource.collectionVisibility,
+          sortPrefix: sortPrefixFor(listSource, plan.media),
         });
         if (key) updatedKeys[plan.media] = key;
         else delete updatedKeys[plan.media];
@@ -203,11 +323,20 @@ async function applyVisibility(listSource) {
 }
 
 // Delete the Plex collections backing a list (used when removing a list and the
-// admin opts to also remove its collection).
+// admin opts to also remove its collection). Smart collections also drop their label.
 async function deleteListCollections(listSource) {
   const keys = parseCollectionKeys(listSource.collectionRatingKey);
   for (const name of PLEX_KEY_NAMES) if (keys[name]) await deleteCollection(keys[name]);
+  if (listSource.collectionUnwatchedOnly && plexConfigured()) {
+    const label = policy.listLabel(listSource.id);
+    for (const [name, sectionId, plexType] of [['movie', plexService.MOVIES_SECTION, 1], ['tv', plexService.TV_SECTION, 2]]) {
+      if (keys[name]) await labels.syncLabel({ sectionId, plexType, label, wantedKeys: [] }).catch(() => {});
+    }
+  }
   if (keys.jfMovie || keys.jfTv) await jellyfinCollections().deleteListBoxSets(keys);
 }
 
-module.exports = { syncListCollection, applyVisibility, deleteListCollections, parseCollectionKeys };
+module.exports = {
+  syncListCollection, applyVisibility, deleteListCollections, parseCollectionKeys,
+  getCollection, setCollectionSortTitle, plexConfigured,
+};

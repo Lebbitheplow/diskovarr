@@ -20,7 +20,7 @@ const DATE_STYLE = { fontWeight: '400', color: 'var(--text-secondary)', fontSize
 export default function ChangelogModal({ open, onClose }) {
   const { t } = useTranslation()
   if (!open) return null
-  const currentVersion = import.meta.env.VITE_APP_VERSION || '3.1.0'
+  const currentVersion = import.meta.env.VITE_APP_VERSION || '3.1.1'
 
   return (
     <div className="info-modal-backdrop open" onClick={onClose}>
@@ -33,6 +33,29 @@ export default function ChangelogModal({ open, onClose }) {
           <div className="info-modal-section">
             <div className="info-modal-section-title">
               v{currentVersion}{' '}
+              <span style={DATE_STYLE}>2026-09-12</span>
+            </div>
+            <p style={SECTION_LABEL_STYLE}>{t('New')}</p>
+            <ul style={LIST_STYLE}>
+              <li style={ITEM_STYLE}>Diskovarr can now run your whole collection setup — everything Agregarr did. Monitored lists gained a top-N item cap, per-list and global exclusions, combining several list URLs into one collection, "unwatched only" smart collections, item ordering, home and library ordering, owner-only home visibility, a first/latest season mode for TV requests, and an optional summary. An import script moves an Agregarr config over in one go</li>
+              <li style={ITEM_STYLE}>Plex Home Layout — every row Plex shows on the home and Recommended tab of each library, with owner/users/Recommended toggles and ordering, re-applied after every sync</li>
+              <li style={ITEM_STYLE}>New list sources: FlixPatrol streaming top 10s (via FlareSolverr), TMDB trending, AniList's most popular anime, and Hulu/Paramount+ charts from TMDB</li>
+            </ul>
+            <p style={SECTION_LABEL_STYLE}>{t('Changes')}</p>
+            <ul style={LIST_STYLE}>
+              <li style={ITEM_STYLE}>Collections pick up newly added library titles every 30 minutes without re-fetching the list; a Quick sync button does it on demand</li>
+              <li style={ITEM_STYLE}>Security: nodemailer upgraded to 9.1.0</li>
+            </ul>
+            <p style={SECTION_LABEL_STYLE}>{t('Fixes')}</p>
+            <ul style={LIST_STYLE_LAST}>
+              <li style={ITEM_STYLE}>The recommender no longer mixes up a movie and a show that share a TMDB id — the last trace of the mix-up that once put Lord of the Rings art on a Doctor Who notification</li>
+              <li style={ITEM_STYLE}>"Request missing seasons" only appears when the show actually has a season left to request</li>
+              <li style={ITEM_STYLE}>Monitored-list syncs no longer fail before requesting anything (a wrong module path in the auto-request job)</li>
+            </ul>
+          </div>
+          <div className="info-modal-section">
+            <div className="info-modal-section-title">
+              v3.1.0{' '}
               <span style={DATE_STYLE}>2026-09-06</span>
             </div>
             <p style={SECTION_LABEL_STYLE}>{t('New')}</p>
@@ -72,30 +95,6 @@ export default function ChangelogModal({ open, onClose }) {
             <ul style={LIST_STYLE_LAST}>
               <li style={ITEM_STYLE}>YouTube requests now turn Available when their episodes land in the library, and finished downloads are cleaned up instead of piling up hundreds of gigabytes on disk</li>
               <li style={ITEM_STYLE}>The Cast button no longer appears on items or for accounts that can't actually be cast</li>
-            </ul>
-          </div>
-          <div className="info-modal-section">
-            <div className="info-modal-section-title">
-              v3.0.0{' '}
-              <span style={DATE_STYLE}>2026-09-02</span>
-            </div>
-            <p style={SECTION_LABEL_STYLE}>{t('New')}</p>
-            <ul style={LIST_STYLE}>
-              <li style={ITEM_STYLE}>Smarter recommendations — the engine has been rebuilt to learn what you avoid as well as what you love. Genres and themes you consistently skip now stop being recommended instead of just counting for nothing, dismissing titles teaches it, and a favorite actor in a genre you never watch no longer carries the same weight</li>
-              <li style={ITEM_STYLE}>Taste profile quiz — a short quiz in Settings → Taste Profile walks through genres, moods, people, and titles you love or want to avoid, and your answers immediately shape your recommendations</li>
-              <li style={ITEM_STYLE}>Jellyfin updates are instant — Diskovarr now listens to Jellyfin's live event stream, so new items appear and requests flip to Available within seconds, just like Plex. Previously Jellyfin was checked every ten minutes</li>
-            </ul>
-            <p style={SECTION_LABEL_STYLE}>{t('Changes')}</p>
-            <ul style={LIST_STYLE}>
-              <li style={ITEM_STYLE}>Search is much faster — results and details are fetched in parallel instead of one at a time, and Diskovarr learns from which results you open</li>
-              <li style={ITEM_STYLE}>Jellyfin libraries appear in the admin panel — Synced Libraries lists Jellyfin folders with item counts and their own toggles, Sync Library Now covers both servers, and watched re-sync works for Jellyfin accounts</li>
-            </ul>
-            <p style={SECTION_LABEL_STYLE}>{t('Fixes')}</p>
-            <ul style={LIST_STYLE_LAST}>
-              <li style={ITEM_STYLE}>Jellyfin favorites no longer silently disappear from the watchlist for linked accounts</li>
-              <li style={ITEM_STYLE}>The library cleanup automation can no longer target Jellyfin items</li>
-              <li style={ITEM_STYLE}>Explore filters and library search now include Jellyfin titles, shared cards and Wrapped show Jellyfin artwork, and Monitors alert on Jellyfin additions</li>
-              <li style={ITEM_STYLE}>The admin panel header no longer collapses into a stacked pile of links</li>
             </ul>
           </div>
         </div>

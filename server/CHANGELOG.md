@@ -4,6 +4,24 @@ All notable changes are documented here. Versioning follows [Semantic Versioning
 
 ---
 
+## v3.1.1 — 2026-09-12
+
+### Added
+
+- **Collection manager parity with Agregarr.** Monitored lists (Admin → Automation → Auto Request) now carry everything Agregarr's collection configs did, so an Agregarr setup can move over wholesale (`scripts/import-agregarr.cjs settings.json --apply` maps every collection config, global exclusion, hub layout and credential; migration `automation_collections_v2` rebuilds `list_sources` without the old visibility CHECK). Per list: `max_items` (top-N of the source, also caps requests), `season_mode` (`all`/`first`/`latest` seasons on TV auto-requests), per-list `exclusions_json` plus a global exclusion list (`autorequest_exclusions` setting, `GET/POST /admin/automation/exclusions`), multi-URL sources (one URL per line, concatenated in order — Agregarr's multi-source "list order"), `collection_unwatched_only` (a label-keyed Plex smart collection filtered on `unwatched`/`show.unwatchedLeaves` so every viewer sees only what they haven't finished — `server/services/plexLabels.js` keeps the `diskovarr-list-<id>` label in step with the list), `collection_sort` (list order, release date, title, date added, rating; regular collections get `collectionSort=2` and are physically arranged with `items/{key}/move?after=`), `home_order` and `library_order` (the latter via the Agregarr-compatible `!` sort-title prefix), `owner_home` visibility, and an optional collection summary. Pure decision logic lives in `server/services/collectionPolicy.js` (`tests/collections.test.js`).
+- **Plex home layout** (`server/services/plexHubs.js`, Automation → Home Layout). Every hub Plex manages per library — built-ins like Recently Added plus promoted collections — with its owner-home / users'-home / Recommended flags and order, applied with `PUT /hubs/sections/{id}/manage/{hub}` and `…/move?after=`; built-in hubs persist in the `plex_hub_layout` setting, collections write back to their list. Re-applied after every promoted list sync and on demand (`POST /admin/automation/hubs/apply`).
+- **New list sources.** FlixPatrol streaming top 10s (`server/services/listSources/flixpatrol.js`: Netflix, HBO Max, Disney+, Paramount+, Prime Video, Apple TV+ from the global page; Hulu and Peacock from the US page) fetched through FlareSolverr (`flaresolverr_url` setting, default `http://localhost:8191`) to pass FlixPatrol's Cloudflare check; TMDB trending (day/week) presets; AniList's popularity chart with AniList→TMDB/TVDB ids from the Fribb anime-lists index (title search fallback); Hulu/Paramount+ TMDB watch-provider presets. Untyped chart rows resolve through `/search/multi`.
+- **Collections quick sync.** `list_source_items.position` records source order, and `autoRequest.runQuickSync()` (every 30 min, or Automation → Quick sync) rebuilds collections from the cached items so newly added library titles join their collections without re-fetching any source.
+
+### Fixed
+
+- Recommender review-rating and request→library maps were keyed by bare TMDB id; they are now keyed by media type too (movie 121 is The Two Towers, tv 121 is Doctor Who 1963). This closes the last type-blind lookups behind the August notification that showed Lord of the Rings art for a Doctor Who issue; the poster path itself was fixed in 2.5.5.
+- The auto-request job required the Overseerr shim from `services/` instead of `routes/`, so every monitored-list sync failed with "Cannot find module './overseerrShim'" before it could request or mirror anything.
+- nodemailer 9.0.5 → 9.1.0 (Snyk PR #15: SNYK-JS-NODEMAILER-19651818 / -19651822 / -19652370).
+- "Request missing seasons" on search cards and in the detail window is now shown only once `/search/seasons` confirms the show has a season that is neither complete nor already requested (`src/hooks/useMissingSeasons.js`, memoised per show and invalidated after a request is submitted).
+
+---
+
 ## v3.1.0 — 2026-09-06
 
 ### Added

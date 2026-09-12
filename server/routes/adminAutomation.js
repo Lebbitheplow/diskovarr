@@ -7,7 +7,9 @@ const automation = require('../db/automation');
 const listSources = require('../services/listSources');
 const autoRequest = require('../services/autoRequest');
 const plexCollections = require('../services/plexCollections');
+const plexHubs = require('../services/plexHubs');
 const deletionService = require('../services/deletion');
+const tmdbService = require('../services/tmdb');
 const logger = require('../services/logger');
 
 // JSON 401 (not the redirect admin.js uses) — these endpoints are only called
@@ -45,7 +47,25 @@ router.get('/presets', (req, res) => {
     presets: listSources.getPresets(),
     hasTraktCredential: !!(db.getSetting('trakt_client_id', null) || process.env.TRAKT_CLIENT_ID),
     hasMdblistCredential: !!(db.getSetting('mdblist_api_key', null) || process.env.MDBLIST_API_KEY),
+    hasFlareSolverr: !!(db.getSetting('flaresolverr_url', null) ?? (process.env.FLARESOLVERR_URL || 'http://localhost:8191')),
+    collectionSorts: automation.VALID_COLLECTION_SORTS,
+    seasonModes: automation.VALID_SEASON_MODES,
+    visibilities: automation.VALID_VISIBILITIES,
   });
+});
+
+// Title lookup for exclusion editors (tmdb cache first, then TMDB).
+router.get('/lookup', async (req, res) => {
+  const tmdbId = Number(req.query.tmdbId);
+  const mediaType = req.query.mediaType === 'tv' ? 'tv' : 'movie';
+  if (!tmdbId) return res.status(400).json({ error: 'tmdbId required' });
+  try {
+    const d = await tmdbService.getItemDetails(tmdbId, mediaType);
+    if (!d) return res.status(404).json({ error: 'Not found on TMDB' });
+    res.json({ tmdbId, mediaType, title: d.title, year: d.year || null, posterUrl: d.posterUrl || null });
+  } catch (e) {
+    res.status(502).json({ error: e.message });
+  }
 });
 
 // Validate a pasted URL, preset, or criteria set and return a resolved preview
@@ -60,7 +80,8 @@ router.post('/lists/validate', async (req, res) => {
       sourceType = 'criteria';
     } else if (!presetKey) {
       if (!url) return res.status(400).json({ error: 'url, presetKey, or criteria required' });
-      sourceType = listSources.parseListUrl(url).sourceType;
+      const parsed = listSources.parseListUrls(url);
+      sourceType = parsed.length > 1 ? 'multi' : parsed[0].sourceType;
     }
     const entries = await listSources.fetchList(
       { url, presetKey, sourceType, criteria, matchMode, mediaType: mediaType || 'all' },
@@ -90,18 +111,31 @@ function validateListBody(body) {
     const invalid = validateCriteria(body.criteria);
     if (invalid) return invalid;
   } else if (body.url && !body.presetKey) {
-    try { listSources.parseListUrl(body.url); } catch (e) { return e.message; }
+    try { listSources.parseListUrls(body.url); } catch (e) { return e.message; }
   }
   if (body.mediaType && !VALID_MEDIA_TYPES.includes(body.mediaType)) return 'invalid mediaType';
+  if (body.collectionVisibility !== undefined && !automation.VALID_VISIBILITIES.includes(body.collectionVisibility)) return 'invalid collectionVisibility';
+  if (body.collectionSort !== undefined && !automation.VALID_COLLECTION_SORTS.includes(body.collectionSort)) return 'invalid collectionSort';
+  if (body.seasonMode !== undefined && !automation.VALID_SEASON_MODES.includes(body.seasonMode)) return 'invalid seasonMode';
+  if (body.exclusions !== undefined && body.exclusions !== null && !Array.isArray(body.exclusions)) return 'exclusions must be an array';
   return null;
 }
+
+function sourceTypeOf(body) {
+  if (Array.isArray(body.criteria) && body.criteria.length > 0) return 'criteria';
+  if (body.presetKey) return 'preset';
+  const parsed = listSources.parseListUrls(body.url);
+  return parsed.length > 1 ? 'multi' : parsed[0].sourceType;
+}
+
+// Presentation fields that change how/where the collection shows in Plex.
+const PRESENTATION_FIELDS = ['collectionVisibility', 'collectionEnabled', 'homeOrder', 'libraryOrder', 'collectionUnwatchedOnly', 'collectionSort', 'collectionSummary'];
 
 router.post('/lists', (req, res) => {
   const body = req.body || {};
   const invalid = validateListBody(body);
   if (invalid) return res.status(400).json({ error: invalid });
-  const sourceType = Array.isArray(body.criteria) && body.criteria.length > 0 ? 'criteria'
-    : body.presetKey ? 'preset' : listSources.parseListUrl(body.url).sourceType;
+  const sourceType = sourceTypeOf(body);
   const id = automation.createListSource({ ...body, sourceType });
   logger.info(`[automation] list source created: "${body.name}" (#${id})`);
   res.json({ ok: true, id, list: automation.getListSource(id) });
@@ -115,14 +149,25 @@ router.put('/lists/:id', async (req, res) => {
     const invalid = validateCriteria(body.criteria);
     if (invalid) return res.status(400).json({ error: invalid });
   } else if (body.url && !body.presetKey && !existing.presetKey && existing.sourceType !== 'criteria') {
-    try { listSources.parseListUrl(body.url); } catch (e) { return res.status(400).json({ error: e.message }); }
+    try { listSources.parseListUrls(body.url); } catch (e) { return res.status(400).json({ error: e.message }); }
   }
-  automation.updateListSource(existing.id, body);
+  const invalid = validateListBody({ ...existing, ...body, name: body.name ?? existing.name });
+  if (invalid) return res.status(400).json({ error: invalid });
+  if (body.url && !body.presetKey && !existing.presetKey && existing.sourceType !== 'criteria') {
+    body.sourceType = sourceTypeOf({ url: body.url });
+    automation.updateListSource(existing.id, { ...body });
+    db.prepare('UPDATE list_sources SET source_type = ? WHERE id = ?').run(body.sourceType, existing.id);
+  } else {
+    automation.updateListSource(existing.id, body);
+  }
   const updated = automation.getListSource(existing.id);
-  // Re-apply collection visibility when its settings changed and collections exist
-  if (updated.collectionRatingKey && (body.collectionVisibility || body.collectionEnabled !== undefined)) {
+  // Re-apply presentation when it changed and collections exist: visibility
+  // straight away, ordering through the section layout.
+  const presentationChanged = PRESENTATION_FIELDS.some(f => body[f] !== undefined);
+  if (updated.collectionRatingKey && presentationChanged) {
     await plexCollections.applyVisibility(updated).catch(e =>
       logger.warn(`[automation] visibility update failed: ${e.message}`));
+    plexHubs.applyAllLayouts().catch(e => logger.warn(`[automation] layout apply failed: ${e.message}`));
   }
   res.json({ ok: true, list: updated });
 });
@@ -162,24 +207,118 @@ router.get('/lists/:id/items', (req, res) => {
   res.json({ items: automation.getListItems(existing.id) });
 });
 
+// Quick sync: rebuild collections from cached list items (no source fetches).
+router.post('/quick-sync', async (req, res) => {
+  try {
+    res.json({ ok: true, ...(await autoRequest.runQuickSync({ force: true })) });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── Source credentials ────────────────────────────────────────────────────────
 
 router.get('/credentials', (req, res) => {
   res.json({
     traktClientId: db.getSetting('trakt_client_id', '') ? '••••••••' : '',
     mdblistApiKey: db.getSetting('mdblist_api_key', '') ? '••••••••' : '',
+    flaresolverrUrl: db.getSetting('flaresolverr_url', null) ?? (process.env.FLARESOLVERR_URL || 'http://localhost:8191'),
   });
 });
 
 router.post('/credentials', (req, res) => {
-  const { traktClientId, mdblistApiKey } = req.body || {};
+  const { traktClientId, mdblistApiKey, flaresolverrUrl } = req.body || {};
   if (traktClientId !== undefined && traktClientId !== '••••••••') {
     db.setSetting('trakt_client_id', String(traktClientId).trim());
   }
   if (mdblistApiKey !== undefined && mdblistApiKey !== '••••••••') {
     db.setSetting('mdblist_api_key', String(mdblistApiKey).trim());
   }
+  if (flaresolverrUrl !== undefined) {
+    const v = String(flaresolverrUrl).trim();
+    if (v && !/^https?:\/\//i.test(v)) return res.status(400).json({ error: 'FlareSolverr URL must start with http:// or https://' });
+    db.setSetting('flaresolverr_url', v);
+  }
   res.json({ ok: true });
+});
+
+// ── Global exclusions (never requested / mirrored by any list) ────────────────
+
+router.get('/exclusions', (req, res) => {
+  res.json({ exclusions: autoRequest.getGlobalExclusions() });
+});
+
+router.post('/exclusions', async (req, res) => {
+  const list = req.body?.exclusions;
+  if (!Array.isArray(list)) return res.status(400).json({ error: 'exclusions must be an array' });
+  // Fill in titles for entries that arrive as bare ids (bounded: the editor
+  // adds a few at a time; bulk imports carry titles already).
+  const withTitles = [];
+  let lookups = 0;
+  for (const e of list) {
+    if (!e || !Number(e.tmdbId)) continue;
+    const mediaType = e.mediaType === 'tv' ? 'tv' : 'movie';
+    let title = e.title ? String(e.title) : null;
+    if (!title && lookups < 25) {
+      lookups++;
+      try { title = (await tmdbService.getItemDetails(Number(e.tmdbId), mediaType))?.title || null; } catch {}
+    }
+    withTitles.push({ tmdbId: Number(e.tmdbId), mediaType, ...(title ? { title } : {}) });
+  }
+  res.json({ ok: true, exclusions: autoRequest.setGlobalExclusions(withTitles) });
+});
+
+// ── Plex home / Recommended hub layout ────────────────────────────────────────
+
+router.get('/hubs', async (req, res) => {
+  if (!plexCollections.plexConfigured()) return res.json({ sections: [] });
+  try {
+    res.json({ sections: await plexHubs.describeAllSections() });
+  } catch (e) {
+    res.status(502).json({ error: e.message });
+  }
+});
+
+// Body: { items: [{ identifier, listId?, own, shared, rec }] } in the wanted
+// order. Built-in hubs are stored in the layout setting; collections write
+// their order/visibility back to the owning list. Then the section is applied.
+router.put('/hubs/:sectionId', async (req, res) => {
+  const items = req.body?.items;
+  if (!Array.isArray(items)) return res.status(400).json({ error: 'items must be an array' });
+  const sectionId = String(req.params.sectionId);
+  const hubRows = [];
+  let order = 0;
+  for (const item of items) {
+    if (!item || !item.identifier) continue;
+    order++;
+    const flags = { rec: !!item.rec, own: !!item.own, shared: !!item.shared };
+    if (item.listId) {
+      const list = automation.getListSource(item.listId);
+      if (!list) continue;
+      automation.updateListSource(list.id, {
+        homeOrder: order,
+        collectionVisibility: require('../services/collectionPolicy').visibilityFromFlags(flags),
+      });
+      continue;
+    }
+    if (/^custom\.collection\./.test(item.identifier)) continue; // unmanaged collection (e.g. Kometa's)
+    hubRows.push({ identifier: item.identifier, ...flags, order });
+  }
+  plexHubs.setSectionLayout(sectionId, hubRows);
+  try {
+    const result = await plexHubs.applySectionLayout(sectionId);
+    res.json({ ok: true, ...result });
+  } catch (e) {
+    res.status(502).json({ ok: false, error: e.message });
+  }
+});
+
+router.post('/hubs/apply', async (req, res) => {
+  try {
+    res.json({ ok: true, results: await plexHubs.applyAllLayouts() });
+  } catch (e) {
+    res.status(502).json({ error: e.message });
+  }
 });
 
 // ── Deletion profiles ─────────────────────────────────────────────────────────

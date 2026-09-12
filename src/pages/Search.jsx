@@ -16,6 +16,7 @@ import { useToast } from '../context/ToastContext'
 import { posterUrl } from '../utils/media'
 import { useTranslation } from 'react-i18next'
 import { withViewTransition } from '../utils/viewTransition'
+import useMissingSeasons from '../hooks/useMissingSeasons'
 
 // One card for every result grid/carousel on this page. Previously this markup
 // was duplicated four times, each nesting the action buttons inside the poster
@@ -24,6 +25,8 @@ import { withViewTransition } from '../utils/viewTransition'
 function SearchCard({ item, inWatchlist, onOpenModal, onToggleWatchlist, onRequest }) {
   const { t } = useTranslation()
   const isUpcoming = item.releaseDate && item.releaseDate > new Date().toISOString().slice(0, 10)
+  // Library shows only get "Request missing" while a season is still requestable.
+  const hasMissingSeasons = useMissingSeasons(item)
   return (
     <div className="card search-card">
       <button className="card-poster-link" onClick={() => onOpenModal(item)} type="button" aria-label={item.title}>
@@ -69,7 +72,7 @@ function SearchCard({ item, inWatchlist, onOpenModal, onToggleWatchlist, onReque
               {item.isRequested ? t('Requested') + ' \u2713' : t('Request')}
             </button>
           )}
-          {item.inLibrary && item.mediaType === 'tv' && item.tmdbId && (
+          {item.inLibrary && item.mediaType === 'tv' && item.tmdbId && hasMissingSeasons && (
             <button
               className="btn-icon btn-request"
               onClick={(e) => { e.stopPropagation(); onRequest(item) }}

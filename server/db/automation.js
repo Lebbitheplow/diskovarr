@@ -7,9 +7,41 @@ const now = () => Math.floor(Date.now() / 1000);
 
 // ── List sources ──────────────────────────────────────────────────────────────
 
+// Plex collection item order. 'list' keeps the source list's order; the rest
+// re-sort the mirrored items (smart collections map these to a Plex sort).
+const VALID_COLLECTION_SORTS = ['list', 'release_desc', 'release_asc', 'title', 'added_desc', 'rating_desc'];
+// Which seasons an auto-request asks for on a TV show.
+const VALID_SEASON_MODES = ['all', 'first', 'latest'];
+const VALID_VISIBILITIES = ['home', 'owner_home', 'recommended', 'library'];
+
+// Per-list exclusions: [{ tmdbId, mediaType, title? }] — never requested and
+// never mirrored into the collection, on top of the global exclusion list.
+function parseExclusions(raw) {
+  if (!raw) return [];
+  try {
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr.filter(e => e && Number(e.tmdbId)).map(normalizeExclusion) : [];
+  } catch { return []; }
+}
+
+function normalizeExclusion(e) {
+  return {
+    tmdbId: Number(e.tmdbId),
+    mediaType: e.mediaType === 'tv' ? 'tv' : 'movie',
+    ...(e.title ? { title: String(e.title) } : {}),
+  };
+}
+
+function serializeExclusions(list) {
+  if (!Array.isArray(list)) return null;
+  const clean = list.filter(e => e && Number(e.tmdbId)).map(normalizeExclusion);
+  return clean.length ? JSON.stringify(clean) : null;
+}
+
 function listSourceRow(r) {
   let criteria = null;
   try { criteria = r.criteria_json ? JSON.parse(r.criteria_json) : null; } catch {}
+  const exclusions = parseExclusions(r.exclusions_json);
   return {
     id: r.id,
     name: r.name,
@@ -27,6 +59,14 @@ function listSourceRow(r) {
     collectionName: r.collection_name || null,
     collectionVisibility: r.collection_visibility,
     collectionRatingKey: r.collection_rating_key || null,
+    collectionUnwatchedOnly: !!r.collection_unwatched_only,
+    collectionSort: VALID_COLLECTION_SORTS.includes(r.collection_sort) ? r.collection_sort : 'list',
+    collectionSummary: r.collection_summary || null,
+    homeOrder: r.home_order || 0,
+    libraryOrder: r.library_order || 0,
+    maxItems: r.max_items || 0,
+    seasonMode: VALID_SEASON_MODES.includes(r.season_mode) ? r.season_mode : 'all',
+    exclusions,
     lastSyncedAt: r.last_synced_at || 0,
     lastStatus: r.last_status || null,
     lastError: r.last_error || null,
@@ -35,15 +75,22 @@ function listSourceRow(r) {
   };
 }
 
-function createListSource({ name, sourceType, url, presetKey, criteria, matchMode, enabled, mediaType, approvalMode, syncIntervalHours, maxRequestsPerRun, collectionEnabled, collectionName, collectionVisibility }) {
+function createListSource({
+  name, sourceType, url, presetKey, criteria, matchMode, enabled, mediaType, approvalMode,
+  syncIntervalHours, maxRequestsPerRun, collectionEnabled, collectionName, collectionVisibility,
+  collectionUnwatchedOnly, collectionSort, collectionSummary, homeOrder, libraryOrder,
+  maxItems, seasonMode, exclusions, collectionRatingKey,
+}) {
   // 0 is valid (collection-only list that never requests); absent/garbage → 10
   const maxPerRun = Number.isFinite(parseInt(maxRequestsPerRun)) ? Math.max(0, parseInt(maxRequestsPerRun)) : 10;
   const result = db.prepare(`
     INSERT INTO list_sources
       (name, source_type, url, preset_key, criteria_json, match_mode, enabled, media_type, approval_mode,
        sync_interval_hours, max_requests_per_run,
-       collection_enabled, collection_name, collection_visibility)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       collection_enabled, collection_name, collection_visibility,
+       collection_unwatched_only, collection_sort, collection_summary, home_order, library_order,
+       max_items, season_mode, exclusions_json, collection_rating_key)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     String(name), String(sourceType), url || null, presetKey || null,
     Array.isArray(criteria) && criteria.length ? JSON.stringify(criteria) : null,
@@ -54,7 +101,16 @@ function createListSource({ name, sourceType, url, presetKey, criteria, matchMod
     Math.max(1, parseInt(syncIntervalHours) || 24),
     maxPerRun,
     collectionEnabled ? 1 : 0, collectionName || null,
-    ['home', 'recommended', 'library'].includes(collectionVisibility) ? collectionVisibility : 'library'
+    VALID_VISIBILITIES.includes(collectionVisibility) ? collectionVisibility : 'library',
+    collectionUnwatchedOnly ? 1 : 0,
+    VALID_COLLECTION_SORTS.includes(collectionSort) ? collectionSort : 'list',
+    collectionSummary || null,
+    Math.max(0, parseInt(homeOrder) || 0),
+    Math.max(0, parseInt(libraryOrder) || 0),
+    Math.max(0, parseInt(maxItems) || 0),
+    VALID_SEASON_MODES.includes(seasonMode) ? seasonMode : 'all',
+    serializeExclusions(exclusions),
+    collectionRatingKey || null
   );
   return Number(result.lastInsertRowid);
 }
@@ -73,11 +129,19 @@ const LIST_SOURCE_COLUMNS = {
   mediaType: 'media_type', approvalMode: 'approval_mode',
   syncIntervalHours: 'sync_interval_hours', maxRequestsPerRun: 'max_requests_per_run',
   collectionName: 'collection_name', collectionVisibility: 'collection_visibility',
-  collectionRatingKey: 'collection_rating_key',
+  collectionRatingKey: 'collection_rating_key', collectionSummary: 'collection_summary',
   lastStatus: 'last_status', lastError: 'last_error',
 };
-const LIST_SOURCE_BOOLS = { enabled: 'enabled', collectionEnabled: 'collection_enabled' };
+const LIST_SOURCE_BOOLS = {
+  enabled: 'enabled', collectionEnabled: 'collection_enabled',
+  collectionUnwatchedOnly: 'collection_unwatched_only',
+};
 const LIST_SOURCE_TIMES = { lastSyncedAt: 'last_synced_at' };
+const LIST_SOURCE_INTS = { homeOrder: 'home_order', libraryOrder: 'library_order', maxItems: 'max_items' };
+const LIST_SOURCE_ENUMS = {
+  collectionSort: ['collection_sort', VALID_COLLECTION_SORTS, 'list'],
+  seasonMode: ['season_mode', VALID_SEASON_MODES, 'all'],
+};
 
 function updateListSource(id, fields) {
   const updates = [];
@@ -89,6 +153,19 @@ function updateListSource(id, fields) {
   if (fields.matchMode !== undefined) {
     updates.push('match_mode = ?');
     params.push(fields.matchMode === 'ANY' ? 'ANY' : 'ALL');
+  }
+  if (fields.exclusions !== undefined) {
+    updates.push('exclusions_json = ?');
+    params.push(serializeExclusions(fields.exclusions));
+  }
+  if (fields.collectionVisibility !== undefined && !VALID_VISIBILITIES.includes(fields.collectionVisibility)) {
+    fields = { ...fields, collectionVisibility: 'library' };
+  }
+  for (const [key, col] of Object.entries(LIST_SOURCE_INTS)) {
+    if (fields[key] !== undefined) { updates.push(`${col} = ?`); params.push(Math.max(0, parseInt(fields[key]) || 0)); }
+  }
+  for (const [key, [col, valid, dflt]] of Object.entries(LIST_SOURCE_ENUMS)) {
+    if (fields[key] !== undefined) { updates.push(`${col} = ?`); params.push(valid.includes(fields[key]) ? fields[key] : dflt); }
   }
   for (const [key, col] of Object.entries(LIST_SOURCE_COLUMNS)) {
     if (fields[key] !== undefined) { updates.push(`${col} = ?`); params.push(fields[key] ?? null); }
@@ -117,25 +194,27 @@ function getDueListSources() {
 
 // ── List source items (per-list seen/requested tracking) ─────────────────────
 
-function upsertListItem({ listId, tmdbId, mediaType, title, status, requestId }) {
+function upsertListItem({ listId, tmdbId, mediaType, title, status, requestId, position }) {
   db.prepare(`
-    INSERT INTO list_source_items (list_id, tmdb_id, media_type, title, status, request_id, requested_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO list_source_items (list_id, tmdb_id, media_type, title, status, request_id, requested_at, position)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(list_id, tmdb_id, media_type) DO UPDATE SET
       title = excluded.title,
       status = excluded.status,
       request_id = COALESCE(excluded.request_id, list_source_items.request_id),
       requested_at = COALESCE(excluded.requested_at, list_source_items.requested_at),
+      position = COALESCE(excluded.position, list_source_items.position),
       last_seen_at = unixepoch()
   `).run(
     Number(listId), Number(tmdbId), String(mediaType), title || null,
     status || 'seen', requestId ? Number(requestId) : null,
-    status === 'requested' || status === 'pending' ? now() : null
+    status === 'requested' || status === 'pending' ? now() : null,
+    Number.isFinite(Number(position)) ? Number(position) : null
   );
 }
 
-function getListItems(listId) {
-  return db.prepare('SELECT * FROM list_source_items WHERE list_id = ? ORDER BY last_seen_at DESC').all(Number(listId)).map(r => ({
+function listItemRow(r) {
+  return {
     id: r.id,
     listId: r.list_id,
     tmdbId: r.tmdb_id,
@@ -143,10 +222,23 @@ function getListItems(listId) {
     title: r.title,
     status: r.status,
     requestId: r.request_id,
+    position: r.position,
     firstSeenAt: r.first_seen_at,
     lastSeenAt: r.last_seen_at,
     requestedAt: r.requested_at,
-  }));
+  };
+}
+
+function getListItems(listId) {
+  return db.prepare('SELECT * FROM list_source_items WHERE list_id = ? ORDER BY last_seen_at DESC').all(Number(listId)).map(listItemRow);
+}
+
+// Items seen on the most recent sync, in source order — the cached list used
+// to rebuild collections between full syncs. `sinceTs` is that sync's start.
+function getListItemsInOrder(listId, sinceTs = 0) {
+  return db.prepare(
+    'SELECT * FROM list_source_items WHERE list_id = ? AND last_seen_at >= ? AND position IS NOT NULL ORDER BY position ASC'
+  ).all(Number(listId), Number(sinceTs) || 0).map(listItemRow);
 }
 
 function countListItems(listId, status) {
@@ -330,9 +422,18 @@ function getDeletionHistory(limit = 200) {
   `).all(Math.min(1000, Number(limit) || 200)).map(r => ({ ...candidateRow(r), profileName: r.profile_name }));
 }
 
+// Lists that mirror a collection in a given media type, for home/library
+// ordering passes (a mixed list contributes to both sections).
+function getCollectionListsForMedia(media) {
+  return getListSources().filter(l =>
+    l.collectionEnabled && (l.mediaType === 'all' || l.mediaType === media));
+}
+
 module.exports = {
+  VALID_COLLECTION_SORTS, VALID_SEASON_MODES, VALID_VISIBILITIES,
   createListSource, getListSources, getListSource, updateListSource, deleteListSource, getDueListSources,
-  upsertListItem, getListItems, countListItems,
+  getCollectionListsForMedia,
+  upsertListItem, getListItems, getListItemsInOrder, countListItems,
   createDeletionProfile, getDeletionProfiles, getDeletionProfile, updateDeletionProfile, deleteDeletionProfile, getEnabledDeletionProfiles,
   upsertCandidate, getCandidates, getCandidateById, setCandidateStatus, pruneStaleCandidates, getDeletionHistory,
 };

@@ -4,6 +4,7 @@ import { queueApi, searchApi, tuberrApi } from '../services/api'
 import { useToast } from '../context/ToastContext'
 import { useAuth } from '../context/AuthContext'
 import { useTranslation } from 'react-i18next'
+import { invalidateMissingSeasons } from '../hooks/useMissingSeasons'
 
 // Shared request dialog used by Explore, Search, and DetailModal flows.
 // Handles season selection and alternate-service choice. YouTube-sourced items
@@ -149,6 +150,9 @@ export default function RequestModal({ item, services, onClose, onSubmitted }) {
         } : {}),
       })
       toastSuccess(t('Request submitted for {{title}}', { title: item.title }))
+      // The seasons just requested no longer count as missing, so any
+      // "Request missing seasons" button for this show re-checks itself.
+      if (item.mediaType === 'tv') invalidateMissingSeasons(item)
       if (onSubmitted) onSubmitted(item)
       onClose()
     } catch (e) {

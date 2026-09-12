@@ -157,10 +157,12 @@ async function buildPreferenceProfile(userId, libraryMap) {
     return tasteOnly;
   }
 
-  // Build review rating map: tmdbId -> rating (0.5-5 scale)
-  const reviewRatings = new Map(); // tmdbId -> rating
+  // Build review rating map keyed by "mediaType:tmdbId" (0.5-5 scale). TMDB
+  // ids are only unique per media type (movie 121 = The Two Towers, tv 121 =
+  // Doctor Who 1963), so a type-blind key would let a movie review score a show.
+  const reviewRatings = new Map(); // "movie:123" | "tv:123" -> rating
   for (const r of userReviews) {
-    reviewRatings.set(String(r.tmdb_id), r.rating);
+    reviewRatings.set(`${r.media_type === 'tv' ? 'tv' : 'movie'}:${r.tmdb_id}`, r.rating);
   }
 
   // Count how many times each item was watched (re-watch detection)
@@ -252,10 +254,11 @@ async function buildPreferenceProfile(userId, libraryMap) {
   const watchlistRatingKeys = db.getWatchlistFromDb(userId); // array of ratingKeys
   const recentRequests = db.getRecentRequests(userId, 15);   // [{tmdb_id, media_type, title}]
 
-  // Build tmdbId→ratingKey map for checking if a requested item has since been watched
+  // Build "mediaType:tmdbId"→ratingKey map for checking if a requested item has
+  // since been watched (type-qualified for the same reason as reviewRatings).
   const tmdbToRatingKey = new Map();
   for (const [ratingKey, item] of libraryMap) {
-    if (item.tmdbId) tmdbToRatingKey.set(String(item.tmdbId), ratingKey);
+    if (item.tmdbId) tmdbToRatingKey.set(`${item.type === 'show' ? 'tv' : 'movie'}:${item.tmdbId}`, ratingKey);
   }
 
   // Watchlisted library items not yet watched (capped at 10)
@@ -267,7 +270,7 @@ async function buildPreferenceProfile(userId, libraryMap) {
 
   // Requested external items not yet watched in the library (capped at 8)
   const interestReqSeeds = recentRequests.filter(r => {
-    const libKey = tmdbToRatingKey.get(String(r.tmdb_id));
+    const libKey = tmdbToRatingKey.get(`${r.media_type === 'tv' ? 'tv' : 'movie'}:${r.tmdb_id}`);
     return !(libKey && watchedFromDb.has(libKey));
   }).slice(0, 8);
 
@@ -471,7 +474,7 @@ async function buildPreferenceProfile(userId, libraryMap) {
     const rewatch    = Math.min(1 + (count - 1) * 0.4, 2.5);
 
     // Review rating multiplier (0.5-5 scale, separate from Plex ratings)
-    const reviewRating = item.tmdbId ? reviewRatings.get(String(item.tmdbId)) : null;
+    const reviewRating = item.tmdbId ? reviewRatings.get(`${item.type === 'show' ? 'tv' : 'movie'}:${item.tmdbId}`) : null;
 
     // Plex star rating (0–10). A Diskovarr review is synced into the user's Plex
     // rating, so when an item is reviewed we neutralize starMult and let reviewMult

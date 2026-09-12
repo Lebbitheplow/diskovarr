@@ -647,6 +647,12 @@ const server = app.listen(PORT, '0.0.0.0', () => {
     .catch(err => logger.warn('Auto request sync failed:', err.message)),
     15 * 60 * 1000
   )
+  // Collections quick sync: fold newly added library items into their list
+  // collections every 30 min without re-fetching the sources.
+  setInterval(() => autoRequest.runQuickSync()
+    .catch(err => logger.warn('Collections quick sync failed:', err.message)),
+    30 * 60 * 1000
+  )
 
   // Automation: deletion profiles. Daily, plus a startup evaluation ~5 min after
   // boot (needs library + watch history synced). No-ops with no enabled profiles;
