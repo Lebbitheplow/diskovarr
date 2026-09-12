@@ -4,7 +4,7 @@ All notable changes are documented here. Versioning follows [Semantic Versioning
 
 ---
 
-## v3.1.1 — 2026-09-12
+## v3.2.0 — 2026-09-12
 
 ### Added
 

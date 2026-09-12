@@ -1,6 +1,6 @@
 [
   {
-    "version": "3.1.1",
+    "version": "3.2.0",
     "date": "2026-09-12",
     "changes": [
       "Diskovarr can now run your whole collection setup — everything Agregarr did. Monitored lists gained a top-N item cap, per-list and global exclusions, combining several list URLs into one collection, 'unwatched only' smart collections (each viewer sees only what they haven't finished), item ordering (list order, release date, title, date added, rating), home and library ordering, owner-only home visibility, a first/latest season mode for TV requests, and an optional collection summary. An import script moves an existing Agregarr config over in one go.",
