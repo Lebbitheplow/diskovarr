@@ -73,6 +73,12 @@ export default function AdminNotifications({ onDataLoaded, onToast, onOpenAgentI
     webpush: !!configs.webpush?.enabled,
   }
 
+  // Providers report what they saved so the sidebar dot (and the form state a
+  // provider re-mounts with) reflect the new config without a page reload.
+  const handleSaved = useCallback((id, patch) => {
+    setConfigs(c => ({ ...c, [id]: { ...(c[id] || {}), ...patch } }))
+  }, [])
+
   const handleSidebarChange = useCallback((id) => {
     setActive(id)
     // Update hash for deep-linking: #/notifications/<provider>
@@ -100,25 +106,25 @@ export default function AdminNotifications({ onDataLoaded, onToast, onOpenAgentI
       case 'broadcast':
         return <BroadcastMessage onToast={onToast} />
       case 'discord':
-        return <DiscordProvider initial={configs.discord} onToast={onToast} onOpenAgentInfo={onOpenAgentInfo} />
+        return <DiscordProvider initial={configs.discord} onToast={onToast} onOpenAgentInfo={onOpenAgentInfo} onSaved={(patch) => handleSaved('discord', patch)} />
       case 'pushover':
-        return <PushoverProvider initial={configs.pushover} onToast={onToast} onOpenAgentInfo={onOpenAgentInfo} />
+        return <PushoverProvider initial={configs.pushover} onToast={onToast} onOpenAgentInfo={onOpenAgentInfo} onSaved={(patch) => handleSaved('pushover', patch)} />
       case 'webhook':
-        return <WebhookProvider initial={configs.webhook} onToast={onToast} onOpenAgentInfo={onOpenAgentInfo} />
+        return <WebhookProvider initial={configs.webhook} onToast={onToast} onOpenAgentInfo={onOpenAgentInfo} onSaved={(patch) => handleSaved('webhook', patch)} />
       case 'slack':
-        return <SlackProvider initial={configs.slack} onToast={onToast} onOpenAgentInfo={onOpenAgentInfo} />
+        return <SlackProvider initial={configs.slack} onToast={onToast} onOpenAgentInfo={onOpenAgentInfo} onSaved={(patch) => handleSaved('slack', patch)} />
       case 'gotify':
-        return <GotifyProvider initial={configs.gotify} onToast={onToast} onOpenAgentInfo={onOpenAgentInfo} />
+        return <GotifyProvider initial={configs.gotify} onToast={onToast} onOpenAgentInfo={onOpenAgentInfo} onSaved={(patch) => handleSaved('gotify', patch)} />
       case 'ntfy':
-        return <NtfyProvider initial={configs.ntfy} onToast={onToast} onOpenAgentInfo={onOpenAgentInfo} />
+        return <NtfyProvider initial={configs.ntfy} onToast={onToast} onOpenAgentInfo={onOpenAgentInfo} onSaved={(patch) => handleSaved('ntfy', patch)} />
       case 'telegram':
-        return <TelegramProvider initial={configs.telegram} onToast={onToast} onOpenAgentInfo={onOpenAgentInfo} />
+        return <TelegramProvider initial={configs.telegram} onToast={onToast} onOpenAgentInfo={onOpenAgentInfo} onSaved={(patch) => handleSaved('telegram', patch)} />
       case 'pushbullet':
-        return <PushbulletProvider initial={configs.pushbullet} onToast={onToast} onOpenAgentInfo={onOpenAgentInfo} />
+        return <PushbulletProvider initial={configs.pushbullet} onToast={onToast} onOpenAgentInfo={onOpenAgentInfo} onSaved={(patch) => handleSaved('pushbullet', patch)} />
       case 'email':
-        return <EmailProvider initial={configs.email} onToast={onToast} onOpenAgentInfo={onOpenAgentInfo} />
+        return <EmailProvider initial={configs.email} onToast={onToast} onOpenAgentInfo={onOpenAgentInfo} onSaved={(patch) => handleSaved('email', patch)} />
       case 'webpush':
-        return <WebpushProvider initial={configs.webpush} onToast={onToast} onOpenAgentInfo={onOpenAgentInfo} />
+        return <WebpushProvider initial={configs.webpush} onToast={onToast} onOpenAgentInfo={onOpenAgentInfo} onSaved={(patch) => handleSaved('webpush', patch)} />
       default:
         return <BroadcastMessage onToast={onToast} />
     }

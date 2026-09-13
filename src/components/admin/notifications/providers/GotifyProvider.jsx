@@ -12,7 +12,7 @@ function Checkbox({ checked, onChange, children }) {
   )
 }
 
-export default function GotifyProvider({ initial, onToast, onOpenAgentInfo }) {
+export default function GotifyProvider({ initial, onToast, onOpenAgentInfo, onSaved }) {
   const { t } = useTranslation()
   const [enabled, setEnabled] = useState(initial?.enabled || false)
   const [url, setUrl] = useState(initial?.url || '')
@@ -29,12 +29,14 @@ export default function GotifyProvider({ initial, onToast, onOpenAgentInfo }) {
 
   const handleSave = useCallback(async () => {
     try {
-      await adminNotifications.setGotify({ enabled, url, token, priority, notificationTypes: notifTypes })
+      const saved = { enabled, url, token, priority, notificationTypes: notifTypes }
+      await adminNotifications.setGotify(saved)
+      onSaved?.(saved)
       if (onToast) onToast('Gotify settings saved', 'success')
     } catch (err) {
       if (onToast) onToast(err.message || 'Failed to save', 'error')
     }
-  }, [enabled, url, token, priority, notifTypes, onToast])
+  }, [enabled, url, token, priority, notifTypes, onToast, onSaved])
 
   const handleTest = useCallback(async () => {
     setTesting(true)

@@ -12,7 +12,7 @@ function Checkbox({ checked, onChange, children }) {
   )
 }
 
-export default function EmailProvider({ initial, onToast, onOpenAgentInfo }) {
+export default function EmailProvider({ initial, onToast, onOpenAgentInfo, onSaved }) {
   const { t } = useTranslation()
   const [enabled, setEnabled] = useState(initial?.enabled || false)
   const [emailFrom, setEmailFrom] = useState(initial?.emailFrom || '')
@@ -35,15 +35,17 @@ export default function EmailProvider({ initial, onToast, onOpenAgentInfo }) {
 
   const handleSave = useCallback(async () => {
     try {
-      await adminNotifications.setEmail({
+      const saved = {
         enabled, emailFrom, smtpHost, smtpPort, secure, requireTls, allowSelfSigned,
         authUser, authPass, senderName, embedPoster: true, notificationTypes: notifTypes,
-      })
+      }
+      await adminNotifications.setEmail(saved)
+      onSaved?.(saved)
       if (onToast) onToast('Email settings saved', 'success')
     } catch (err) {
       if (onToast) onToast(err.message || 'Failed to save', 'error')
     }
-  }, [enabled, emailFrom, smtpHost, smtpPort, secure, requireTls, allowSelfSigned, authUser, authPass, senderName, notifTypes, onToast])
+  }, [enabled, emailFrom, smtpHost, smtpPort, secure, requireTls, allowSelfSigned, authUser, authPass, senderName, notifTypes, onToast, onSaved])
 
   const handleTest = useCallback(async () => {
     setTesting(true)

@@ -12,7 +12,7 @@ function Checkbox({ checked, onChange, children }) {
   )
 }
 
-export default function PushbulletProvider({ initial, onToast, onOpenAgentInfo }) {
+export default function PushbulletProvider({ initial, onToast, onOpenAgentInfo, onSaved }) {
   const { t } = useTranslation()
   const [enabled, setEnabled] = useState(initial?.enabled || false)
   const [accessToken, setAccessToken] = useState(initial?.accessToken || '')
@@ -28,12 +28,14 @@ export default function PushbulletProvider({ initial, onToast, onOpenAgentInfo }
 
   const handleSave = useCallback(async () => {
     try {
-      await adminNotifications.setPushbullet({ enabled, accessToken, channelTag, notificationTypes: notifTypes })
+      const saved = { enabled, accessToken, channelTag, notificationTypes: notifTypes }
+      await adminNotifications.setPushbullet(saved)
+      onSaved?.(saved)
       if (onToast) onToast('Pushbullet settings saved', 'success')
     } catch (err) {
       if (onToast) onToast(err.message || 'Failed to save', 'error')
     }
-  }, [enabled, accessToken, channelTag, notifTypes, onToast])
+  }, [enabled, accessToken, channelTag, notifTypes, onToast, onSaved])
 
   const handleTest = useCallback(async () => {
     setTesting(true)

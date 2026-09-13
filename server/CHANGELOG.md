@@ -4,6 +4,30 @@ All notable changes are documented here. Versioning follows [Semantic Versioning
 
 ---
 
+## v3.3.1 — 2026-09-13
+
+### Added
+
+- **ntfy and browser push for users.** My Settings → Notifications now offers **ntfy** (own topic, optional server URL and token/basic auth; a user on the admin's server reuses the admin's credentials, a user-chosen server never receives them — `server/services/ntfyAgent.js` `resolveUserTarget`, columns `ntfy_*` on `user_notification_prefs`, `POST /api/user/ntfy/test`) and **Browser push** (per-device enable/remove, pause-all toggle, test; display-only service worker at `public/sw.js`, routes `/api/user/webpush/{vapid-key,subscribe,unsubscribe,subscriptions,test}`, column `webpush_enabled`). Both appear only when the admin has enabled the matching agent (`enabled_providers` on `GET /api/user/settings`). ntfy secrets are masked in responses and a masked value never overwrites the stored one (`tests/ntfyUserTarget.test.js`, `tests/webPush.test.js`).
+- **Install App** in the user menu (`src/utils/pwaInstall.js`, `usePwaInstall`, `InstallAppModal`). Chromium's `beforeinstallprompt` is captured before React mounts and re-used for a native prompt; every other browser gets per-platform Add to Home Screen steps (iOS, Safari 17 on macOS, Firefox and Samsung Internet on Android, DuckDuckGo, desktop Chromium). Hidden once running installed. `index.html` gains the manifest link and Apple meta tags; the manifest adds a PNG icon so Chromium's install criteria pass (`tests/pwaInstall.test.js`).
+- **Browse by Genre tiles** (`src/components/GenreTiles.jsx`, artwork in `public/genres/*.webp` from `scripts/gen-genre-art.py`) on Home — deep-linking to `/discover?genre=` which seeds the genre facet — and on Explore, replacing the emoji tiles.
+
+### Changed
+
+- Every request, issue, monitor and auto-request event is queued for **every active agent** (`notificationAgents.enqueueForUser`) instead of a hard-coded Discord + Pushover pair, so Telegram, Pushbullet, Email, ntfy and WebPush user targets finally receive them. Agents keep self-filtering on their admin type list and the user's channel toggle.
+- WebPush delivers only to the addressed user; it no longer also pushes every event to all admins' browsers.
+- Admin-facing notification toggles (pending, auto-approved, processing failed, new issue) are shown to every privileged user — admins and the elevated owner both receive those events — and `POST /api/user/settings` ignores them from anyone else (`visibleNotifTypes`).
+
+### Fixed
+
+- Notification agents cached their settings for the life of the process, so enabling or reconfiguring a provider in Admin → Notifications didn't take effect until a restart (`BaseAgent.getSettings`).
+- The green status dot in the Admin → Notifications sidebar didn't turn on after saving a provider until the page was reloaded, and re-opening a provider showed its pre-save values; providers now report what they saved (`onSaved`).
+- Successful saves on My Settings → Notifications were shown as error toasts.
+- Admin → Users → Settings wiped a user's email address and PGP key on save because the modal didn't round-trip them.
+- `/admin/webpush/subscribe` stored every subscription under `anonymous`.
+
+---
+
 ## v3.3.0 — 2026-09-12
 
 ### Added

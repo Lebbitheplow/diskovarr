@@ -14,6 +14,7 @@ import WrappedBanner from '../components/wrapped/WrappedBanner'
 import DetailModal from '../components/DetailModal'
 import SkeletonLoader from '../components/SkeletonLoader'
 import ToggleSwitch from '../components/ToggleSwitch'
+import GenreTiles from '../components/GenreTiles'
 import { useToast } from '../context/ToastContext'
 import { useAuth } from '../context/AuthContext'
 import { useTranslation } from 'react-i18next'
@@ -324,6 +325,13 @@ export default function Home() {
               </div>
               <SkeletonLoader count={12} rows={2} />
             </section>
+            <section className="section" id="section-genre-browse">
+              <div className="section-header">
+                <h2 className="section-title">{t('Browse by Genre')}</h2>
+              </div>
+              <GenreTiles linkFor={(genre) => `/discover?genre=${encodeURIComponent(genre)}`} />
+            </section>
+
             {popularLoading && (
               <>
                 <section className="section" id="section-popular-movies">
@@ -429,6 +437,13 @@ export default function Home() {
                 </Carousel>
               </section>
             )}
+
+            <section className="section" id="section-genre-browse">
+              <div className="section-header">
+                <h2 className="section-title">{t('Browse by Genre')}</h2>
+              </div>
+              <GenreTiles linkFor={(genre) => `/discover?genre=${encodeURIComponent(genre)}`} />
+            </section>
 
             {showPopularMovies.length > 0 && (
               <section className="section" id="section-popular-movies">

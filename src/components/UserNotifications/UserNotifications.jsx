@@ -6,6 +6,8 @@ import PushoverUserProvider from './providers/PushoverUserProvider'
 import TelegramUserProvider from './providers/TelegramUserProvider'
 import PushbulletUserProvider from './providers/PushbulletUserProvider'
 import EmailUserProvider from './providers/EmailUserProvider'
+import NtfyUserProvider from './providers/NtfyUserProvider'
+import WebpushUserProvider from './providers/WebpushUserProvider'
 import { USER_FACEABLE_PROVIDERS } from '../../components/admin/notifications/constants'
 
 const USER_PROVIDER_MAP = {
@@ -14,6 +16,8 @@ const USER_PROVIDER_MAP = {
   telegram: { Component: TelegramUserProvider, label: 'Telegram' },
   pushbullet: { Component: PushbulletUserProvider, label: 'Pushbullet' },
   email: { Component: EmailUserProvider, label: 'Email' },
+  ntfy: { Component: NtfyUserProvider, label: 'ntfy' },
+  webpush: { Component: WebpushUserProvider, label: 'Browser push' },
 }
 
 const USER_ENABLED_FIELD = {
@@ -22,6 +26,8 @@ const USER_ENABLED_FIELD = {
   telegram: 'telegram_enabled',
   pushbullet: 'pushbullet_enabled',
   email: 'email_enabled',
+  ntfy: 'ntfy_enabled',
+  webpush: 'webpush_enabled',
 }
 
 function buildEnabledMap(s) {
@@ -47,9 +53,9 @@ export default function UserNotifications({ settings, onToast, onUpdateSettings 
   const [userProviderEnabled, setUserProviderEnabled] = useState(() => buildEnabledMap(settings))
 
   // Build list of enabled providers from settings (only admin-enabled ones appear)
-  const enabledProviderKeys = settings?.enabled_providers || USER_FACEABLE_PROVIDERS
-  const providers = enabledProviderKeys
-    .filter(k => USER_PROVIDER_MAP[k])
+  const enabledProviderKeys = Array.isArray(settings?.enabled_providers) ? settings.enabled_providers : []
+  const providers = USER_FACEABLE_PROVIDERS
+    .filter(k => enabledProviderKeys.includes(k) && USER_PROVIDER_MAP[k])
     .map(k => ({ id: k, label: USER_PROVIDER_MAP[k].label }))
 
   const isElevated = settings?.is_elevated || settings?.is_admin || false

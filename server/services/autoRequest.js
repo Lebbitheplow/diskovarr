@@ -13,6 +13,7 @@ const plexCollections = require('./plexCollections');
 const plexHubs = require('./plexHubs');
 const tmdbService = require('./tmdb');
 const logger = require('./logger');
+const { enqueueForUser } = require('./notificationAgents');
 const policy = require('./collectionPolicy');
 
 const SYSTEM_USER_ID = 'autorequest';
@@ -91,9 +92,7 @@ function notifyAdmins(title, body) {
       const notifId = db.createOrBundleNotification({
         userId: adminId, type: 'autorequest', title, body, data: {},
       });
-      for (const agent of ['discord', 'pushover']) {
-        db.enqueueNotification({ notificationId: notifId, agent, userId: adminId, payload: { type: 'autorequest', title, body } });
-      }
+      enqueueForUser({ notificationId: notifId, userId: adminId, payload: { type: 'autorequest', title, body } });
     }
   } catch (e) {
     logger.warn(`[autorequest] admin notification failed: ${e.message}`);

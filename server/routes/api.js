@@ -21,6 +21,7 @@ const cryptoUtil = require('../utils/crypto');
 const { mapReviewToTmdb } = require('../services/integrationCapabilities');
 const monitorMatcher = require('../services/monitorMatcher');
 const monitorNotifier = require('../services/monitorNotifier');
+const { enqueueForUser } = require('../services/notificationAgents');
 const searchCandidates = require('../services/searchCandidates');
 const seasonAvailability = require('../services/seasonAvailability');
 
@@ -2389,8 +2390,7 @@ router.post('/request', async (req, res) => {
               body: `${username} requested ${mediaType === 'movie' ? 'a movie' : 'a TV show'}.`,
               data: { tmdbId, mediaType, title },
             });
-            db.enqueueNotification({ notificationId: notifId, agent: 'discord', userId: adminId, payload: { type: 'request_pending', title: `New request: "${title}"`, body: `${username} requested ${mediaType === 'movie' ? 'a movie' : 'a TV show'}.`, posterUrl: storedPosterUrl } });
-            db.enqueueNotification({ notificationId: notifId, agent: 'pushover', userId: adminId, payload: { type: 'request_pending', title: `New request: "${title}"`, body: `${username} requested ${mediaType === 'movie' ? 'a movie' : 'a TV show'}.`, posterUrl: storedPosterUrl } });
+            enqueueForUser({ notificationId: notifId, userId: adminId, payload: { type: 'request_pending', title: `New request: "${title}"`, body: `${username} requested ${mediaType === 'movie' ? 'a movie' : 'a TV show'}.`, posterUrl: storedPosterUrl } });
           }
         }
       } catch (e) { logger.warn('notification error:', e.message); }
@@ -2694,8 +2694,7 @@ router.post('/queue/:id/approve', requirePrivileged, async (req, res) => {
           body: 'Your request has been approved and submitted.',
           data: { requestId: request.id, tmdbId: request.tmdb_id, mediaType: request.media_type, title: request.title },
         });
-        db.enqueueNotification({ notificationId: notifId, agent: 'discord', userId: request.user_id, payload: { type: 'request_approved', title: `"${request.title}" approved`, body: 'Your request has been approved and submitted.', posterUrl: request.poster_url } });
-        db.enqueueNotification({ notificationId: notifId, agent: 'pushover', userId: request.user_id, payload: { type: 'request_approved', title: `"${request.title}" approved`, body: 'Your request has been approved and submitted.', posterUrl: request.poster_url } });
+        enqueueForUser({ notificationId: notifId, userId: request.user_id, payload: { type: 'request_approved', title: `"${request.title}" approved`, body: 'Your request has been approved and submitted.', posterUrl: request.poster_url } });
       }
     } catch (e) { logger.warn('notification error:', e.message); }
     res.json({ success: true, request: db.getRequestById(request.id) });
@@ -2741,8 +2740,7 @@ router.post('/queue/:id/deny', requirePrivileged, (req, res) => {
         body: denyBody,
         data: { requestId: request.id, tmdbId: request.tmdb_id, mediaType: request.media_type, title: request.title },
       });
-      db.enqueueNotification({ notificationId: notifId, agent: 'discord', userId: request.user_id, payload: { type: 'request_denied', title: `"${request.title}" declined`, body: denyBody, posterUrl: request.poster_url } });
-      db.enqueueNotification({ notificationId: notifId, agent: 'pushover', userId: request.user_id, payload: { type: 'request_denied', title: `"${request.title}" declined`, body: denyBody, posterUrl: request.poster_url } });
+      enqueueForUser({ notificationId: notifId, userId: request.user_id, payload: { type: 'request_denied', title: `"${request.title}" declined`, body: denyBody, posterUrl: request.poster_url } });
     }
   } catch (e) { logger.warn('notification error:', e.message); }
   res.json({ success: true, request: db.getRequestById(request.id) });
@@ -2912,10 +2910,7 @@ router.post('/issues', async (req, res) => {
         data: { issueId: id, ratingKey, mediaType },
       });
       const posterUrl = await getPublicPosterUrl(ratingKey);
-      db.enqueueNotification({ notificationId: notifId, agent: 'discord', userId: adminId,
-        payload: { type: 'issue_new', title: `Issue reported: "${title}"`, body: shortDesc, posterUrl, userId: adminId } });
-      db.enqueueNotification({ notificationId: notifId, agent: 'pushover', userId: adminId,
-        payload: { type: 'issue_new', title: `Issue reported: "${title}"`, body: shortDesc } });
+      enqueueForUser({ notificationId: notifId, userId: adminId, payload: { type: 'issue_new', title: `Issue reported: "${title}"`, body: shortDesc, posterUrl, userId: adminId } });
     }
   } catch (e) { logger.warn('Issue notification error:', e.message); }
   res.json({ success: true, id });
@@ -3008,10 +3003,7 @@ router.post('/issues/:id/resolve', requirePrivileged, async (req, res) => {
         data: { issueId: issue.id },
       });
       const posterUrl = await getPublicPosterUrl(issue.rating_key);
-      db.enqueueNotification({ notificationId: notifId, agent: 'discord', userId: issue.user_id,
-        payload: { type: 'issue_updated', title: `Issue resolved: "${issue.title}"`, body, posterUrl, userId: issue.user_id } });
-      db.enqueueNotification({ notificationId: notifId, agent: 'pushover', userId: issue.user_id,
-        payload: { type: 'issue_updated', title: `Issue resolved: "${issue.title}"`, body } });
+      enqueueForUser({ notificationId: notifId, userId: issue.user_id, payload: { type: 'issue_updated', title: `Issue resolved: "${issue.title}"`, body, posterUrl, userId: issue.user_id } });
     }
   } catch (e) { logger.warn('Issue notification error:', e.message); }
   res.json({ success: true });
@@ -3033,10 +3025,7 @@ router.post('/issues/:id/close', requirePrivileged, async (req, res) => {
         data: { issueId: issue.id },
       });
       const posterUrl = await getPublicPosterUrl(issue.rating_key);
-      db.enqueueNotification({ notificationId: notifId, agent: 'discord', userId: issue.user_id,
-        payload: { type: 'issue_updated', title: `Issue closed: "${issue.title}"`, body, posterUrl, userId: issue.user_id } });
-      db.enqueueNotification({ notificationId: notifId, agent: 'pushover', userId: issue.user_id,
-        payload: { type: 'issue_updated', title: `Issue closed: "${issue.title}"`, body } });
+      enqueueForUser({ notificationId: notifId, userId: issue.user_id, payload: { type: 'issue_updated', title: `Issue closed: "${issue.title}"`, body, posterUrl, userId: issue.user_id } });
     }
   } catch (e) { logger.warn('Issue notification error:', e.message); }
   res.json({ success: true });
@@ -3095,8 +3084,7 @@ router.post('/issues/:id/comments', async (req, res) => {
           const notifBody = comment.trim().slice(0, 200);
           const notifId = db.createOrBundleNotification({ userId: issue.user_id, type: 'issue_comment_added_user', title: notifTitle, body: notifBody, data: { issueId: issue.id } });
           const posterUrl = await getPublicPosterUrl(issue.rating_key);
-          db.enqueueNotification({ notificationId: notifId, agent: 'discord', userId: issue.user_id, payload: { type: 'issue_comment_added_user', title: notifTitle, body: notifBody, posterUrl, userId: issue.user_id } });
-          db.enqueueNotification({ notificationId: notifId, agent: 'pushover', userId: issue.user_id, payload: { type: 'issue_comment_added_user', title: notifTitle, body: notifBody } });
+          enqueueForUser({ notificationId: notifId, userId: issue.user_id, payload: { type: 'issue_comment_added_user', title: notifTitle, body: notifBody, posterUrl, userId: issue.user_id } });
         }
       }
     } else {
@@ -3108,8 +3096,7 @@ router.post('/issues/:id/comments', async (req, res) => {
         const notifBody = comment.trim().slice(0, 200);
         const notifId = db.createOrBundleNotification({ userId: adminId, type: 'issue_comment_added_admin', title: notifTitle, body: notifBody, data: { issueId: issue.id } });
         const posterUrl = await getPublicPosterUrl(issue.rating_key);
-        db.enqueueNotification({ notificationId: notifId, agent: 'discord', userId: adminId, payload: { type: 'issue_comment_added_admin', title: notifTitle, body: notifBody, posterUrl, userId: adminId } });
-        db.enqueueNotification({ notificationId: notifId, agent: 'pushover', userId: adminId, payload: { type: 'issue_comment_added_admin', title: notifTitle, body: notifBody } });
+        enqueueForUser({ notificationId: notifId, userId: adminId, payload: { type: 'issue_comment_added_admin', title: notifTitle, body: notifBody, posterUrl, userId: adminId } });
       }
     }
   } catch (e) { logger.warn('Issue comment notification error:', e.message); }
@@ -3265,7 +3252,10 @@ router.get('/user/settings', (req, res) => {
     getAgentEnabled('telegram_agent') ? 'telegram' : null,
     getAgentEnabled('pushbullet_agent') ? 'pushbullet' : null,
     getAgentEnabled('email_agent') ? 'email' : null,
+    getAgentEnabled('ntfy_agent') ? 'ntfy' : null,
+    getAgentEnabled('webpush_agent') ? 'webpush' : null,
   ].filter(Boolean);
+  const ntfyConfig = (() => { try { return JSON.parse(db.getSetting('ntfy_agent', 'null')); } catch { return null; } })();
   res.json({
     region: prefs.region,
     language: prefs.language,
@@ -3281,7 +3271,14 @@ router.get('/user/settings', (req, res) => {
     discord_agent_enabled: !!(discordConfig && discordConfig.enabled),
     discord_invite_link: discordConfig?.inviteLink || null,
     enabled_providers,
+    // Users without their own server publish to the admin's; shown as the default.
+    ntfy_server_url: ntfyConfig?.enabled ? (ntfyConfig.url || null) : null,
     ...notif,
+    // Never echo stored secrets back to the browser.
+    ntfy_token: notif.ntfy_token ? '••••••••' : null,
+    ntfy_password: notif.ntfy_password ? '••••••••' : null,
+    ntfy_has_token: !!notif.ntfy_token,
+    ntfy_has_password: !!notif.ntfy_password,
   });
 });
 
@@ -3295,11 +3292,29 @@ router.post('/user/settings', (req, res) => {
           telegram_chat_id, telegram_message_thread_id, telegram_send_silently, telegram_enabled,
           pushbullet_access_token, pushbullet_enabled,
           email_enabled, email_address, pgp_key,
+          ntfy_enabled, ntfy_url, ntfy_topic, ntfy_auth_method, ntfy_token, ntfy_username, ntfy_password,
+          webpush_enabled,
           notify_pending, notify_auto_approved, notify_process_failed,
           notify_issue_new, notify_issue_update, notify_issue_comment, notify_monitor } = req.body;
   // Read current prefs so partial updates (e.g. only show_mature) don't reset other fields
   const oldPrefs = db.getUserPreferences(userId);
   const oldNotif = db.getUserNotificationPrefs(userId);
+  // Admin-facing event toggles only exist for privileged users (the ones those
+  // events are delivered to); everyone else keeps the stored default.
+  const isPrivileged = !!(req.session.isAdmin || req.session.isPlexAdminUser)
+    || db.getPrivilegedUserIds().includes(String(userId));
+  const ntfyAgent = require('../services/ntfyAgent');
+  if (ntfy_url !== undefined && ntfy_url && !ntfyAgent.isValidUrl(ntfy_url)) {
+    return res.status(400).json({ error: 'ntfy server URL must be an http(s) URL' });
+  }
+  if (ntfy_topic !== undefined && ntfy_topic && !ntfyAgent.isValidTopic(ntfy_topic)) {
+    return res.status(400).json({ error: 'ntfy topic may only contain letters, numbers, - and _ (max 64)' });
+  }
+  if (ntfy_auth_method !== undefined && ntfy_auth_method && !['none', 'token', 'basic'].includes(ntfy_auth_method)) {
+    return res.status(400).json({ error: 'Invalid ntfy auth method' });
+  }
+  // The masked placeholder the GET returns must never overwrite a real secret.
+  const _secret = (val, fallback) => (val === undefined || val === '••••••••') ? fallback : (val || null);
   const newRegion      = region      !== undefined ? (region      || null) : oldPrefs.region;
   const newLanguage    = language    !== undefined ? (language    || null) : oldPrefs.language;
   const newUiLanguage  = ui_language !== undefined ? (ui_language || null) : oldPrefs.ui_language;
@@ -3361,10 +3376,18 @@ router.post('/user/settings', (req, res) => {
     email_enabled:         _e(email_enabled,         oldNotif.email_enabled),
     email_address:         _s(newEmailAddress,       oldNotif.email_address),
     pgp_key:               _s(pgp_key,               oldNotif.pgp_key),
-    notify_pending:        _b(notify_pending,        oldNotif.notify_pending),
-    notify_auto_approved:  _b(notify_auto_approved,  oldNotif.notify_auto_approved),
-    notify_process_failed: _b(notify_process_failed, oldNotif.notify_process_failed),
-    notify_issue_new:      _b(notify_issue_new,      oldNotif.notify_issue_new),
+    ntfy_enabled:          _e(ntfy_enabled,          oldNotif.ntfy_enabled),
+    ntfy_url:              _s(ntfy_url,              oldNotif.ntfy_url),
+    ntfy_topic:            _s(ntfy_topic,            oldNotif.ntfy_topic),
+    ntfy_auth_method:      _s(ntfy_auth_method,      oldNotif.ntfy_auth_method),
+    ntfy_token:            _secret(ntfy_token,       oldNotif.ntfy_token),
+    ntfy_username:         _s(ntfy_username,         oldNotif.ntfy_username),
+    ntfy_password:         _secret(ntfy_password,    oldNotif.ntfy_password),
+    webpush_enabled:       _e(webpush_enabled,       oldNotif.webpush_enabled),
+    notify_pending:        isPrivileged ? _b(notify_pending,        oldNotif.notify_pending)        : oldNotif.notify_pending,
+    notify_auto_approved:  isPrivileged ? _b(notify_auto_approved,  oldNotif.notify_auto_approved)  : oldNotif.notify_auto_approved,
+    notify_process_failed: isPrivileged ? _b(notify_process_failed, oldNotif.notify_process_failed) : oldNotif.notify_process_failed,
+    notify_issue_new:      isPrivileged ? _b(notify_issue_new,      oldNotif.notify_issue_new)      : oldNotif.notify_issue_new,
     notify_issue_update:   _b(notify_issue_update,   oldNotif.notify_issue_update),
     notify_issue_comment:  _b(notify_issue_comment,  oldNotif.notify_issue_comment),
     notify_monitor:        _b(notify_monitor,        oldNotif.notify_monitor),
@@ -3513,6 +3536,89 @@ router.post('/user/discord/test', async (req, res) => {
   }
   try {
     await discordAgent.sendTest({ mode: 'bot', botToken: config.botToken, discordUserId, botUsername: config.botUsername });
+    res.json({ ok: true });
+  } catch (err) {
+    res.json({ ok: false, error: err.message });
+  }
+});
+
+// POST /api/user/ntfy/test — publish a test to the caller's own ntfy target.
+// Secrets aren't round-tripped to the browser, so a masked placeholder means
+// "use what's stored".
+router.post('/user/ntfy/test', async (req, res) => {
+  const userId = req.session.plexUser.id;
+  const ntfyAgent = require('../services/ntfyAgent');
+  if (!ntfyAgent.shouldSend()) return res.json({ ok: false, error: 'ntfy is not enabled by the admin' });
+  const stored = db.getUserNotificationPrefs(userId);
+  const b = req.body || {};
+  const pick = (val, fallback) => (val === undefined || val === '••••••••') ? fallback : (val || null);
+  try {
+    await ntfyAgent.sendUserTest({
+      ntfy_url: pick(b.ntfy_url, stored.ntfy_url),
+      ntfy_topic: pick(b.ntfy_topic, stored.ntfy_topic),
+      ntfy_auth_method: pick(b.ntfy_auth_method, stored.ntfy_auth_method),
+      ntfy_token: pick(b.ntfy_token, stored.ntfy_token),
+      ntfy_username: pick(b.ntfy_username, stored.ntfy_username),
+      ntfy_password: pick(b.ntfy_password, stored.ntfy_password),
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    res.json({ ok: false, error: err.message });
+  }
+});
+
+// ── Web push (browser notifications) ─────────────────────────────────────────
+
+const webpushEnabled = () => { try { return !!JSON.parse(db.getSetting('webpush_agent', 'null'))?.enabled; } catch { return false; } };
+
+// GET /api/user/webpush/vapid-key — public key the browser needs to subscribe
+router.get('/user/webpush/vapid-key', (req, res) => {
+  if (!webpushEnabled()) return res.status(404).json({ error: 'Browser notifications are not enabled by the admin' });
+  const webpushAgent = require('../services/webpushAgent');
+  res.json({ publicKey: webpushAgent.initVapid().public });
+});
+
+// POST /api/user/webpush/subscribe — register this browser for the signed-in user
+router.post('/user/webpush/subscribe', (req, res) => {
+  if (!webpushEnabled()) return res.status(400).json({ error: 'Browser notifications are not enabled by the admin' });
+  const { subscription } = req.body || {};
+  if (!subscription || typeof subscription.endpoint !== 'string' || !/^https:\/\//.test(subscription.endpoint)
+      || !subscription.keys?.auth || !subscription.keys?.p256dh) {
+    return res.status(400).json({ error: 'Invalid push subscription' });
+  }
+  const webpushAgent = require('../services/webpushAgent');
+  const userId = req.session.plexUser.id;
+  const ok = webpushAgent.saveSubscription(userId, subscription);
+  if (ok) {
+    // Subscribing is the opt-in; keep the channel flag in step so the
+    // sidebar dot and the agent's per-user check agree.
+    db.setUserNotificationPrefs(userId, { ...db.getUserNotificationPrefs(userId), webpush_enabled: true });
+  }
+  res.json({ success: ok });
+});
+
+// POST /api/user/webpush/unsubscribe — forget this browser's subscription
+router.post('/user/webpush/unsubscribe', (req, res) => {
+  const { endpoint } = req.body || {};
+  if (!endpoint || typeof endpoint !== 'string') return res.status(400).json({ error: 'endpoint required' });
+  const webpushAgent = require('../services/webpushAgent');
+  webpushAgent.removeSubscription(req.session.plexUser.id, endpoint);
+  res.json({ success: true });
+});
+
+// GET /api/user/webpush/subscriptions — how many devices this user has registered
+router.get('/user/webpush/subscriptions', (req, res) => {
+  const webpushAgent = require('../services/webpushAgent');
+  const subs = webpushAgent.getUserSubscriptions(req.session.plexUser.id);
+  res.json({ count: subs.length, endpoints: subs.map(s => s.endpoint) });
+});
+
+// POST /api/user/webpush/test — push a test to this user's own devices
+router.post('/user/webpush/test', async (req, res) => {
+  if (!webpushEnabled()) return res.json({ ok: false, error: 'Browser notifications are not enabled by the admin' });
+  const webpushAgent = require('../services/webpushAgent');
+  try {
+    await webpushAgent.sendTestToUser(req.session.plexUser.id);
     res.json({ ok: true });
   } catch (err) {
     res.json({ ok: false, error: err.message });

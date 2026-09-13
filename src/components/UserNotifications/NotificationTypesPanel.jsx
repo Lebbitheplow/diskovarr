@@ -1,14 +1,10 @@
 import React from 'react'
-import { USER_NOTIF_TYPES, ELEVATED_NOTIF_TYPES, ADMIN_ONLY_NOTIF_TYPES } from '../../components/admin/notifications/constants'
+import { visibleNotifTypes } from '../../components/admin/notifications/constants'
 import { useTranslation } from 'react-i18next'
 
 export default function NotificationTypesPanel({ types, onChange, isElevated, isAdmin }) {
   const { t } = useTranslation()
-  const allTypes = [
-    ...USER_NOTIF_TYPES,
-    ...(isElevated ? ELEVATED_NOTIF_TYPES : []),
-    ...(isAdmin ? ADMIN_ONLY_NOTIF_TYPES : []),
-  ]
+  const allTypes = visibleNotifTypes({ isAdmin, isElevated })
 
   return (
     <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
@@ -25,8 +21,8 @@ export default function NotificationTypesPanel({ types, onChange, isElevated, is
               style={{ marginTop: 2, flexShrink: 0 }}
             />
             <span>
-              <strong style={{ color: '#fff', fontSize: '0.88rem' }}>{label}</strong>
-              <span style={{ color: 'var(--text-secondary)', fontSize: '0.82rem' }}> — {desc}</span>
+              <strong style={{ color: '#fff', fontSize: '0.88rem' }}>{t(label)}</strong>
+              <span style={{ color: 'var(--text-secondary)', fontSize: '0.82rem' }}> — {t(desc)}</span>
             </span>
           </label>
         ))}

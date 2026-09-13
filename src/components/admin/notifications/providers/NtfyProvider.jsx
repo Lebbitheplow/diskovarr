@@ -12,7 +12,7 @@ function Checkbox({ checked, onChange, children }) {
   )
 }
 
-export default function NtfyProvider({ initial, onToast, onOpenAgentInfo }) {
+export default function NtfyProvider({ initial, onToast, onOpenAgentInfo, onSaved }) {
   const { t } = useTranslation()
   const [enabled, setEnabled] = useState(initial?.enabled || false)
   const [url, setUrl] = useState(initial?.url || '')
@@ -34,14 +34,16 @@ export default function NtfyProvider({ initial, onToast, onOpenAgentInfo }) {
 
   const handleSave = useCallback(async () => {
     try {
-      await adminNotifications.setNtfy({
+      const saved = {
         enabled, url, topic, authMethod, token, username, password, priority, embedPoster, notificationTypes: notifTypes,
-      })
+      }
+      await adminNotifications.setNtfy(saved)
+      onSaved?.(saved)
       if (onToast) onToast('ntfy settings saved', 'success')
     } catch (err) {
       if (onToast) onToast(err.message || 'Failed to save', 'error')
     }
-  }, [enabled, url, topic, authMethod, token, username, password, priority, embedPoster, notifTypes, onToast])
+  }, [enabled, url, topic, authMethod, token, username, password, priority, embedPoster, notifTypes, onToast, onSaved])
 
   const handleTest = useCallback(async () => {
     setTesting(true)

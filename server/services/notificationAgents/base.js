@@ -5,20 +5,30 @@ const { hasNotificationType } = require('./types');
 // Each agent stores its settings key (e.g., 'discord_agent') and provides
 // shouldSend() and send(type, payload) methods.
 
+// Per-user "channel enabled" pref column for agents that can target a user.
+const USER_ENABLED_FLAG = {
+  discord_agent: 'discord_enabled',
+  pushover_agent: 'pushover_enabled',
+  telegram_agent: 'telegram_enabled',
+  pushbullet_agent: 'pushbullet_enabled',
+  email_agent: 'email_enabled',
+  ntfy_agent: 'ntfy_enabled',
+  webpush_agent: 'webpush_enabled',
+};
+
 class BaseAgent {
   constructor(settingsKey) {
     this.settingsKey = settingsKey;
-    this._settings = null;
   }
 
-  // Lazy-load settings from DB
+  // Always read from the DB: the admin can change agent settings at runtime
+  // and a process-lifetime cache left agents sending with stale config (or
+  // never becoming "active") until the next restart.
   getSettings() {
-    if (this._settings) return this._settings;
     try {
       const raw = db.getSetting(this.settingsKey, null);
       if (!raw) return null;
-      this._settings = typeof raw === 'string' ? JSON.parse(raw) : raw;
-      return this._settings;
+      return typeof raw === 'string' ? JSON.parse(raw) : raw;
     } catch {
       return null;
     }
@@ -58,18 +68,8 @@ class BaseAgent {
     if (!userId) return false;
     const prefs = db.getUserNotificationPrefs(userId);
     if (!prefs) return false;
-    // Check agent-specific enable flag
-    const agentKey = this.settingsKey.replace('_agent', '');
-    const agentName = agentKey.replace('_agent', '').includes('discord')
-      ? 'discord_enabled'
-      : agentKey.replace('_agent', '').includes('pushover')
-        ? 'pushover_enabled'
-        : agentKey.replace('_agent', '').includes('telegram')
-          ? 'telegram_enabled'
-          : agentKey.replace('_agent', '').includes('pushbullet')
-            ? 'pushbullet_enabled'
-            : null;
-    if (agentName && prefs[agentName] !== true) return false;
+    const flag = USER_ENABLED_FLAG[this.settingsKey];
+    if (flag && prefs[flag] !== true) return false;
     // Check per-type filter
     const userTypes = prefs.agentTypes?.[diskovarrType];
     return userTypes !== false;
@@ -83,3 +83,4 @@ class BaseAgent {
 }
 
 module.exports = BaseAgent;
+module.exports.USER_ENABLED_FLAG = USER_ENABLED_FLAG;

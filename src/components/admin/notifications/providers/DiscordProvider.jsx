@@ -15,7 +15,7 @@ function Checkbox({ checked, onChange, children, style }) {
   )
 }
 
-export default function DiscordProvider({ initial, onToast, onOpenAgentInfo }) {
+export default function DiscordProvider({ initial, onToast, onOpenAgentInfo, onSaved }) {
   const { t } = useTranslation()
   const [enabled, setEnabled] = useState(initial?.enabled || false)
   const [webhookEnabled, setWebhookEnabled] = useState(initial?.webhookEnabled || false)
@@ -53,7 +53,7 @@ export default function DiscordProvider({ initial, onToast, onOpenAgentInfo }) {
       if (avatarRemoving) await adminSettings.setDiscordAvatar('', true)
       else if (avatarFileData) await adminSettings.setDiscordAvatar(avatarFileData, false)
 
-      await adminNotifications.setDiscord({
+      const saved = {
         enabled, webhookEnabled, botEnabled, webhookUrl,
         botToken: botToken || undefined, botUsername: botUsername || undefined,
         botAvatarUrl, publicUrl, notificationRoleId, enableMentions,
@@ -61,14 +61,18 @@ export default function DiscordProvider({ initial, onToast, onOpenAgentInfo }) {
         webhookNotificationTypes: collectTypes(webhookNotifTypes),
         botNotificationTypes: collectTypes(botNotifTypes),
         inviteLink: inviteLink || undefined,
-      })
+      }
+
+      await adminNotifications.setDiscord(saved)
+
+      onSaved?.(saved)
       setAvatarFileData(null)
       setAvatarRemoving(false)
       if (onToast) onToast('Discord settings saved', 'success')
     } catch (err) {
       if (onToast) onToast(err.message || 'Failed to save Discord settings', 'error')
     }
-  }, [enabled, webhookEnabled, botEnabled, webhookUrl, botToken, botUsername, botAvatarUrl, publicUrl, notificationRoleId, enableMentions, webhookEmbedPoster, botEmbedPoster, avatarRemoving, avatarFileData, inviteLink, webhookNotifTypes, botNotifTypes, onToast, collectTypes])
+  }, [enabled, webhookEnabled, botEnabled, webhookUrl, botToken, botUsername, botAvatarUrl, publicUrl, notificationRoleId, enableMentions, webhookEmbedPoster, botEmbedPoster, avatarRemoving, avatarFileData, inviteLink, webhookNotifTypes, botNotifTypes, onToast, collectTypes, onSaved])
 
   const handleTest = useCallback(async () => {
     if (webhookEnabled && !webhookUrl) { if (onToast) onToast('Webhook URL required', 'error'); return }

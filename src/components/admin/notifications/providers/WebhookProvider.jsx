@@ -12,7 +12,7 @@ function Checkbox({ checked, onChange, children }) {
   )
 }
 
-export default function WebhookProvider({ initial, onToast, onOpenAgentInfo }) {
+export default function WebhookProvider({ initial, onToast, onOpenAgentInfo, onSaved }) {
   const { t } = useTranslation()
   const [enabled, setEnabled] = useState(initial?.enabled || false)
   const [url, setUrl] = useState(initial?.webhookUrl || '')
@@ -33,15 +33,17 @@ export default function WebhookProvider({ initial, onToast, onOpenAgentInfo }) {
 
   const handleSave = useCallback(async () => {
     try {
-      await adminNotifications.setWebhook({
+      const saved = {
         enabled, webhookUrl: url, jsonPayload: encodeWebhookPayload(jsonPayload),
         authHeader, customHeaders, supportVariables, embedPoster: true, notificationTypes: notifTypes,
-      })
+      }
+      await adminNotifications.setWebhook(saved)
+      onSaved?.(saved)
       if (onToast) onToast('Webhook settings saved', 'success')
     } catch (err) {
       if (onToast) onToast(err.message || 'Failed to save', 'error')
     }
-  }, [enabled, url, jsonPayload, authHeader, customHeaders, supportVariables, notifTypes, onToast])
+  }, [enabled, url, jsonPayload, authHeader, customHeaders, supportVariables, notifTypes, onToast, onSaved])
 
   const handleTest = useCallback(async () => {
     setTesting(true)

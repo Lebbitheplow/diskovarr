@@ -12,7 +12,7 @@ function Checkbox({ checked, onChange, children }) {
   )
 }
 
-export default function TelegramProvider({ initial, onToast, onOpenAgentInfo }) {
+export default function TelegramProvider({ initial, onToast, onOpenAgentInfo, onSaved }) {
   const { t } = useTranslation()
   const [enabled, setEnabled] = useState(initial?.enabled || false)
   const [botAPI, setBotAPI] = useState(initial?.botAPI || '')
@@ -31,14 +31,16 @@ export default function TelegramProvider({ initial, onToast, onOpenAgentInfo }) 
 
   const handleSave = useCallback(async () => {
     try {
-      await adminNotifications.setTelegram({
+      const saved = {
         enabled, botAPI, chatId, messageThreadId, sendSilently, embedPoster, notificationTypes: notifTypes,
-      })
+      }
+      await adminNotifications.setTelegram(saved)
+      onSaved?.(saved)
       if (onToast) onToast('Telegram settings saved', 'success')
     } catch (err) {
       if (onToast) onToast(err.message || 'Failed to save', 'error')
     }
-  }, [enabled, botAPI, chatId, messageThreadId, sendSilently, embedPoster, notifTypes, onToast])
+  }, [enabled, botAPI, chatId, messageThreadId, sendSilently, embedPoster, notifTypes, onToast, onSaved])
 
   const handleTest = useCallback(async () => {
     setTesting(true)

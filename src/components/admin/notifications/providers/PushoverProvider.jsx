@@ -12,7 +12,7 @@ function Checkbox({ checked, onChange, children }) {
   )
 }
 
-export default function PushoverProvider({ initial, onToast, onOpenAgentInfo }) {
+export default function PushoverProvider({ initial, onToast, onOpenAgentInfo, onSaved }) {
   const { t } = useTranslation()
   const [enabled, setEnabled] = useState(initial?.enabled || false)
   const [appToken, setAppToken] = useState(initial?.appToken || '')
@@ -31,15 +31,17 @@ export default function PushoverProvider({ initial, onToast, onOpenAgentInfo }) 
 
   const handleSave = useCallback(async () => {
     try {
-      await adminNotifications.setPushover({
+      const saved = {
         enabled, appToken, userKey, sound: sound || undefined, embedPoster,
         notificationTypes: notifTypes,
-      })
+      }
+      await adminNotifications.setPushover(saved)
+      onSaved?.(saved)
       if (onToast) onToast('Pushover settings saved', 'success')
     } catch (err) {
       if (onToast) onToast(err.message || 'Failed to save', 'error')
     }
-  }, [enabled, appToken, userKey, sound, embedPoster, notifTypes, onToast])
+  }, [enabled, appToken, userKey, sound, embedPoster, notifTypes, onToast, onSaved])
 
   const handleTest = useCallback(async () => {
     setTesting(true)

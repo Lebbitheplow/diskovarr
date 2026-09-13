@@ -1,4 +1,5 @@
 const db = require('../db/database');
+const { enqueueForUser } = require('./notificationAgents');
 
 function buildExplanation(matchedCriteria, content, notificationType) {
   const parts = matchedCriteria.map(c => {
@@ -46,21 +47,8 @@ async function sendMatches(matches, source) {
         },
       });
 
-      db.enqueueNotification({
+      enqueueForUser({
         notificationId: notifId,
-        agent: 'discord',
-        userId: monitor.userId,
-        payload: {
-          type: 'monitor_match',
-          title: `"${content.title}" matches "${monitor.name}"`,
-          body: explanation,
-          posterUrl: null,
-        },
-      });
-
-      db.enqueueNotification({
-        notificationId: notifId,
-        agent: 'pushover',
         userId: monitor.userId,
         payload: {
           type: 'monitor_match',

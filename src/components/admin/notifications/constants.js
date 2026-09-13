@@ -5,14 +5,16 @@ export const PROVIDERS = [
   { id: 'webhook', label: 'Webhook', description: 'Custom JSON webhook', hasUserInfoModal: true, icon: 'notif-webhook-icon' },
   { id: 'slack', label: 'Slack', description: 'Slack webhook', hasUserInfoModal: true, icon: 'notif-slack-icon' },
   { id: 'gotify', label: 'Gotify', description: 'Self-hosted Gotify', hasUserInfoModal: true, icon: 'notif-gotify-icon' },
-  { id: 'ntfy', label: 'ntfy', description: 'ntfy cloud or self-hosted', hasUserInfoModal: true, icon: 'notif-ntfy-icon' },
+  { id: 'ntfy', label: 'ntfy', description: 'ntfy cloud or self-hosted', hasUserInfoModal: true, hasUserSettings: true, icon: 'notif-ntfy-icon' },
   { id: 'telegram', label: 'Telegram', description: 'Telegram bot', hasUserInfoModal: true, hasUserSettings: true, icon: 'notif-telegram-icon' },
   { id: 'pushbullet', label: 'Pushbullet', description: 'Pushbullet push', hasUserInfoModal: true, hasUserSettings: true, icon: 'notif-pushbullet-icon' },
   { id: 'email', label: 'Email', description: 'SMTP email', hasUserInfoModal: true, hasUserSettings: true, icon: 'notif-email-icon' },
-  { id: 'webpush', label: 'WebPush', description: 'Browser push', hasUserInfoModal: true, icon: 'notif-webpush-icon' },
+  { id: 'webpush', label: 'WebPush', description: 'Browser push', hasUserInfoModal: true, hasUserSettings: true, icon: 'notif-webpush-icon' },
 ]
 
-export const USER_FACEABLE_PROVIDERS = ['discord', 'pushover', 'telegram', 'pushbullet', 'email']
+// Providers a user can point at their own target from Settings → Notifications.
+// Derived from PROVIDERS so the two lists can't drift.
+export const USER_FACEABLE_PROVIDERS = PROVIDERS.filter(p => p.hasUserSettings).map(p => p.id)
 
 export const SHARED_NOTIFICATION_TYPES = [
   { value: 'request_pending', label: 'New request pending', meta: '(admin)' },
@@ -130,3 +132,18 @@ export const ADMIN_ONLY_NOTIF_TYPES = [
   { key: 'notify_process_failed', label: 'Processing failed', desc: 'Get notified when a request fails to submit' },
   { key: 'notify_issue_new', label: 'New issue reported', desc: 'Get notified when a user reports a new issue' },
 ]
+
+/**
+ * Notification-type toggles a user may see. The server delivers every
+ * admin-facing event (pending, auto-approved, processing failed, new issue) to
+ * the same privileged set — admins and the elevated owner — so all of those
+ * toggles are shown to anyone privileged and hidden from everyone else.
+ */
+export function visibleNotifTypes({ isAdmin = false, isElevated = false } = {}) {
+  const privileged = isAdmin || isElevated
+  return [
+    ...USER_NOTIF_TYPES,
+    ...(privileged ? ELEVATED_NOTIF_TYPES : []),
+    ...(privileged ? ADMIN_ONLY_NOTIF_TYPES : []),
+  ]
+}

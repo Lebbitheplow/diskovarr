@@ -4,6 +4,7 @@
 // /media/:id/available endpoints (routes/overseerrShim.js).
 const db = require('../db/database');
 const logger = require('./logger');
+const { enqueueForUser } = require('./notificationAgents');
 
 // Create and enqueue a request_available notification for the requester.
 // Idempotent: skips if notified_available_at is already set.
@@ -24,12 +25,8 @@ function notifyRequestAvailable(request) {
         body: 'Your requested content has been added to the library.',
         data: { requestId: request.id, tmdbId: request.tmdb_id, mediaType: request.media_type, title },
       });
-      db.enqueueNotification({
-        notificationId: notifId, agent: 'discord', userId: request.user_id,
-        payload: { type: 'request_available', title: `"${title}" is now available`, body: 'Your requested content has been added to the library.', posterUrl: request.poster_url },
-      });
-      db.enqueueNotification({
-        notificationId: notifId, agent: 'pushover', userId: request.user_id,
+      enqueueForUser({
+        notificationId: notifId, userId: request.user_id,
         payload: { type: 'request_available', title: `"${title}" is now available`, body: 'Your requested content has been added to the library.', posterUrl: request.poster_url },
       });
       logger.info(`[fulfillment] request_available notification enqueued for user ${request.user_id} — "${title}"`);

@@ -145,30 +145,33 @@ class WebPushAgent extends BaseAgent {
     }
   }
 
+  // Push to every device a user has subscribed, honouring their opt-in toggle.
+  async sendToUser(userId, payload) {
+    const prefs = db.getUserNotificationPrefs(userId);
+    if (!prefs?.webpush_enabled) return 0;
+    let sent = 0;
+    for (const sub of this.getUserSubscriptions(userId)) {
+      if (await this.sendToSubscription(sub, payload)) sent++;
+    }
+    return sent;
+  }
+
   async send(type, payload) {
     if (!this.shouldSend()) return;
 
     let sent = 0;
 
     try {
-      // Send to specific user
       if (payload.userId) {
-        const subs = this.getUserSubscriptions(payload.userId);
-        for (const sub of subs) {
-          if (await this.sendToSubscription(sub, { ...payload, type })) {
-            sent++;
-          }
-        }
-      }
-
-      // Send to all admin subscriptions
-      const adminIds = db.getPrivilegedUserIds();
-      for (const adminId of adminIds) {
-        const subs = this.getUserSubscriptions(adminId);
-        for (const sub of subs) {
-          if (await this.sendToSubscription(sub, { ...payload, type })) {
-            sent++;
-          }
+        // Queue items are already addressed per user (the requester, or one
+        // item per admin for admin-facing events), so push only to that user —
+        // fanning out to every admin here duplicated admin pushes and leaked
+        // requester-only events to admins.
+        sent += await this.sendToUser(payload.userId, { ...payload, type });
+      } else {
+        // Unaddressed sends (immediate/system) go to the privileged users.
+        for (const adminId of db.getPrivilegedUserIds()) {
+          sent += await this.sendToUser(adminId, { ...payload, type });
         }
       }
     } catch (err) {
@@ -176,6 +179,24 @@ class WebPushAgent extends BaseAgent {
     }
 
     return sent > 0;
+  }
+
+  // Test push for a single user's own devices (Settings → Notifications → WebPush).
+  async sendTestToUser(userId) {
+    const subs = this.getUserSubscriptions(userId);
+    if (subs.length === 0) {
+      throw new Error('No browser subscriptions found. Enable notifications on this device first.');
+    }
+    let sent = 0;
+    for (const sub of subs) {
+      if (await this.sendToSubscription(sub, {
+        type: 'TEST_NOTIFICATION',
+        title: 'Diskovarr Test Notification',
+        body: 'Browser notifications are working correctly.',
+      })) sent++;
+    }
+    if (sent === 0) throw new Error('All subscriptions failed. Try enabling notifications again.');
+    return true;
   }
 
   async sendTest(_payload) {

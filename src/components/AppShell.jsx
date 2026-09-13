@@ -5,11 +5,13 @@ import { userApi } from '../services/api'
 import useNavSearch from '../hooks/useNavSearch'
 import useNotifications from '../hooks/useNotifications'
 import useShellMotion from '../hooks/useShellMotion'
+import usePwaInstall from '../hooks/usePwaInstall'
 import SideRail, { LogoIcon, Avatar } from './SideRail'
 import TopBar from './TopBar'
 import Footer from './Footer'
 import Modal from './Modal'
 import ChangelogModal from './ChangelogModal'
+import InstallAppModal from './InstallAppModal'
 import { renderTextWithLinks } from '../utils/renderRichText'
 import { useTranslation } from 'react-i18next'
 
@@ -41,6 +43,7 @@ export default function AppShell({ children }) {
   const search = useNavSearch()
   const bell = useNotifications()
   useShellMotion()
+  const pwa = usePwaInstall()
 
   const [collapsed, setCollapsed] = useState(() => {
     try { return localStorage.getItem(RAIL_KEY) === 'true' } catch { return false }
@@ -52,6 +55,7 @@ export default function AppShell({ children }) {
   const [searchPos, setSearchPos] = useState(null)
   const [infoOpen, setInfoOpen] = useState(false)
   const [changelogOpen, setChangelogOpen] = useState(false)
+  const [installOpen, setInstallOpen] = useState(false)
   const [tasteQuizOpen, setTasteQuizOpen] = useState(false)
   const tasteQuizCheckedRef = useRef(false)
 
@@ -251,6 +255,17 @@ export default function AppShell({ children }) {
             <span className="nav-fab-menu-username">{user?.username || t('User')}</span>
           </Link>
           <button className="nav-fab-menu-link nav-fab-menu-info" onClick={() => { setInfoOpen(true); setUserMenuPos(null) }}>ℹ {t('About')}</button>
+          {pwa.mode !== 'hidden' && (
+            <button
+              className="nav-fab-menu-link nav-fab-menu-info nav-fab-menu-install"
+              onClick={() => { setUserMenuPos(null); if (pwa.mode === 'native') pwa.promptInstall(); else setInstallOpen(true) }}
+            >
+              <svg className="nav-fab-menu-install-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M12 3v12" /><path d="m7 10 5 5 5-5" /><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
+              </svg>
+              {t('Install App')}
+            </button>
+          )}
           <button className="nav-fab-menu-link nav-fab-menu-signout" onClick={handleSignOut}>{t('Sign out')}</button>
         </div>
       )}
@@ -322,6 +337,8 @@ export default function AppShell({ children }) {
           )}
         </div>
       )}
+
+      <InstallAppModal isOpen={installOpen} onClose={() => setInstallOpen(false)} platform={pwa.platform} />
 
       {/* Info modal */}
       {infoOpen && (

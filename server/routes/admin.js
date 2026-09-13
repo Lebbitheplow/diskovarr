@@ -7,6 +7,7 @@ const plexService = require('../services/plex');
 const recommender = require('../services/recommender');
 const discoverRecommender = require('../services/discoverRecommender');
 const logger = require('../services/logger');
+const { enqueueForUser } = require('../services/notificationAgents');
 const { version: APP_VERSION } = require('../package.json');
 
 const loginLimiter = rateLimit({
@@ -1046,8 +1047,7 @@ router.post('/requests/:id/approve', requireAdmin, async (req, res) => {
           body: 'Your request has been approved and submitted.',
           data: { requestId: request.id, tmdbId: request.tmdb_id, mediaType: request.media_type, title: request.title },
         });
-        db.enqueueNotification({ notificationId: notifId, agent: 'discord', userId: request.user_id, payload: { type: 'request_approved', title: `"${request.title}" approved`, body: 'Your request has been approved and submitted.', posterUrl: request.poster_url } });
-        db.enqueueNotification({ notificationId: notifId, agent: 'pushover', userId: request.user_id, payload: { type: 'request_approved', title: `"${request.title}" approved`, body: 'Your request has been approved and submitted.', posterUrl: request.poster_url } });
+        enqueueForUser({ notificationId: notifId, userId: request.user_id, payload: { type: 'request_approved', title: `"${request.title}" approved`, body: 'Your request has been approved and submitted.', posterUrl: request.poster_url } });
       }
     } catch (e) { logger.warn('notification error:', e.message); }
     res.json({ success: true, request: db.getRequestById(request.id) });
@@ -1143,7 +1143,10 @@ router.post('/users/:userId/settings', requireAdmin, (req, res) => {
       landing_page: landing_page || null,
     });
     if (notificationPrefs && typeof notificationPrefs === 'object') {
+      // Start from the stored row so channels this modal doesn't expose
+      // (email address, ntfy, web push, monitor alerts) survive an admin edit.
       db.setUserNotificationPrefs(req.params.userId, {
+        ...db.getUserNotificationPrefs(req.params.userId),
         notify_approved:      notificationPrefs.notify_approved      !== false,
         notify_denied:        notificationPrefs.notify_denied        !== false,
         notify_available:     notificationPrefs.notify_available     !== false,
@@ -1587,7 +1590,7 @@ router.post('/webpush/subscribe', requireAuth, (req, res) => {
       return res.status(400).json({ error: 'Invalid subscription' });
     }
     const webpushAgent = require('../services/webpushAgent');
-    const ok = webpushAgent.saveSubscription(req.user?.user_id || 'anonymous', subscription);
+    const ok = webpushAgent.saveSubscription(req.session.plexUser?.id || req.session.plexUser?.userId || 'anonymous', subscription);
     res.json({ success: ok });
   } catch (err) {
     res.status(500).json({ error: err.message });

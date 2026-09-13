@@ -41,8 +41,19 @@ function registerAllAgents() {
 
 registerAllAgents();
 
+// Queue one external notification per active agent for a bell notification.
+// Every agent self-filters at send time (admin type list, per-user channel
+// toggles), so the caller only decides *whether* the user gets notified.
+function enqueueForUser({ notificationId, userId, payload, sendAfter }) {
+  const db = require('../../db/database');
+  for (const { key } of manager.getActiveAgents()) {
+    db.enqueueNotification({ notificationId, agent: key, userId, payload, sendAfter });
+  }
+}
+
 module.exports = {
   manager,
+  enqueueForUser,
   BaseAgent,
   NotificationType,
   ALL_NOTIFICATION_TYPES,

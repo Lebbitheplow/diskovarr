@@ -2659,6 +2659,16 @@ for (const col of [
   // media-server account's address is never harvested. See /privacy.
   'email_address TEXT DEFAULT NULL',
   'pgp_key TEXT DEFAULT NULL',
+  // Per-user ntfy target (own topic; server/auth optional, default to the admin's)
+  'ntfy_enabled INTEGER DEFAULT 0',
+  'ntfy_url TEXT DEFAULT NULL',
+  'ntfy_topic TEXT DEFAULT NULL',
+  'ntfy_auth_method TEXT DEFAULT NULL',
+  'ntfy_token TEXT DEFAULT NULL',
+  'ntfy_username TEXT DEFAULT NULL',
+  'ntfy_password TEXT DEFAULT NULL',
+  // Browser push opt-in (subscriptions live in user_push_subscriptions)
+  'webpush_enabled INTEGER DEFAULT 0',
 ]) {
   try { db.prepare(`ALTER TABLE user_notification_prefs ADD COLUMN ${col}`).run(); } catch {}
 }
@@ -2738,6 +2748,14 @@ function getUserNotificationPrefs(userId) {
     email_enabled: row ? !!row.email_enabled : false,
     email_address: row?.email_address || null,
     pgp_key: row?.pgp_key || null,
+    ntfy_enabled: row ? !!row.ntfy_enabled : false,
+    ntfy_url: row?.ntfy_url || null,
+    ntfy_topic: row?.ntfy_topic || null,
+    ntfy_auth_method: row?.ntfy_auth_method || null,
+    ntfy_token: row?.ntfy_token || null,
+    ntfy_username: row?.ntfy_username || null,
+    ntfy_password: row?.ntfy_password || null,
+    webpush_enabled: row ? !!row.webpush_enabled : false,
     notify_pending: row ? (row.notify_pending !== null ? !!row.notify_pending : true) : true,
     notify_auto_approved: row ? (row.notify_auto_approved !== null ? !!row.notify_auto_approved : true) : true,
     notify_process_failed: row ? (row.notify_process_failed !== null ? !!row.notify_process_failed : true) : true,
@@ -2776,6 +2794,14 @@ function setUserNotificationPrefs(userId, prefs) {
     `email_enabled = ${prefs.email_enabled ? 1 : 0}`,
     `email_address = ${sqlValue(prefs.email_address)}`,
     `pgp_key = ${sqlValue(prefs.pgp_key)}`,
+    `ntfy_enabled = ${prefs.ntfy_enabled ? 1 : 0}`,
+    `ntfy_url = ${sqlValue(prefs.ntfy_url)}`,
+    `ntfy_topic = ${sqlValue(prefs.ntfy_topic)}`,
+    `ntfy_auth_method = ${sqlValue(prefs.ntfy_auth_method)}`,
+    `ntfy_token = ${sqlValue(prefs.ntfy_token)}`,
+    `ntfy_username = ${sqlValue(prefs.ntfy_username)}`,
+    `ntfy_password = ${sqlValue(prefs.ntfy_password)}`,
+    `webpush_enabled = ${prefs.webpush_enabled ? 1 : 0}`,
     `notify_monitor = ${prefs.notify_monitor !== false ? 1 : 0}`,
   ];
 

@@ -233,6 +233,8 @@ app.get('/manifest.json', (req, res) => {
     icons: [
       { src: '/icons/icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' },
       { src: '/icons/icon-maskable.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'maskable' },
+      // Raster fallback: Chromium's install criteria want a PNG >= 144px
+      { src: '/diskovarr-logo.png', sizes: '480x480', type: 'image/png', purpose: 'any' },
     ],
   })
 })

@@ -11,7 +11,7 @@ function Checkbox({ checked, onChange, children }) {
   )
 }
 
-export default function WebpushProvider({ initial, onToast, onOpenAgentInfo }) {
+export default function WebpushProvider({ initial, onToast, onOpenAgentInfo, onSaved }) {
   const { t } = useTranslation()
   const [enabled, setEnabled] = useState(initial?.enabled || false)
   const [embedPoster, setEmbedPoster] = useState(!!initial?.embedPoster)
@@ -20,12 +20,14 @@ export default function WebpushProvider({ initial, onToast, onOpenAgentInfo }) {
 
   const handleSave = useCallback(async () => {
     try {
-      await adminNotifications.setWebpush({ enabled, embedPoster })
+      const saved = { enabled, embedPoster }
+      await adminNotifications.setWebpush(saved)
+      onSaved?.(saved)
       if (onToast) onToast('WebPush settings saved', 'success')
     } catch (err) {
       if (onToast) onToast(err.message || 'Failed to save', 'error')
     }
-  }, [enabled, embedPoster, onToast])
+  }, [enabled, embedPoster, onToast, onSaved])
 
   const handleTest = useCallback(async () => {
     setTesting(true)

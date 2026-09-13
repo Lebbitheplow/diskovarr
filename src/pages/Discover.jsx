@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import {
   discoverApi,
   libraryApi,
@@ -17,6 +18,7 @@ const emptyTags = () => Object.fromEntries(FACET_FIELDS.map(f => [f.field, new S
 export default function Discover() {
   const { t } = useTranslation()
   const { error: toastError, success: toastSuccess } = useToast()
+  const [searchParams] = useSearchParams()
 
   const [type, setType] = useState('all')
   const [decade, setDecade] = useState('')
@@ -24,7 +26,14 @@ export default function Discover() {
   const [sort, setSort] = useState('rating')
   const [filterContentRatings, setFilterContentRatings] = useState([])
   const [availableContentRatings, setAvailableContentRatings] = useState([])
-  const [tags, setTags] = useState(emptyTags)
+  // Home's "Browse by Genre" tiles deep-link here as /discover?genre=X; seed the
+  // genre facet from the URL so the shelf lands on filtered results immediately.
+  const [tags, setTags] = useState(() => {
+    const initial = emptyTags()
+    const genre = (searchParams.get('genre') || '').trim()
+    if (genre) initial.genre.add(genre)
+    return initial
+  })
   const [year, setYear] = useState('')
   const [releaseFrom, setReleaseFrom] = useState('')
   const [releaseTo, setReleaseTo] = useState('')

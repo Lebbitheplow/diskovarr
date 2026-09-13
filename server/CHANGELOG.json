@@ -1,5 +1,17 @@
 [
   {
+    "version": "3.3.1",
+    "date": "2026-09-13",
+    "changes": [
+      "Notifications for everyone — users now get ntfy (your own topic, optional server and login) and Browser push (native notifications from any device you enable, even with Diskovarr closed) under My Settings → Notifications whenever the admin has those channels on, alongside Discord, Pushover, Telegram, Pushbullet and Email.",
+      "Fixed: Telegram, Pushbullet and Email user settings never actually received request, issue or monitor notifications — every event now reaches every enabled channel.",
+      "Fixed: turning a notification provider on in the admin panel took effect only after a restart, and the green status dot next to it didn't update until the page was reloaded.",
+      "The elevated owner now sees the same admin-only notification toggles (processing failed, new issue) that admins do; regular users can no longer flip them.",
+      "Install Diskovarr as an app — the user menu offers Install App with the native browser prompt where available, or step-by-step Add to Home Screen instructions for iPhone, iPad, Safari on Mac, Firefox and Samsung Internet.",
+      "Browse by Genre — new artwork tiles on Home (filtering your library on Discover) and on Explore (searching TMDB)."
+    ]
+  },
+  {
     "version": "3.3.0",
     "date": "2026-09-12",
     "changes": [

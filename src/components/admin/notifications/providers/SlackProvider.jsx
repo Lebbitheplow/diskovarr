@@ -12,7 +12,7 @@ function Checkbox({ checked, onChange, children }) {
   )
 }
 
-export default function SlackProvider({ initial, onToast, onOpenAgentInfo }) {
+export default function SlackProvider({ initial, onToast, onOpenAgentInfo, onSaved }) {
   const { t } = useTranslation()
   const [enabled, setEnabled] = useState(initial?.enabled || false)
   const [webhookUrl, setWebhookUrl] = useState(initial?.webhookUrl || '')
@@ -27,12 +27,14 @@ export default function SlackProvider({ initial, onToast, onOpenAgentInfo }) {
 
   const handleSave = useCallback(async () => {
     try {
-      await adminNotifications.setSlack({ enabled, webhookUrl, embedPoster: true, notificationTypes: notifTypes })
+      const saved = { enabled, webhookUrl, embedPoster: true, notificationTypes: notifTypes }
+      await adminNotifications.setSlack(saved)
+      onSaved?.(saved)
       if (onToast) onToast('Slack settings saved', 'success')
     } catch (err) {
       if (onToast) onToast(err.message || 'Failed to save', 'error')
     }
-  }, [enabled, webhookUrl, notifTypes, onToast])
+  }, [enabled, webhookUrl, notifTypes, onToast, onSaved])
 
   const handleTest = useCallback(async () => {
     setTesting(true)

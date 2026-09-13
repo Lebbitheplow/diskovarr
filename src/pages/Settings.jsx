@@ -133,6 +133,13 @@ export default function Settings() {
     }
   }, [toastSuccess, toastError, t])
 
+  // Provider panels report both outcomes through one callback; route by level
+  // so a successful save no longer shows up styled as an error.
+  const handleNotifToast = useCallback((msg, level) => {
+    if (level === 'success') toastSuccess(msg)
+    else toastError(msg)
+  }, [toastSuccess, toastError])
+
   const handleUpdateSettings = useCallback(async (payload) => {
     try {
       await userApi.updateSettings(payload)
@@ -277,7 +284,7 @@ export default function Settings() {
         )}
 
         {activeTab === 'notifications' && (
-          <UserNotifications settings={s} onToast={toastError} onUpdateSettings={handleUpdateSettings} />
+          <UserNotifications settings={s} onToast={handleNotifToast} onUpdateSettings={handleUpdateSettings} />
         )}
 
         {activeTab === 'accounts' && (
