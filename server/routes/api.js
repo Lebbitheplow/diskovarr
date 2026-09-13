@@ -3252,10 +3252,9 @@ router.get('/user/settings', (req, res) => {
     getAgentEnabled('telegram_agent') ? 'telegram' : null,
     getAgentEnabled('pushbullet_agent') ? 'pushbullet' : null,
     getAgentEnabled('email_agent') ? 'email' : null,
-    getAgentEnabled('ntfy_agent') ? 'ntfy' : null,
+    // ntfy, Gotify, Slack and Webhook are admin feeds with no per-user target.
     getAgentEnabled('webpush_agent') ? 'webpush' : null,
   ].filter(Boolean);
-  const ntfyConfig = (() => { try { return JSON.parse(db.getSetting('ntfy_agent', 'null')); } catch { return null; } })();
   res.json({
     region: prefs.region,
     language: prefs.language,
@@ -3271,14 +3270,7 @@ router.get('/user/settings', (req, res) => {
     discord_agent_enabled: !!(discordConfig && discordConfig.enabled),
     discord_invite_link: discordConfig?.inviteLink || null,
     enabled_providers,
-    // Users without their own server publish to the admin's; shown as the default.
-    ntfy_server_url: ntfyConfig?.enabled ? (ntfyConfig.url || null) : null,
     ...notif,
-    // Never echo stored secrets back to the browser.
-    ntfy_token: notif.ntfy_token ? '••••••••' : null,
-    ntfy_password: notif.ntfy_password ? '••••••••' : null,
-    ntfy_has_token: !!notif.ntfy_token,
-    ntfy_has_password: !!notif.ntfy_password,
   });
 });
 
@@ -3292,7 +3284,6 @@ router.post('/user/settings', (req, res) => {
           telegram_chat_id, telegram_message_thread_id, telegram_send_silently, telegram_enabled,
           pushbullet_access_token, pushbullet_enabled,
           email_enabled, email_address, pgp_key,
-          ntfy_enabled, ntfy_url, ntfy_topic, ntfy_auth_method, ntfy_token, ntfy_username, ntfy_password,
           webpush_enabled,
           notify_pending, notify_auto_approved, notify_process_failed,
           notify_issue_new, notify_issue_update, notify_issue_comment, notify_monitor } = req.body;
@@ -3303,18 +3294,7 @@ router.post('/user/settings', (req, res) => {
   // events are delivered to); everyone else keeps the stored default.
   const isPrivileged = !!(req.session.isAdmin || req.session.isPlexAdminUser)
     || db.getPrivilegedUserIds().includes(String(userId));
-  const ntfyAgent = require('../services/ntfyAgent');
-  if (ntfy_url !== undefined && ntfy_url && !ntfyAgent.isValidUrl(ntfy_url)) {
-    return res.status(400).json({ error: 'ntfy server URL must be an http(s) URL' });
-  }
-  if (ntfy_topic !== undefined && ntfy_topic && !ntfyAgent.isValidTopic(ntfy_topic)) {
-    return res.status(400).json({ error: 'ntfy topic may only contain letters, numbers, - and _ (max 64)' });
-  }
-  if (ntfy_auth_method !== undefined && ntfy_auth_method && !['none', 'token', 'basic'].includes(ntfy_auth_method)) {
-    return res.status(400).json({ error: 'Invalid ntfy auth method' });
-  }
-  // The masked placeholder the GET returns must never overwrite a real secret.
-  const _secret = (val, fallback) => (val === undefined || val === '••••••••') ? fallback : (val || null);
+
   const newRegion      = region      !== undefined ? (region      || null) : oldPrefs.region;
   const newLanguage    = language    !== undefined ? (language    || null) : oldPrefs.language;
   const newUiLanguage  = ui_language !== undefined ? (ui_language || null) : oldPrefs.ui_language;
@@ -3376,13 +3356,6 @@ router.post('/user/settings', (req, res) => {
     email_enabled:         _e(email_enabled,         oldNotif.email_enabled),
     email_address:         _s(newEmailAddress,       oldNotif.email_address),
     pgp_key:               _s(pgp_key,               oldNotif.pgp_key),
-    ntfy_enabled:          _e(ntfy_enabled,          oldNotif.ntfy_enabled),
-    ntfy_url:              _s(ntfy_url,              oldNotif.ntfy_url),
-    ntfy_topic:            _s(ntfy_topic,            oldNotif.ntfy_topic),
-    ntfy_auth_method:      _s(ntfy_auth_method,      oldNotif.ntfy_auth_method),
-    ntfy_token:            _secret(ntfy_token,       oldNotif.ntfy_token),
-    ntfy_username:         _s(ntfy_username,         oldNotif.ntfy_username),
-    ntfy_password:         _secret(ntfy_password,    oldNotif.ntfy_password),
     webpush_enabled:       _e(webpush_enabled,       oldNotif.webpush_enabled),
     notify_pending:        isPrivileged ? _b(notify_pending,        oldNotif.notify_pending)        : oldNotif.notify_pending,
     notify_auto_approved:  isPrivileged ? _b(notify_auto_approved,  oldNotif.notify_auto_approved)  : oldNotif.notify_auto_approved,
@@ -3536,31 +3509,6 @@ router.post('/user/discord/test', async (req, res) => {
   }
   try {
     await discordAgent.sendTest({ mode: 'bot', botToken: config.botToken, discordUserId, botUsername: config.botUsername });
-    res.json({ ok: true });
-  } catch (err) {
-    res.json({ ok: false, error: err.message });
-  }
-});
-
-// POST /api/user/ntfy/test — publish a test to the caller's own ntfy target.
-// Secrets aren't round-tripped to the browser, so a masked placeholder means
-// "use what's stored".
-router.post('/user/ntfy/test', async (req, res) => {
-  const userId = req.session.plexUser.id;
-  const ntfyAgent = require('../services/ntfyAgent');
-  if (!ntfyAgent.shouldSend()) return res.json({ ok: false, error: 'ntfy is not enabled by the admin' });
-  const stored = db.getUserNotificationPrefs(userId);
-  const b = req.body || {};
-  const pick = (val, fallback) => (val === undefined || val === '••••••••') ? fallback : (val || null);
-  try {
-    await ntfyAgent.sendUserTest({
-      ntfy_url: pick(b.ntfy_url, stored.ntfy_url),
-      ntfy_topic: pick(b.ntfy_topic, stored.ntfy_topic),
-      ntfy_auth_method: pick(b.ntfy_auth_method, stored.ntfy_auth_method),
-      ntfy_token: pick(b.ntfy_token, stored.ntfy_token),
-      ntfy_username: pick(b.ntfy_username, stored.ntfy_username),
-      ntfy_password: pick(b.ntfy_password, stored.ntfy_password),
-    });
     res.json({ ok: true });
   } catch (err) {
     res.json({ ok: false, error: err.message });

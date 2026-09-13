@@ -1,5 +1,12 @@
 [
   {
+    "version": "3.3.2",
+    "date": "2026-09-13",
+    "changes": [
+      "ntfy is an admin feed again. The per-user ntfy panel added in 3.3.1 asked users to subscribe to topics on the admin's server, which needs an account there — that isn't how ntfy (or Seerr) works. Like Gotify, Slack and Webhook, ntfy now lives only in Admin → Notifications; users get Discord, Pushover, Telegram, Pushbullet, Email and Browser push."
+    ]
+  },
+  {
     "version": "3.3.1",
     "date": "2026-09-13",
     "changes": [

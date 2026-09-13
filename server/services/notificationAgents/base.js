@@ -12,7 +12,6 @@ const USER_ENABLED_FLAG = {
   telegram_agent: 'telegram_enabled',
   pushbullet_agent: 'pushbullet_enabled',
   email_agent: 'email_enabled',
-  ntfy_agent: 'ntfy_enabled',
   webpush_agent: 'webpush_enabled',
 };
 

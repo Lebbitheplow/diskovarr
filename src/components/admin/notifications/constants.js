@@ -5,7 +5,7 @@ export const PROVIDERS = [
   { id: 'webhook', label: 'Webhook', description: 'Custom JSON webhook', hasUserInfoModal: true, icon: 'notif-webhook-icon' },
   { id: 'slack', label: 'Slack', description: 'Slack webhook', hasUserInfoModal: true, icon: 'notif-slack-icon' },
   { id: 'gotify', label: 'Gotify', description: 'Self-hosted Gotify', hasUserInfoModal: true, icon: 'notif-gotify-icon' },
-  { id: 'ntfy', label: 'ntfy', description: 'ntfy cloud or self-hosted', hasUserInfoModal: true, hasUserSettings: true, icon: 'notif-ntfy-icon' },
+  { id: 'ntfy', label: 'ntfy', description: 'ntfy cloud or self-hosted', hasUserInfoModal: true, icon: 'notif-ntfy-icon' },
   { id: 'telegram', label: 'Telegram', description: 'Telegram bot', hasUserInfoModal: true, hasUserSettings: true, icon: 'notif-telegram-icon' },
   { id: 'pushbullet', label: 'Pushbullet', description: 'Pushbullet push', hasUserInfoModal: true, hasUserSettings: true, icon: 'notif-pushbullet-icon' },
   { id: 'email', label: 'Email', description: 'SMTP email', hasUserInfoModal: true, hasUserSettings: true, icon: 'notif-email-icon' },

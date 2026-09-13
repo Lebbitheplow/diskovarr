@@ -6,7 +6,6 @@ import PushoverUserProvider from './providers/PushoverUserProvider'
 import TelegramUserProvider from './providers/TelegramUserProvider'
 import PushbulletUserProvider from './providers/PushbulletUserProvider'
 import EmailUserProvider from './providers/EmailUserProvider'
-import NtfyUserProvider from './providers/NtfyUserProvider'
 import WebpushUserProvider from './providers/WebpushUserProvider'
 import { USER_FACEABLE_PROVIDERS } from '../../components/admin/notifications/constants'
 
@@ -16,7 +15,6 @@ const USER_PROVIDER_MAP = {
   telegram: { Component: TelegramUserProvider, label: 'Telegram' },
   pushbullet: { Component: PushbulletUserProvider, label: 'Pushbullet' },
   email: { Component: EmailUserProvider, label: 'Email' },
-  ntfy: { Component: NtfyUserProvider, label: 'ntfy' },
   webpush: { Component: WebpushUserProvider, label: 'Browser push' },
 }
 
@@ -26,7 +24,6 @@ const USER_ENABLED_FIELD = {
   telegram: 'telegram_enabled',
   pushbullet: 'pushbullet_enabled',
   email: 'email_enabled',
-  ntfy: 'ntfy_enabled',
   webpush: 'webpush_enabled',
 }
 

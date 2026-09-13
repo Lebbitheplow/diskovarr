@@ -26,8 +26,9 @@ describe('pushUnavailableReason', () => {
 })
 
 describe('user notification settings gating', () => {
-  it('offers ntfy and browser push alongside the other user-targetable providers', () => {
-    expect(USER_FACEABLE_PROVIDERS).toEqual(['discord', 'pushover', 'ntfy', 'telegram', 'pushbullet', 'email', 'webpush'])
+  it('offers browser push alongside the other user-targetable providers, never the admin feeds', () => {
+    expect(USER_FACEABLE_PROVIDERS).toEqual(['discord', 'pushover', 'telegram', 'pushbullet', 'email', 'webpush'])
+    expect(USER_FACEABLE_PROVIDERS).not.toContain('ntfy')
   })
   it('shows admin-facing event toggles to every privileged user and to nobody else', () => {
     const keys = (o) => visibleNotifTypes(o).map(t => t.key)

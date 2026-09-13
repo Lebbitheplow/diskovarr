@@ -190,7 +190,6 @@ export const userApi = {
   getSettings: () => api.get('/user/settings'),
   testPushover: (userKey) => api.post('/user/pushover/test', { userKey }),
   testDiscord: (discordUserId) => api.post('/user/discord/test', { discordUserId }),
-  testNtfy: (target) => api.post('/user/ntfy/test', target),
   getWebpushVapidKey: () => api.get('/user/webpush/vapid-key'),
   getWebpushSubscriptions: () => api.get('/user/webpush/subscriptions'),
   subscribeWebpush: (subscription) => api.post('/user/webpush/subscribe', { subscription }),

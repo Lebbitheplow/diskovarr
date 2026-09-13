@@ -4,6 +4,14 @@ All notable changes are documented here. Versioning follows [Semantic Versioning
 
 ---
 
+## v3.3.2 — 2026-09-13
+
+### Removed
+
+- **Per-user ntfy** (added in 3.3.1). ntfy topics are the whole address: a user can only subscribe to a topic on a server they can read, so publishing to user-chosen topics from the admin's server only worked if the admin created accounts or granted anonymous read there. Seerr treats ntfy, Gotify, Slack and Webhook as admin-only feeds and gives users Discord, Pushover, Telegram, Pushbullet, Email and Web Push; Diskovarr now matches that. Dropped the user panel, `POST /api/user/ntfy/test`, the `ntfy_*` columns on `user_notification_prefs` (existing rows keep the unused columns) and the per-user branch in `server/services/ntfyAgent.js`. Browser push stays per-user.
+
+---
+
 ## v3.3.1 — 2026-09-13
 
 ### Added
