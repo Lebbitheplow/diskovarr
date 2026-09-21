@@ -657,6 +657,17 @@ const server = app.listen(PORT, '0.0.0.0', () => {
     30 * 60 * 1000
   )
 
+  // Movie Night reminders: recurring groups with a theme pinned to today, and
+  // scheduled nights starting within the hour. Runs every 15 min; the per-group
+  // bundle key makes re-runs no-ops, so a restart never double-reminds.
+  const movieNight = require('./services/movieNight')
+  setTimeout(() => {
+    try { movieNight.runNightReminders(); } catch (err) { logger.warn('Movie night reminders failed:', err.message) }
+  }, 90 * 1000)
+  setInterval(() => {
+    try { movieNight.runNightReminders(); } catch (err) { logger.warn('Movie night reminders failed:', err.message) }
+  }, 15 * 60 * 1000)
+
   // Automation: deletion profiles. Daily, plus a startup evaluation ~5 min after
   // boot (needs library + watch history synced). No-ops with no enabled profiles;
   // only profiles in 'auto' mode ever delete anything.

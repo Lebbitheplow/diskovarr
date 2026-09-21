@@ -3286,7 +3286,8 @@ router.post('/user/settings', (req, res) => {
           email_enabled, email_address, pgp_key,
           webpush_enabled,
           notify_pending, notify_auto_approved, notify_process_failed,
-          notify_issue_new, notify_issue_update, notify_issue_comment, notify_monitor } = req.body;
+          notify_issue_new, notify_issue_update, notify_issue_comment, notify_monitor,
+          notify_movie_night_added, notify_movie_night_comment } = req.body;
   // Read current prefs so partial updates (e.g. only show_mature) don't reset other fields
   const oldPrefs = db.getUserPreferences(userId);
   const oldNotif = db.getUserNotificationPrefs(userId);
@@ -3364,6 +3365,8 @@ router.post('/user/settings', (req, res) => {
     notify_issue_update:   _b(notify_issue_update,   oldNotif.notify_issue_update),
     notify_issue_comment:  _b(notify_issue_comment,  oldNotif.notify_issue_comment),
     notify_monitor:        _b(notify_monitor,        oldNotif.notify_monitor),
+    notify_movie_night_added:   _b(notify_movie_night_added,   oldNotif.notify_movie_night_added),
+    notify_movie_night_comment: _b(notify_movie_night_comment, oldNotif.notify_movie_night_comment),
   });
   res.json({ ok: true });
 });
@@ -4960,6 +4963,546 @@ router.delete('/tmdb/sync-rating', async (req, res) => {
     console.warn('[tmdb] Delete rating failed:', err.message);
     res.status(502).json({ error: 'Failed to remove TMDB rating.' });
   }
+});
+
+// ── Movie Night ──────────────────────────────────────────────────────────────
+// Groups of users (plus in-house personas for shared accounts) sharing a watch
+// list with +1/-1 votes, comments, weekday themes and a round-robin rotation.
+
+function movieNightActor(req) {
+  return String(req.session.plexUser.id);
+}
+
+function movieNightPrivileged(req) {
+  const userId = movieNightActor(req);
+  return !!(req.session.isAdmin || req.session.isPlexAdminUser)
+    || db.getPrivilegedUserIds().includes(userId);
+}
+
+// Resolves the group from :id and enforces membership. Sends the error response
+// and returns null when the caller may not proceed.
+function requireMovieNightMember(req, res, { hostOnly = false } = {}) {
+  const groupId = Number(req.params.id);
+  const group = db.getMovieNightGroup(groupId);
+  if (!group) { res.status(404).json({ error: 'Group not found' }); return null; }
+  const userId = movieNightActor(req);
+  const privileged = movieNightPrivileged(req);
+  if (!privileged && !db.isMovieNightMember(groupId, userId)) {
+    res.status(403).json({ error: 'Not a member of this movie night' });
+    return null;
+  }
+  if (hostOnly && !privileged && !db.isMovieNightHost(groupId, userId)) {
+    res.status(403).json({ error: 'Host only' });
+    return null;
+  }
+  return { group, userId, privileged };
+}
+
+function movieNightEntryPayload(row) {
+  return {
+    id: row.id,
+    groupId: row.group_id,
+    mediaType: row.media_type,
+    tmdbId: row.tmdb_id,
+    ratingKey: row.rating_key,
+    title: row.title,
+    year: row.year,
+    thumb: row.thumb,
+    status: row.status,
+    addedAt: row.added_at,
+    watchedAt: row.watched_at,
+    addedBy: row.added_by,
+    addedByUsername: row.added_by_username || row.added_by,
+    addedByAvatar: row.added_by_thumb || null,
+    persona: row.persona_id ? { id: row.persona_id, name: row.persona_name, emoji: row.persona_emoji || null } : null,
+    netVotes: Number(row.net_votes || 0),
+    userVote: row.user_vote == null ? null : Number(row.user_vote),
+    commentCount: Number(row.comment_count || 0),
+  };
+}
+
+function movieNightIdentityName(userId) {
+  const ku = db.getKnownUserById(userId);
+  return { username: ku?.username || userId, avatar: ku?.thumb || null };
+}
+
+// Fan-out helper: notifies every human member of a group (optionally excluding
+// the actor), gated on a per-user preference key when one is given.
+function notifyMovieNightMembers({ group, exceptUserId, title, body, data, prefKey }) {
+  for (const member of db.getMovieNightGroupMembers(group.id)) {
+    if (exceptUserId && member.user_id === exceptUserId) continue;
+    if (prefKey) {
+      const prefs = db.getUserNotificationPrefs(member.user_id);
+      if (!prefs[prefKey]) continue;
+    }
+    const notifId = db.createOrBundleNotification({
+      userId: member.user_id, type: prefKey || 'movie_night_invite', title, body, data,
+    });
+    enqueueForUser({
+      notificationId: notifId,
+      userId: member.user_id,
+      payload: { type: prefKey || 'movie_night_invite', title, body, posterUrl: data?.thumb || null, userId: member.user_id },
+    });
+  }
+}
+
+// GET /api/movie-night/groups
+router.get('/movie-night/groups', (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  const userId = movieNightActor(req);
+  const privileged = movieNightPrivileged(req);
+  const weekday = new Date().getDay();
+  const groups = db.getMovieNightGroupsForUser(userId).map(g => {
+    const members = db.getMovieNightGroupMembers(g.id);
+    const entries = db.getMovieNightEntries(g.id, { userId });
+    const next = db.getMovieNightNextPick(g.id);
+    return {
+      id: g.id,
+      name: g.name,
+      themeEmoji: g.theme_emoji,
+      mode: g.mode,
+      eventAt: g.event_at,
+      rotateMode: !!g.rotate_mode,
+      isHost: !!g.is_host || privileged,
+      createdBy: g.created_by,
+      memberCount: members.length,
+      members: members.map(m => ({ userId: m.user_id, username: m.username || m.user_id, avatar: m.thumb || null, role: m.role })),
+      posterCollage: entries.filter(e => e.thumb).slice(0, 4).map(e => e.thumb),
+      entryCount: entries.length,
+      tonightTheme: db.getTonightMovieNightTheme(g.id, weekday),
+      nextUp: next?.entry ? { ...movieNightEntryPayload(next.entry), forName: next.identity?.name || null, fallback: !!next.fallback } : null,
+    };
+  });
+  res.json({ groups });
+});
+
+// POST /api/movie-night/groups
+router.post('/movie-night/groups', (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  const userId = movieNightActor(req);
+  const { name, themeEmoji, mode, eventAt, rotateMode, memberIds, personas } = req.body || {};
+  if (!name || !String(name).trim()) return res.status(400).json({ error: 'Group name is required' });
+  if (!['scheduled', 'recurring', 'rolling'].includes(mode)) return res.status(400).json({ error: 'Invalid mode' });
+  const group = db.createMovieNightGroup({
+    name: String(name).trim().slice(0, 80),
+    themeEmoji: themeEmoji ? String(themeEmoji).slice(0, 8) : null,
+    mode,
+    eventAt: eventAt ? Number(eventAt) : null,
+    createdBy: userId,
+    rotateMode: !!rotateMode,
+  });
+  for (const id of (Array.isArray(memberIds) ? memberIds : [])) {
+    if (id && String(id) !== userId && db.getKnownUserById(String(id))) db.addMovieNightMember(group.id, String(id));
+  }
+  for (const p of (Array.isArray(personas) ? personas : [])) {
+    if (p && String(p.displayName || '').trim()) {
+      db.addMovieNightPersona(group.id, String(p.displayName).trim().slice(0, 40), p.avatarEmoji ? String(p.avatarEmoji).slice(0, 8) : null, userId);
+    }
+  }
+  notifyMovieNightMembers({
+    group, exceptUserId: userId,
+    title: `You were added to Movie Night "${group.name}"`,
+    body: 'A movie night group wants you in.',
+    data: { groupId: group.id },
+  });
+  res.status(201).json({ group: db.getMovieNightGroup(group.id) });
+});
+
+// GET /api/movie-night/member-candidates
+router.get('/movie-night/member-candidates', (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  res.json({ users: db.getKnownUsers() });
+});
+
+// GET /api/movie-night/nightly — tonight's nights across the caller's groups
+router.get('/movie-night/nightly', (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  const userId = movieNightActor(req);
+  const now = Math.floor(Date.now() / 1000);
+  const weekday = new Date().getDay();
+  const nights = [];
+  for (const g of db.getMovieNightGroupsForUser(userId)) {
+    const theme = db.getTonightMovieNightTheme(g.id, weekday);
+    const scheduledTonight = g.mode === 'scheduled' && g.event_at && g.event_at >= now && g.event_at <= now + 86400;
+    if (g.mode === 'recurring' && theme) {
+      nights.push({ groupId: g.id, name: g.name, themeEmoji: g.theme_emoji, mode: g.mode, theme, eventAt: null });
+    } else if (scheduledTonight) {
+      nights.push({ groupId: g.id, name: g.name, themeEmoji: g.theme_emoji, mode: g.mode, theme, eventAt: g.event_at });
+    }
+  }
+  res.json({ nights });
+});
+
+// GET /api/movie-night/groups/:id
+router.get('/movie-night/groups/:id', (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  const ctx = requireMovieNightMember(req, res);
+  if (!ctx) return undefined;
+  const { group, userId } = ctx;
+  res.json({
+    group: { ...group, isHost: ctx.privileged || db.isMovieNightHost(group.id, userId) },
+    members: db.getMovieNightGroupMembers(group.id),
+    personas: db.getMovieNightPersonas(group.id),
+    themes: db.getMovieNightThemes(group.id),
+    rotation: db.getMovieNightRotation(group.id),
+    identities: db.getMovieNightIdentities(group.id),
+  });
+});
+
+// PATCH /api/movie-night/groups/:id
+router.patch('/movie-night/groups/:id', (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  const ctx = requireMovieNightMember(req, res, { hostOnly: true });
+  if (!ctx) return undefined;
+  const { name, themeEmoji, mode, eventAt, rotateMode } = req.body || {};
+  if (mode !== undefined && !['scheduled', 'recurring', 'rolling'].includes(mode)) {
+    return res.status(400).json({ error: 'Invalid mode' });
+  }
+  const group = db.updateMovieNightGroup(ctx.group.id, {
+    name: name !== undefined ? String(name).trim().slice(0, 80) : undefined,
+    themeEmoji: themeEmoji !== undefined ? (themeEmoji ? String(themeEmoji).slice(0, 8) : null) : undefined,
+    mode,
+    eventAt: eventAt !== undefined ? (eventAt ? Number(eventAt) : null) : undefined,
+    rotateMode: rotateMode !== undefined ? !!rotateMode : undefined,
+  });
+  res.json({ group });
+});
+
+// DELETE /api/movie-night/groups/:id
+router.delete('/movie-night/groups/:id', (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  const ctx = requireMovieNightMember(req, res, { hostOnly: true });
+  if (!ctx) return undefined;
+  db.deleteMovieNightGroup(ctx.group.id);
+  res.json({ success: true });
+});
+
+// POST /api/movie-night/groups/:id/members
+router.post('/movie-night/groups/:id/members', (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  const ctx = requireMovieNightMember(req, res, { hostOnly: true });
+  if (!ctx) return undefined;
+  const target = String(req.body?.userId || '').trim();
+  if (!target || !db.getKnownUserById(target)) return res.status(400).json({ error: 'Unknown user' });
+  db.addMovieNightMember(ctx.group.id, target);
+  notifyMovieNightMembers({
+    group: ctx.group, exceptUserId: target,
+    title: `You were added to Movie Night "${ctx.group.name}"`,
+    body: `${movieNightIdentityName(ctx.userId).username} added you to the group.`,
+    data: { groupId: ctx.group.id },
+  });
+  res.status(201).json({ members: db.getMovieNightGroupMembers(ctx.group.id) });
+});
+
+// DELETE /api/movie-night/groups/:id/members/:userId
+router.delete('/movie-night/groups/:id/members/:userId', (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  const ctx = requireMovieNightMember(req, res, { hostOnly: true });
+  if (!ctx) return undefined;
+  db.removeMovieNightMember(ctx.group.id, String(req.params.userId));
+  res.json({ members: db.getMovieNightGroupMembers(ctx.group.id) });
+});
+
+// POST /api/movie-night/groups/:id/personas — any member may add in-house voters
+router.post('/movie-night/groups/:id/personas', (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  const ctx = requireMovieNightMember(req, res);
+  if (!ctx) return undefined;
+  const displayName = String(req.body?.displayName || '').trim();
+  if (!displayName) return res.status(400).json({ error: 'Persona name is required' });
+  const persona = db.addMovieNightPersona(
+    ctx.group.id, displayName.slice(0, 40),
+    req.body?.avatarEmoji ? String(req.body.avatarEmoji).slice(0, 8) : null,
+    ctx.userId,
+  );
+  res.status(201).json({ persona });
+});
+
+// PATCH /api/movie-night/personas/:personaId
+router.patch('/movie-night/personas/:personaId', (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  const persona = db.getMovieNightPersona(Number(req.params.personaId));
+  if (!persona) return res.status(404).json({ error: 'Persona not found' });
+  req.params.id = String(persona.group_id);
+  const ctx = requireMovieNightMember(req, res);
+  if (!ctx) return undefined;
+  const updated = db.updateMovieNightPersona(persona.id, {
+    displayName: req.body?.displayName !== undefined ? String(req.body.displayName).trim().slice(0, 40) : undefined,
+    avatarEmoji: req.body?.avatarEmoji !== undefined ? (req.body.avatarEmoji ? String(req.body.avatarEmoji).slice(0, 8) : null) : undefined,
+  });
+  res.json({ persona: updated });
+});
+
+// DELETE /api/movie-night/personas/:personaId
+router.delete('/movie-night/personas/:personaId', (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  const persona = db.getMovieNightPersona(Number(req.params.personaId));
+  if (!persona) return res.status(404).json({ error: 'Persona not found' });
+  req.params.id = String(persona.group_id);
+  const ctx = requireMovieNightMember(req, res);
+  if (!ctx) return undefined;
+  db.deleteMovieNightPersona(persona.id);
+  res.json({ success: true });
+});
+
+// GET /api/movie-night/groups/:id/entries?status=active|watched|all
+router.get('/movie-night/groups/:id/entries', (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  const ctx = requireMovieNightMember(req, res);
+  if (!ctx) return undefined;
+  const status = ['active', 'watched', 'all'].includes(req.query.status) ? req.query.status : 'active';
+  const rows = db.getMovieNightEntries(ctx.group.id, { userId: ctx.userId, status });
+  res.json({ entries: rows.map(movieNightEntryPayload) });
+});
+
+// POST /api/movie-night/groups/:id/entries
+router.post('/movie-night/groups/:id/entries', (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  const ctx = requireMovieNightMember(req, res);
+  if (!ctx) return undefined;
+  const { mediaType, tmdbId, ratingKey, title, year, thumb, personaId } = req.body || {};
+  if (!title || !String(title).trim()) return res.status(400).json({ error: 'Title is required' });
+  if (!['movie', 'tv'].includes(mediaType)) return res.status(400).json({ error: 'Invalid media type' });
+  if (personaId != null && !db.getMovieNightPersona(personaId)) return res.status(400).json({ error: 'Unknown persona' });
+  const { entry, deduped } = db.addMovieNightEntry({
+    groupId: ctx.group.id, mediaType,
+    tmdbId: tmdbId != null ? Number(tmdbId) : null,
+    ratingKey: ratingKey != null ? String(ratingKey) : null,
+    title: String(title).trim().slice(0, 200),
+    year: year != null ? Number(year) : null,
+    thumb: thumb || null,
+    addedBy: ctx.userId,
+    personaId: personaId != null ? Number(personaId) : null,
+  });
+  if (!deduped) {
+    notifyMovieNightMembers({
+      group: ctx.group, exceptUserId: ctx.userId,
+      title: `New in Movie Night "${ctx.group.name}": ${entry.title}`,
+      body: `${movieNightIdentityName(ctx.userId).username} added ${entry.title}${entry.year ? ` (${entry.year})` : ''}`,
+      data: { groupId: ctx.group.id, entryId: entry.id, thumb: entry.thumb },
+      prefKey: 'notify_movie_night_added',
+    });
+  }
+  const row = db.getMovieNightEntries(ctx.group.id, { userId: ctx.userId, status: 'all' }).find(r => r.id === entry.id);
+  res.status(deduped ? 200 : 201).json({ entry: movieNightEntryPayload(row || entry), deduped });
+});
+
+// PATCH /api/movie-night/entries/:id — cancel (soft delete) or reactivate
+router.patch('/movie-night/entries/:id', (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  const entry = db.getMovieNightEntry(Number(req.params.id));
+  if (!entry) return res.status(404).json({ error: 'Entry not found' });
+  req.params.id = String(entry.group_id);
+  const ctx = requireMovieNightMember(req, res);
+  if (!ctx) return undefined;
+  const { status } = req.body || {};
+  if (!['cancelled', 'active'].includes(status)) return res.status(400).json({ error: 'Invalid status' });
+  const personaOwner = entry.persona_id
+    ? db.prepare('SELECT created_by FROM movie_night_personas WHERE id = ?').get(entry.persona_id)?.created_by === ctx.userId
+    : false;
+  if (!ctx.privileged && !db.isMovieNightHost(entry.group_id, ctx.userId)
+      && entry.added_by !== ctx.userId && !personaOwner) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+  res.json({ entry: movieNightEntryPayload(db.setMovieNightEntryStatus(entry.id, status)) });
+});
+
+// POST /api/movie-night/entries/:id/watched
+router.post('/movie-night/entries/:id/watched', (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  const entry = db.getMovieNightEntry(Number(req.params.id));
+  if (!entry) return res.status(404).json({ error: 'Entry not found' });
+  req.params.id = String(entry.group_id);
+  const ctx = requireMovieNightMember(req, res);
+  if (!ctx) return undefined;
+  if (!ctx.privileged && !db.isMovieNightHost(entry.group_id, ctx.userId) && entry.added_by !== ctx.userId) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+  const updated = db.setMovieNightEntryStatus(entry.id, 'watched');
+  if (ctx.group.rotate_mode) db.bumpRotationCursor(entry.group_id);
+  res.json({ entry: movieNightEntryPayload(updated), rotation: db.getMovieNightRotation(entry.group_id) });
+});
+
+// PUT /api/movie-night/entries/:id/vote
+router.put('/movie-night/entries/:id/vote', (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  const entry = db.getMovieNightEntry(Number(req.params.id));
+  if (!entry) return res.status(404).json({ error: 'Entry not found' });
+  req.params.id = String(entry.group_id);
+  const ctx = requireMovieNightMember(req, res);
+  if (!ctx) return undefined;
+  const vote = Number(req.body?.vote);
+  if (![-1, 0, 1].includes(vote)) return res.status(400).json({ error: 'Vote must be 1, -1 or 0' });
+  const personaId = req.body?.personaId != null ? Number(req.body.personaId) : null;
+  if (personaId != null) {
+    const persona = db.getMovieNightPersona(personaId);
+    if (!persona || persona.group_id !== entry.group_id) return res.status(400).json({ error: 'Unknown persona' });
+  }
+  const netVotes = db.voteMovieNightEntry(entry.id, ctx.userId, personaId, vote);
+  res.json({ entryId: entry.id, netVotes, userVote: vote === 0 ? null : vote, personaId });
+});
+
+// GET /api/movie-night/entries/:id/comments
+router.get('/movie-night/entries/:id/comments', (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  const entry = db.getMovieNightEntry(Number(req.params.id));
+  if (!entry) return res.status(404).json({ error: 'Entry not found' });
+  req.params.id = String(entry.group_id);
+  const ctx = requireMovieNightMember(req, res);
+  if (!ctx) return undefined;
+  const comments = db.getMovieNightComments(entry.id).map(c => ({
+    id: c.id,
+    userId: c.user_id,
+    username: c.persona_name || c.username || c.user_id,
+    userAvatar: c.persona_emoji || c.user_thumb || null,
+    isPersona: !!c.persona_id,
+    body: c.body,
+    createdAt: c.created_at,
+    updatedAt: c.updated_at,
+    isOwn: c.user_id === ctx.userId,
+  }));
+  res.json({ comments });
+});
+
+// POST /api/movie-night/entries/:id/comments
+router.post('/movie-night/entries/:id/comments', (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  const entry = db.getMovieNightEntry(Number(req.params.id));
+  if (!entry) return res.status(404).json({ error: 'Entry not found' });
+  req.params.id = String(entry.group_id);
+  const ctx = requireMovieNightMember(req, res);
+  if (!ctx) return undefined;
+  const body = String(req.body?.body || '').trim();
+  if (!body) return res.status(400).json({ error: 'Comment body is required' });
+  if (body.length > 1000) return res.status(400).json({ error: 'Comment must be 1000 characters or less' });
+  const personaId = req.body?.personaId != null ? Number(req.body.personaId) : null;
+  if (personaId != null) {
+    const persona = db.getMovieNightPersona(personaId);
+    if (!persona || persona.group_id !== entry.group_id) return res.status(400).json({ error: 'Unknown persona' });
+  }
+  const comment = db.addMovieNightComment(entry.id, ctx.userId, body, personaId);
+  const persona = personaId ? db.getMovieNightPersona(personaId) : null;
+  const who = persona?.display_name || movieNightIdentityName(ctx.userId).username;
+  if (entry.added_by !== ctx.userId) {
+    notifyMovieNightMembers({
+      group: ctx.group, exceptUserId: ctx.userId,
+      title: `Comment on ${entry.title}`,
+      body: `${who}: ${body.slice(0, 200)}`,
+      data: { groupId: entry.group_id, entryId: entry.id, thumb: entry.thumb },
+      prefKey: 'notify_movie_night_comment',
+    });
+  }
+  res.status(201).json({
+    id: comment.id,
+    userId: comment.user_id,
+    username: persona?.display_name || movieNightIdentityName(ctx.userId).username,
+    userAvatar: persona?.avatar_emoji || movieNightIdentityName(ctx.userId).avatar,
+    isPersona: !!personaId,
+    body: comment.body,
+    createdAt: comment.created_at,
+    isOwn: true,
+  });
+});
+
+// DELETE /api/movie-night/comments/:commentId
+router.delete('/movie-night/comments/:commentId', (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  const comment = db.getMovieNightComment(Number(req.params.commentId));
+  if (!comment) return res.status(404).json({ error: 'Comment not found' });
+  const entry = db.getMovieNightEntry(comment.entry_id);
+  if (!entry) return res.status(404).json({ error: 'Entry not found' });
+  req.params.id = String(entry.group_id);
+  const ctx = requireMovieNightMember(req, res);
+  if (!ctx) return undefined;
+  if (comment.user_id !== ctx.userId && !ctx.privileged && !db.isMovieNightHost(entry.group_id, ctx.userId)) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+  db.deleteMovieNightComment(comment.id);
+  res.json({ success: true });
+});
+
+// GET /api/movie-night/groups/:id/next — rotate-mode next pick
+router.get('/movie-night/groups/:id/next', (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  const ctx = requireMovieNightMember(req, res);
+  if (!ctx) return undefined;
+  const next = db.getMovieNightNextPick(ctx.group.id);
+  const row = next?.entry
+    ? db.getMovieNightEntries(ctx.group.id, { userId: ctx.userId }).find(r => r.id === next.entry.id)
+    : null;
+  res.json({
+    identity: next?.identity || null,
+    cursor: db.getMovieNightRotation(ctx.group.id).cursor,
+    entry: row ? movieNightEntryPayload(row) : null,
+    fallback: !!next?.fallback,
+  });
+});
+
+// POST /api/movie-night/groups/:id/rotate — manual cursor advance (host)
+router.post('/movie-night/groups/:id/rotate', (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  const ctx = requireMovieNightMember(req, res, { hostOnly: true });
+  if (!ctx) return undefined;
+  const cursor = db.bumpRotationCursor(ctx.group.id);
+  res.json({ cursor, next: db.getMovieNightNextPick(ctx.group.id) });
+});
+
+// ── Movie Night themes ───────────────────────────────────────────────────────
+
+// GET /api/movie-night/groups/:id/themes
+router.get('/movie-night/groups/:id/themes', (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  const ctx = requireMovieNightMember(req, res);
+  if (!ctx) return undefined;
+  res.json({ themes: db.getMovieNightThemes(ctx.group.id) });
+});
+
+// POST /api/movie-night/groups/:id/themes
+router.post('/movie-night/groups/:id/themes', (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  const ctx = requireMovieNightMember(req, res, { hostOnly: true });
+  if (!ctx) return undefined;
+  const { weekday, name, genreFilter } = req.body || {};
+  if (!name || !String(name).trim()) return res.status(400).json({ error: 'Theme name is required' });
+  if (weekday != null && weekday !== '' && !(Number(weekday) >= 0 && Number(weekday) <= 6)) {
+    return res.status(400).json({ error: 'Invalid weekday' });
+  }
+  const theme = db.addMovieNightTheme(ctx.group.id, {
+    weekday: weekday == null || weekday === '' ? null : Number(weekday),
+    name: String(name).trim().slice(0, 60),
+    genreFilter: genreFilter ? String(genreFilter).slice(0, 60) : null,
+  });
+  res.status(201).json({ theme });
+});
+
+// PATCH /api/movie-night/themes/:themeId
+router.patch('/movie-night/themes/:themeId', (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  const theme = db.getMovieNightTheme(Number(req.params.themeId));
+  if (!theme) return res.status(404).json({ error: 'Theme not found' });
+  req.params.id = String(theme.group_id);
+  const ctx = requireMovieNightMember(req, res, { hostOnly: true });
+  if (!ctx) return undefined;
+  const { weekday, name, genreFilter, active } = req.body || {};
+  const updated = db.updateMovieNightTheme(theme.id, {
+    weekday: weekday !== undefined ? (weekday == null || weekday === '' ? null : Number(weekday)) : undefined,
+    name: name !== undefined ? String(name).trim().slice(0, 60) : undefined,
+    genreFilter: genreFilter !== undefined ? (genreFilter ? String(genreFilter).slice(0, 60) : null) : undefined,
+    active: active !== undefined ? !!active : undefined,
+  });
+  res.json({ theme: updated });
+});
+
+// DELETE /api/movie-night/themes/:themeId
+router.delete('/movie-night/themes/:themeId', (req, res) => {
+  if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
+  const theme = db.getMovieNightTheme(Number(req.params.themeId));
+  if (!theme) return res.status(404).json({ error: 'Theme not found' });
+  req.params.id = String(theme.group_id);
+  const ctx = requireMovieNightMember(req, res, { hostOnly: true });
+  if (!ctx) return undefined;
+  db.deleteMovieNightTheme(theme.id);
+  res.json({ success: true });
 });
 
 module.exports = router;

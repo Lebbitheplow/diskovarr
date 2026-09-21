@@ -1,5 +1,16 @@
 [
   {
+    "version": "3.3.3",
+    "date": "2026-09-21",
+    "changes": [
+      "Movie Night — a new side-rail section for movie nights with your people. Create groups (one-off night, weekly recurring, or rolling), invite members, nominate movies and shows straight from the details window, and let everyone vote +1/-1 on the pile.",
+      "Movie Night rotation — turn on rotation and the app keeps a round-robin of who picks each night (members and personas in order), showing who's next up and what their top pick is; mark a title watched and the cursor moves on.",
+      "Movie Night personas — extra voters for people sharing an account (kids, partner, the dog): each persona gets its own votes and can post comments under its own name.",
+      "Movie Night extras — weekday themes per group (Horror Friday…), per-title comments, tonight reminders through your enabled notification channels, and a scheduled or recurring night picker.",
+      "Security: nodemailer upgraded to 9.1.1 (SNYK-JS-NODEMAILER-19651820)."
+    ]
+  },
+  {
     "version": "3.3.2",
     "date": "2026-09-13",
     "changes": [

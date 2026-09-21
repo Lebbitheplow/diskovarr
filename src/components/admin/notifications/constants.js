@@ -27,6 +27,9 @@ export const SHARED_NOTIFICATION_TYPES = [
   { value: 'issue_updated', label: 'Issue status updated', meta: '(requester)' },
   { value: 'issue_comment_added_admin,issue_comment_added_user', label: 'Issue Comments' },
   { value: 'tuberr_alert', label: 'YouTube downloader alerts', meta: '(admin)' },
+  { value: 'movie_night_added,movie_night_invite', label: 'Movie Night picks' },
+  { value: 'movie_night_comment', label: 'Movie Night comments' },
+  { value: 'movie_night_tonight', label: 'Movie Night tonight' },
 ]
 
 export const DEFAULT_AGENT_TYPES = [
@@ -34,6 +37,7 @@ export const DEFAULT_AGENT_TYPES = [
   'request_available', 'request_process_failed',
   'issue_new', 'issue_updated', 'issue_comment_added_admin,issue_comment_added_user',
   'tuberr_alert',
+  'movie_night_added', 'movie_night_invite', 'movie_night_comment', 'movie_night_tonight',
 ]
 
 export const WEBHOOK_NOTIFICATION_TYPES = SHARED_NOTIFICATION_TYPES.map(t => ({ ...t }))
@@ -121,6 +125,8 @@ export const USER_NOTIF_TYPES = [
   { key: 'notify_issue_update', label: 'Issue status updated', desc: 'Get notified when an issue you reported changes status' },
   { key: 'notify_issue_comment', label: 'Issue comment', desc: 'Get notified when a comment is added to an issue' },
   { key: 'notify_monitor', label: 'Monitor match', desc: 'Get notified when content matches your monitors' },
+  { key: 'notify_movie_night_added', label: 'Movie Night pick', desc: 'Get notified when someone adds a title to one of your movie nights' },
+  { key: 'notify_movie_night_comment', label: 'Movie Night comment', desc: 'Get notified when someone comments on a movie night pick' },
 ]
 
 export const ELEVATED_NOTIF_TYPES = [

@@ -979,6 +979,107 @@ db.exec(`CREATE TABLE IF NOT EXISTS migrations (name TEXT PRIMARY KEY, ran_at IN
         } catch {}
       },
     },
+    {
+      // Movie Night: groups of users (plus in-house personas for shared
+      // accounts) with shared watch lists, +1/-1 votes, comments, weekday
+      // themes and a round-robin rotation cursor. Entries are never hard
+      // deleted — 'cancelled' keeps the vote history auditable.
+      name: 'movie_night_v1',
+      sql: () => {
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS movie_night_groups (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            theme_emoji TEXT,
+            mode TEXT NOT NULL DEFAULT 'rolling' CHECK (mode IN ('scheduled','recurring','rolling')),
+            event_at INTEGER,
+            created_by TEXT NOT NULL,
+            rotate_mode INTEGER NOT NULL DEFAULT 0,
+            created_at INTEGER DEFAULT (unixepoch())
+          );
+
+          CREATE TABLE IF NOT EXISTS movie_night_members (
+            group_id INTEGER NOT NULL REFERENCES movie_night_groups(id) ON DELETE CASCADE,
+            user_id TEXT NOT NULL,
+            role TEXT NOT NULL DEFAULT 'member' CHECK (role IN ('host','member')),
+            joined_at INTEGER DEFAULT (unixepoch()),
+            PRIMARY KEY (group_id, user_id)
+          );
+          CREATE INDEX IF NOT EXISTS idx_mn_members_user ON movie_night_members(user_id);
+
+          CREATE TABLE IF NOT EXISTS movie_night_personas (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            group_id INTEGER NOT NULL REFERENCES movie_night_groups(id) ON DELETE CASCADE,
+            display_name TEXT NOT NULL,
+            avatar_emoji TEXT,
+            created_by TEXT,
+            created_at INTEGER DEFAULT (unixepoch())
+          );
+          CREATE INDEX IF NOT EXISTS idx_mn_personas_group ON movie_night_personas(group_id);
+
+          CREATE TABLE IF NOT EXISTS movie_night_themes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            group_id INTEGER NOT NULL REFERENCES movie_night_groups(id) ON DELETE CASCADE,
+            weekday INTEGER,
+            name TEXT NOT NULL,
+            genre_filter TEXT,
+            active INTEGER NOT NULL DEFAULT 1,
+            created_at INTEGER DEFAULT (unixepoch())
+          );
+          CREATE INDEX IF NOT EXISTS idx_mn_themes_group ON movie_night_themes(group_id);
+
+          CREATE TABLE IF NOT EXISTS movie_night_entries (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            group_id INTEGER NOT NULL REFERENCES movie_night_groups(id) ON DELETE CASCADE,
+            media_type TEXT NOT NULL CHECK (media_type IN ('movie','tv')),
+            tmdb_id INTEGER,
+            rating_key TEXT,
+            title TEXT NOT NULL,
+            year INTEGER,
+            thumb TEXT,
+            added_by TEXT NOT NULL,
+            persona_id INTEGER REFERENCES movie_night_personas(id) ON DELETE SET NULL,
+            status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','watched','cancelled')),
+            added_at INTEGER DEFAULT (unixepoch()),
+            watched_at INTEGER
+          );
+          CREATE INDEX IF NOT EXISTS idx_mn_entries_group ON movie_night_entries(group_id, status);
+
+          CREATE TABLE IF NOT EXISTS movie_night_votes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            entry_id INTEGER NOT NULL REFERENCES movie_night_entries(id) ON DELETE CASCADE,
+            user_id TEXT NOT NULL,
+            persona_id INTEGER REFERENCES movie_night_personas(id) ON DELETE SET NULL,
+            vote INTEGER NOT NULL CHECK (vote IN (1,-1)),
+            updated_at INTEGER DEFAULT (unixepoch()),
+            UNIQUE(entry_id, user_id, persona_id)
+          );
+          CREATE INDEX IF NOT EXISTS idx_mn_votes_entry ON movie_night_votes(entry_id);
+          -- SQLite treats NULLs as distinct in UNIQUE constraints, so a persona-less
+          -- user could otherwise stack duplicate votes; this pins (entry, user) when
+          -- the vote is cast without a persona.
+          CREATE UNIQUE INDEX IF NOT EXISTS uniq_mn_votes_no_persona
+            ON movie_night_votes(entry_id, user_id) WHERE persona_id IS NULL;
+
+          CREATE TABLE IF NOT EXISTS movie_night_comments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            entry_id INTEGER NOT NULL REFERENCES movie_night_entries(id) ON DELETE CASCADE,
+            user_id TEXT NOT NULL,
+            persona_id INTEGER REFERENCES movie_night_personas(id) ON DELETE SET NULL,
+            body TEXT NOT NULL,
+            created_at INTEGER DEFAULT (unixepoch()),
+            updated_at INTEGER DEFAULT (unixepoch())
+          );
+          CREATE INDEX IF NOT EXISTS idx_mn_comments_entry ON movie_night_comments(entry_id, created_at);
+
+          CREATE TABLE IF NOT EXISTS movie_night_rotation (
+            group_id INTEGER PRIMARY KEY REFERENCES movie_night_groups(id) ON DELETE CASCADE,
+            cursor INTEGER NOT NULL DEFAULT 0,
+            last_rotated_at INTEGER
+          );
+        `);
+      },
+    },
   ].forEach(({ name, sql }) => {
    const already = db.prepare('SELECT 1 FROM migrations WHERE name = ?').get(name);
    if (!already) {
@@ -2661,6 +2762,9 @@ for (const col of [
   'pgp_key TEXT DEFAULT NULL',
   // Browser push opt-in (subscriptions live in user_push_subscriptions)
   'webpush_enabled INTEGER DEFAULT 0',
+  // Movie Night: entry added to one of your groups / comment on your entry
+  'notify_movie_night_added INTEGER DEFAULT 1',
+  'notify_movie_night_comment INTEGER DEFAULT 1',
 ]) {
   try { db.prepare(`ALTER TABLE user_notification_prefs ADD COLUMN ${col}`).run(); } catch {}
 }
@@ -2677,11 +2781,14 @@ db.exec(`
   );
 `);
 
-function createOrBundleNotification({ userId, type, title, body, data }) {
+function createOrBundleNotification({ userId, type, title, body, data, bundleKey: bundleKeyOverride }) {
   const hour = Math.floor(Date.now() / 1000 / 3600);
-  const bundleKey = `${type}:${userId || 'admin'}:${hour}`;
+  const bundleKey = bundleKeyOverride || `${type}:${userId || 'admin'}:${hour}`;
   const existing = db.prepare('SELECT id, bundle_count FROM notifications WHERE bundle_key = ? AND read = 0').get(bundleKey);
   if (existing) {
+    // An explicit key means "once per key" (e.g. the nightly movie-night
+    // reminder) — a re-run dedupes instead of inflating the title.
+    if (bundleKeyOverride) return existing.id;
     const newCount = existing.bundle_count + 1;
     const newTitle = newCount === 2 ? title + ' and 1 other title' : title.replace(/ and \d+ other title/, '') + ` and ${newCount - 1} other titles`;
     db.prepare('UPDATE notifications SET bundle_count = ?, title = ? WHERE id = ?')
@@ -2748,6 +2855,8 @@ function getUserNotificationPrefs(userId) {
     notify_issue_update:  row ? (row.notify_issue_update  !== null ? !!row.notify_issue_update  : true) : true,
     notify_issue_comment: row ? (row.notify_issue_comment !== null ? !!row.notify_issue_comment : true) : true,
     notify_monitor:       row ? (row.notify_monitor       !== null ? !!row.notify_monitor       : true) : true,
+    notify_movie_night_added:   row ? (row.notify_movie_night_added   !== null ? !!row.notify_movie_night_added   : true) : true,
+    notify_movie_night_comment: row ? (row.notify_movie_night_comment !== null ? !!row.notify_movie_night_comment : true) : true,
   };
 }
 
@@ -2781,6 +2890,8 @@ function setUserNotificationPrefs(userId, prefs) {
     `pgp_key = ${sqlValue(prefs.pgp_key)}`,
     `webpush_enabled = ${prefs.webpush_enabled ? 1 : 0}`,
     `notify_monitor = ${prefs.notify_monitor !== false ? 1 : 0}`,
+    `notify_movie_night_added = ${prefs.notify_movie_night_added !== false ? 1 : 0}`,
+    `notify_movie_night_comment = ${prefs.notify_movie_night_comment !== false ? 1 : 0}`,
   ];
 
   db.prepare(`
@@ -3701,6 +3812,346 @@ function recordNotification({ monitorId, userId, contentTmdbId, contentType, not
   } catch {}
 }
 
+// ── Movie Night ──────────────────────────────────────────────────────────────
+// Groups of users (plus in-house personas for shared accounts) that share a
+// watch list with +1/-1 votes, comments, weekday themes and a round-robin
+// rotation cursor. Entries soft-delete to status='cancelled' so vote history
+// survives.
+
+function createMovieNightGroup({ name, themeEmoji, mode, eventAt, createdBy, rotateMode }) {
+  const result = db.prepare(
+    'INSERT INTO movie_night_groups (name, theme_emoji, mode, event_at, created_by, rotate_mode) VALUES (?, ?, ?, ?, ?, ?)'
+  ).run(String(name), themeEmoji || null, mode || 'rolling', eventAt || null, String(createdBy), rotateMode ? 1 : 0);
+  const groupId = Number(result.lastInsertRowid);
+  db.prepare("INSERT INTO movie_night_members (group_id, user_id, role) VALUES (?, ?, 'host')")
+    .run(groupId, String(createdBy));
+  db.prepare('INSERT INTO movie_night_rotation (group_id, cursor) VALUES (?, 0)')
+    .run(groupId);
+  return getMovieNightGroup(groupId);
+}
+
+function getMovieNightGroup(groupId) {
+  return db.prepare('SELECT * FROM movie_night_groups WHERE id = ?').get(Number(groupId)) || null;
+}
+
+function updateMovieNightGroup(groupId, { name, themeEmoji, mode, eventAt, rotateMode }) {
+  const sets = [];
+  const params = [];
+  if (name !== undefined) { sets.push('name = ?'); params.push(String(name)); }
+  if (themeEmoji !== undefined) { sets.push('theme_emoji = ?'); params.push(themeEmoji || null); }
+  if (mode !== undefined) { sets.push('mode = ?'); params.push(mode); }
+  if (eventAt !== undefined) { sets.push('event_at = ?'); params.push(eventAt || null); }
+  if (rotateMode !== undefined) { sets.push('rotate_mode = ?'); params.push(rotateMode ? 1 : 0); }
+  if (!sets.length) return getMovieNightGroup(groupId);
+  params.push(Number(groupId));
+  db.prepare(`UPDATE movie_night_groups SET ${sets.join(', ')} WHERE id = ?`).run(...params);
+  return getMovieNightGroup(groupId);
+}
+
+function deleteMovieNightGroup(groupId) {
+  db.prepare('DELETE FROM movie_night_groups WHERE id = ?').run(Number(groupId));
+}
+
+function isMovieNightMember(groupId, userId) {
+  return !!db.prepare('SELECT 1 FROM movie_night_members WHERE group_id = ? AND user_id = ?')
+    .get(Number(groupId), String(userId));
+}
+
+function isMovieNightHost(groupId, userId) {
+  return !!db.prepare("SELECT 1 FROM movie_night_members WHERE group_id = ? AND user_id = ? AND role = 'host'")
+    .get(Number(groupId), String(userId));
+}
+
+function getMovieNightGroupMembers(groupId) {
+  return db.prepare(`
+    SELECT m.user_id, m.role, m.joined_at, u.username, u.thumb
+    FROM movie_night_members m
+    LEFT JOIN known_users u ON u.user_id = m.user_id
+    WHERE m.group_id = ?
+    ORDER BY CASE m.role WHEN 'host' THEN 0 ELSE 1 END, m.joined_at ASC
+  `).all(Number(groupId));
+}
+
+function getMovieNightGroupsForUser(userId) {
+  return db.prepare(`
+    SELECT g.*, EXISTS(
+      SELECT 1 FROM movie_night_members mh
+      WHERE mh.group_id = g.id AND mh.user_id = ? AND mh.role = 'host'
+    ) AS is_host
+    FROM movie_night_groups g
+    JOIN movie_night_members m ON m.group_id = g.id
+    WHERE m.user_id = ?
+    ORDER BY g.created_at ASC
+  `).all(String(userId), String(userId));
+}
+
+function addMovieNightMember(groupId, userId, role = 'member') {
+  db.prepare('INSERT OR IGNORE INTO movie_night_members (group_id, user_id, role) VALUES (?, ?, ?)')
+    .run(Number(groupId), String(userId), role === 'host' ? 'host' : 'member');
+}
+
+function removeMovieNightMember(groupId, userId) {
+  db.prepare('DELETE FROM movie_night_members WHERE group_id = ? AND user_id = ? AND role != ?')
+    .run(Number(groupId), String(userId), 'host');
+}
+
+function getMovieNightPersonas(groupId) {
+  return db.prepare('SELECT * FROM movie_night_personas WHERE group_id = ? ORDER BY id ASC')
+    .all(Number(groupId));
+}
+
+function getMovieNightPersona(personaId) {
+  return db.prepare('SELECT * FROM movie_night_personas WHERE id = ?').get(Number(personaId)) || null;
+}
+
+function addMovieNightPersona(groupId, displayName, avatarEmoji, createdBy) {
+  const result = db.prepare(
+    'INSERT INTO movie_night_personas (group_id, display_name, avatar_emoji, created_by) VALUES (?, ?, ?, ?)'
+  ).run(Number(groupId), String(displayName), avatarEmoji || null, createdBy != null ? String(createdBy) : null);
+  return getMovieNightPersona(result.lastInsertRowid);
+}
+
+function updateMovieNightPersona(personaId, { displayName, avatarEmoji }) {
+  const sets = [];
+  const params = [];
+  if (displayName !== undefined) { sets.push('display_name = ?'); params.push(String(displayName)); }
+  if (avatarEmoji !== undefined) { sets.push('avatar_emoji = ?'); params.push(avatarEmoji || null); }
+  if (!sets.length) return getMovieNightPersona(personaId);
+  params.push(Number(personaId));
+  db.prepare(`UPDATE movie_night_personas SET ${sets.join(', ')} WHERE id = ?`).run(...params);
+  return getMovieNightPersona(personaId);
+}
+
+function deleteMovieNightPersona(personaId) {
+  db.prepare('DELETE FROM movie_night_personas WHERE id = ?').run(Number(personaId));
+}
+
+function getMovieNightThemes(groupId) {
+  return db.prepare('SELECT * FROM movie_night_themes WHERE group_id = ? ORDER BY weekday IS NULL, weekday ASC, id ASC')
+    .all(Number(groupId));
+}
+
+function getMovieNightTheme(themeId) {
+  return db.prepare('SELECT * FROM movie_night_themes WHERE id = ?').get(Number(themeId)) || null;
+}
+
+function addMovieNightTheme(groupId, { weekday, name, genreFilter }) {
+  const result = db.prepare(
+    'INSERT INTO movie_night_themes (group_id, weekday, name, genre_filter) VALUES (?, ?, ?, ?)'
+  ).run(Number(groupId), weekday == null ? null : Number(weekday), String(name), genreFilter || null);
+  return getMovieNightTheme(result.lastInsertRowid);
+}
+
+function updateMovieNightTheme(themeId, { weekday, name, genreFilter, active }) {
+  const sets = [];
+  const params = [];
+  if (weekday !== undefined) { sets.push('weekday = ?'); params.push(weekday == null ? null : Number(weekday)); }
+  if (name !== undefined) { sets.push('name = ?'); params.push(String(name)); }
+  if (genreFilter !== undefined) { sets.push('genre_filter = ?'); params.push(genreFilter || null); }
+  if (active !== undefined) { sets.push('active = ?'); params.push(active ? 1 : 0); }
+  if (!sets.length) return getMovieNightTheme(themeId);
+  params.push(Number(themeId));
+  db.prepare(`UPDATE movie_night_themes SET ${sets.join(', ')} WHERE id = ?`).run(...params);
+  return getMovieNightTheme(themeId);
+}
+
+function deleteMovieNightTheme(themeId) {
+  db.prepare('DELETE FROM movie_night_themes WHERE id = ?').run(Number(themeId));
+}
+
+// Theme pinned to a weekday (0=Sun) for a recurring group. Null when the group
+// has no pinned theme for that day; pool themes (weekday NULL) never pin.
+function getTonightMovieNightTheme(groupId, weekday) {
+  return db.prepare(
+    'SELECT * FROM movie_night_themes WHERE group_id = ? AND weekday = ? AND active = 1 LIMIT 1'
+  ).get(Number(groupId), Number(weekday)) || null;
+}
+
+// ── Entries ──────────────────────────────────────────────────────────────────
+
+// Dedupe: adding a title that is already active in the group returns the
+// existing row instead of creating a duplicate.
+function addMovieNightEntry({ groupId, mediaType, tmdbId, ratingKey, title, year, thumb, addedBy, personaId }) {
+  if (tmdbId != null) {
+    const existing = db.prepare(
+      "SELECT * FROM movie_night_entries WHERE group_id = ? AND media_type = ? AND tmdb_id = ? AND status = 'active'"
+    ).get(Number(groupId), String(mediaType), Number(tmdbId));
+    if (existing) return { entry: existing, deduped: true };
+  }
+  const result = db.prepare(`
+    INSERT INTO movie_night_entries (group_id, media_type, tmdb_id, rating_key, title, year, thumb, added_by, persona_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    Number(groupId), String(mediaType),
+    tmdbId != null ? Number(tmdbId) : null,
+    ratingKey != null ? String(ratingKey) : null,
+    String(title), year != null ? Number(year) : null, thumb || null,
+    String(addedBy), personaId != null ? Number(personaId) : null,
+  );
+  return { entry: getMovieNightEntry(result.lastInsertRowid), deduped: false };
+}
+
+function getMovieNightEntry(entryId) {
+  return db.prepare('SELECT * FROM movie_night_entries WHERE id = ?').get(Number(entryId)) || null;
+}
+
+// Entries with net votes, the caller's own vote, comment counts, and the
+// adder/personas joined in one pass. Sorted by (net votes DESC, added ASC).
+function getMovieNightEntries(groupId, { userId, status = 'active' } = {}) {
+  const params = [Number(groupId)];
+  let statusFilter = "e.status = ?";
+  if (status === 'all') { statusFilter = "e.status != 'cancelled'"; params.length = 1; }
+  else params.push(status);
+  const rows = db.prepare(`
+    SELECT e.*,
+           COALESCE(v.net_votes, 0) AS net_votes,
+           uv.vote AS user_vote,
+           COALESCE(c.comment_count, 0) AS comment_count,
+           u.username AS added_by_username,
+           u.thumb AS added_by_thumb,
+           p.display_name AS persona_name,
+           p.avatar_emoji AS persona_emoji
+    FROM movie_night_entries e
+    LEFT JOIN (SELECT entry_id, SUM(vote) AS net_votes FROM movie_night_votes GROUP BY entry_id) v ON v.entry_id = e.id
+    LEFT JOIN movie_night_votes uv ON uv.entry_id = e.id AND uv.user_id = ?
+    LEFT JOIN (SELECT entry_id, COUNT(*) AS comment_count FROM movie_night_comments GROUP BY entry_id) c ON c.entry_id = e.id
+    LEFT JOIN known_users u ON u.user_id = e.added_by
+    LEFT JOIN movie_night_personas p ON p.id = e.persona_id
+    WHERE e.group_id = ? AND ${statusFilter}
+    ORDER BY COALESCE(v.net_votes, 0) DESC, e.added_at ASC
+  `).all(String(userId != null ? userId : ''), ...params);
+  return rows;
+}
+
+function setMovieNightEntryStatus(entryId, status) {
+  if (status === 'watched') {
+    db.prepare("UPDATE movie_night_entries SET status = 'watched', watched_at = ? WHERE id = ?")
+      .run(Math.floor(Date.now() / 1000), Number(entryId));
+  } else {
+    db.prepare('UPDATE movie_night_entries SET status = ? WHERE id = ?').run(String(status), Number(entryId));
+  }
+  return getMovieNightEntry(entryId);
+}
+
+// +1/-1 vote: same-vote repeat removes it (mirrors review_reactions toggle),
+// an opposite vote flips, and vote=0 removes. Returns the new net vote.
+function voteMovieNightEntry(entryId, userId, personaId, vote) {
+  const eid = Number(entryId);
+  const uid = String(userId);
+  const pid = personaId != null ? Number(personaId) : null;
+  const existing = db.prepare(
+    'SELECT * FROM movie_night_votes WHERE entry_id = ? AND user_id = ? AND persona_id IS ?'
+  ).get(eid, uid, pid);
+  if (vote === 0) {
+    if (existing) db.prepare('DELETE FROM movie_night_votes WHERE id = ?').run(existing.id);
+  } else if (existing && existing.vote === vote) {
+    db.prepare('DELETE FROM movie_night_votes WHERE id = ?').run(existing.id);
+  } else if (existing) {
+    db.prepare('UPDATE movie_night_votes SET vote = ?, updated_at = ? WHERE id = ?')
+      .run(Number(vote), Math.floor(Date.now() / 1000), existing.id);
+  } else {
+    db.prepare('INSERT INTO movie_night_votes (entry_id, user_id, persona_id, vote) VALUES (?, ?, ?, ?)')
+      .run(eid, uid, pid, Number(vote));
+  }
+  const row = db.prepare('SELECT COALESCE(SUM(vote), 0) AS net FROM movie_night_votes WHERE entry_id = ?').get(eid);
+  return row?.net || 0;
+}
+
+// ── Comments (non-threaded v1, mirrors review_comments) ─────────────────────
+
+function addMovieNightComment(entryId, userId, body, personaId = null) {
+  const result = db.prepare(
+    'INSERT INTO movie_night_comments (entry_id, user_id, persona_id, body) VALUES (?, ?, ?, ?)'
+  ).run(Number(entryId), String(userId), personaId != null ? Number(personaId) : null, String(body));
+  return db.prepare('SELECT * FROM movie_night_comments WHERE id = ?').get(result.lastInsertRowid);
+}
+
+function getMovieNightComments(entryId) {
+  return db.prepare(`
+    SELECT c.*, u.username AS username, u.thumb AS user_thumb,
+           p.display_name AS persona_name, p.avatar_emoji AS persona_emoji
+    FROM movie_night_comments c
+    LEFT JOIN known_users u ON u.user_id = c.user_id
+    LEFT JOIN movie_night_personas p ON p.id = c.persona_id
+    WHERE c.entry_id = ?
+    ORDER BY c.created_at ASC
+  `).all(Number(entryId));
+}
+
+function getMovieNightComment(commentId) {
+  return db.prepare('SELECT * FROM movie_night_comments WHERE id = ?').get(Number(commentId)) || null;
+}
+
+function deleteMovieNightComment(commentId) {
+  db.prepare('DELETE FROM movie_night_comments WHERE id = ?').run(Number(commentId));
+}
+
+// ── Rotation ─────────────────────────────────────────────────────────────────
+// The cursor indexes the group's ordered voting identities: real members first
+// (host first, then join order), personas after them (creation order).
+
+function getMovieNightRotation(groupId) {
+  let row = db.prepare('SELECT * FROM movie_night_rotation WHERE group_id = ?').get(Number(groupId));
+  if (!row) {
+    db.prepare('INSERT OR IGNORE INTO movie_night_rotation (group_id, cursor) VALUES (?, 0)').run(Number(groupId));
+    row = db.prepare('SELECT * FROM movie_night_rotation WHERE group_id = ?').get(Number(groupId));
+  }
+  return row;
+}
+
+function getMovieNightIdentities(groupId) {
+  const members = getMovieNightGroupMembers(groupId);
+  const personas = getMovieNightPersonas(groupId);
+  return [
+    ...members.map(m => ({ kind: 'user', id: m.user_id, name: m.username || m.user_id, thumb: m.thumb || null })),
+    ...personas.map(p => ({ kind: 'persona', id: p.id, name: p.display_name, thumb: p.avatar_emoji || null })),
+  ];
+}
+
+function bumpRotationCursor(groupId) {
+  const rotation = getMovieNightRotation(groupId);
+  const count = getMovieNightIdentities(groupId).length || 1;
+  const next = (Number(rotation.cursor) + 1) % count;
+  db.prepare('UPDATE movie_night_rotation SET cursor = ?, last_rotated_at = ? WHERE group_id = ?')
+    .run(next, Math.floor(Date.now() / 1000), Number(groupId));
+  return next;
+}
+
+// Pure next-pick resolution over pre-fetched rows so it can be unit tested
+// without a DB. `entries` are active entry rows carrying added_by, persona_id,
+// net_votes and added_at.
+function resolveMovieNightNextPick(identities, cursor, entries) {
+  if (!identities.length) return { identity: null, entry: null, fallback: false };
+  const identity = identities[cursor % identities.length];
+  const belongs = (e) => identity.kind === 'persona'
+    ? Number(e.persona_id) === Number(identity.id)
+    : String(e.added_by) === String(identity.id);
+  const topOf = (rows) => rows.slice().sort(
+    (a, b) => (Number(b.net_votes || 0) - Number(a.net_votes || 0)) || (Number(a.added_at || 0) - Number(b.added_at || 0))
+  )[0] || null;
+  const owned = entries.filter(belongs);
+  if (owned.length) return { identity, entry: topOf(owned), fallback: false };
+  return { identity, entry: topOf(entries), fallback: entries.length > 0 };
+}
+
+function getMovieNightNextPick(groupId) {
+  const group = getMovieNightGroup(groupId);
+  if (!group) return null;
+  const rotation = getMovieNightRotation(groupId);
+  const identities = getMovieNightIdentities(groupId);
+  const entries = db.prepare(
+    "SELECT * FROM movie_night_entries WHERE group_id = ? AND status = 'active'"
+  ).all(Number(groupId));
+  const netVotes = db.prepare(`
+    SELECT entry_id, SUM(vote) AS net FROM movie_night_votes
+    WHERE entry_id IN (SELECT id FROM movie_night_entries WHERE group_id = ?)
+    GROUP BY entry_id
+  `).all(Number(groupId));
+  const netMap = Object.fromEntries(netVotes.map(r => [r.entry_id, r.net]));
+  const withVotes = entries.map(e => ({ ...e, net_votes: netMap[e.id] || 0 }));
+  return resolveMovieNightNextPick(identities, Number(rotation.cursor) || 0, withVotes);
+}
+
 module.exports = {
   addDismissal, getDismissals, removeDismissal, getUserDismissalRows,
   addToWatchlistDb, removeFromWatchlistDb, getWatchlistFromDb, getWatchlistRows,
@@ -3747,6 +4198,17 @@ module.exports = {
   getAdminUserIds, getPrivilegedUserIds,
   enqueueNotification, getPendingQueuedNotifications, markQueueItemSent, deleteQueueItem,
   createIssue, setIssueSearchStatus, getIssueById, getAllIssues, getUserIssues, getIssueUsers, updateIssueStatus, deleteIssue, deleteIssuesByIds,
+  createMovieNightGroup, getMovieNightGroup, updateMovieNightGroup, deleteMovieNightGroup,
+  isMovieNightMember, isMovieNightHost, getMovieNightGroupMembers, getMovieNightGroupsForUser,
+  addMovieNightMember, removeMovieNightMember,
+  getMovieNightPersonas, getMovieNightPersona, addMovieNightPersona, updateMovieNightPersona, deleteMovieNightPersona,
+  getMovieNightThemes, getMovieNightTheme, addMovieNightTheme, updateMovieNightTheme, deleteMovieNightTheme,
+  getTonightMovieNightTheme,
+  addMovieNightEntry, getMovieNightEntry, getMovieNightEntries, setMovieNightEntryStatus,
+  voteMovieNightEntry,
+  addMovieNightComment, getMovieNightComments, getMovieNightComment, deleteMovieNightComment,
+  getMovieNightRotation, getMovieNightIdentities, bumpRotationCursor, getMovieNightNextPick,
+  resolveMovieNightNextPick,
   addIssueComment, getIssueComments, deleteIssueComment,
   getUnnotifiedFulfilledRequests, markRequestsNotifiedAvailable, getLibraryTvdbKeys, requestIsInLibrary,
   // Reviews

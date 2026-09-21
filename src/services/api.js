@@ -295,6 +295,36 @@ export const profileApi = {
   getUserReviews: (userId, params) => api.get(`/users/${userId}/reviews`, { params }),
 }
 
+/** Movie Night: groups, shared watch lists, votes, themes, rotation */
+export const movieNightApi = {
+  getGroups: () => api.get('/movie-night/groups'),
+  createGroup: (data) => api.post('/movie-night/groups', data),
+  getGroup: (id) => api.get(`/movie-night/groups/${id}`),
+  updateGroup: (id, data) => api.patch(`/movie-night/groups/${id}`, data),
+  deleteGroup: (id) => api.delete(`/movie-night/groups/${id}`),
+  getMemberCandidates: () => api.get('/movie-night/member-candidates'),
+  addMember: (id, userId) => api.post(`/movie-night/groups/${id}/members`, { userId }),
+  removeMember: (id, userId) => api.delete(`/movie-night/groups/${id}/members/${userId}`),
+  addPersona: (id, data) => api.post(`/movie-night/groups/${id}/personas`, data),
+  updatePersona: (personaId, data) => api.patch(`/movie-night/personas/${personaId}`, data),
+  deletePersona: (personaId) => api.delete(`/movie-night/personas/${personaId}`),
+  getEntries: (id, params) => api.get(`/movie-night/groups/${id}/entries`, { params }),
+  addEntry: (id, data) => api.post(`/movie-night/groups/${id}/entries`, data),
+  updateEntry: (entryId, data) => api.patch(`/movie-night/entries/${entryId}`, data),
+  markWatched: (entryId) => api.post(`/movie-night/entries/${entryId}/watched`),
+  vote: (entryId, data) => api.put(`/movie-night/entries/${entryId}/vote`, data),
+  getComments: (entryId) => api.get(`/movie-night/entries/${entryId}/comments`),
+  addComment: (entryId, data) => api.post(`/movie-night/entries/${entryId}/comments`, data),
+  deleteComment: (commentId) => api.delete(`/movie-night/comments/${commentId}`),
+  getNext: (id) => api.get(`/movie-night/groups/${id}/next`),
+  rotate: (id) => api.post(`/movie-night/groups/${id}/rotate`),
+  getThemes: (id) => api.get(`/movie-night/groups/${id}/themes`),
+  addTheme: (id, data) => api.post(`/movie-night/groups/${id}/themes`, data),
+  updateTheme: (themeId, data) => api.patch(`/movie-night/themes/${themeId}`, data),
+  deleteTheme: (themeId) => api.delete(`/movie-night/themes/${themeId}`),
+  getNightly: () => api.get('/movie-night/nightly'),
+}
+
 /** TMDB Per-User Integration */
 export const tmdbApi = {
   getConnection: () => api.get('/tmdb/connection'),

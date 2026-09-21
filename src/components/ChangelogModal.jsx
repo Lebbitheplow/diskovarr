@@ -20,7 +20,7 @@ const DATE_STYLE = { fontWeight: '400', color: 'var(--text-secondary)', fontSize
 export default function ChangelogModal({ open, onClose }) {
   const { t } = useTranslation()
   if (!open) return null
-  const currentVersion = import.meta.env.VITE_APP_VERSION || '3.3.0'
+  const currentVersion = import.meta.env.VITE_APP_VERSION || '3.3.3'
 
   return (
     <div className="info-modal-backdrop open" onClick={onClose}>
@@ -33,61 +33,46 @@ export default function ChangelogModal({ open, onClose }) {
           <div className="info-modal-section">
             <div className="info-modal-section-title">
               v{currentVersion}{' '}
-              <span style={DATE_STYLE}>2026-09-12</span>
+              <span style={DATE_STYLE}>2026-09-21</span>
             </div>
             <p style={SECTION_LABEL_STYLE}>{t('New')}</p>
             <ul style={LIST_STYLE}>
-              <li style={ITEM_STYLE}>Guided DUMB setup — a new Admin → Setup tab installs and connects a DUMB Traktless stack step by step: find or install DUMB, validate your AllDebrid or Real-Debrid key, pick extra apps (Zilean, Sonarr, Radarr, Prowlarr, Tautulli…), let DUMB install and wire everything to Diskovarr, then add the symlink library to your Plex movie and TV libraries with debrid-friendly scan settings, or get exact instructions to do it by hand</li>
-              <li style={ITEM_STYLE}>Reviews tab in the item details window — what people on this server thought of a title, with reactions and comments, followed by public reviews from TMDB</li>
+              <li style={ITEM_STYLE}>Movie Night — a new side-rail section for movie nights with your people: create a group (one-off scheduled night, weekly recurring, or always-on rolling list), invite members, nominate movies and shows straight from the details window, and let everyone vote +1/-1 on the pile</li>
+              <li style={ITEM_STYLE}>Movie Night rotation — turn on rotation and the app keeps a round-robin of who picks each night (members and personas in order), shows who's next up and their top pick, and moves the cursor on when a title is marked watched</li>
+              <li style={ITEM_STYLE}>Personas — extra voters for people sharing an account (kids, partner, the dog): each persona casts its own votes and posts comments under its own name</li>
+              <li style={ITEM_STYLE}>Weekday themes, per-title comments, and tonight reminders through your enabled notification channels</li>
             </ul>
             <p style={SECTION_LABEL_STYLE}>{t('Changes')}</p>
             <ul style={LIST_STYLE_LAST}>
-              <li style={ITEM_STYLE}>Tautulli is required for Plex watch history, so the setup wizard marks it "Required for Plex" and installs it when Plex is connected without one</li>
-              <li style={ITEM_STYLE}>External tools like DUMB can use the Diskovarr API key for admin operations instead of an admin login</li>
+              <li style={ITEM_STYLE}>Security: nodemailer upgraded to 9.1.1</li>
             </ul>
           </div>
           <div className="info-modal-section">
             <div className="info-modal-section-title">
-              v3.2.0{' '}
-              <span style={DATE_STYLE}>2026-09-12</span>
+              v3.3.2{' '}
+              <span style={DATE_STYLE}>2026-09-13</span>
             </div>
-            <p style={SECTION_LABEL_STYLE}>{t('New')}</p>
-            <ul style={LIST_STYLE}>
-              <li style={ITEM_STYLE}>Diskovarr can now run your whole collection setup — everything Agregarr did. Monitored lists gained a top-N item cap, per-list and global exclusions, combining several list URLs into one collection, "unwatched only" smart collections, item ordering, home and library ordering, owner-only home visibility, a first/latest season mode for TV requests, and an optional summary. An import script moves an Agregarr config over in one go</li>
-              <li style={ITEM_STYLE}>Plex Home Layout — every row Plex shows on the home and Recommended tab of each library, with owner/users/Recommended toggles and ordering, re-applied after every sync</li>
-              <li style={ITEM_STYLE}>Auto-request limits — monitored lists obey rolling-window quotas (N movies per X days, N seasons per Y days) with a global default and per-list overrides, and the queue shows which list made each request</li>
-              <li style={ITEM_STYLE}>New list sources: FlixPatrol streaming top 10s (via FlareSolverr), TMDB trending, AniList's most popular anime, and Hulu/Paramount+ charts from TMDB</li>
-            </ul>
             <p style={SECTION_LABEL_STYLE}>{t('Changes')}</p>
-            <ul style={LIST_STYLE}>
-              <li style={ITEM_STYLE}>Collections pick up newly added library titles every 30 minutes without re-fetching the list; a Quick sync button does it on demand</li>
-              <li style={ITEM_STYLE}>Security: nodemailer upgraded to 9.1.0</li>
-            </ul>
-            <p style={SECTION_LABEL_STYLE}>{t('Fixes')}</p>
             <ul style={LIST_STYLE_LAST}>
-              <li style={ITEM_STYLE}>The recommender no longer mixes up a movie and a show that share a TMDB id — the last trace of the mix-up that once put Lord of the Rings art on a Doctor Who notification</li>
-              <li style={ITEM_STYLE}>"Request missing seasons" only appears when the show actually has a season left to request</li>
-              <li style={ITEM_STYLE}>Monitored-list syncs no longer fail before requesting anything (a wrong module path in the auto-request job)</li>
+              <li style={ITEM_STYLE}>ntfy is an admin feed again — the per-user ntfy panel asked users to subscribe to topics on the admin's server, which needs an account there; like Gotify, Slack and Webhook, ntfy now lives only in Admin → Notifications, and users keep Discord, Pushover, Telegram, Pushbullet, Email and Browser push</li>
             </ul>
           </div>
           <div className="info-modal-section">
             <div className="info-modal-section-title">
-              v3.1.0{' '}
-              <span style={DATE_STYLE}>2026-09-06</span>
+              v3.3.1{' '}
+              <span style={DATE_STYLE}>2026-09-13</span>
             </div>
             <p style={SECTION_LABEL_STYLE}>{t('New')}</p>
             <ul style={LIST_STYLE}>
-              <li style={ITEM_STYLE}>Request missing seasons — shows already in your library now offer a "Request missing seasons" button in the details window and on search cards. The season picker grays out seasons that are complete in the library or already requested (hover for the episode count), so you only ask for what's actually missing</li>
-              <li style={ITEM_STYLE}>Requesting a show Sonarr already has now works — the existing series gets the chosen seasons monitored and a search is started, instead of the request failing</li>
-            </ul>
-            <p style={SECTION_LABEL_STYLE}>{t('Changes')}</p>
-            <ul style={LIST_STYLE}>
-              <li style={ITEM_STYLE}>Search is much faster — results appear from what Diskovarr already knows while full details fill in behind the scenes, a slow TVDB lookup no longer holds up the page, and "More Like This" loads in parallel. Searches that took four or five seconds now come back in well under one</li>
-              <li style={ITEM_STYLE}>Security: the web framework was upgraded to Express 5 in both Diskovarr and the bundled YouTube downloader, closing two query-parsing advisories</li>
+              <li style={ITEM_STYLE}>Notifications for everyone — users now get ntfy (your own topic, optional server and login) and Browser push (native notifications from any device you enable, even with Diskovarr closed) under My Settings → Notifications whenever the admin has those channels on, alongside Discord, Pushover, Telegram, Pushbullet and Email</li>
+              <li style={ITEM_STYLE}>Install Diskovarr as an app — the user menu offers Install App with the native browser prompt where available, or step-by-step Add to Home Screen instructions for iPhone, iPad, Safari on Mac, Firefox and Samsung Internet</li>
+              <li style={ITEM_STYLE}>Browse by Genre — new artwork tiles on Home (filtering your library on Discover) and on Explore (searching TMDB)</li>
             </ul>
             <p style={SECTION_LABEL_STYLE}>{t('Fixes')}</p>
             <ul style={LIST_STYLE_LAST}>
-              <li style={ITEM_STYLE}>Requesting missing seasons of a show you already have no longer triggers an immediate "now available" alert</li>
+              <li style={ITEM_STYLE}>Telegram, Pushbullet and Email user settings never actually received request, issue or monitor notifications — every event now reaches every enabled channel</li>
+              <li style={ITEM_STYLE}>Turning a notification provider on in the admin panel took effect only after a restart, and its green status dot didn't update until the page was reloaded</li>
+              <li style={ITEM_STYLE}>The elevated owner now sees the same admin-only notification toggles (processing failed, new issue) that admins do; regular users can no longer flip them</li>
             </ul>
           </div>
         </div>

@@ -31,6 +31,7 @@ const ICONS = {
   issues: <><path d="M12 4.5l8.5 15h-17l8.5-15z" {...S} /><line x1="12" y1="10" x2="12" y2="14" {...S} /><circle cx="12" cy="16.8" r="0.9" fill="currentColor" /></>,
   settings: <><circle cx="12" cy="12" r="3" {...S} /><path d="M12 2.5v2.2M12 19.3v2.2M4.2 4.2l1.6 1.6M18.2 18.2l1.6 1.6M2.5 12h2.2M19.3 12h2.2M4.2 19.8l1.6-1.6M18.2 5.8l1.6-1.6" {...S} /></>,
   admin: <><path d="M12 3l7.5 3v5.5c0 4.4-3 8-7.5 9.5-4.5-1.5-7.5-5.1-7.5-9.5V6L12 3z" {...S} /><polyline points="9 12 11.2 14.2 15.2 10.2" {...S} /></>,
+  movieNight: <><rect x="3" y="5" width="18" height="14" rx="2" {...S} /><path d="M7 5v14M17 5v14M3 9.5h4M17 9.5h4M3 14.5h4M17 14.5h4" {...S} /></>,
 }
 
 function RailIcon({ name }) {
@@ -70,6 +71,7 @@ export default function SideRail({
     ...(discoverAvailable ? [{ path: '/explore', label: t('Diskovarr Requests'), icon: 'requests' }] : []),
     { path: '/discover', label: t('Filter'), icon: 'filter' },
     { path: '/reviews', label: t('Reviews'), icon: 'reviews' },
+    { path: '/movie-night', label: t('Movie Night'), icon: 'movieNight' },
   ]
 
   const secondary = [
@@ -80,14 +82,21 @@ export default function SideRail({
     { path: '/admin', label: t('Admin'), icon: 'admin' },
   ]
 
+  const isActive = (item) => {
+    if (currentPath === item.path) return true
+    // Detail routes like /movie-night/:id keep their section highlighted
+    if (item.path !== '/' && currentPath.startsWith(item.path + '/')) return true
+    return false
+  }
+
   const renderLink = (item) => (
     <Link
       key={item.path}
       to={item.path}
-      className={`rail-link${currentPath === item.path ? ' active' : ''}`}
+      className={`rail-link${isActive(item) ? ' active' : ''}`}
       // The tooltip is the only label left once the rail is collapsed
       title={collapsed ? item.label : undefined}
-      aria-current={currentPath === item.path ? 'page' : undefined}
+      aria-current={isActive(item) ? 'page' : undefined}
       onClick={onNavigate}
     >
       <RailIcon name={item.icon} />

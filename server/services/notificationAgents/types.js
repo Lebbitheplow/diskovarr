@@ -18,6 +18,9 @@ const NotificationType = {
   MEDIA_AUTO_REQUESTED:  4096,
   MONITOR_MATCH:         8192,
   TUBERR_ALERT:          16384,
+  MOVIE_NIGHT:           32768,
+  MOVIE_NIGHT_COMMENT:   65536,
+  MOVIE_NIGHT_TONIGHT:   131072,
 };
 
 // All notification types combined (for "select all")
@@ -40,6 +43,10 @@ const TYPE_MAP = {
   test:                        NotificationType.TEST_NOTIFICATION,
   monitor_match:               NotificationType.MONITOR_MATCH,
   tuberr_alert:                NotificationType.TUBERR_ALERT,
+  movie_night_added:           NotificationType.MOVIE_NIGHT,
+  movie_night_invite:          NotificationType.MOVIE_NIGHT,
+  movie_night_comment:         NotificationType.MOVIE_NIGHT_COMMENT,
+  movie_night_tonight:         NotificationType.MOVIE_NIGHT_TONIGHT,
 };
 
 // Human-readable labels for each type
@@ -56,6 +63,10 @@ const TYPE_LABELS = {
   issue_comment_added_user:    'Issue comment (user)',
   monitor_match:               'Monitor match',
   tuberr_alert:                'YouTube downloader alerts',
+  movie_night_added:           'Movie Night pick added',
+  movie_night_invite:          'Movie Night group invite',
+  movie_night_comment:         'Movie Night comment',
+  movie_night_tonight:         'Movie Night tonight',
 };
 
 // Who receives each type: 'admin', 'user', or 'both'
@@ -72,6 +83,10 @@ const TYPE_TARGET = {
   issue_comment_added_user:    'both',
   monitor_match:               'user',
   tuberr_alert:                'admin',
+  movie_night_added:           'user',
+  movie_night_invite:          'user',
+  movie_night_comment:         'user',
+  movie_night_tonight:         'user',
 };
 
 // Color map for Discord embeds
@@ -88,6 +103,10 @@ const TYPE_COLORS = {
   issue_comment_added_user:    0x00b4d8,
   monitor_match:               0x9c27b0,
   tuberr_alert:                0xff0000,
+  movie_night_added:           0xe5a00d,
+  movie_night_invite:          0xe5a00d,
+  movie_night_comment:         0x00b4d8,
+  movie_night_tonight:         0xe5a00d,
 };
 
 // ── Helper functions ──────────────────────────────────────────────────────────

@@ -2,6 +2,7 @@ import React, { useState, useRef, useCallback, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import RequestModal from './RequestModal'
+import MovieNightPickerModal from './MovieNightPickerModal'
 import {
   libraryApi,
   watchlistApi,
@@ -163,6 +164,7 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
   // Reviews from users on this server — fetched on open so the tab can show a
   // count; TMDB's reviews load inside the tab itself.
   const [serverReviews, setServerReviews] = useState(null)
+  const [movieNightOpen, setMovieNightOpen] = useState(false)
   const [prevCreditsTmdbId, setPrevCreditsTmdbId] = useState(item?.tmdbId)
   if (item?.tmdbId !== prevCreditsTmdbId) {
     setPrevCreditsTmdbId(item?.tmdbId)
@@ -172,6 +174,7 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
     setCreditsLoading(!item?.structuredCast && !!item?.tmdbId)
     setFetchedRatings(null)
     setFetchedMeta(null)
+    setMovieNightOpen(false)
   }
   // "Request missing seasons" for a show the library already has. Pages that
   // own a RequestModal (Search, Explore) receive the item through onRequest;
@@ -567,6 +570,11 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
                   )}
                 </>
               )}
+              {item.tmdbId && (
+                <button className="modal-btn modal-btn-watchlist" onClick={() => setMovieNightOpen(true)} style={{ background: 'rgba(229,160,13,0.16)', color: 'var(--accent)' }}>
+                  + {t('Movie Night')}
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -588,6 +596,19 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
           // up to the detail wrapper's close handler.
           <div onClick={e => e.stopPropagation()}>
             <RequestModal item={missingItem} services={services || {}} onClose={() => setMissingItem(null)} />
+          </div>,
+          document.body
+        )}
+        {movieNightOpen && createPortal(
+          <div onClick={e => e.stopPropagation()}>
+            <MovieNightPickerModal
+              item={{
+                mediaType: item.mediaType || (item.type === 'show' ? 'tv' : 'movie'),
+                tmdbId: item.tmdbId, ratingKey: item.ratingKey,
+                title: item.title || item.name, year: item.year, thumb: item.thumb,
+              }}
+              onClose={() => setMovieNightOpen(false)}
+            />
           </div>,
           document.body
         )}

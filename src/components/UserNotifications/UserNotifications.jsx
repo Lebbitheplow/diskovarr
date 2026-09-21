@@ -46,6 +46,8 @@ export default function UserNotifications({ settings, onToast, onUpdateSettings 
     notify_process_failed: settings?.notify_process_failed !== false,
     notify_issue_new: settings?.notify_issue_new !== false,
     notify_monitor: settings?.notify_monitor !== false,
+    notify_movie_night_added: settings?.notify_movie_night_added !== false,
+    notify_movie_night_comment: settings?.notify_movie_night_comment !== false,
   })
   const [userProviderEnabled, setUserProviderEnabled] = useState(() => buildEnabledMap(settings))
 

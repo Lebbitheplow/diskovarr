@@ -4,6 +4,23 @@ All notable changes are documented here. Versioning follows [Semantic Versioning
 
 ---
 
+## v3.3.3 — 2026-09-21
+
+### Added
+
+- **Movie Night.** A new side-rail section for movie nights with your people. Create a group — one-off **scheduled** night, weekly **recurring** night, or an always-on **rolling** list — invite members, nominate movies and shows straight from the item details window (a "+ Movie Night" button picks the group), and let everyone vote +1/-1 on the pile. Titles dedupe, get marked watched, or get cancelled and restored (`server/db/database.js` `movie_night_v1` migration, `server/routes/api.js` `/api/movie-night/*`, `src/pages/MovieNight.jsx`, `src/pages/MovieNightDetail.jsx`, `tests/movieNight.test.js`).
+- **Movie Night rotation.** With rotation on, the app keeps a round-robin cursor over the group's identities (host first, then members and personas) and shows who is next up and their current top pick; marking an entry watched or rotating by hand advances the cursor.
+- **Personas.** Extra voters for people sharing one account (kids, partner, the dog): each persona casts its own +1/-1 votes and posts comments under its own name.
+- **Weekday themes.** Pin a theme (with emoji and optional genre note) to each weekday of a group; tonight's theme rides along in reminders.
+- **Per-title comments** on every nominated entry, posted as yourself or as a persona.
+- **Tonight reminders.** Recurring groups with a theme on today's weekday and scheduled nights starting within the hour send one bundled notification per member per night through every enabled channel (`server/services/movieNight.js`, notification types `movie_night_added`, `movie_night_comment`, `movie_night_tonight`).
+
+### Security
+
+- **nodemailer 9.1.1.** Upgraded from 9.1.0 for SNYK-JS-NODEMAILER-19651820.
+
+---
+
 ## v3.3.2 — 2026-09-13
 
 ### Removed
