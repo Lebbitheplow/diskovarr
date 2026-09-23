@@ -1,0 +1,1186 @@
+/* ============================================================
+   Diskovarr — Velvet Marquee theme layer
+   Imported last (after effects.css) so it restyles the shell, the
+   shelves, the hero, the detail modal and the controls without
+   touching the motion rules in effects.css. Every warm tone is
+   derived from --accent through the tokens in style.css, so the
+   admin theme colour still drives the whole app.
+   Perf: adds one always-on animated layer (the hero beam) and one
+   blur surface (the detail modal card, which replaced an opaque
+   card — the modal is only ever open alongside the rail).
+   ============================================================ */
+
+/* ── Display type ────────────────────────────────────────────── */
+.hero-title,
+.spotlight-title,
+.detail-modal-title,
+.review-modal-title,
+.queue-hero h1,
+.settings-hero h1,
+.mn-title,
+.profile-username,
+.legal-h2,
+.stat-value,
+.section-title,
+.rail-brand-text,
+.topbar-brand-text,
+.legal-brand,
+.nav-logo,
+.login-logo,
+.info-modal-logo .logo-text {
+  font-family: var(--font-display);
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  line-height: 1.05;
+}
+
+.hero-title {
+  font-size: clamp(1.7rem, 3.4vw, 2rem);
+  margin-bottom: 6px;
+}
+
+.hero-sub {
+  font-size: 0.95rem;
+  color: var(--text-secondary);
+}
+
+.queue-hero h1,
+.settings-hero h1,
+.mn-title { font-size: 1.85rem; }
+.section-title { font-size: 1.35rem; }
+.legal-h2 { font-size: 1.3rem; }
+
+/* ── Condensed caps on controls and labels ───────────────────── */
+.btn-admin,
+.queue-filter-btn,
+.filter-chip,
+.btn-page,
+.btn-load-more,
+.mn-link-btn,
+.mn-btn-primary,
+.mn-vote-btn,
+.review-action-btn,
+.btn-dialog-confirm,
+.btn-dialog-cancel,
+.btn-dialog-alt,
+.btn-tmdb-link,
+.nav-source-btn,
+.admin-tab,
+.settings-tab,
+.detail-modal-tab,
+.btn-settings-save,
+.edit-modal-save,
+.btn-request,
+.btn-watchlist-toggle,
+.modal-btn,
+.spotlight-btn,
+.btn-icon,
+.btn-plex,
+.profile-edit-btn,
+.profile-wrapped-btn,
+.search-back-btn,
+.history-expand-btn,
+.wl-confirm-cancel,
+.wl-confirm-ok,
+.req-filter-btn,
+.nav-logout,
+.nav-fab-menu-link,
+.nav-bell-header button,
+.date-range-mode-btn,
+.service-opt-btn,
+.conn-action-btn,
+.agent-info-btn,
+.bl-remove-btn,
+.wl-remove-btn,
+.btn-queue-approve,
+.btn-queue-deny,
+.btn-queue-delete,
+.btn-queue-edit,
+.toast-action {
+  font-family: var(--font-condensed);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: 0.95rem;
+}
+
+.btn-icon { font-size: 0.74rem; font-weight: 700; letter-spacing: 0.12em; }
+.filter-chip,
+.queue-filter-btn,
+.req-filter-btn,
+.nav-source-btn,
+.btn-tmdb-link,
+.date-range-mode-btn { font-size: 0.84rem; }
+.nav-logout,
+.toast-action { font-size: 0.8rem; }
+.modal-btn,
+.btn-request,
+.btn-watchlist-toggle { font-size: 0.9rem; font-weight: 700; letter-spacing: 0.14em; }
+.spotlight-btn { font-size: 1rem; font-weight: 700; letter-spacing: 0.16em; }
+.btn-plex { font-size: 1.05rem; font-weight: 700; letter-spacing: 0.16em; }
+.admin-tab,
+.settings-tab,
+.detail-modal-tab { font-weight: 700; letter-spacing: 0.14em; }
+
+/* Small labels: badges, pills, table heads, form labels */
+.section-badge,
+.admin-badge,
+.badge-not-in-library,
+.badge-upcoming-card,
+.stat-label,
+.rating-label,
+.content-rating-badge,
+.spotlight-cert,
+.season-bubble,
+.queue-table th,
+.settings-label,
+.detail-credit-label,
+.modal-credit-label,
+.nav-bell-header span,
+.spotlight-eyebrow,
+.legal-h3,
+.card-meta,
+.detail-modal-meta,
+.spotlight-meta,
+.modal-meta,
+.hero-suggest-meta,
+.app-footer-inner > a,
+.app-footer-inner > span:not(.app-footer-sep) {
+  font-family: var(--font-condensed);
+  text-transform: uppercase;
+}
+
+/* ── Ticket-stub buttons ─────────────────────────────────────
+   A punched notch either side, cut with a mask so the page shows
+   through. Borders are dropped (the notch would slice them); where a
+   state needs an outline it is an inset ring instead. */
+.spotlight-btn,
+.btn-watchlist,
+.btn-request,
+.modal-btn-primary,
+.modal-btn-watchlist,
+.btn-plex,
+.btn-admin.btn-primary,
+.btn-settings-save,
+.edit-modal-save,
+.mn-btn-primary,
+.btn-dialog-confirm,
+.wl-confirm-ok,
+.profile-edit-btn,
+.btn-watchlist-toggle {
+  --notch: 7px;
+  border-color: transparent !important;
+  -webkit-mask:
+    radial-gradient(circle var(--notch) at 0 50%, #0000 98%, #000) left / 51% 100% no-repeat,
+    radial-gradient(circle var(--notch) at 100% 50%, #0000 98%, #000) right / 51% 100% no-repeat;
+  mask:
+    radial-gradient(circle var(--notch) at 0 50%, #0000 98%, #000) left / 51% 100% no-repeat,
+    radial-gradient(circle var(--notch) at 100% 50%, #0000 98%, #000) right / 51% 100% no-repeat;
+}
+
+.btn-watchlist,
+.btn-icon { --notch: 4px; }
+.modal-btn-primary,
+.modal-btn-watchlist,
+.btn-request,
+.btn-watchlist-toggle,
+.btn-admin.btn-primary,
+.btn-settings-save,
+.edit-modal-save,
+.mn-btn-primary,
+.btn-dialog-confirm,
+.wl-confirm-ok,
+.profile-edit-btn { --notch: 6px; }
+
+/* Solid stubs: the accent poured top-to-bottom with dark ink on top */
+.spotlight-btn-play,
+.modal-btn-primary,
+.modal-btn-watchlist,
+.btn-plex,
+.btn-admin.btn-primary,
+.btn-settings-save,
+.edit-modal-save,
+.mn-btn-primary,
+.btn-dialog-confirm,
+.wl-confirm-ok,
+.profile-edit-btn,
+.btn-request,
+.btn-watchlist-toggle {
+  background: var(--accent-gradient) !important;
+  color: var(--accent-ink) !important;
+  transition: transform var(--dur-fast) var(--ease-spring),
+    filter var(--dur-fast) var(--ease-out),
+    opacity var(--dur-fast) var(--ease-out);
+}
+
+.spotlight-btn-play:hover:not(:disabled),
+.modal-btn-primary:hover:not(:disabled),
+.modal-btn-watchlist:hover:not(:disabled),
+.btn-plex:hover:not(:disabled),
+.btn-admin.btn-primary:hover:not(:disabled),
+.btn-settings-save:hover:not(:disabled),
+.edit-modal-save:hover:not(:disabled),
+.mn-btn-primary:hover:not(:disabled),
+.btn-dialog-confirm:hover:not(:disabled),
+.wl-confirm-ok:hover:not(:disabled),
+.profile-edit-btn:hover:not(:disabled),
+.btn-request:hover:not(:disabled),
+.btn-watchlist-toggle:hover:not(:disabled) {
+  filter: brightness(1.1);
+  transform: translateY(-1px);
+}
+
+.spotlight-btn-play:active,
+.modal-btn-primary:active,
+.modal-btn-watchlist:active,
+.btn-plex:active,
+.btn-admin.btn-primary:active,
+.btn-settings-save:active,
+.edit-modal-save:active,
+.mn-btn-primary:active,
+.btn-dialog-confirm:active,
+.wl-confirm-ok:active,
+.profile-edit-btn:active,
+.btn-request:active,
+.btn-watchlist-toggle:active {
+  transform: scale(0.97);
+}
+
+/* Already-listed state reads as velvet rather than a second gold */
+.modal-btn-watchlist.in-watchlist,
+.btn-watchlist-toggle.in-watchlist {
+  background: color-mix(in oklab, var(--velvet) 85%, transparent) !important;
+  color: var(--velvet-text) !important;
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--velvet-text) 25%, transparent);
+}
+
+.btn-request:disabled,
+.btn-request.btn-request-sent {
+  background: var(--cream-fill) !important;
+  color: var(--text-secondary) !important;
+  filter: none;
+  transform: none;
+}
+
+/* Perforation on the main call to action */
+.spotlight-btn-play {
+  position: relative;
+  padding-left: 40px;
+}
+
+.spotlight-btn-play::before {
+  content: '';
+  position: absolute;
+  left: 24px;
+  top: 7px;
+  bottom: 7px;
+  border-left: 2px dotted color-mix(in oklab, var(--accent-ink) 40%, transparent);
+}
+
+/* ── Rail ─────────────────────────────────────────────────────── */
+.rail {
+  gap: 2px;
+  padding: 22px 12px 16px;
+  border-right-color: var(--border);
+}
+
+/* Toggle + wordmark on the first row, the strapline on a second full-width
+   row so it can carry its tracking without truncating at 224px */
+.rail-head {
+  flex-wrap: wrap;
+  row-gap: 6px;
+  padding-bottom: 20px;
+}
+
+.rail-brand { gap: 10px; align-items: center; }
+
+.rail-brand-mark {
+  font-size: 1.65rem;
+  filter: drop-shadow(0 0 10px color-mix(in oklab, var(--accent) 45%, transparent));
+}
+
+.rail-brand-text {
+  font-size: 1.5rem;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  color: var(--accent);
+  text-shadow: 0 0 22px color-mix(in oklab, var(--accent) 35%, transparent);
+}
+
+.rail-tagline {
+  flex-basis: 100%;
+  padding-left: 2px;
+  font-family: var(--font-condensed);
+  font-weight: 600;
+  font-size: 0.64rem;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.app-shell[data-rail='collapsed'] .rail-tagline { display: none; }
+
+.rail-link {
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-family: var(--font-condensed);
+  font-weight: 600;
+  font-size: 0.95rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.rail-link:hover {
+  background: rgba(255, 230, 200, 0.06);
+  color: var(--text-primary);
+}
+
+.rail-link.active {
+  font-weight: 700;
+  color: var(--velvet-text);
+  background: linear-gradient(90deg,
+    color-mix(in oklab, var(--velvet) 60%, transparent),
+    color-mix(in oklab, var(--velvet) 8%, transparent));
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, color-mix(in oklab, var(--accent) 30%, #fff2dc) 12%, transparent);
+}
+
+/* The velvet slab is the indicator now */
+.rail-link.active::before { display: none; }
+
+.rail-link.active .rail-icon {
+  color: var(--accent-bright);
+  filter: drop-shadow(0 0 6px color-mix(in oklab, var(--accent) 70%, transparent));
+}
+
+/* Utility links below the divider sit back a step */
+.rail-divider ~ .rail-link {
+  font-weight: 500;
+  font-size: 0.88rem;
+  color: var(--text-muted);
+}
+
+.rail-divider ~ .rail-link:hover { color: var(--text-primary); }
+.rail-divider ~ .rail-link.active { color: var(--velvet-text); font-weight: 700; }
+
+.rail-user {
+  padding: 9px 10px;
+  border-radius: 12px;
+  background: rgba(255, 230, 200, 0.05);
+  border-color: var(--border);
+}
+
+.rail-user:hover,
+.rail-user.open {
+  background: rgba(255, 230, 200, 0.09);
+  border-color: var(--border-hover);
+}
+
+.rail-user-avatar {
+  border-radius: 9px;
+  background: linear-gradient(135deg, var(--velvet), color-mix(in oklab, var(--accent) 25%, #1e0608));
+  color: var(--velvet-text);
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: 0.95rem;
+}
+
+.rail-user-name {
+  font-family: var(--font-condensed);
+  font-weight: 600;
+  font-size: 0.95rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* ── Top bar ─────────────────────────────────────────────────── */
+.nav-search-input-wrap {
+  height: 34px;
+  border-radius: 10px;
+  background: var(--well-bg);
+  border-color: var(--well-border);
+}
+
+.nav-search-wrap.expanded .nav-search-input-wrap,
+.nav-search-input-wrap:focus-within {
+  border-color: color-mix(in oklab, var(--accent) 55%, transparent);
+}
+
+.nav-search-input {
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: 0.9rem;
+}
+
+.nav-search-input::placeholder,
+.hero-search::placeholder {
+  font-family: var(--font-condensed);
+  font-weight: 600;
+  font-size: 0.8rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.nav-search-toggle { color: var(--text-secondary); }
+
+.topbar-bell {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  justify-content: center;
+  border-radius: 10px;
+  background: var(--well-bg);
+  border: 1px solid var(--well-border);
+  color: var(--text-secondary);
+}
+
+.topbar-bell:hover {
+  color: var(--text-primary);
+  background: rgba(255, 236, 210, 0.1);
+}
+
+.topbar-bell-count {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-family: var(--font-condensed);
+  font-size: 0.66rem;
+  box-shadow: 0 0 0 2px var(--bg-primary);
+}
+
+.nav-source-toggle {
+  border-radius: 10px;
+  background: var(--well-bg);
+  border-color: var(--well-border);
+}
+
+.nav-source-btn.active { background: var(--accent); color: var(--accent-ink); }
+
+.topbar-brand-mark {
+  filter: drop-shadow(0 0 8px color-mix(in oklab, var(--accent) 45%, transparent));
+}
+
+.topbar-brand-text {
+  font-size: 1.3rem;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+}
+
+/* Warm fallbacks where the blur can't composite */
+@supports not (backdrop-filter: blur(1px)) {
+  .rail { background: rgba(18, 11, 8, 0.97); }
+  .topbar.is-scrolled { background: rgba(20, 12, 9, 0.97); }
+  .section-header { background: rgba(30, 19, 13, 0.96); }
+  .detail-modal-card { background: rgba(30, 19, 13, 0.98); }
+}
+
+/* ── Spotlight hero ──────────────────────────────────────────── */
+.spotlight-scrim {
+  background:
+    linear-gradient(90deg, rgba(var(--bg-rgb), 0.95) 0%, rgba(var(--bg-rgb), 0.62) 44%, transparent 80%),
+    linear-gradient(0deg, var(--bg-primary) 0%, transparent 45%);
+}
+
+/* Projector beam: a slow conic sweep blended over the key art */
+.spotlight-beam {
+  position: absolute;
+  left: -10%;
+  top: -60%;
+  width: 70%;
+  height: 200%;
+  background: conic-gradient(from 160deg at 0% 0%,
+    transparent 0deg,
+    color-mix(in oklab, var(--accent) 35%, transparent) 12deg,
+    transparent 26deg);
+  mix-blend-mode: soft-light;
+  transform-origin: 0 0;
+  animation: spotlight-beam 9s ease-in-out infinite alternate;
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+
+@keyframes spotlight-beam {
+  from { transform: rotate(-8deg); opacity: 0.18; }
+  to { transform: rotate(6deg); opacity: 0.3; }
+}
+
+.spotlight-body { max-width: 560px; }
+
+.spotlight-eyebrow {
+  gap: 10px;
+  font-weight: 700;
+  font-size: 0.75rem;
+  letter-spacing: 0.32em;
+  margin-bottom: 0;
+}
+
+.spotlight-rule { width: 26px; }
+
+.spotlight-title {
+  font-size: clamp(2.4rem, 5.2vw, 3.75rem);
+  line-height: 1;
+  letter-spacing: 0.01em;
+  margin: 10px 0 12px;
+  text-wrap: balance;
+}
+
+.spotlight-meta {
+  gap: 14px;
+  font-weight: 600;
+  font-size: 0.88rem;
+  letter-spacing: 0.14em;
+  color: var(--text-secondary);
+}
+
+.spotlight-score { color: var(--accent-bright); }
+
+.spotlight-cert {
+  border-color: rgba(255, 226, 190, 0.3);
+  border-radius: 5px;
+  padding: 1px 7px;
+  font-size: 0.8rem;
+}
+
+.spotlight-overview {
+  font-size: 0.92rem;
+  color: var(--text-body);
+  margin: 14px 0 6px;
+}
+
+.spotlight-reason {
+  font-family: var(--font-body);
+  font-style: italic;
+  font-weight: 500;
+  font-size: 0.88rem;
+  margin-bottom: 20px;
+}
+
+.spotlight-reason::before { content: '— '; }
+
+.spotlight-actions { gap: 12px; align-items: center; }
+
+.spotlight-btn {
+  border-radius: 10px;
+  padding: 13px 28px;
+  border: none;
+}
+
+.spotlight-btn-ghost {
+  background: var(--cream-fill);
+  color: var(--text-primary);
+}
+
+.spotlight-btn-ghost:hover { background: var(--cream-fill-hover); }
+
+.spotlight-btn-ghost.active {
+  background: color-mix(in oklab, var(--velvet) 85%, transparent);
+  color: var(--velvet-text);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--velvet-text) 25%, transparent);
+}
+
+/* "Details" is always the last action: it becomes a text link with an arrow */
+.spotlight-actions > .spotlight-btn-ghost:last-child {
+  background: none;
+  color: var(--text-secondary);
+  padding: 13px 10px;
+  -webkit-mask: none;
+  mask: none;
+}
+
+.spotlight-actions > .spotlight-btn-ghost:last-child:hover { color: var(--text-primary); }
+.spotlight-actions > .spotlight-btn-ghost:last-child::after { content: ' →'; }
+
+/* Pager: ticket stubs that fill for the length of one rotation */
+.spotlight-dots { gap: 6px; }
+
+.spotlight-dot,
+.spotlight-dot.is-active {
+  position: relative;
+  width: 34px;
+  height: 12px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: rgba(255, 236, 210, 0.14);
+  -webkit-mask:
+    radial-gradient(circle 3px at 0 50%, #0000 98%, #000) left / 51% 100% no-repeat,
+    radial-gradient(circle 3px at 100% 50%, #0000 98%, #000) right / 51% 100% no-repeat;
+  mask:
+    radial-gradient(circle 3px at 0 50%, #0000 98%, #000) left / 51% 100% no-repeat,
+    radial-gradient(circle 3px at 100% 50%, #0000 98%, #000) right / 51% 100% no-repeat;
+}
+
+.spotlight-dot:hover { background: rgba(255, 236, 210, 0.3); }
+
+.spotlight-dot.is-active::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 100%;
+  background: var(--accent);
+  transform-origin: left center;
+  animation: spotlight-fill var(--spotlight-rotate, 7s) linear forwards;
+}
+
+.spotlight[data-paused] .spotlight-dot.is-active::after { animation-play-state: paused; }
+
+@keyframes spotlight-fill {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spotlight-beam { animation: none; opacity: 0.22; }
+  .spotlight-dot.is-active::after { animation: none; }
+}
+
+/* Phones: the copy stack is taller (wrapped actions), so keep it clear of the
+   top bar the hero slides under, and trim the stubs so two fit on one row */
+@media (max-width: 960px) {
+  .spotlight-body { padding-top: calc(var(--topbar-h) + 12px); }
+  .spotlight-title { font-size: clamp(2rem, 9vw, 2.8rem); }
+  .spotlight-btn { padding: 11px 18px; font-size: 0.92rem; letter-spacing: 0.12em; }
+  .spotlight-btn-play { padding-left: 30px; }
+  .spotlight-btn-play::before { left: 17px; }
+  .spotlight-actions > .spotlight-btn-ghost:last-child { padding: 11px 6px; }
+}
+
+/* ── Page header + shelves ───────────────────────────────────── */
+.btn-shuffle-all {
+  border-radius: 10px;
+  border-color: var(--well-border);
+  background: var(--well-bg);
+}
+
+.section-header {
+  gap: 14px;
+  padding: 11px 16px;
+  border-radius: 12px;
+}
+
+/* Visible at rest (no blur), frosted once it pins — effects.css keeps the
+   is-stuck rule, this only replaces its transparent resting state */
+[data-motion='on'] .section-header {
+  background: var(--panel-bg);
+  border-color: var(--panel-border);
+}
+
+.section-header .section-title {
+  font-family: var(--font-condensed);
+  font-weight: 700;
+  font-size: 1.25rem;
+  letter-spacing: 0.14em;
+  line-height: 1.1;
+}
+
+.section-badge {
+  font-weight: 700;
+  font-size: 0.66rem;
+  letter-spacing: 0.24em;
+  background: none;
+  border-color: color-mix(in oklab, var(--accent) 45%, transparent);
+  border-radius: 5px;
+  padding: 3px 9px;
+}
+
+.section-badge.badge-upcoming { background: none; }
+
+.carousel-btn {
+  background: var(--cream-fill);
+  border-color: transparent;
+}
+
+.carousel-arrow { color: var(--text-primary); }
+
+/* ── Cards ───────────────────────────────────────────────────── */
+.card {
+  border-radius: 10px;
+  box-shadow: inset 0 0 0 1px rgba(255, 226, 190, 0.12), var(--shadow-1);
+}
+
+.card::after {
+  background: linear-gradient(to top,
+    rgba(var(--bg-rgb), 0.96) 0%,
+    rgba(var(--bg-rgb), 0.74) 45%,
+    transparent 100%);
+}
+
+.card-title {
+  font-family: var(--font-condensed);
+  font-weight: 700;
+  font-size: 0.95rem;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  line-height: 1.1;
+}
+
+.card-meta {
+  font-weight: 600;
+  font-size: 0.76rem;
+  letter-spacing: 0.12em;
+  color: var(--text-secondary);
+  margin-top: 3px;
+}
+
+.card-year { color: var(--text-secondary); }
+.card-rating { color: var(--accent-bright); }
+
+/* Reasons become italic programme notes instead of pills */
+.card-reasons {
+  flex-direction: column;
+  gap: 2px;
+}
+
+.reason-tag {
+  display: block;
+  max-width: 100%;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: none;
+  font-family: var(--font-body);
+  font-style: italic;
+  font-size: 0.76rem;
+  line-height: 1.35;
+}
+
+.reason-tag::before { content: '— '; }
+
+.btn-watchlist {
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-radius: 6px;
+  padding: 7px 4px;
+}
+
+.btn-watchlist:hover { background: color-mix(in oklab, var(--accent), white 20%); color: var(--accent-ink); }
+
+.btn-watchlist.in-watchlist {
+  background: color-mix(in oklab, var(--velvet) 90%, transparent);
+  color: var(--velvet-text);
+}
+
+.btn-dismiss {
+  background: var(--cream-fill);
+  color: var(--text-secondary);
+  border-color: transparent;
+  border-radius: 6px;
+}
+
+.btn-dismiss:hover {
+  background: rgba(200, 50, 40, 0.4);
+  color: #fff;
+}
+
+.card-poster-placeholder { color: var(--text-muted); }
+
+/* ── Detail modal ────────────────────────────────────────────── */
+.detail-modal-wrap { background: rgba(10, 5, 3, 0.78); }
+
+.detail-modal-wrap.open { animation: marquee-fade-in 0.22s ease both; }
+
+.detail-modal-card {
+  background: rgba(30, 19, 13, 0.9);
+  backdrop-filter: blur(24px) saturate(140%);
+  -webkit-backdrop-filter: blur(24px) saturate(140%);
+  border: 1px solid rgba(255, 226, 190, 0.12);
+  border-radius: 18px;
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.75);
+}
+
+.detail-modal-wrap.open .detail-modal-card {
+  animation: marquee-modal-in 0.36s var(--ease-spring) both;
+}
+
+@keyframes marquee-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes marquee-modal-in {
+  from { opacity: 0; transform: translateY(20px) scale(0.97); }
+  to { opacity: 1; transform: none; }
+}
+
+.detail-modal-hero::after {
+  background: linear-gradient(to bottom, transparent 20%, rgba(30, 19, 13, 1) 100%);
+}
+
+.detail-modal-close {
+  top: 12px;
+  right: 12px;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  background: rgba(var(--bg-rgb), 0.6);
+  border: 1px solid rgba(255, 226, 190, 0.15);
+  color: var(--text-primary);
+}
+
+.detail-modal-close:hover { background: color-mix(in oklab, var(--velvet) 85%, transparent); }
+
+.detail-modal-body { gap: 22px; padding: 0 26px 24px; }
+
+.detail-modal-poster {
+  width: 150px;
+  min-width: 150px;
+  border-radius: 12px;
+  border: none;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 226, 190, 0.2);
+}
+
+.detail-modal-title {
+  font-size: clamp(1.6rem, 3vw, 2.1rem);
+  margin-bottom: 8px;
+}
+
+.detail-modal-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  font-weight: 600;
+  font-size: 0.86rem;
+  letter-spacing: 0.14em;
+  margin-bottom: 12px;
+}
+
+.content-rating-badge {
+  font-family: var(--font-condensed);
+  font-weight: 700;
+  border-width: 1px;
+  border-radius: 4px;
+  padding: 0 6px;
+  top: 0;
+}
+
+/* Split score pills: label on velvet or gold, number on frosted cream */
+.rating-badge {
+  gap: 0;
+  padding: 0;
+  min-width: 0;
+  overflow: hidden;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  font-family: var(--font-condensed);
+  font-weight: 700;
+  font-size: 0.78rem;
+  letter-spacing: 0.14em;
+}
+
+.rating-icon { display: none; }
+
+.rating-label {
+  flex: none;
+  padding: 5px 9px;
+  font-size: inherit;
+  letter-spacing: inherit;
+  background: var(--velvet);
+  color: var(--velvet-text);
+}
+
+.rating-audience .rating-label {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.rating-score {
+  padding: 5px 10px;
+  font-size: inherit;
+  letter-spacing: 0.06em;
+  background: rgba(255, 236, 210, 0.1);
+  color: var(--text-primary);
+}
+
+.rating-critic.rotten .rating-score,
+.rating-audience.spilled .rating-score { color: var(--text-secondary); }
+
+.detail-modal-reasons {
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 10px;
+}
+
+.detail-modal-reasons .reason-tag { font-size: 0.86rem; }
+
+.detail-modal-genres { gap: 0; margin-bottom: 14px; }
+
+.genre-tag {
+  padding: 0;
+  border: none;
+  background: none;
+  font-family: var(--font-condensed);
+  font-weight: 600;
+  font-size: 0.8rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.genre-tag + .genre-tag::before { content: '·'; margin: 0 8px; }
+
+.detail-modal-tabs { gap: 22px; }
+
+.detail-modal-tab {
+  padding: 0 0 9px;
+  color: var(--text-primary);
+  opacity: 0.5;
+  transition: opacity var(--dur-fast) var(--ease-out), border-color 0.25s var(--ease-out);
+}
+
+.detail-modal-tab:hover { opacity: 0.85; }
+.detail-modal-tab.active { color: var(--text-primary); opacity: 1; }
+
+.detail-modal-overview {
+  font-size: 0.9rem;
+  color: var(--text-body);
+}
+
+.detail-modal-credits { font-size: 0.84rem; line-height: 1.7; }
+.detail-credit-label { font-weight: 600; font-size: 0.78rem; letter-spacing: 0.1em; margin-right: 4px; }
+
+.modal-btn {
+  border-radius: 9px;
+  padding: 10px 18px;
+}
+
+.modal-btn-cast,
+.modal-btn-monitor,
+.modal-btn-plex {
+  background: color-mix(in oklab, var(--velvet) 65%, transparent);
+  color: var(--velvet-text);
+  border-color: transparent;
+}
+
+.modal-btn-cast:hover,
+.modal-btn-monitor:hover,
+.modal-btn-plex:hover {
+  background: color-mix(in oklab, var(--velvet) 95%, transparent);
+  color: var(--velvet-text);
+  border-color: transparent;
+}
+
+.modal-btn-dismiss {
+  color: var(--text-muted);
+  border-color: var(--well-border);
+}
+
+.modal-btn-dismiss:hover {
+  color: #ff8a70;
+  border-color: rgba(255, 120, 90, 0.4);
+  background: none;
+}
+
+.btn-tmdb-link { border-color: var(--well-border); border-radius: 9px; padding: 9px 14px; }
+
+@media (max-width: 560px) {
+  .detail-modal-card { border-radius: 18px 18px 0 0; }
+  .detail-modal-poster { width: 96px; min-width: 96px; }
+}
+
+/* Generic modal cards (broadcast, info, request, review) */
+.modal-card,
+.info-modal-card,
+.request-dialog-card,
+.wl-confirm-box,
+.spotlight-cast-picker,
+.modal-cast-picker {
+  background: rgba(30, 19, 13, 0.92);
+  border-color: rgba(255, 226, 190, 0.12);
+}
+
+.info-modal-card { border-radius: 18px; }
+
+/* ── Toasts ──────────────────────────────────────────────────── */
+.toast,
+.wl-toast {
+  background: rgba(40, 24, 16, 0.92);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid color-mix(in oklab, var(--accent) 35%, transparent);
+  border-radius: 12px;
+  padding: 12px 22px;
+  font-family: var(--font-condensed);
+  font-weight: 700;
+  font-size: 0.9rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--velvet-text);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+}
+
+.toast-error,
+.wl-toast-error {
+  border-color: rgba(255, 120, 90, 0.5);
+  color: #ffb3a3;
+}
+
+.toast-sync,
+.wl-toast-sync {
+  border-color: rgba(255, 226, 190, 0.3);
+  color: var(--text-primary);
+}
+
+/* ── Inputs ──────────────────────────────────────────────────── */
+.filter-select,
+.form-input,
+.conn-input,
+.hero-search,
+.settings-input,
+.admin-input,
+.search-page-input,
+textarea.filter-select {
+  background: var(--well-bg);
+  border-color: var(--well-border);
+  color: var(--text-primary);
+}
+
+.filter-select:focus,
+.form-input:focus,
+.conn-input:focus,
+.hero-search:focus {
+  border-color: color-mix(in oklab, var(--accent) 55%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 18%, transparent);
+}
+
+/* ── Menus and dropdowns ─────────────────────────────────────── */
+.nav-fab-menu-link { font-size: 0.86rem; letter-spacing: 0.12em; }
+
+.hero-suggest-title { font-weight: 500; }
+
+.hero-suggest-meta { font-weight: 600; letter-spacing: 0.1em; }
+
+.nav-bell-header span { font-weight: 700; font-size: 0.8rem; letter-spacing: 0.2em; }
+
+/* ── Panels and tables across the app ────────────────────────── */
+.settings-section,
+.review-post,
+.queue-table,
+.profile-header-main,
+.admin-section,
+.conn-block,
+.legal-callout {
+  background:
+    linear-gradient(180deg, rgba(255, 236, 210, 0.045) 0%, rgba(255, 236, 210, 0.012) 100%),
+    linear-gradient(180deg, rgba(34, 22, 15, 0.88) 0%, rgba(24, 15, 11, 0.92) 100%);
+  border: 1px solid var(--glass-border);
+}
+
+.profile-header-main {
+  background:
+    radial-gradient(ellipse 60% 140% at 0% 0%, color-mix(in oklab, var(--velvet) 45%, transparent) 0%, transparent 70%),
+    linear-gradient(180deg, rgba(255, 236, 210, 0.05) 0%, rgba(255, 236, 210, 0.02) 100%),
+    linear-gradient(180deg, rgba(34, 22, 15, 0.86) 0%, rgba(24, 15, 11, 0.9) 100%);
+}
+
+.legal-callout {
+  background:
+    linear-gradient(180deg, color-mix(in oklab, var(--velvet) 40%, transparent) 0%, transparent 100%),
+    linear-gradient(180deg, rgba(34, 22, 15, 0.86) 0%, rgba(24, 15, 11, 0.9) 100%);
+  border-color: var(--accent-edge);
+}
+
+.stat-card { background: rgba(255, 236, 210, 0.04); }
+
+.queue-table th { background: rgba(255, 236, 210, 0.03); font-weight: 700; letter-spacing: 0.14em; font-size: 0.74rem; }
+.queue-table tbody tr:hover { background: rgba(255, 236, 210, 0.04); }
+
+.queue-filter-btn:not(.active) { background: rgba(255, 236, 210, 0.04); }
+.queue-filter-btn.active { background: var(--accent); color: var(--accent-ink); }
+
+.app-footer {
+  background: rgba(255, 236, 210, 0.015);
+  border-top-color: var(--border);
+}
+
+.app-footer-inner { font-size: 0.78rem; }
+.app-footer-inner > a,
+.app-footer-inner > span:not(.app-footer-sep) { font-weight: 600; letter-spacing: 0.12em; }
+.app-footer-fineprint { font-family: var(--font-body); text-transform: none; letter-spacing: 0; }
+
+/* ── Admin chrome ────────────────────────────────────────────── */
+.nav {
+  background: rgba(24, 15, 11, 0.85);
+  border-bottom-color: var(--border);
+}
+
+.nav-logo { color: var(--accent); font-size: 1.35rem; letter-spacing: 0.04em; }
+.nav-logo .logo-icon { filter: drop-shadow(0 0 8px color-mix(in oklab, var(--accent) 45%, transparent)); }
+
+.admin-tabs { gap: 22px; }
+.admin-tab { padding: 8px 2px 10px; }
+.admin-section .section-title { font-size: 1.3rem; }
+
+.btn-admin { border-color: var(--well-border); background: var(--well-bg); }
+.btn-admin:hover:not(:disabled) { background: var(--cream-fill); }
+
+/* ── Login ───────────────────────────────────────────────────── */
+.login-card {
+  background: rgba(30, 19, 13, 0.86);
+  backdrop-filter: blur(20px) saturate(140%);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  border-color: rgba(255, 226, 190, 0.12);
+  border-radius: 18px;
+}
+
+.login-logo {
+  font-size: 2rem;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+  text-shadow: 0 0 24px color-mix(in oklab, var(--accent) 35%, transparent);
+}
+
+.login-logo .logo-text { color: var(--accent); }
+.login-logo .logo-icon { filter: drop-shadow(0 0 10px color-mix(in oklab, var(--accent) 45%, transparent)); }
+
+.login-tagline {
+  font-family: var(--font-condensed);
+  font-weight: 600;
+  font-size: 0.82rem;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.btn-plex { border-radius: 10px; }
+.btn-plex:hover { box-shadow: none; }
+
+.poster-overlay {
+  background:
+    radial-gradient(ellipse 70% 60% at 50% 50%, rgba(var(--bg-rgb), 0.82) 0%, rgba(var(--bg-rgb), 0.35) 100%),
+    linear-gradient(180deg, rgba(var(--bg-rgb), 0.6) 0%, rgba(var(--bg-rgb), 0.2) 40%, rgba(var(--bg-rgb), 0.9) 100%);
+}
+
+/* ── Movie Night + Reviews ───────────────────────────────────── */
+.mn-btn-primary { border-radius: 9px; }
+.review-post { border-radius: var(--radius-lg); }
+
+/* ── Focus rings on the new surfaces ─────────────────────────── */
+.spotlight-dot:focus-visible,
+.rail-toggle:focus-visible,
+.nav-search-input:focus-visible,
+.detail-modal-tab:focus-visible,
+.modal-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Masked buttons clip an outline that sits outside the box; keep it inside */
+.spotlight-btn:focus-visible,
+.btn-watchlist:focus-visible,
+.modal-btn-primary:focus-visible,
+.modal-btn-watchlist:focus-visible,
+.btn-plex:focus-visible {
+  outline: 2px solid var(--accent-ink);
+  outline-offset: -4px;
+}

@@ -322,7 +322,7 @@
 
 .btn-admin.btn-primary:hover:not(:disabled) {
   background: var(--accent);
-  color: #000;
+  color: var(--accent-ink);
 }
 
 .btn-admin.btn-danger {
@@ -985,7 +985,7 @@
 .broadcast-fmt-btn.active {
   border-color: var(--accent);
   background: var(--accent);
-  color: #fff;
+  color: var(--accent-ink);
 }
 
 .broadcast-fmt-btn.active .broadcast-fmt-swatch {
@@ -1068,7 +1068,7 @@
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.07em;
-  color: #ffffff;
+  color: var(--text-primary);
 }
 
 .conn-toggle-row {
@@ -1328,7 +1328,7 @@
 /* Request queue filter buttons */
 .req-filter-btn.req-filter-active {
   background: var(--accent);
-  color: #000;
+  color: var(--accent-ink);
   border-color: var(--accent);
   font-weight: 600;
 }

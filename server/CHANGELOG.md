@@ -4,6 +4,22 @@ All notable changes are documented here. Versioning follows [Semantic Versioning
 
 ---
 
+## v3.3.4 — 2026-09-23
+
+### Changed
+
+- **Velvet Marquee.** Site-wide restyle around a cinema-lobby look: Anton display type, Barlow Condensed caps on labels, nav and buttons, Barlow for copy, cream text on a warm near-black stage, ticket-stub buttons cut with a CSS mask, and a velvet tone that is always the accent folded into deep red. Every colour derives from `--accent`, so the admin presets and colour wheel still drive the whole app (`src/style.css` tokens, new `src/marquee.css` overlay imported after `effects.css`; motion rules are untouched).
+- **Accent-tinted stage.** `--bg-primary` / `--bg-rgb` are 6% accent over `#0d0a09`, computed identically by the pre-paint script in `index.html`, `ThemeContext`, and the server's `/theme.css`; the web manifest's `background_color` follows it.
+- **Hero.** Projector-beam sweep blended over the art (`.spotlight-beam`), ticket-stub pager bars that fill over the 7 s rotation and pause with it (`data-paused` on the section), Anton title, italic programme-note reasons.
+- **Details window.** Frosted velvet card with a spring entrance, split Critics/Audience score pills, condensed tabs and actions.
+- **Rail.** Anton wordmark with a "Now showing at home" strapline (translated), condensed uppercase links, velvet active state (de/es/fr/pt strings added).
+
+### Fixed
+
+- Search results rendered a literal `\u2605` instead of ★ next to the rating (`src/pages/Search.jsx`).
+
+---
+
 ## v3.3.3 — 2026-09-21
 
 ### Added

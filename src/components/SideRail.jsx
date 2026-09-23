@@ -128,6 +128,8 @@ export default function SideRail({
           <span className="rail-brand-mark"><LogoIcon /></span>
           <span className="rail-label rail-brand-text">Diskovarr</span>
         </Link>
+        {/* Marquee strapline on its own row so it has the rail's full width */}
+        <span className="rail-label rail-tagline">{t('Now showing at home')}</span>
       </div>
 
       <nav className="rail-nav">

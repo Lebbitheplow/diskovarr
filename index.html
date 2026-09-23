@@ -13,10 +13,10 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Diskovarr">
   <link rel="apple-touch-icon" href="/diskovarr-logo.png">
-  <meta name="theme-color" content="#0f0f0f">
+  <meta name="theme-color" content="#0d0a09">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Bricolage+Grotesque:opsz,wght@12..96,400..800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Anton&family=Barlow+Condensed:wght@500;600;700&family=Barlow:ital,wght@0,400;0,500;0,600;1,400;1,500&display=swap" rel="stylesheet">
   <!-- Apply the saved accent as inline styles before first paint. Inline styles
        on <html> win over any stylesheet regardless of load order, so this avoids
        a gold flash on every full page load (e.g. returning from the admin panel).
@@ -37,6 +37,16 @@
         s.setProperty('--accent-shadow', 'rgba(' + rgb + ', 0.4)');
         var h = function (n) { return Math.min(255, Math.round(n + (255 - n) * 0.15)).toString(16).padStart(2, '0'); };
         s.setProperty('--accent-hover', '#' + h(r) + h(g) + h(b));
+        // Stage colour: 6% of the accent folded into the warm base. Must match
+        // ThemeContext.stageColor and the server's /theme.css.
+        var m = function (n, base) { return Math.round(base * 0.94 + n * 0.06); };
+        var br = m(r, 13), bg = m(g, 10), bb = m(b, 9);
+        var x = function (n) { return n.toString(16).padStart(2, '0'); };
+        var bgHex = '#' + x(br) + x(bg) + x(bb);
+        s.setProperty('--bg-primary', bgHex);
+        s.setProperty('--bg-rgb', br + ', ' + bg + ', ' + bb);
+        var meta = document.querySelector('meta[name="theme-color"]');
+        if (meta) meta.setAttribute('content', bgHex);
       } catch (e) { /* no-op */ }
     })();
   </script>

@@ -1,5 +1,15 @@
 [
   {
+    "version": "3.3.4",
+    "date": "2026-09-23",
+    "changes": [
+      "New look: Velvet Marquee. The whole app is restyled around a cinema-lobby feel — Anton display type, condensed caps on labels, nav and buttons, cream text on a warm stage, ticket-stub buttons with punched notches, and a velvet glow that all derive from the admin accent colour, so every theme preset still works.",
+      "Hero: a slow projector-beam sweep over the key art, and the pager is now ticket stubs that fill for the length of each rotation (and pause when you hover). The details window slides in with a spring and sits on a frosted velvet card.",
+      "The page background now tints toward the accent colour (blue cools it, gold warms it) with no flash on reload, and the installed app's background colour follows it.",
+      "Fixed: the search page showed a literal \\u2605 instead of a star next to ratings."
+    ]
+  },
+  {
     "version": "3.3.3",
     "date": "2026-09-21",
     "changes": [

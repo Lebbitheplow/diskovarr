@@ -45,7 +45,7 @@ export default function AmbientBackground() {
       sprite.width = sprite.height = r * 2
       const c = sprite.getContext('2d')
       const g = c.createRadialGradient(r, r, 0, r, r, r)
-      g.addColorStop(0, 'rgba(255, 255, 255, 0.1)')
+      g.addColorStop(0, 'rgba(255, 240, 220, 0.1)')
       g.addColorStop(0.25, `rgba(${accent}, 0.14)`)
       g.addColorStop(0.7, `rgba(${accent}, 0.05)`)
       g.addColorStop(0.9, `rgba(${accent}, 0.16)`)

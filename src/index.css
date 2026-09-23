@@ -5,6 +5,7 @@
 @import './wrapped.css';
 @import './wrapped-banner.css';
 @import './movie-night.css';
+@import './marquee.css';
 
 .toast-container {
   position: fixed;

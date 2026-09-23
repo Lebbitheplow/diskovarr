@@ -106,6 +106,9 @@ export default function SpotlightHero({
       onMouseLeave={() => setPaused(false)}
       onFocusCapture={() => setPaused(true)}
       onBlurCapture={() => setPaused(false)}
+      // The pager's fill bar runs on the same clock as the rotation and must
+      // hold whenever the rotation does (hover, focus, hidden tab)
+      data-paused={paused ? '' : undefined}
     >
       {/* Every slide's art stays mounted so switching is a cross-slide rather
           than a fresh image load. The zoom lives on an inner element — the
@@ -128,6 +131,8 @@ export default function SpotlightHero({
         })}
       </div>
       <div className="spotlight-scrim" aria-hidden="true" />
+      {/* Projector-beam sweep, blended over the art (see marquee.css) */}
+      <div className="spotlight-beam" aria-hidden="true" />
 
       {/* Keyed so the copy replays its entrance as the spotlight advances */}
       <div className="spotlight-body" key={current}>

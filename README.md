@@ -151,7 +151,7 @@ Two-tab panel at `/admin`:
 - **Automation management** — create, edit, and monitor auto-request profiles, auto-delete profiles, and content monitoring rules from the admin panel. Configure triggers, criteria, and action targets without touching configuration files.
 
 <div align="center">
-<img src="docs/screenshots/admin-panel.png" width="760" alt="Admin panel — General settings and theme color">
+<img src="docs/screenshots/admin.png" width="760" alt="Admin panel — General settings and theme color">
 </div>
 
 ---

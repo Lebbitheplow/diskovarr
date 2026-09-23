@@ -87,7 +87,7 @@ function SearchCard({ item, inWatchlist, onOpenModal, onToggleWatchlist, onReque
         <div className="card-title">{item.title}</div>
         <div className="card-meta">
           {item.year && <span className="card-year">{item.year}</span>}
-          {item.voteAverage && <span className="card-rating">\u2605 {item.voteAverage.toFixed(1)}</span>}
+          {item.voteAverage && <span className="card-rating">★ {item.voteAverage.toFixed(1)}</span>}
         </div>
       </div>
     </div>

@@ -11,6 +11,18 @@ function hexToRgb(hex) {
   }
 }
 
+// Stage colour: the near-black base with 6% of the accent folded in, so a
+// blue accent cools the whole backdrop and gold warms it. Must match the
+// pre-paint script in index.html and the server's /theme.css.
+function stageColor(r, g, b) {
+  const mix = (n, base) => Math.round(base * 0.94 + n * 0.06)
+  const c = [mix(r, 13), mix(g, 10), mix(b, 9)]
+  return {
+    hex: '#' + c.map((n) => n.toString(16).padStart(2, '0')).join(''),
+    rgb: c.join(', '),
+  }
+}
+
 function applyTheme(color) {
   document.documentElement.style.setProperty('--accent', color)
   const { r, g, b } = hexToRgb(color)
@@ -25,17 +37,18 @@ function applyTheme(color) {
   const hex2 = (n) => Math.min(255, Math.round(n + (255 - n) * 0.15)).toString(16).padStart(2, '0')
   document.documentElement.style.setProperty('--accent-hover', `#${hex2(r)}${hex2(g)}${hex2(b)}`)
 
+  const stage = stageColor(r, g, b)
+  document.documentElement.style.setProperty('--bg-primary', stage.hex)
+  document.documentElement.style.setProperty('--bg-rgb', stage.rgb)
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', stage.hex)
+
   // Cache for the pre-paint inline-style script in index.html, so a full page
   // load (e.g. returning from /admin) shows the saved accent with no flash.
   try { localStorage.setItem('dk-accent', color) } catch { /* ignore */ }
 
-  let styleEl = document.getElementById('diskovarr-bg-gradient')
-  if (!styleEl) {
-    styleEl = document.createElement('style')
-    styleEl.id = 'diskovarr-bg-gradient'
-    document.head.appendChild(styleEl)
-  }
-  styleEl.textContent = `body{background-image:radial-gradient(ellipse 50% 50% at 50% 0%,rgba(${r},${g},${b},0.28) 0%,transparent 100%),radial-gradient(ellipse 60% 40% at 50% 100%,rgba(${r},${g},${b},0.12) 0%,transparent 100%);background-attachment:fixed;}`
+  // The ambient body gradient is now derived in style.css with color-mix;
+  // drop the <style> element earlier builds injected for it.
+  document.getElementById('diskovarr-bg-gradient')?.remove()
 }
 
 export function ThemeProvider({ children }) {
