@@ -20,7 +20,7 @@ const DATE_STYLE = { fontWeight: '400', color: 'var(--text-secondary)', fontSize
 export default function ChangelogModal({ open, onClose }) {
   const { t } = useTranslation()
   if (!open) return null
-  const currentVersion = import.meta.env.VITE_APP_VERSION || '3.3.4'
+  const currentVersion = import.meta.env.VITE_APP_VERSION || '3.3.5'
 
   return (
     <div className="info-modal-backdrop open" onClick={onClose}>
@@ -33,6 +33,33 @@ export default function ChangelogModal({ open, onClose }) {
           <div className="info-modal-section">
             <div className="info-modal-section-title">
               v{currentVersion}{' '}
+              <span style={DATE_STYLE}>2026-09-23</span>
+            </div>
+            <p style={SECTION_LABEL_STYLE}>{t('Changes')}</p>
+            <ul style={LIST_STYLE_LAST}>
+              <li style={ITEM_STYLE}>New background — a velvet stage curtain replaces the floating orbs: its folds ripple slowly as if in a draught, the velvet catches the light where they bunch, and a soft spotlight wanders across it, all in your accent colour</li>
+              <li style={ITEM_STYLE}>A faint film grain and warm vignette over the whole stage</li>
+            </ul>
+          </div>
+          <div className="info-modal-section">
+            <div className="info-modal-section-title">
+              v3.3.4{' '}
+              <span style={DATE_STYLE}>2026-09-23</span>
+            </div>
+            <p style={SECTION_LABEL_STYLE}>{t('Changes')}</p>
+            <ul style={LIST_STYLE}>
+              <li style={ITEM_STYLE}>New look: Velvet Marquee — cinema-lobby display type, condensed caps on labels and buttons, cream text on a warm stage, and ticket-stub buttons, all driven by your accent colour</li>
+              <li style={ITEM_STYLE}>Hero: a slow projector-beam sweep over the key art and a ticket-stub pager that fills with each rotation; the details window slides in on a frosted velvet card</li>
+              <li style={ITEM_STYLE}>The page background tints toward your accent colour with no flash on reload</li>
+            </ul>
+            <p style={SECTION_LABEL_STYLE}>{t('Fixes')}</p>
+            <ul style={LIST_STYLE_LAST}>
+              <li style={ITEM_STYLE}>Search results showed a literal \u2605 instead of a star next to the rating</li>
+            </ul>
+          </div>
+          <div className="info-modal-section">
+            <div className="info-modal-section-title">
+              v3.3.3{' '}
               <span style={DATE_STYLE}>2026-09-21</span>
             </div>
             <p style={SECTION_LABEL_STYLE}>{t('New')}</p>
@@ -45,34 +72,6 @@ export default function ChangelogModal({ open, onClose }) {
             <p style={SECTION_LABEL_STYLE}>{t('Changes')}</p>
             <ul style={LIST_STYLE_LAST}>
               <li style={ITEM_STYLE}>Security: nodemailer upgraded to 9.1.1</li>
-            </ul>
-          </div>
-          <div className="info-modal-section">
-            <div className="info-modal-section-title">
-              v3.3.2{' '}
-              <span style={DATE_STYLE}>2026-09-13</span>
-            </div>
-            <p style={SECTION_LABEL_STYLE}>{t('Changes')}</p>
-            <ul style={LIST_STYLE_LAST}>
-              <li style={ITEM_STYLE}>ntfy is an admin feed again — the per-user ntfy panel asked users to subscribe to topics on the admin's server, which needs an account there; like Gotify, Slack and Webhook, ntfy now lives only in Admin → Notifications, and users keep Discord, Pushover, Telegram, Pushbullet, Email and Browser push</li>
-            </ul>
-          </div>
-          <div className="info-modal-section">
-            <div className="info-modal-section-title">
-              v3.3.1{' '}
-              <span style={DATE_STYLE}>2026-09-13</span>
-            </div>
-            <p style={SECTION_LABEL_STYLE}>{t('New')}</p>
-            <ul style={LIST_STYLE}>
-              <li style={ITEM_STYLE}>Notifications for everyone — users now get ntfy (your own topic, optional server and login) and Browser push (native notifications from any device you enable, even with Diskovarr closed) under My Settings → Notifications whenever the admin has those channels on, alongside Discord, Pushover, Telegram, Pushbullet and Email</li>
-              <li style={ITEM_STYLE}>Install Diskovarr as an app — the user menu offers Install App with the native browser prompt where available, or step-by-step Add to Home Screen instructions for iPhone, iPad, Safari on Mac, Firefox and Samsung Internet</li>
-              <li style={ITEM_STYLE}>Browse by Genre — new artwork tiles on Home (filtering your library on Discover) and on Explore (searching TMDB)</li>
-            </ul>
-            <p style={SECTION_LABEL_STYLE}>{t('Fixes')}</p>
-            <ul style={LIST_STYLE_LAST}>
-              <li style={ITEM_STYLE}>Telegram, Pushbullet and Email user settings never actually received request, issue or monitor notifications — every event now reaches every enabled channel</li>
-              <li style={ITEM_STYLE}>Turning a notification provider on in the admin panel took effect only after a restart, and its green status dot didn't update until the page was reloaded</li>
-              <li style={ITEM_STYLE}>The elevated owner now sees the same admin-only notification toggles (processing failed, new issue) that admins do; regular users can no longer flip them</li>
             </ul>
           </div>
         </div>

@@ -4,6 +4,16 @@ All notable changes are documented here. Versioning follows [Semantic Versioning
 
 ---
 
+## v3.3.5 — 2026-09-23
+
+### Changed
+
+- **Velvet curtain background.** The bokeh-orb canvas is replaced by a stage curtain in the theme's velvet tone (`src/components/ambient/curtain.js`). The fold texture is shaded once per viewport (diffuse light, velvet sheen on the fold flanks, darker troughs), then warped every frame through a grid of tiles by two ripples travelling in opposite directions at unrelated speeds, so the folds bunch and spread without repeating. The velvet brightens where folds bunch, a soft spotlight wanders on two overlapping cycles, and the lower viewport falls into shadow. Colours derive from `--accent-rgb`, re-read when the admin changes the theme.
+- **Grain and vignette.** A stepped film-grain overlay and a warm vignette sit over the ambient layer (`.ambient-bg::before` / `::after` in `src/marquee.css`).
+- `AmbientBackground.jsx` now only owns the animation loop (sizing, scroll velocity, tab visibility, reduced motion) and hands each frame to the curtain. Reduced motion still hides the layer.
+
+---
+
 ## v3.3.4 — 2026-09-23
 
 ### Changed
