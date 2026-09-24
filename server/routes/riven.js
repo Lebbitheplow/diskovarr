@@ -2,84 +2,8 @@
 
 const express = require('express');
 const router = express.Router();
-const fs = require('fs');
 const db = require('../db/database');
-
-// ── Config helpers ────────────────────────────────────────────────────────────
-
-const RIVEN_SETTINGS_PATH = process.env.RIVEN_SETTINGS_PATH || '/opt/riven/settings.json';
-
-// eslint-disable-next-line no-unused-vars -- config accessor kept for reference; getRdApiKey is used
-function getRivenConfig() {
-  return {
-    url: db.getSetting('riven_url', 'http://127.0.0.1:8082'),
-    apiKey: db.getSetting('riven_api_key', ''),
-    rdApiKey: db.getSetting('riven_rd_api_key', ''),
-  };
-}
-
-// Auto-read RD api key from Riven's settings.json as fallback
-function getRdApiKey() {
-  const stored = db.getSetting('riven_rd_api_key', '');
-  if (stored) return stored;
-  try {
-    const raw = fs.readFileSync(RIVEN_SETTINGS_PATH, 'utf8');
-    const settings = JSON.parse(raw);
-    return settings?.downloaders?.real_debrid?.api_key || '';
-  } catch {
-    return '';
-  }
-}
-
-// Auto-read Riven API key from settings.json as fallback
-function getRivenApiKey() {
-  const stored = db.getSetting('riven_api_key', '');
-  if (stored) return stored;
-  try {
-    const raw = fs.readFileSync(RIVEN_SETTINGS_PATH, 'utf8');
-    const settings = JSON.parse(raw);
-    return settings?.api_key || '';
-  } catch {
-    return '';
-  }
-}
-
-function getRivenUrl() {
-  return db.getSetting('riven_url', '') || 'http://127.0.0.1:8082';
-}
-
-// ── Riven API proxy helpers ───────────────────────────────────────────────────
-
-async function rivenFetch(method, pathname, { body, query } = {}) {
-  const apiKey = getRivenApiKey();
-  if (!apiKey) throw new Error('Riven API key not configured');
-  const base = getRivenUrl().replace(/\/$/, '');
-  let url = `${base}/api/v1${pathname}`;
-  if (query) {
-    const params = new URLSearchParams(query);
-    url += '?' + params.toString();
-  }
-  const opts = {
-    method,
-    headers: {
-      'X-API-KEY': apiKey,
-      'Content-Type': 'application/json',
-    },
-    signal: AbortSignal.timeout(30000),
-  };
-  if (body !== undefined) opts.body = JSON.stringify(body);
-  const res = await fetch(url, opts);
-  if (!res.ok) {
-    let detail = '';
-    try {
-      const body = await res.json();
-      const raw = body.detail || body.message || body.error || '';
-      detail = Array.isArray(raw) ? raw.map(e => e.msg || JSON.stringify(e)).join('; ') : String(raw);
-    } catch {}
-    throw new Error(`Riven API ${res.status}${detail ? ': ' + detail : ''}`);
-  }
-  return res.json();
-}
+const { rivenFetch, getRivenUrl, getRivenApiKey, getRdApiKey } = require('../services/rivenClient');
 
 // ── Routes ────────────────────────────────────────────────────────────────────
 

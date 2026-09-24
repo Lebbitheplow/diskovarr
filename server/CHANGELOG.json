@@ -5,7 +5,10 @@
     "changes": [
       "New background: a velvet stage curtain replaces the floating bokeh orbs. Folds in the theme's velvet tone ripple slowly as if in a draught, the velvet catches the light where they bunch, and a soft spotlight wanders across it. It follows your accent colour and falls into shadow toward the bottom of the page so the shelves stay clean.",
       "A faint film grain and warm vignette sit over the whole stage.",
-      "Reduced-motion settings still hide the background entirely."
+      "Reduced-motion settings still hide the background entirely.",
+      "Riven reset — admins and request managers get a \"Riven reset\" button on DUMB requests in the queue and on open issues. It blacklists the torrent Riven downloaded, clears the files and sends the item straight back to Riven's queue, so a bad download can be redone without opening Riven.",
+      "For shows the reset dialog lets you pick the entire show, whole seasons, or single episodes, each showing its current Riven state; an issue reported against a season or episode comes pre-selected.",
+      "Titles that share a TMDB id across movies and shows (Doctor Who and The Two Towers are both 121) are looked up by IMDb id, so the right one is reset."
     ]
   },
   {

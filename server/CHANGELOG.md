@@ -6,6 +6,13 @@ All notable changes are documented here. Versioning follows [Semantic Versioning
 
 ## v3.3.5 — 2026-09-23
 
+### Added
+
+- **Riven reset.** Admins and privileged request managers get a "Riven reset" button on DUMB-fulfilled requests in the queue (approved rows not routed to Overseerr/Radarr/Sonarr/YouTube) and on open issues whose library item has a TMDB id. It calls Riven's `/items/reset` (which blacklists the active stream and clears files, symlinks and scrape history) followed by `/items/retry` so the item re-enters the queue immediately (`server/services/rivenClient.js`, `server/routes/rivenItems.js` mounted at `/api/riven`, `src/components/RivenResetModal.jsx`, `tests/rivenReset.test.js`).
+- **Season and episode scope.** For shows the dialog fetches Riven's item tree and lets you reset the whole show, whole seasons, or individual episodes, each with its Riven state; a selected season absorbs its episodes. Issues reported against a season or episode open with that part pre-selected. Issue rows now carry `tmdbId`.
+- **Shared TMDB ids.** Riven's `use_tmdb_id` lookup ignores media type and answers 500 "Multiple rows" when a movie and a show share an id (Doctor Who / The Two Towers = 121); the client falls back to the IMDb id from the TMDB cache and `GET /items?search=tt…&type=…`, then fetches the tree by Riven id.
+- The admin Riven router (`server/routes/riven.js`) now reuses the shared client instead of its own fetch/key helpers.
+
 ### Changed
 
 - **Velvet curtain background.** The bokeh-orb canvas is replaced by a stage curtain in the theme's velvet tone (`src/components/ambient/curtain.js`). The fold texture is shaded once per viewport (diffuse light, velvet sheen on the fold flanks, darker troughs), then warped every frame through a grid of tiles by two ripples travelling in opposite directions at unrelated speeds, so the folds bunch and spread without repeating. The velvet brightens where folds bunch, a soft spotlight wanders on two overlapping cycles, and the lower viewport falls into shadow. Colours derive from `--accent-rgb`, re-read when the admin changes the theme.

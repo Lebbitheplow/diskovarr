@@ -2,8 +2,10 @@ import React, { useState, useCallback, useEffect, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import {
   issuesApi,
+  exploreApi,
 } from '../services/api'
 import Modal from '../components/Modal'
+import RivenResetModal from '../components/RivenResetModal'
 import SearchableDropdown from '../components/SearchableDropdown'
 import DateRangeFilter from '../components/DateRangeFilter'
 import useListFilters from '../hooks/useListFilters'
@@ -70,6 +72,26 @@ export default function Issues() {
   const [selectedIds, setSelectedIds] = useState(() => new Set())
   const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false)
   const [bulkDeleteLoading, setBulkDeleteLoading] = useState(false)
+  const [services, setServices] = useState({})
+  const [rivenTarget, setRivenTarget] = useState(null)
+
+  useEffect(() => {
+    if (!isAdmin) return
+    exploreApi.getServices()
+      .then(({ data }) => setServices(data || {}))
+      .catch(() => {})
+  }, [isAdmin])
+
+  // Riven reset for an issue: pre-select the reported season/episode so a
+  // single bad episode can be blacklisted and re-downloaded on its own.
+  const canRivenReset = (issue) => isAdmin && !!services.riven && !!issue.tmdbId && issue.status === 'open'
+  const rivenTargetFor = (issue) => ({
+    tmdbId: issue.tmdbId,
+    mediaType: issue.media_type === 'movie' ? 'movie' : 'tv',
+    title: issue.title,
+    season: issue.scope === 'season' || issue.scope === 'episode' ? issue.scope_season : null,
+    episode: issue.scope === 'episode' ? issue.scope_episode : null,
+  })
 
   const toggleSelect = useCallback((id) => {
     setSelectedIds(prev => {
@@ -540,6 +562,9 @@ export default function Issues() {
                       {isAdmin && issue.is_missing && (issue.search_status === 'needs_admin' || issue.search_status === 'failed') && (
                         <button className="btn-queue-edit" onClick={() => handleSearch(issue.id)}>{t('Search now')}</button>
                       )}
+                      {canRivenReset(issue) && (
+                        <button className="btn-queue-edit" title={t('Blacklist the torrent Riven downloaded and queue it again')} onClick={() => setRivenTarget(rivenTargetFor(issue))}>{t('Riven reset')}</button>
+                      )}
                       {isAdmin && issue.status === 'open' && (
                         <>
                           <button className="btn-queue-approve" onClick={() => handleResolve(issue.id)}>{t('Resolve')}</button>
@@ -609,6 +634,8 @@ export default function Issues() {
         </div>
       </Modal>
 
+      <RivenResetModal target={rivenTarget} onClose={() => setRivenTarget(null)} onDone={() => setRivenTarget(null)} />
+
       <Modal isOpen={!!selectedIssue} onClose={() => setSelectedIssue(null)}>
         {selectedIssue && (
           <div>
@@ -639,6 +666,9 @@ export default function Issues() {
                         <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
                           {issue.scope === 'season' ? ` Season ${issue.scope_season}` : ` Season ${issue.scope_season || '?'}, Episode ${issue.scope_episode || '?'}`}
                         </span>
+                      )}
+                      {canRivenReset(issue) && (
+                        <button className="btn-queue-edit" style={{ marginLeft: '10px' }} onClick={() => setRivenTarget(rivenTargetFor(issue))}>{t('Riven reset')}</button>
                       )}
                     </div>
                   </div>

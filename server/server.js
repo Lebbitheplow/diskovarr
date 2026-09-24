@@ -121,6 +121,8 @@ app.use('/api/v1', require('./routes/overseerrShim'))
 // Public review reads — must precede the authenticated /api router
 app.use('/api/public', require('./routes/public'))
 app.use('/api/wrapped', require('./middleware/requireAuth'), require('./routes/wrapped'))
+// Riven item actions (reset / re-queue) for admins and privileged request managers
+app.use('/api/riven', require('./middleware/requireAuth'), require('./routes/api').requirePrivileged, require('./routes/rivenItems'))
 app.use('/api', require('./routes/api'))
 app.use('/admin', require('./routes/admin'))
 app.use('/admin/riven', require('./routes/admin').requireAdmin, require('./routes/riven'))

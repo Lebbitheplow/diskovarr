@@ -6,6 +6,7 @@ import {
   exploreApi,
 } from '../services/api'
 import DetailModal from '../components/DetailModal'
+import RivenResetModal from '../components/RivenResetModal'
 import Modal from '../components/Modal'
 import SearchableDropdown from '../components/SearchableDropdown'
 import DateRangeFilter from '../components/DateRangeFilter'
@@ -65,6 +66,7 @@ export default function Queue() {
   const [bulkDeleteLoading, setBulkDeleteLoading] = useState(false)
   const [selectedItem, setSelectedItem] = useState(null)
   const [services, setServices] = useState({})
+  const [rivenTarget, setRivenTarget] = useState(null)
 
   useEffect(() => {
     exploreApi.getServices()
@@ -309,6 +311,11 @@ export default function Queue() {
     { id: 'default', name: t('Default') },
   ].filter(Boolean)
 
+  // A Riven reset applies to approved requests that DUMB fulfils — anything not
+  // explicitly routed to another app or the YouTube downloader.
+  const canRivenReset = (r) => isAdmin && !!services.riven && r.status === 'approved'
+    && r.downloader !== 'youtube' && !['overseerr', 'radarr', 'sonarr'].includes(r.service || '')
+
   const anyActiveFilters = hasActiveFilters || !!serviceFilter
   const clearAll = () => { clearAllFilters(); setServiceFilter('') }
 
@@ -521,6 +528,9 @@ export default function Queue() {
                       {!isAdmin && (isPending || ds === 'requested') && String(user?.id) === String(r.user_id) && (
                         <button className="btn-queue-edit" onClick={() => handleEdit(r)}>{t('Edit')}</button>
                       )}
+                      {canRivenReset(r) && (
+                        <button className="btn-queue-edit" title={t('Blacklist the torrent Riven downloaded and queue it again')} onClick={() => setRivenTarget({ tmdbId: r.tmdb_id, mediaType, title: r.title })}>{t('Riven reset')}</button>
+                      )}
                       {(isAdmin || (isPending && String(user?.id) === String(r.user_id))) && (
                         <button className="btn-queue-delete" onClick={() => {
                           if (localStorage.getItem('diskovarr_no_confirm_delete') === 'true') {
@@ -558,6 +568,8 @@ export default function Queue() {
           onClose={() => setSelectedItem(null)}
         />
       )}
+
+      <RivenResetModal target={rivenTarget} onClose={() => setRivenTarget(null)} onDone={() => setRivenTarget(null)} />
 
       <Modal isOpen={!!editRequest} onClose={() => setEditRequest(null)}>
         {editRequest && (

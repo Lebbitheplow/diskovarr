@@ -35,6 +35,12 @@ export default function ChangelogModal({ open, onClose }) {
               v{currentVersion}{' '}
               <span style={DATE_STYLE}>2026-09-23</span>
             </div>
+            <p style={SECTION_LABEL_STYLE}>{t('New')}</p>
+            <ul style={LIST_STYLE}>
+              <li style={ITEM_STYLE}>Riven reset — a "Riven reset" button on DUMB requests in the queue and on open issues blacklists the torrent Riven downloaded, clears the files and sends the item straight back to Riven's queue, so a bad download can be redone without opening Riven</li>
+              <li style={ITEM_STYLE}>For shows, pick the entire show, whole seasons, or single episodes (each showing its Riven state); an issue reported against a season or episode comes pre-selected</li>
+              <li style={ITEM_STYLE}>Titles that share a TMDB id across movies and shows (Doctor Who and The Two Towers are both 121) are looked up by IMDb id, so the right one is reset</li>
+            </ul>
             <p style={SECTION_LABEL_STYLE}>{t('Changes')}</p>
             <ul style={LIST_STYLE_LAST}>
               <li style={ITEM_STYLE}>New background — a velvet stage curtain replaces the floating orbs: its folds ripple slowly as if in a draught, the velvet catches the light where they bunch, and a soft spotlight wanders across it, all in your accent colour</li>

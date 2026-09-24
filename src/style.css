@@ -3974,6 +3974,32 @@ img {
 .details-value { font-size: 0.88rem; }
 .details-description { font-size: 0.88rem; white-space: pre-wrap; line-height: 1.5; }
 
+/* ── Riven reset modal (queue + issues) ─────────────────────────────── */
+.riven-reset { max-width: 480px; }
+.riven-reset-title { display: flex; align-items: center; gap: 8px; font-weight: 600; margin-bottom: 6px; }
+.riven-reset-help { font-size: 0.82rem; color: var(--text-secondary); margin: 0 0 12px; line-height: 1.45; }
+.riven-reset-status { font-size: 0.85rem; color: var(--text-secondary); margin: 8px 0; }
+.riven-reset-error { color: #ff5252; }
+.riven-reset-modes { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 0.85rem; margin-bottom: 10px; }
+.riven-reset-modes label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.riven-reset-tree { max-height: 50vh; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px; padding: 4px 0; }
+.riven-reset-season { padding: 4px 10px; }
+.riven-reset-season + .riven-reset-season { border-top: 1px solid var(--border); }
+.riven-reset-row { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; min-height: 26px; }
+.riven-reset-row > label { display: flex; align-items: center; gap: 6px; cursor: pointer; flex: 1; }
+.riven-reset-expand { margin-left: auto; background: none; border: none; color: var(--accent); font-size: 0.76rem; cursor: pointer; padding: 2px 4px; white-space: nowrap; }
+.riven-reset-episodes { display: flex; flex-direction: column; padding: 2px 0 4px 22px; }
+.riven-reset-episode { cursor: pointer; font-size: 0.8rem; }
+.riven-reset-episode.implied { opacity: 0.6; }
+.riven-reset-epnum { font-weight: 600; min-width: 34px; }
+.riven-reset-eptitle { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); }
+.riven-state { display: inline-block; padding: 1px 7px; border-radius: 8px; font-size: 0.68rem; font-weight: 600; white-space: nowrap; }
+.riven-state-ok { background: rgba(0,200,100,0.12); color: #00c864; }
+.riven-state-warn { background: rgba(229,160,13,0.15); color: #e5a00d; }
+.riven-state-bad { background: rgba(255,82,82,0.14); color: #ff5252; }
+.riven-state-muted { background: rgba(150,150,150,0.12); color: #999; }
+.riven-state-progress { background: rgba(0,180,216,0.12); color: #00b4d8; }
+
 /* ── Settings page ──────────────────────────────────────────────────── */
 .settings-page { max-width: 960px; margin: 0 auto; padding: 0 16px 64px; }
 /* Internal tabs — styled here (not inline) so they can adapt on mobile */

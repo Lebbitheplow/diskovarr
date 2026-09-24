@@ -2927,7 +2927,8 @@ function enrichIssuePoster(issue) {
   } else if (libItem?.thumb) {
     posterUrl = `/api/poster?path=${encodeURIComponent(libItem.thumb)}`;
   }
-  return { ...issue, posterUrl };
+  // tmdbId lets the client offer app-side actions (e.g. a Riven reset) for the item.
+  return { ...issue, posterUrl, tmdbId: libItem?.tmdbId || null };
 }
 
 // GET /api/issues — paginated list (admin sees all, users see own)
@@ -5507,3 +5508,4 @@ router.delete('/movie-night/themes/:themeId', (req, res) => {
 
 module.exports = router;
 module.exports.submitRequestToService = submitRequestToService;
+module.exports.requirePrivileged = requirePrivileged;

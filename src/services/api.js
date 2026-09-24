@@ -154,6 +154,12 @@ export const issuesApi = {
   deleteComment: (id, commentId) => api.delete(`/issues/${id}/comments/${commentId}`),
 }
 
+/** Riven (DUMB) item actions — privileged users only */
+export const rivenApi = {
+  getItem: (params) => api.get('/riven/item', { params }),
+  reset: (data) => api.post('/riven/reset', data),
+}
+
 /** Notifications */
 export const notificationsApi = {
   getNotifications: (params = {}) => api.get('/notifications', { params }),
