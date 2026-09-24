@@ -482,8 +482,8 @@
   .detail-modal-card { background: rgba(30, 19, 13, 0.98); }
 }
 
-/* ── Ambient stage: vignette + film grain over the projector canvas ──
-   The canvas (AmbientBackground.jsx) draws the light cone and dust; these
+/* ── Ambient stage: vignette + film grain over the curtain canvas ──
+   The canvas (AmbientBackground.jsx) draws the velvet curtain; these
    two pseudo-elements add a warm vignette and a faint grain that re-seeds
    in steps like a print running through the gate. */
 .ambient-bg::before {
