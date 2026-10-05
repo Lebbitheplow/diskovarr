@@ -75,6 +75,9 @@ export default function useNotifications() {
     } else if (notification.type === 'tuberr_alert') {
       // Admin tabs are hash-addressed (src/pages/Admin.jsx reads location.hash)
       navigate('/admin#youtube')
+    } else if (notification.type === 'watch_party_invite') {
+      const data = typeof notification.data === 'string' ? JSON.parse(notification.data) : notification.data
+      navigate(data?.partyId ? `/watch-party/${data.partyId}` : '/movie-night')
     } else if (notification.type === 'monitor_match') {
       const data = typeof notification.data === 'string' ? JSON.parse(notification.data) : notification.data
       if (data?.tmdbId && data?.mediaType) {

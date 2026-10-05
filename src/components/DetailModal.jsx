@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import RequestModal from './RequestModal'
 import MovieNightPickerModal from './MovieNightPickerModal'
+import WatchPartyInviteModal from './WatchPartyInviteModal'
 import {
   libraryApi,
   watchlistApi,
@@ -165,6 +166,7 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
   // count; TMDB's reviews load inside the tab itself.
   const [serverReviews, setServerReviews] = useState(null)
   const [movieNightOpen, setMovieNightOpen] = useState(false)
+  const [watchPartyOpen, setWatchPartyOpen] = useState(false)
   const [prevCreditsTmdbId, setPrevCreditsTmdbId] = useState(item?.tmdbId)
   if (item?.tmdbId !== prevCreditsTmdbId) {
     setPrevCreditsTmdbId(item?.tmdbId)
@@ -539,6 +541,11 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
                       )}
                     </div>
                   )}
+                  {canCast(item) && (
+                    <button className="modal-btn modal-btn-watchlist" onClick={() => setWatchPartyOpen(true)}>
+                      {t('Watch Together')}
+                    </button>
+                  )}
                   {isShow && item.tmdbId && hasMissingSeasons && (
                     <button
                       className="modal-btn modal-btn-watchlist"
@@ -596,6 +603,15 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
           // up to the detail wrapper's close handler.
           <div onClick={e => e.stopPropagation()}>
             <RequestModal item={missingItem} services={services || {}} onClose={() => setMissingItem(null)} />
+          </div>,
+          document.body
+        )}
+        {watchPartyOpen && createPortal(
+          <div onClick={e => e.stopPropagation()}>
+            <WatchPartyInviteModal
+              item={{ ratingKey: item.ratingKey, title: item.title || item.name }}
+              onClose={() => setWatchPartyOpen(false)}
+            />
           </div>,
           document.body
         )}

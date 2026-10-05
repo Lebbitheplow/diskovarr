@@ -1107,6 +1107,42 @@ db.exec(`CREATE TABLE IF NOT EXISTS migrations (name TEXT PRIMARY KEY, ran_at IN
         }
       },
     },
+    {
+      // Watch Together: a party is one title a host and their invitees play in
+      // sync on their own Plex or Jellyfin players. Only the roster and lifecycle live
+      // here — playback state is runtime-only (services/watchParty).
+      name: 'watch_party_v1',
+      sql: () => {
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS watch_parties (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            host_id TEXT NOT NULL,
+            source TEXT NOT NULL DEFAULT 'plex' CHECK (source IN ('plex','jellyfin')),
+            rating_key TEXT NOT NULL,
+            title TEXT NOT NULL,
+            subtitle TEXT,
+            thumb TEXT,
+            duration_ms INTEGER NOT NULL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'lobby' CHECK (status IN ('lobby','starting','playing','ended')),
+            created_at INTEGER DEFAULT (unixepoch()),
+            started_at INTEGER,
+            ended_at INTEGER
+          );
+
+          CREATE TABLE IF NOT EXISTS watch_party_members (
+            party_id INTEGER NOT NULL REFERENCES watch_parties(id) ON DELETE CASCADE,
+            user_id TEXT NOT NULL,
+            role TEXT NOT NULL DEFAULT 'guest' CHECK (role IN ('host','guest')),
+            status TEXT NOT NULL DEFAULT 'invited' CHECK (status IN ('invited','ready','declined')),
+            client_id TEXT,
+            client_name TEXT,
+            control_base TEXT,
+            PRIMARY KEY (party_id, user_id)
+          );
+          CREATE INDEX IF NOT EXISTS idx_wp_members_user ON watch_party_members(user_id);
+        `);
+      },
+    },
   ].forEach(({ name, sql }) => {
    const already = db.prepare('SELECT 1 FROM migrations WHERE name = ?').get(name);
    if (!already) {
@@ -4179,6 +4215,75 @@ function getMovieNightNextPick(groupId) {
   return resolveMovieNightNextPick(identities, Number(rotation.cursor) || 0, withVotes);
 }
 
+// ── Watch Together ───────────────────────────────────────────────────────────
+
+function createWatchParty({ hostId, source, ratingKey, title, subtitle, thumb, durationMs }) {
+  const result = db.prepare(
+    'INSERT INTO watch_parties (host_id, source, rating_key, title, subtitle, thumb, duration_ms) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).run(String(hostId), source === 'jellyfin' ? 'jellyfin' : 'plex', String(ratingKey), title, subtitle || null, thumb || null, Number(durationMs) || 0);
+  const id = result.lastInsertRowid;
+  db.prepare("INSERT INTO watch_party_members (party_id, user_id, role) VALUES (?, ?, 'host')").run(id, String(hostId));
+  return getWatchParty(id);
+}
+
+function getWatchParty(partyId) {
+  return db.prepare('SELECT * FROM watch_parties WHERE id = ?').get(Number(partyId)) || null;
+}
+
+function setWatchPartyStatus(partyId, status) {
+  const stamp = status === 'playing' ? ', started_at = unixepoch()' : status === 'ended' ? ', ended_at = unixepoch()' : '';
+  db.prepare(`UPDATE watch_parties SET status = ?${stamp} WHERE id = ?`).run(status, Number(partyId));
+}
+
+function getWatchPartyMembers(partyId) {
+  return db.prepare(`
+    SELECT m.*, ku.username, ku.thumb
+    FROM watch_party_members m LEFT JOIN known_users ku ON ku.user_id = m.user_id
+    WHERE m.party_id = ? ORDER BY (m.role = 'host') DESC, m.rowid
+  `).all(Number(partyId));
+}
+
+function getWatchPartyMember(partyId, userId) {
+  return db.prepare('SELECT * FROM watch_party_members WHERE party_id = ? AND user_id = ?')
+    .get(Number(partyId), String(userId)) || null;
+}
+
+// Returns true only for a newly added member, so callers notify once.
+function addWatchPartyMember(partyId, userId) {
+  return db.prepare('INSERT OR IGNORE INTO watch_party_members (party_id, user_id) VALUES (?, ?)')
+    .run(Number(partyId), String(userId)).changes > 0;
+}
+
+function removeWatchPartyMember(partyId, userId) {
+  db.prepare("DELETE FROM watch_party_members WHERE party_id = ? AND user_id = ? AND role != 'host'")
+    .run(Number(partyId), String(userId));
+}
+
+function setWatchPartyMemberDevice(partyId, userId, { clientId, clientName, controlBase }) {
+  db.prepare("UPDATE watch_party_members SET status = 'ready', client_id = ?, client_name = ?, control_base = ? WHERE party_id = ? AND user_id = ?")
+    .run(clientId, clientName || null, controlBase || null, Number(partyId), String(userId));
+}
+
+function setWatchPartyMemberStatus(partyId, userId, status) {
+  db.prepare('UPDATE watch_party_members SET status = ? WHERE party_id = ? AND user_id = ?')
+    .run(status, Number(partyId), String(userId));
+}
+
+// Parties the user belongs to that have not ended, newest first.
+function getOpenWatchPartiesForUser(userId) {
+  return db.prepare(`
+    SELECT p.* FROM watch_parties p JOIN watch_party_members m ON m.party_id = p.id
+    WHERE m.user_id = ? AND m.status != 'declined' AND p.status != 'ended' ORDER BY p.id DESC
+  `).all(String(userId));
+}
+
+// Playback state lives in memory, so a restart orphans anything mid-flight;
+// lobbies older than a day were abandoned.
+function closeStaleWatchParties() {
+  db.prepare(`UPDATE watch_parties SET status = 'ended', ended_at = unixepoch()
+    WHERE status IN ('starting','playing') OR (status = 'lobby' AND created_at < unixepoch() - 86400)`).run();
+}
+
 module.exports = {
   addDismissal, getDismissals, removeDismissal, getUserDismissalRows,
   addToWatchlistDb, removeFromWatchlistDb, getWatchlistFromDb, getWatchlistRows,
@@ -4225,6 +4330,9 @@ module.exports = {
   getAdminUserIds, getPrivilegedUserIds,
   enqueueNotification, getPendingQueuedNotifications, markQueueItemSent, deleteQueueItem,
   createIssue, setIssueSearchStatus, getIssueById, getAllIssues, getUserIssues, getIssueUsers, updateIssueStatus, deleteIssue, deleteIssuesByIds,
+  createWatchParty, getWatchParty, setWatchPartyStatus, getWatchPartyMembers, getWatchPartyMember,
+  addWatchPartyMember, removeWatchPartyMember, setWatchPartyMemberDevice, setWatchPartyMemberStatus,
+  getOpenWatchPartiesForUser, closeStaleWatchParties,
   createMovieNightGroup, getMovieNightGroup, updateMovieNightGroup, deleteMovieNightGroup,
   isMovieNightMember, isMovieNightHost, getMovieNightGroupMembers, getMovieNightGroupsForUser,
   addMovieNightMember, removeMovieNightMember,

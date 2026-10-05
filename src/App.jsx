@@ -17,6 +17,7 @@ const Reviews = lazy(() => import('./pages/Reviews'))
 const ReviewDetail = lazy(() => import('./pages/ReviewDetail'))
 const MovieNight = lazy(() => import('./pages/MovieNight'))
 const MovieNightDetail = lazy(() => import('./pages/MovieNightDetail'))
+const WatchParty = lazy(() => import('./pages/WatchParty'))
 const Settings = lazy(() => import('./pages/Settings'))
 const UserProfile = lazy(() => import('./pages/UserProfile'))
 const Login = lazy(() => import('./pages/Login'))
@@ -145,6 +146,11 @@ export default function App() {
           <Route path="/movie-night/:id" element={
             <ProtectedRoute>
               <MovieNightDetail />
+            </ProtectedRoute>
+          } />
+          <Route path="/watch-party/:id" element={
+            <ProtectedRoute>
+              <WatchParty />
             </ProtectedRoute>
           } />
           {/* Public so shared links work logged-out; ReviewDetail adapts to auth state */}

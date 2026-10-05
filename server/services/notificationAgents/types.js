@@ -21,6 +21,7 @@ const NotificationType = {
   MOVIE_NIGHT:           32768,
   MOVIE_NIGHT_COMMENT:   65536,
   MOVIE_NIGHT_TONIGHT:   131072,
+  WATCH_PARTY:           262144,
 };
 
 // All notification types combined (for "select all")
@@ -47,6 +48,7 @@ const TYPE_MAP = {
   movie_night_invite:          NotificationType.MOVIE_NIGHT,
   movie_night_comment:         NotificationType.MOVIE_NIGHT_COMMENT,
   movie_night_tonight:         NotificationType.MOVIE_NIGHT_TONIGHT,
+  watch_party_invite:          NotificationType.WATCH_PARTY,
 };
 
 // Human-readable labels for each type
@@ -67,6 +69,7 @@ const TYPE_LABELS = {
   movie_night_invite:          'Movie Night group invite',
   movie_night_comment:         'Movie Night comment',
   movie_night_tonight:         'Movie Night tonight',
+  watch_party_invite:          'Watch Together invite',
 };
 
 // Who receives each type: 'admin', 'user', or 'both'
@@ -87,6 +90,7 @@ const TYPE_TARGET = {
   movie_night_invite:          'user',
   movie_night_comment:         'user',
   movie_night_tonight:         'user',
+  watch_party_invite:          'user',
 };
 
 // Color map for Discord embeds
@@ -107,6 +111,7 @@ const TYPE_COLORS = {
   movie_night_invite:          0xe5a00d,
   movie_night_comment:         0x00b4d8,
   movie_night_tonight:         0xe5a00d,
+  watch_party_invite:          0xe5a00d,
 };
 
 // ── Helper functions ──────────────────────────────────────────────────────────
