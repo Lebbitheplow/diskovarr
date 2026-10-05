@@ -1080,6 +1080,33 @@ db.exec(`CREATE TABLE IF NOT EXISTS migrations (name TEXT PRIMARY KEY, ran_at IN
         `);
       },
     },
+    {
+      // Category packs (Kometa-style automatic collections): the collections a
+      // library pack owns, plus pack membership and a yearly schedule window
+      // on monitored lists (seasonal rows are scheduled lists).
+      name: 'category_packs_v1',
+      sql: () => {
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS category_collections (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            pack TEXT NOT NULL,
+            pack_key TEXT NOT NULL,
+            media TEXT NOT NULL,
+            title TEXT NOT NULL,
+            plex_key TEXT,
+            jf_id TEXT,
+            visibility TEXT NOT NULL DEFAULT 'library',
+            item_count INTEGER NOT NULL DEFAULT 0,
+            last_synced_at INTEGER NOT NULL DEFAULT 0,
+            last_error TEXT,
+            UNIQUE(pack, pack_key, media)
+          );
+        `);
+        for (const col of ['pack TEXT DEFAULT NULL', 'pack_key TEXT DEFAULT NULL', 'schedule_start TEXT DEFAULT NULL', 'schedule_end TEXT DEFAULT NULL']) {
+          try { db.exec(`ALTER TABLE list_sources ADD COLUMN ${col}`); } catch {}
+        }
+      },
+    },
   ].forEach(({ name, sql }) => {
    const already = db.prepare('SELECT 1 FROM migrations WHERE name = ?').get(name);
    if (!already) {

@@ -184,8 +184,30 @@ function requestBudget(limits, used) {
   return { movies: remaining(limits.movieLimit, used.movies), seasons: remaining(limits.seasonLimit, used.seasons) };
 }
 
+// Yearly schedule window ("MM-DD" to "MM-DD", inclusive; may wrap the new
+// year). Returns the normalized "MM-DD" or null for anything unparseable.
+function normalizeMonthDay(value) {
+  const m = String(value ?? '').trim().match(/^(\d{1,2})[-/](\d{1,2})$/);
+  if (!m) return null;
+  const month = Number(m[1]);
+  const day = Number(m[2]);
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  return `${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+// A list without a (complete) window is always in season.
+function inSchedule(list, date = new Date()) {
+  const start = normalizeMonthDay(list?.scheduleStart);
+  const end = normalizeMonthDay(list?.scheduleEnd);
+  if (!start || !end) return true;
+  const today = `${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  return start <= end ? (today >= start && today <= end) : (today >= start || today <= end);
+}
+
+const OUT_OF_SEASON = 'out of season';
+
 module.exports = {
-  effectiveLimits, requestBudget,
+  effectiveLimits, requestBudget, normalizeMonthDay, inSchedule, OUT_OF_SEASON,
   keyOf, exclusionSet, applyListPolicy, pickSeasons,
   visibilityFlags, visibilityFromFlags, sortTitlePrefix,
   SMART_SORT, smartFilterPath, listLabel, orderItems, planMoves,

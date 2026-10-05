@@ -8,6 +8,7 @@ const trakt = require('./trakt');
 const imdb = require('./imdb');
 const flixpatrol = require('./flixpatrol');
 const anilist = require('./anilist');
+const seasonal = require('./seasonal');
 
 const FLIX = 'Streaming Top 10 (FlixPatrol)';
 
@@ -76,6 +77,12 @@ const PRESETS = [
   { key: 'trakt_trending_shows', label: 'Trakt Trending Shows', group: 'Trakt', mediaType: 'tv', traktChart: 'trending', requiresCredential: 'trakt_client_id', limit: 100 },
   { key: 'trakt_popular_shows', label: 'Trakt Popular Shows', group: 'Trakt', mediaType: 'tv', traktChart: 'popular', requiresCredential: 'trakt_client_id', limit: 100 },
   { key: 'trakt_anticipated_shows', label: 'Trakt Anticipated Shows', group: 'Trakt', mediaType: 'tv', traktChart: 'anticipated', requiresCredential: 'trakt_client_id', limit: 100 },
+
+  // ── Seasonal (active only inside the holiday's date window) ──
+  ...seasonal.HOLIDAYS.map(h => ({
+    key: `seasonal_${h.key}`, label: seasonal.titleFor(h), group: 'Seasonal', mediaType: 'movie',
+    seasonal: h.key, schedule: { start: h.start, end: h.end }, limit: 500,
+  })),
 ];
 
 function byKey(key) {
@@ -83,8 +90,8 @@ function byKey(key) {
 }
 
 function getPresets() {
-  return PRESETS.map(({ key, label, group, mediaType, requiresCredential, limit, flixpatrol: fp }) =>
-    ({ key, label, group, mediaType, requiresCredential: requiresCredential || null, limit, needsFlareSolverr: !!fp }));
+  return PRESETS.map(({ key, label, group, mediaType, requiresCredential, limit, flixpatrol: fp, schedule }) =>
+    ({ key, label, group, mediaType, requiresCredential: requiresCredential || null, limit, needsFlareSolverr: !!fp, schedule: schedule || null }));
 }
 
 // `limit` is the list's own cap (max items); the preset limit is the chart's
@@ -95,6 +102,7 @@ async function fetchPreset(preset, { limit } = {}) {
   if (preset.flixpatrol) {
     return flixpatrol.fetchEntries({ ...preset.flixpatrol, mediaType: preset.mediaType }, { limit: cap });
   }
+  if (preset.seasonal) return seasonal.fetchEntries(seasonal.byKey(preset.seasonal), { limit: cap });
   if (preset.anilistChart) return anilist.fetchPopular({ mediaType: preset.mediaType }, { limit: cap });
   if (preset.imdbChart) {
     const entries = await imdb.fetchEntries({ kind: 'chart', chart: preset.imdbChart }, { limit: cap });

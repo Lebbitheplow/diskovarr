@@ -120,9 +120,26 @@ async function mirrorCollection(listSource, items, summary) {
   }
 }
 
+// A scheduled list outside its window does nothing and takes its collection
+// down (Kometa's delete_not_scheduled); it is rebuilt when the window reopens.
+async function retireOutOfSeason(listSource) {
+  if (listSource.collectionRatingKey) {
+    await plexCollections.deleteListCollections(listSource)
+      .catch(e => logger.warn(`[autorequest] could not remove out-of-season collection "${listSource.name}": ${e.message}`));
+  }
+  automation.updateListSource(listSource.id, {
+    collectionRatingKey: null,
+    lastSyncedAt: Math.floor(Date.now() / 1000),
+    lastStatus: policy.OUT_OF_SEASON,
+    lastError: null,
+  });
+  return { outOfSeason: true, total: 0, requested: 0, pending: 0 };
+}
+
 // Sync a single list source. Returns a summary object (also recorded on the row).
 async function syncList(listSource) {
   ensureSystemUser();
+  if (!policy.inSchedule(listSource)) return retireOutOfSeason(listSource);
   const started = Date.now();
   const startedTs = Math.floor(started / 1000);
   logger.info(`[autorequest] syncing "${listSource.name}" (#${listSource.id}, ${listSource.sourceType})`);
@@ -285,7 +302,8 @@ async function runQuickSync({ force = false } = {}) {
   if (!plexCollections.plexConfigured()) return { skipped: 'plex not configured' };
   const newest = db.prepare("SELECT MAX(synced_at) AS t FROM library_items WHERE source = 'plex'").get()?.t || 0;
   if (!force && lastQuickSyncAt && newest <= lastQuickSyncAt) return { skipped: 'no new library items' };
-  const lists = automation.getListSources().filter(l => l.enabled && l.collectionEnabled && l.lastSyncedAt > 0);
+  const lists = automation.getListSources()
+    .filter(l => l.enabled && l.collectionEnabled && l.lastSyncedAt > 0 && policy.inSchedule(l));
   let updated = 0;
   for (const list of lists) {
     const cached = automation.getListItemsInOrder(list.id, list.lastSyncedAt)

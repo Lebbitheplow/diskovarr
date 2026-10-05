@@ -126,6 +126,7 @@ app.use('/api/riven', require('./middleware/requireAuth'), require('./routes/api
 app.use('/api', require('./routes/api'))
 app.use('/admin', require('./routes/admin'))
 app.use('/admin/riven', require('./routes/admin').requireAdmin, require('./routes/riven'))
+app.use('/admin/automation/categories', require('./routes/adminCategories'))
 app.use('/admin/automation', require('./routes/adminAutomation'))
 app.use('/admin/dumb-setup', require('./routes/admin').requireAdmin, require('./routes/dumbSetup'))
 
@@ -671,6 +672,17 @@ const server = app.listen(PORT, '0.0.0.0', () => {
   setInterval(() => autoRequest.runQuickSync()
     .catch(err => logger.warn('Collections quick sync failed:', err.message)),
     30 * 60 * 1000
+  )
+
+  // Category packs (studio / network / decade / basic collections): the smart
+  // collections keep themselves current, so this only tracks which ones should
+  // exist. No-op until a pack is enabled.
+  const categoryPacks = require('./services/categoryPacks')
+  setTimeout(() => categoryPacks.syncAll()
+    .catch(err => logger.warn('Category pack sync failed:', err.message)), 4 * 60 * 1000)
+  setInterval(() => categoryPacks.syncAll()
+    .catch(err => logger.warn('Category pack sync failed:', err.message)),
+    6 * 60 * 60 * 1000
   )
 
   // Movie Night reminders: recurring groups with a theme pinned to today, and

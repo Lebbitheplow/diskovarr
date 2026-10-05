@@ -340,6 +340,7 @@ export default function AutoRequest({ onToast }) {
                   {list.maxRequestsPerRun === 0 ? t('Collection only') : list.approvalMode === 'auto' ? t('Auto-approve') : t('Needs approval')}
                   {list.maxItems > 0 ? ` · ${t('top {{n}}', { n: list.maxItems })}` : ''}
                   {' · '}{t('every {{n}}h', { n: list.syncIntervalHours })}
+                  {list.scheduleStart && list.scheduleEnd ? ` · ${t('in season {{start}} – {{end}}', { start: list.scheduleStart, end: list.scheduleEnd })}` : ''}
                   {' · '}{list.requestedCount} {t('requested')}, {list.inLibraryCount} {t('in library')}
                   {' · '}{t('Last sync')}: {list.syncing ? t('running…') : formatAgo(list.lastSyncedAt)}
                 </span>
