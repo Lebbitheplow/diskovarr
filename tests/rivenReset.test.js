@@ -16,6 +16,7 @@ const nodeRequire = createRequire(import.meta.url)
 const db = nodeRequire('../server/db/database.js')
 const tmdb = nodeRequire('../server/services/tmdb.js')
 const riven = nodeRequire('../server/services/rivenClient.js')
+const debrid = nodeRequire('../server/services/debridClient.js')
 
 const realFetch = globalThis.fetch
 afterEach(() => { globalThis.fetch = realFetch })
@@ -215,5 +216,62 @@ describe('rivenClient.resetByTmdb', () => {
     mockFetch([['GET /items/9820', MOVIE]])
     await expect(riven.resetByTmdb({ tmdbId: 9820, mediaType: 'movie' })).rejects.toThrow(/API key not configured/)
     db.setSetting('riven_api_key', 'rkey')
+  })
+})
+
+describe('rivenClient.retrySeasonsByTmdb', () => {
+  it('retries only the requested seasons that are incomplete, without a reset', async () => {
+    const calls = mockFetch([['GET /items/55', SHOW], ['POST /items/retry', { ids: [] }]])
+    const out = await riven.retrySeasonsByTmdb({ tmdbId: 55, seasons: [1, 2] })
+    expect(out.targets).toEqual([{ id: 'season_tvdb1_s2', label: 'Season 2' }])
+    expect(calls.some(c => c.url.includes('/items/reset'))).toBe(false)
+    expect(calls.find(c => c.method === 'POST').url).toContain('/items/retry?ids=season_tvdb1_s2')
+  })
+
+  it('returns null for a show Riven does not track', async () => {
+    mockFetch([])
+    expect(await riven.retrySeasonsByTmdb({ tmdbId: 1, seasons: [1] })).toBeNull()
+  })
+})
+
+describe('rivenClient.removeByTmdb', () => {
+  it('removes the show and reports every torrent folder its episodes use', async () => {
+    const show = { ...SHOW, seasons: [
+      { id: 's1', season_number: 1, folder: null, episodes: [
+        { id: 'e1', episode_number: 1, folder: 'Show.S01.Pack' },
+        { id: 'e2', episode_number: 2, folder: 'Show.S01.Pack' },
+      ] },
+      { id: 's2', season_number: 2, episodes: [{ id: 'e3', episode_number: 1, folder: 'Show.S02E01.mkv' }] },
+    ] }
+    const calls = mockFetch([['GET /items/55', show], ['DELETE /items/remove', { ids: [] }]])
+    const out = await riven.removeByTmdb({ tmdbId: 55, mediaType: 'show' })
+    expect(out.folders).toEqual(['Show.S01.Pack', 'Show.S02E01.mkv'])
+    expect(calls.find(c => c.method === 'DELETE').url).toContain('/items/remove?ids=show_tvdb1')
+  })
+
+  it('reads the enabled debrid account from Riven settings', async () => {
+    mockFetch([['GET /settings/get/downloaders', { downloaders: {
+      real_debrid: { enabled: false, api_key: 'rd' }, all_debrid: { enabled: true, api_key: 'ad' },
+    } }]])
+    expect(await riven.getDebridAccount()).toEqual({ provider: 'alldebrid', apiKey: 'ad' })
+  })
+})
+
+describe('debridClient.deleteTorrentsByName', () => {
+  it('deletes exact-name matches on Real-Debrid and counts names it could not find', async () => {
+    const calls = mockFetch([
+      ['GET /torrents?', [{ id: 'A', filename: 'Show.S01.Pack' }, { id: 'B', filename: 'renamed', original_filename: 'Show.S02E01.mkv' }, { id: 'C', filename: 'Unrelated' }]],
+      ['DELETE /torrents/delete/', { __status: 204 }],
+    ])
+    const out = await debrid.deleteTorrentsByName({ provider: 'realdebrid', apiKey: 'rd' }, ['Show.S01.Pack', 'Show.S02E01.mkv', 'Gone'])
+    expect(out).toEqual({ deleted: 2, missing: 1 })
+    expect(calls.filter(c => c.method === 'DELETE').map(c => c.url.split('/').pop())).toEqual(['A', 'B'])
+    expect(calls[0].headers.Authorization).toBe('Bearer rd')
+  })
+
+  it('surfaces an AllDebrid API error instead of deleting anything', async () => {
+    const calls = mockFetch([['GET /magnet/status', { status: 'error', error: { code: 'AUTH_BAD_APIKEY', message: 'bad key' } }]])
+    await expect(debrid.deleteTorrentsByName({ provider: 'alldebrid', apiKey: 'x' }, ['A'])).rejects.toThrow(/bad key/)
+    expect(calls).toHaveLength(1)
   })
 })

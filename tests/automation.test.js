@@ -425,20 +425,43 @@ describe('deletion executor', () => {
     const listId = automation.createListSource({ name: 'l1', sourceType: 'imdb', url: 'https://www.imdb.com/chart/top/' })
     automation.upsertListItem({ listId, tmdbId: 550, mediaType: 'movie', title: 'Test Movie', status: 'requested' })
 
-    mockFetch((url) => {
-      if (url.includes('/items/imdb/tt0137523')) {
-        return { ok: true, status: 200, text: async () => '', json: async () => ({ items: [{ id: 'movie_99' }] }) }
-      }
+    mockFetch((url, method) => {
+      const json = (body) => ({ ok: true, status: 200, text: async () => JSON.stringify(body), json: async () => body })
+      if (url.includes('/items/550?use_tmdb_id=true')) return json({ id: 'movie_tmdb550', type: 'Movie', title: 'Test Movie', folder: 'Test.Movie.1999.1080p' })
+      if (url.includes('/settings/get/downloaders')) return json({ downloaders: { all_debrid: { enabled: true, api_key: 'ad-key' } } })
+      if (url.includes('/magnet/status')) return json({ status: 'success', data: { magnets: [{ id: 7, filename: 'Test.Movie.1999.1080p' }, { id: 8, filename: 'Other.Movie' }] } })
+      if (url.includes('/magnet/delete')) return json({ status: 'success', data: { message: 'Magnet was successfully deleted' } })
       return undefined
     })
 
-    await executor.deleteItem(makeItem({ ratingKey: 'riv1' }), { arrImportExclusion: false })
-    expect(calls.some(c => c.method === 'DELETE' && c.url.includes('/items/remove?ids=movie_99'))).toBe(true)
+    const { method, notes } = await executor.deleteItem(makeItem({ ratingKey: 'riv1' }), { arrImportExclusion: false })
+    expect(method).toBe('plex')
+    expect(calls.some(c => c.method === 'DELETE' && c.url.includes('/items/remove?ids=movie_tmdb550'))).toBe(true)
+    // Riven leaves the torrent in the debrid account — only the matching one goes
+    expect(calls.filter(c => c.url.includes('/magnet/delete'))).toHaveLength(1)
+    expect(notes).toContain('alldebrid: deleted 1 torrent(s)')
     // Old request rows removed → DUMB pull mode can't re-request it
     const remaining = db.prepare('SELECT COUNT(*) AS c FROM discover_requests WHERE tmdb_id = 550').get()
     expect(remaining.c).toBe(0)
     // List item flagged so list sync skips it forever
     expect(automation.getListItems(listId)[0].status).toBe('deleted')
+  })
+
+  it('counts a Riven removal as the delete when Plex refuses', async () => {
+    db.setSetting('radarr_enabled', '0')
+    db.setSetting('riven_enabled', '1')
+    db.setSetting('riven_api_key', 'riven-key')
+    db.setSetting('riven_url', 'http://riven.test')
+    mockFetch((url, method) => {
+      const json = (body) => ({ ok: true, status: 200, text: async () => JSON.stringify(body), json: async () => body })
+      if (method === 'DELETE' && url.includes('/library/metadata')) return { ok: false, status: 403, text: async () => '' }
+      if (url.includes('/items/550?use_tmdb_id=true')) return json({ id: 'movie_tmdb550', type: 'Movie', title: 'Test Movie' })
+      if (url.includes('/settings/get/downloaders')) return json({ downloaders: {} })
+      return undefined
+    })
+    const { method, notes } = await executor.deleteItem(makeItem({ ratingKey: 'riv2' }), { arrImportExclusion: false })
+    expect(method).toBe('riven')
+    expect(notes.some(n => /Allow media deletion/.test(n))).toBe(true)
   })
 })
 

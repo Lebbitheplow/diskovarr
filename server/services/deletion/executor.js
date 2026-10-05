@@ -1,12 +1,14 @@
 // Tiered deletion of one library item: Radarr/Sonarr first (removes files and,
 // optionally, adds an import exclusion so the *arr never re-grabs it), falling
 // back to Plex's own metadata DELETE (requires "Allow media deletion" on the
-// server). Afterwards: best-effort Riven/DUMB removal and request cleanup so
-// DUMB's approved-request polling can't immediately re-request the item.
-const fs = require('fs');
+// server). Afterwards: best-effort Riven/DUMB removal (symlinks, Riven's record
+// and the debrid torrent) and request cleanup so DUMB's approved-request
+// polling can't immediately re-request the item.
 const db = require('../../db/database');
 const plexService = require('../plex');
 const tmdbService = require('../tmdb');
+const rivenClient = require('../rivenClient');
+const debridClient = require('../debridClient');
 const logger = require('../logger');
 
 const PLEX_HEADERS = {
@@ -109,52 +111,39 @@ async function deleteViaJellyfin(item) {
 
 // ── Riven / DUMB cleanup ──────────────────────────────────────────────────────
 
-const RIVEN_SETTINGS_PATH = process.env.RIVEN_SETTINGS_PATH || '/opt/riven/settings.json';
-
-function getRivenConfig() {
-  if (!['1', 'true'].includes(db.getSetting('riven_enabled', '0'))) return null;
-  const url = (db.getSetting('riven_url', '') || 'http://127.0.0.1:8082').replace(/\/$/, '');
-  let apiKey = db.getSetting('riven_api_key', '');
-  if (!apiKey) {
-    try { apiKey = JSON.parse(fs.readFileSync(RIVEN_SETTINGS_PATH, 'utf8'))?.api_key || ''; } catch {}
-  }
-  return apiKey ? { url, apiKey } : null;
-}
-
-async function rivenFetch(config, path, { method = 'GET' } = {}) {
-  const res = await fetch(`${config.url}/api/v1${path}`, {
-    method,
-    headers: { 'X-API-KEY': config.apiKey, 'Content-Type': 'application/json' },
-    signal: AbortSignal.timeout(30000),
-  });
-  if (!res.ok) throw new Error(`Riven API ${res.status} for ${method} ${path}`);
-  return res.json().catch(() => null);
-}
-
-// Best-effort: remove the item from Riven so DUMB/decypharr drops it too.
-// Returns a short status string for the deletion record.
+// Best-effort teardown of a Riven-acquired item: remove it from Riven (drops
+// the library symlinks and Riven's own record, so Riven never re-adds it), then
+// delete its torrents from the debrid account Riven downloads with.
+// Returns { removed, notes } — `removed` is true once Riven dropped the item.
 async function removeFromRiven(item) {
-  const config = getRivenConfig();
-  if (!config) return null;
+  if (!rivenClient.isRivenEnabled() || !rivenClient.getRivenApiKey() || !item.tmdbId) {
+    return { removed: false, notes: [] };
+  }
+  let removed;
   try {
-    const extPath = item.type === 'show' ? `/tv/${item.tmdbId}/external_ids` : `/movie/${item.tmdbId}`;
-    const ext = await tmdbService.tmdbFetchPublic(extPath).catch(() => null);
-    const imdbId = ext?.imdb_id;
-    if (!imdbId) return 'riven: no imdb id mapping';
-    const found = await rivenFetch(config, `/items/imdb/${encodeURIComponent(imdbId)}`).catch(err => {
-      if (String(err.message).includes('404')) return null;
-      throw err;
-    });
-    const items = Array.isArray(found) ? found : (found?.items || (found && found.id ? [found] : []));
-    const ids = items.map(i => i?.id).filter(Boolean);
-    if (ids.length === 0) return 'riven: not found';
-    await rivenFetch(config, `/items/remove?ids=${encodeURIComponent(ids.join(','))}`, { method: 'DELETE' });
-    logger.info(`[deletion] removed from Riven: ${ids.join(',')} (${item.title})`);
-    return `riven: removed ${ids.length} item(s)`;
+    removed = await rivenClient.removeByTmdb({ tmdbId: item.tmdbId, mediaType: item.type });
   } catch (e) {
     logger.warn(`[deletion] Riven cleanup failed for "${item.title}": ${e.message}`);
-    return `riven: cleanup failed (${e.message})`;
+    return { removed: false, notes: [`riven: cleanup failed (${e.message})`] };
   }
+  if (!removed) return { removed: false, notes: ['riven: not found'] };
+  logger.info(`[deletion] removed from Riven: ${removed.id} (${item.title})`);
+  const notes = [`riven: removed ${removed.id}`];
+
+  try {
+    const account = await rivenClient.getDebridAccount();
+    if (!account) {
+      notes.push('debrid: no supported downloader enabled in Riven');
+    } else if (removed.folders.length > 0) {
+      const { deleted, missing } = await debridClient.deleteTorrentsByName(account, removed.folders);
+      logger.info(`[deletion] deleted ${deleted} ${account.provider} torrent(s) for "${item.title}"`);
+      notes.push(`${account.provider}: deleted ${deleted} torrent(s)${missing ? `, ${missing} not found` : ''}`);
+    }
+  } catch (e) {
+    logger.warn(`[deletion] debrid cleanup failed for "${item.title}": ${e.message}`);
+    notes.push(`debrid: cleanup failed (${e.message})`);
+  }
+  return { removed: true, notes };
 }
 
 // Remove old requests for this title so nothing re-requests it: DUMB pull mode
@@ -176,7 +165,7 @@ function cleanupRequests(item) {
 
 /**
  * Delete one library item (library_items row shape). Returns
- * { method: 'radarr'|'sonarr'|'plex', notes: [...] }; throws when every
+ * { method: 'radarr'|'sonarr'|'plex'|'jellyfin'|'riven', notes: [...] }; throws when every
  * applicable path failed (nothing was deleted).
  */
 async function deleteItem(item, profile) {
@@ -192,17 +181,30 @@ async function deleteItem(item, profile) {
     method = 'radarr';
   } else if (item.type === 'show' && await deleteViaSonarr(item, profile, conn).catch(e => { if (e.noFallback) throw e; notes.push(`sonarr: ${e.message}`); return false; })) {
     method = 'sonarr';
-  } else if (source === 'jellyfin') {
-    // Never the Plex path for a Jellyfin GUID.
-    await deleteViaJellyfin(item);
-    method = 'jellyfin';
-  } else {
-    await deleteViaPlex(item);
-    method = 'plex';
   }
 
-  const rivenNote = await removeFromRiven(item);
-  if (rivenNote) notes.push(rivenNote);
+  // Media-server delete. For a Riven-acquired item a refusal here isn't fatal:
+  // Riven's removal below deletes the symlinks, and the post-run library
+  // refresh clears the entry.
+  let mediaServerError = null;
+  if (!method) {
+    try {
+      // Never the Plex path for a Jellyfin GUID.
+      if (source === 'jellyfin') await deleteViaJellyfin(item);
+      else await deleteViaPlex(item);
+      method = source;
+    } catch (e) {
+      mediaServerError = e;
+    }
+  }
+
+  const riven = await removeFromRiven(item);
+  notes.push(...riven.notes);
+  if (mediaServerError) {
+    if (!riven.removed) throw mediaServerError;
+    notes.push(`${source}: ${mediaServerError.message}`);
+    method = 'riven';
+  }
   cleanupRequests(item);
 
   // Drop the cached row immediately (the next section resync would prune it

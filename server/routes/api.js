@@ -2251,6 +2251,23 @@ async function submitRequestToService(requestData) {
       }
     }
   } else if (service === 'riven') {
+    // "Request missing seasons" on a show Riven already tracks: a repeat
+    // request is a no-op for Riven (push or pull), so retry the incomplete
+    // seasons directly. Unknown shows fall through to the normal paths.
+    if (mediaType === 'tv' && Array.isArray(seasons) && seasons.length > 0) {
+      const rivenClient = require('../services/rivenClient');
+      if (rivenClient.isRivenEnabled() && rivenClient.getRivenApiKey()) {
+        try {
+          const retried = await rivenClient.retrySeasonsByTmdb({ tmdbId, seasons });
+          if (retried) {
+            logger.info(`[riven] ${retried.item.id} already tracked — retried ${retried.targets.map(t => t.label).join(', ') || 'nothing (requested seasons complete)'}`);
+            return;
+          }
+        } catch (e) {
+          logger.warn(`[riven] season retry failed for tmdbId=${tmdbId}: ${e.message}`);
+        }
+      }
+    }
     // DUMB pull mode: skip the push — DUMB polls /api/v1/request?filter=approved instead
     if (['1', 'true'].includes(db.getSetting('riven_enabled', '0')) && db.getSetting('dumb_request_mode', 'pull') === 'pull') {
       logger.info(`[riven] DUMB pull mode active — skipping push for tmdbId=${tmdbId}`);
