@@ -30,6 +30,7 @@ export const SHARED_NOTIFICATION_TYPES = [
   { value: 'movie_night_added,movie_night_invite', label: 'Movie Night picks' },
   { value: 'movie_night_comment', label: 'Movie Night comments' },
   { value: 'movie_night_tonight', label: 'Movie Night tonight' },
+  { value: 'watch_party_invite', label: 'Watch Together invites' },
 ]
 
 export const DEFAULT_AGENT_TYPES = [
@@ -38,6 +39,7 @@ export const DEFAULT_AGENT_TYPES = [
   'issue_new', 'issue_updated', 'issue_comment_added_admin,issue_comment_added_user',
   'tuberr_alert',
   'movie_night_added', 'movie_night_invite', 'movie_night_comment', 'movie_night_tonight',
+  'watch_party_invite',
 ]
 
 export const WEBHOOK_NOTIFICATION_TYPES = SHARED_NOTIFICATION_TYPES.map(t => ({ ...t }))
