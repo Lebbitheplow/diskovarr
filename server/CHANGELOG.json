@@ -1,5 +1,19 @@
 [
   {
+    "version": "3.4.0",
+    "date": "2026-10-05",
+    "changes": [
+      "Watch Together — pick a movie or episode, invite other users, and everyone plays it in sync on their own Plex or Jellyfin app. No video passes through Diskovarr: it watches each player and sends pause, play and seek commands. Open it from the \"Watch Together\" button in the detail modal; open parties also show on the Movie Night page.",
+      "Each member opens the Plex or Jellyfin app on their TV and picks it on the party page; the host starts once everyone is ready. After that the page can be closed — pausing or skipping with any member's own remote carries over to everyone, and small drift is fixed by briefly holding whoever is ahead.",
+      "Category packs — a new Automation → Categories tab builds collections the way Kometa's defaults do: Basic (Newly Released, New Episodes), Decade, Studio, Network and Seasonal. Library packs are smart collections, so new titles join on their own; a collection that already exists under the same title is adopted with its artwork.",
+      "Seasonal collections — holiday and heritage-month rows (Halloween, Christmas, Pride Month and more) appear only while in season and are removed afterwards. Any monitored list can now be given its own active season.",
+      "Deleting an item that Riven/DUMB downloaded now cleans up fully: the symlinks and Riven's record are removed, the torrent is deleted from your AllDebrid or Real-Debrid account, and the Diskovarr request is cleared so nothing re-downloads it. Previously the Riven step silently failed.",
+      "\"Request missing seasons\" now works for shows Riven already tracks — the incomplete seasons you pick are sent back to Riven's queue instead of the request being ignored.",
+      "Admins only receive auto-request notices when \"auto-approved\" notifications are on, and list auto-requests no longer raise \"now available\" alerts.",
+      "Security: nodemailer upgraded to 10.0.5."
+    ]
+  },
+  {
     "version": "3.3.5",
     "date": "2026-09-23",
     "changes": [

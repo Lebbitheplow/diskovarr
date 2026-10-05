@@ -20,7 +20,7 @@ const DATE_STYLE = { fontWeight: '400', color: 'var(--text-secondary)', fontSize
 export default function ChangelogModal({ open, onClose }) {
   const { t } = useTranslation()
   if (!open) return null
-  const currentVersion = import.meta.env.VITE_APP_VERSION || '3.3.5'
+  const currentVersion = import.meta.env.VITE_APP_VERSION || '3.4.0'
 
   return (
     <div className="info-modal-backdrop open" onClick={onClose}>

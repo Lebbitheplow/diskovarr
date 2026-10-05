@@ -4,6 +4,28 @@ All notable changes are documented here. Versioning follows [Semantic Versioning
 
 ---
 
+## v3.4.0 — 2026-10-05
+
+### Added
+
+- **Watch Together.** A host invites users to watch one title in sync, each on their own Plex or Jellyfin player. No video passes through Diskovarr: the server observes each player and sends it pause/play/seek commands. Pausing or seeking with any member's own remote is mirrored to everyone, and small drift is corrected by briefly holding whoever is ahead (`server/services/watchParty/` — `syncEngine.js` pure logic, `index.js` lifecycle and 1 s tick loop, `plexDriver.js`, `jellyfinDriver.js`; routes at `/api/watch-party`; tables `watch_parties` / `watch_party_members`).
+- **Party page and invites.** "Watch Together" button in the detail modal, a party page at `/watch-party/:id` (device picker, member status, activity log, start / pause everyone / end), an open-party strip on Movie Night, and a `watch_party_invite` notification type. Playback state is held in memory, so a server restart ends running parties.
+- **Category packs.** New Automation → Categories tab with five packs mirroring Kometa's defaults: Basic (Newly Released, New Episodes), Seasonal, Decade, Studio and Network. Library packs are Plex smart collections (plus Jellyfin BoxSets); an existing collection with the same title is adopted so its artwork and library position carry over (`server/services/categoryPacks.js`, `categoryPolicy.js`, `server/routes/adminCategories.js`, `tests/categoryPacks.test.js`).
+- **Seasonal collections.** Seasonal rows are monitored lists with a yearly MM-DD window, sourced from IMDb/MDBList lists and TMDB collections/keywords (`server/services/listSources/seasonal.js`). Out of season the list pauses and its collection is removed. Any monitored list can now carry an active season, and the list editor has seasonal presets.
+- **Debrid torrent cleanup on delete.** After an item is removed from Riven, its torrents are deleted from the AllDebrid or Real-Debrid account Riven downloads with, matched by exact torrent name against the folders Riven recorded (`server/services/debridClient.js`).
+
+### Fixed
+
+- **Riven cleanup on delete.** The deletion flow looked items up through Riven's `/items/imdb/{id}`, which answers 500 on current Riven, so items were never removed. It now resolves the item by TMDB id through the shared client and calls `/items/remove`, which deletes the symlinks and Riven's record. If Plex or Jellyfin refuses the delete but Riven removed the item, the deletion completes "via riven".
+- **Request missing seasons with Riven.** A repeat request for a show Riven already tracks was a no-op. Missing-season requests now retry the incomplete seasons through `/items/retry` (no reset, nothing blacklisted).
+- **Auto-request notifications.** Admin auto-request notices respect `notify_auto_approved`; the `autorequest` system user no longer gets "now available" alerts.
+
+### Security
+
+- nodemailer 9.1.1 → 10.0.5.
+
+---
+
 ## v3.3.5 — 2026-09-23
 
 ### Added

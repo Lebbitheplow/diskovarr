@@ -425,7 +425,7 @@ describe('deletion executor', () => {
     const listId = automation.createListSource({ name: 'l1', sourceType: 'imdb', url: 'https://www.imdb.com/chart/top/' })
     automation.upsertListItem({ listId, tmdbId: 550, mediaType: 'movie', title: 'Test Movie', status: 'requested' })
 
-    mockFetch((url, method) => {
+    mockFetch((url) => {
       const json = (body) => ({ ok: true, status: 200, text: async () => JSON.stringify(body), json: async () => body })
       if (url.includes('/items/550?use_tmdb_id=true')) return json({ id: 'movie_tmdb550', type: 'Movie', title: 'Test Movie', folder: 'Test.Movie.1999.1080p' })
       if (url.includes('/settings/get/downloaders')) return json({ downloaders: { all_debrid: { enabled: true, api_key: 'ad-key' } } })
