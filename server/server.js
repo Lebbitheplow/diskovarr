@@ -123,6 +123,7 @@ app.use('/api/public', require('./routes/public'))
 app.use('/api/wrapped', require('./middleware/requireAuth'), require('./routes/wrapped'))
 // Riven item actions (reset / re-queue) for admins and privileged request managers
 app.use('/api/riven', require('./middleware/requireAuth'), require('./routes/api').requirePrivileged, require('./routes/rivenItems'))
+app.use('/api/watch-party', require('./middleware/requireAuth'), require('./routes/watchParty'))
 app.use('/api', require('./routes/api'))
 app.use('/admin', require('./routes/admin'))
 app.use('/admin/riven', require('./routes/admin').requireAdmin, require('./routes/riven'))
@@ -684,6 +685,9 @@ const server = app.listen(PORT, '0.0.0.0', () => {
     .catch(err => logger.warn('Category pack sync failed:', err.message)),
     6 * 60 * 60 * 1000
   )
+
+  // Watch Together keeps playback state in memory; close parties a restart orphaned.
+  try { require('./services/watchParty').init() } catch (err) { logger.warn('Watch party init failed:', err.message) }
 
   // Movie Night reminders: recurring groups with a theme pinned to today, and
   // scheduled nights starting within the hour. Runs every 15 min; the per-group

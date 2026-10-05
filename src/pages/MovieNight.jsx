@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import { movieNightApi } from '../services/api'
+import { movieNightApi, watchPartyApi } from '../services/api'
 import { useToast } from '../context/ToastContext'
 import { useTranslation, Trans } from 'react-i18next'
 import Modal from '../components/Modal'
@@ -208,6 +208,11 @@ export default function MovieNight() {
 
   const userOptions = useMemo(() => candidates.map(u => ({ id: u.user_id, name: u.username || u.user_id })), [candidates])
 
+  const [parties, setParties] = useState([])
+  useEffect(() => {
+    watchPartyApi.getOpen().then(({ data }) => setParties(data.parties || [])).catch(() => {})
+  }, [])
+
   return (
     <div className="mn-page">
       <div className="mn-header">
@@ -217,6 +222,17 @@ export default function MovieNight() {
         </div>
       </div>
       <p className="mn-sub">{t('Gather your people, nominate films, vote, and let the night pick itself.')}</p>
+
+      {parties.length > 0 && (
+        <div className="mn-tonight">
+          {parties.map(p => (
+            <Link key={p.id} to={`/watch-party/${p.id}`} className="mn-tonight-chip">
+              <span className="mn-tonight-emoji">📺</span>
+              <span>{p.status === 'playing' ? t('Watching together') : t('Watch Together')}: {p.title}</span>
+            </Link>
+          ))}
+        </div>
+      )}
 
       {nights.length > 0 && (
         <div className="mn-tonight">

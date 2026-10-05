@@ -331,6 +331,21 @@ export const movieNightApi = {
   getNightly: () => api.get('/movie-night/nightly'),
 }
 
+/** Watch Together: synced playback across each member's own Plex player */
+export const watchPartyApi = {
+  getOpen: () => api.get('/watch-party'),
+  create: (data) => api.post('/watch-party', data),
+  get: (id) => api.get(`/watch-party/${id}`),
+  invite: (id, userIds) => api.post(`/watch-party/${id}/invite`, { userIds }),
+  setDevice: (id, clientId) => api.post(`/watch-party/${id}/device`, { clientId }),
+  decline: (id) => api.post(`/watch-party/${id}/decline`),
+  // Starting waits for every TV to load the title, well past the default timeout.
+  start: (id) => api.post(`/watch-party/${id}/start`, null, { timeout: 90000 }),
+  join: (id) => api.post(`/watch-party/${id}/join`, null, { timeout: 60000 }),
+  control: (id, action) => api.post(`/watch-party/${id}/control`, { action }),
+  end: (id) => api.post(`/watch-party/${id}/end`),
+}
+
 /** TMDB Per-User Integration */
 export const tmdbApi = {
   getConnection: () => api.get('/tmdb/connection'),

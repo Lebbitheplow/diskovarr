@@ -1,0 +1,39 @@
+/* Watch Together — invite dialog and party page. Builds on the Movie Night
+   layout (.mn-*); only what is specific to parties lives under .wp-*. */
+
+.wp-invite h2 { margin: 0 0 6px; font-size: 1.3rem; }
+.wp-user-list { display: flex; flex-direction: column; gap: 4px; max-height: 280px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+.wp-user-option {
+  display: flex; align-items: center; gap: 10px; padding: 7px 10px; cursor: pointer;
+  border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-secondary); font-size: 0.9rem;
+}
+.wp-user-option:hover { border-color: var(--border-hover); }
+.wp-user-option.selected { border-color: var(--accent-border); background: var(--accent-dim); }
+.wp-user-option input { accent-color: var(--accent); }
+
+.wp-poster { width: 110px; aspect-ratio: 2 / 3; object-fit: cover; border-radius: var(--radius); border: 1px solid var(--border); }
+.wp-progress-wrap { margin-top: 14px; max-width: 520px; }
+.wp-clock { font-size: 1.5rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.wp-progress { height: 4px; border-radius: 2px; background: var(--bg-hover); margin-top: 6px; overflow: hidden; }
+.wp-progress > div { height: 100%; background: var(--accent); transition: width 1s linear; }
+.wp-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 14px 0 8px; }
+
+.wp-devices { display: flex; flex-direction: column; gap: 4px; max-width: 420px; align-items: stretch; }
+.wp-devices .mn-link-btn { align-self: flex-start; }
+.wp-device-current { border-color: var(--accent-border); color: var(--accent); background: var(--accent-dim); }
+
+.wp-members { display: flex; flex-direction: column; gap: 6px; }
+.wp-member {
+  display: flex; align-items: center; gap: 10px; padding: 8px 12px;
+  background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius);
+}
+.wp-member-name { font-weight: 600; font-size: 0.92rem; }
+.wp-status { margin-left: auto; font-size: 0.82rem; font-variant-numeric: tabular-nums; text-align: right; }
+.wp-status.good { color: #4ade80; }
+.wp-status.warn { color: var(--accent); }
+.wp-status.muted { color: var(--text-muted); }
+.wp-invite-chip { cursor: pointer; color: var(--text-primary); }
+.wp-invite-chip:hover { border-color: var(--accent-border); color: var(--accent); }
+
+.wp-log { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 0.84rem; color: var(--text-secondary); }
+.wp-log time { color: var(--text-muted); font-variant-numeric: tabular-nums; margin-right: 6px; }
