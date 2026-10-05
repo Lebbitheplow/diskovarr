@@ -89,6 +89,7 @@ function activeRequestExists(tmdbId, mediaType) {
 function notifyAdmins(title, body) {
   try {
     for (const adminId of db.getPrivilegedUserIds()) {
+      if (!db.getUserNotificationPrefs(adminId).notify_auto_approved) continue;
       const notifId = db.createOrBundleNotification({
         userId: adminId, type: 'autorequest', title, body, data: {},
       });

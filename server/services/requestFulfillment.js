@@ -15,8 +15,11 @@ function notifyRequestAvailable(request) {
     return;
   }
   try {
+    // Lazy: autoRequest pulls in the Plex modules, and plex.js requires this file
+    const { SYSTEM_USER_ID } = require('./autoRequest');
     const prefs = db.getUserNotificationPrefs(request.user_id);
-    if (prefs.notify_available) {
+    // List auto-requests belong to a system identity nobody reads alerts for
+    if (request.user_id !== SYSTEM_USER_ID && prefs.notify_available) {
       const title = request.title || 'Unknown';
       const notifId = db.createOrBundleNotification({
         userId: request.user_id,

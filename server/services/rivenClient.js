@@ -202,8 +202,68 @@ async function resetByTmdb({ tmdbId, mediaType, seasons = [], episodes = [] }) {
   return { item: { id: item.id, title: item.title || null }, targets };
 }
 
+// "Request missing seasons" for a show Riven already tracks. Riven ignores a
+// repeat request for a known show, and seasons it gave up scraping sit in
+// Indexed forever, so the request is delivered as a retry of the incomplete
+// seasons instead (no reset — nothing is blacklisted or removed). Returns null
+// when Riven doesn't have the show.
+async function retrySeasonsByTmdb({ tmdbId, seasons = [] }) {
+  const item = await getItemByTmdb(tmdbId, 'tv');
+  if (!item) return null;
+  const wanted = new Set(seasons.map(Number));
+  const targets = summarizeItem(item).seasons
+    .filter(s => wanted.has(s.number) && s.state !== 'Completed')
+    .map(s => ({ id: s.id, label: `Season ${s.number}` }));
+  if (targets.length > 0) {
+    await rivenFetch('POST', '/items/retry', { query: { ids: targets.map(t => t.id).join(',') } });
+  }
+  return { item: { id: item.id, title: item.title || null }, targets };
+}
+
+// ── Removal ───────────────────────────────────────────────────────────────────
+
+// Every torrent directory an item's files live in (`folder` is the torrent's
+// name under the debrid mount). A show's episodes can span several torrents.
+function collectFolders(item) {
+  const folders = new Set();
+  const visit = (node) => {
+    if (node?.folder) folders.add(node.folder);
+    for (const child of node?.seasons || node?.episodes || []) visit(child);
+  };
+  visit(item);
+  return [...folders];
+}
+
+// Remove a movie/show from Riven entirely: /items/remove cancels its jobs,
+// deletes its library symlinks and drops it (with seasons and episodes) from
+// Riven's database, so Riven stops tracking it. The debrid torrent is NOT
+// touched by Riven — the returned `folders` let the caller delete those.
+// Returns null when Riven doesn't know the title.
+async function removeByTmdb({ tmdbId, mediaType }) {
+  const item = await getItemByTmdb(tmdbId, mediaType);
+  if (!item) return null;
+  const folders = collectFolders(item);
+  await rivenFetch('DELETE', '/items/remove', { query: { ids: item.id } });
+  return { id: item.id, title: item.title || null, folders };
+}
+
+// The debrid account Riven downloads with, from Riven's own settings.
+// Returns { provider, apiKey } or null when no supported downloader is enabled.
+async function getDebridAccount() {
+  const payload = await rivenFetch('GET', '/settings/get/downloaders');
+  const downloaders = payload?.downloaders || {};
+  if (downloaders.all_debrid?.enabled && downloaders.all_debrid.api_key) {
+    return { provider: 'alldebrid', apiKey: downloaders.all_debrid.api_key };
+  }
+  if (downloaders.real_debrid?.enabled && downloaders.real_debrid.api_key) {
+    return { provider: 'realdebrid', apiKey: downloaders.real_debrid.api_key };
+  }
+  return null;
+}
+
 module.exports = {
   DEFAULT_URL, RivenError,
   getRivenUrl, getRivenApiKey, getRdApiKey, isRivenEnabled, rivenFetch,
   getItemByTmdb, summarizeItem, resolveTargets, resetItems, resetByTmdb,
+  retrySeasonsByTmdb, collectFolders, removeByTmdb, getDebridAccount,
 };
