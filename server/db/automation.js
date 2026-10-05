@@ -2,6 +2,7 @@
 // mirroring) and deletion profiles (criteria-based auto-delete). Tables are created
 // by the automation_v1 migration in database.js; this module is CRUD only.
 const db = require('./database');
+const { normalizeMonthDay, inSchedule, OUT_OF_SEASON } = require('../services/collectionPolicy');
 
 const now = () => Math.floor(Date.now() / 1000);
 
@@ -72,6 +73,12 @@ function listSourceRow(r) {
     movieWindowDays: r.movie_window_days || 7,
     seasonLimit: r.season_limit || 0,
     seasonWindowDays: r.season_window_days || 7,
+    // Category pack membership (e.g. 'seasonal' / 'halloween') and the yearly
+    // window the list is active in; all null for an ordinary list.
+    pack: r.pack || null,
+    packKey: r.pack_key || null,
+    scheduleStart: r.schedule_start || null,
+    scheduleEnd: r.schedule_end || null,
     lastSyncedAt: r.last_synced_at || 0,
     lastStatus: r.last_status || null,
     lastError: r.last_error || null,
@@ -86,6 +93,7 @@ function createListSource({
   collectionUnwatchedOnly, collectionSort, collectionSummary, homeOrder, libraryOrder,
   maxItems, seasonMode, exclusions, collectionRatingKey,
   limitOverride, movieLimit, movieWindowDays, seasonLimit, seasonWindowDays,
+  pack, packKey, scheduleStart, scheduleEnd,
 }) {
   // 0 is valid (collection-only list that never requests); absent/garbage → 10
   const maxPerRun = Number.isFinite(parseInt(maxRequestsPerRun)) ? Math.max(0, parseInt(maxRequestsPerRun)) : 10;
@@ -122,7 +130,9 @@ function createListSource({
     Math.max(0, parseInt(movieLimit) || 0), Math.max(1, parseInt(movieWindowDays) || 7),
     Math.max(0, parseInt(seasonLimit) || 0), Math.max(1, parseInt(seasonWindowDays) || 7)
   );
-  return Number(result.lastInsertRowid);
+  const id = Number(result.lastInsertRowid);
+  if (pack || scheduleStart || scheduleEnd) updateListSource(id, { pack, packKey, scheduleStart, scheduleEnd });
+  return id;
 }
 
 function getListSources() {
@@ -141,7 +151,9 @@ const LIST_SOURCE_COLUMNS = {
   collectionName: 'collection_name', collectionVisibility: 'collection_visibility',
   collectionRatingKey: 'collection_rating_key', collectionSummary: 'collection_summary',
   lastStatus: 'last_status', lastError: 'last_error',
+  pack: 'pack', packKey: 'pack_key',
 };
+const LIST_SOURCE_SCHEDULE = { scheduleStart: 'schedule_start', scheduleEnd: 'schedule_end' };
 const LIST_SOURCE_BOOLS = {
   enabled: 'enabled', collectionEnabled: 'collection_enabled',
   collectionUnwatchedOnly: 'collection_unwatched_only', limitOverride: 'limit_override',
@@ -191,6 +203,9 @@ function updateListSource(id, fields) {
   for (const [key, col] of Object.entries(LIST_SOURCE_BOOLS)) {
     if (fields[key] !== undefined) { updates.push(`${col} = ?`); params.push(fields[key] ? 1 : 0); }
   }
+  for (const [key, col] of Object.entries(LIST_SOURCE_SCHEDULE)) {
+    if (fields[key] !== undefined) { updates.push(`${col} = ?`); params.push(normalizeMonthDay(fields[key])); }
+  }
   for (const [key, col] of Object.entries(LIST_SOURCE_TIMES)) {
     if (fields[key] !== undefined) { updates.push(`${col} = ?`); params.push(Number(fields[key]) || 0); }
   }
@@ -207,7 +222,10 @@ function deleteListSource(id) {
 function getDueListSources() {
   return db.prepare('SELECT * FROM list_sources WHERE enabled = 1').all()
     .map(listSourceRow)
-    .filter(l => now() - (l.lastSyncedAt || 0) >= l.syncIntervalHours * 3600);
+    // A scheduled list whose window just opened is due straight away rather
+    // than at the end of its out-of-season interval.
+    .filter(l => now() - (l.lastSyncedAt || 0) >= l.syncIntervalHours * 3600
+      || (l.lastStatus === OUT_OF_SEASON && inSchedule(l)));
 }
 
 // ── List source items (per-list seen/requested tracking) ─────────────────────

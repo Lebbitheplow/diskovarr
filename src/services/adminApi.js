@@ -233,6 +233,10 @@ export const adminAutomation = {
   approveCandidates: (ids) => adminApi.post('/automation/candidates/approve', { ids }, { timeout: 120000 }),
   dismissCandidates: (ids) => adminApi.post('/automation/candidates/dismiss', { ids }),
   getHistory: () => adminApi.get('/automation/history'),
+  getCategories: () => adminApi.get('/automation/categories'),
+  previewCategory: (pack) => adminApi.get(`/automation/categories/${pack}/preview`, { timeout: 120000 }),
+  updateCategory: (pack, data) => adminApi.put(`/automation/categories/${pack}`, data, { timeout: 180000 }),
+  syncCategory: (pack) => adminApi.post(`/automation/categories/${pack}/sync`),
 }
 
 /** DUMB/Riven */

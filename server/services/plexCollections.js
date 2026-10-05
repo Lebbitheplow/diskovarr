@@ -15,6 +15,7 @@ const db = require('../db/database');
 const plexService = require('./plex');
 const policy = require('./collectionPolicy');
 const labels = require('./plexLabels');
+const categoryPolicy = require('./categoryPolicy');
 
 const PLEX_KEY_NAMES = ['movie', 'tv'];
 
@@ -119,6 +120,19 @@ async function setVisibility(sectionId, collectionKey, visibility) {
     `&promotedToRecommended=${flags.rec}&promotedToOwnHome=${flags.own}&promotedToSharedHome=${flags.shared}`,
     { method: 'POST' }
   );
+}
+
+// Every collection of a section (title, smart flag, titleSort) — used to adopt
+// an existing collection by title instead of creating a twin.
+async function listCollections(sectionId) {
+  const json = await plexRequest(`/library/sections/${sectionId}/collections?X-Plex-Container-Start=0&X-Plex-Container-Size=5000`);
+  return json?.MediaContainer?.Metadata || [];
+}
+
+// Plex downloads the image itself from the URL.
+async function setCollectionPoster(collectionKey, url) {
+  if (!url) return;
+  await plexRequest(`/library/metadata/${collectionKey}/posters?url=${encodeURIComponent(url)}`, { method: 'POST' });
 }
 
 async function deleteCollection(collectionKey) {
@@ -305,6 +319,10 @@ async function syncListCollection(listSource, entries) {
           existingKey: updatedKeys[plan.media] || null,
           sortPrefix: sortPrefixFor(listSource, plan.media),
         });
+        // A freshly built pack collection (seasonal rows) gets the pack's artwork.
+        if (key && key !== keys[plan.media] && listSource.pack) {
+          await setCollectionPoster(key, categoryPolicy.posterUrl(listSource.pack, listSource.packKey, name)).catch(() => {});
+        }
         if (key) updatedKeys[plan.media] = key;
         else delete updatedKeys[plan.media];
       }
@@ -348,4 +366,6 @@ async function deleteListCollections(listSource) {
 module.exports = {
   syncListCollection, applyVisibility, deleteListCollections, parseCollectionKeys,
   getCollection, setCollectionSortTitle, plexConfigured,
+  plexRequest, getMachineId, listCollections, createSmartCollection, updateSmartFilter,
+  setVisibility, setCollectionPoster, deleteCollection,
 };

@@ -11,6 +11,7 @@ const plexHubs = require('../services/plexHubs');
 const deletionService = require('../services/deletion');
 const tmdbService = require('../services/tmdb');
 const logger = require('../services/logger');
+const { normalizeMonthDay } = require('../services/collectionPolicy');
 
 // JSON 401 (not the redirect admin.js uses) — these endpoints are only called
 // by the admin SPA via axios, which handles the status code.
@@ -118,6 +119,10 @@ function validateListBody(body) {
   if (body.collectionSort !== undefined && !automation.VALID_COLLECTION_SORTS.includes(body.collectionSort)) return 'invalid collectionSort';
   if (body.seasonMode !== undefined && !automation.VALID_SEASON_MODES.includes(body.seasonMode)) return 'invalid seasonMode';
   if (body.exclusions !== undefined && body.exclusions !== null && !Array.isArray(body.exclusions)) return 'exclusions must be an array';
+  for (const key of ['scheduleStart', 'scheduleEnd']) {
+    if (body[key] && !normalizeMonthDay(body[key])) return `${key} must be a date like 10-01 (MM-DD)`;
+  }
+  if (!!body.scheduleStart !== !!body.scheduleEnd) return 'an active season needs both a start and an end date';
   return null;
 }
 
@@ -136,6 +141,12 @@ router.post('/lists', (req, res) => {
   const invalid = validateListBody(body);
   if (invalid) return res.status(400).json({ error: invalid });
   const sourceType = sourceTypeOf(body);
+  // Seasonal presets carry their holiday window unless the admin set one.
+  const presetSchedule = body.presetKey ? listSources.getPresets().find(p => p.key === body.presetKey)?.schedule : null;
+  if (presetSchedule && body.scheduleStart === undefined && body.scheduleEnd === undefined) {
+    body.scheduleStart = presetSchedule.start;
+    body.scheduleEnd = presetSchedule.end;
+  }
   const id = automation.createListSource({ ...body, sourceType });
   logger.info(`[automation] list source created: "${body.name}" (#${id})`);
   res.json({ ok: true, id, list: automation.getListSource(id) });

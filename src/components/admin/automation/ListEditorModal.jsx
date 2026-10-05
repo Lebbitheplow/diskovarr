@@ -77,6 +77,8 @@ export default function ListEditorModal({ list, presets, onClose, onSaved, onToa
     movieWindowDays: list?.movieWindowDays ?? 7,
     seasonLimit: list?.seasonLimit ?? 0,
     seasonWindowDays: list?.seasonWindowDays ?? 7,
+    scheduleStart: list?.scheduleStart || '',
+    scheduleEnd: list?.scheduleEnd || '',
   })
   const [preview, setPreview] = useState(null)
   const [validating, setValidating] = useState(false)
@@ -98,6 +100,8 @@ export default function ListEditorModal({ list, presets, onClose, onSaved, onToa
     setForm(prev => ({
       ...prev,
       presetKey: key,
+      scheduleStart: preset?.schedule?.start || '',
+      scheduleEnd: preset?.schedule?.end || '',
       url: '',
       name: prev.name || preset?.label || '',
       mediaType: preset ? (preset.mediaType === 'tv' ? 'tv' : 'movie') : prev.mediaType,
@@ -149,6 +153,8 @@ export default function ListEditorModal({ list, presets, onClose, onSaved, onToa
         movieWindowDays: Number(form.movieWindowDays) || 7,
         seasonLimit: Number(form.seasonLimit) || 0,
         seasonWindowDays: Number(form.seasonWindowDays) || 7,
+        scheduleStart: form.scheduleStart.trim() || null,
+        scheduleEnd: form.scheduleEnd.trim() || null,
       }
       if (editing) await adminAutomation.updateList(list.id, payload)
       else await adminAutomation.createList(payload)
@@ -269,6 +275,15 @@ export default function ListEditorModal({ list, presets, onClose, onSaved, onToa
           <div className="conn-field-group">
             <label className="conn-field-label">{t('Sync every (hours)')}</label>
             <input type="number" min="1" className="conn-input" style={{ maxWidth: 90 }} value={form.syncIntervalHours} onChange={(e) => set('syncIntervalHours', e.target.value)} />
+          </div>
+          <div className="conn-field-group">
+            <label className="conn-field-label">{t('Active season')}</label>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <input type="text" className="conn-input" style={{ maxWidth: 80 }} placeholder="MM-DD" value={form.scheduleStart} onChange={(e) => set('scheduleStart', e.target.value)} aria-label={t('Season start')} />
+              <span style={{ color: 'var(--text-muted)' }}>–</span>
+              <input type="text" className="conn-input" style={{ maxWidth: 80 }} placeholder="MM-DD" value={form.scheduleEnd} onChange={(e) => set('scheduleEnd', e.target.value)} aria-label={t('Season end')} />
+            </div>
+            <span className="conn-hint">{t('Blank = all year. Outside these dates the list pauses and its collection is removed.')}</span>
           </div>
         </div>
 
