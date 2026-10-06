@@ -11,9 +11,8 @@ import BulkSettingsModal from '../components/admin/BulkSettingsModal'
 import AgentInfoModal from '../components/admin/AgentInfoModal'
 import { adminStatus, adminNotifications, adminUpdate } from '../services/adminApi'
 import ChangelogModal from '../components/ChangelogModal'
+import useAppVersion from '../hooks/useAppVersion'
 import { useTranslation } from 'react-i18next'
-
-const APP_VERSION = import.meta.env.VITE_APP_VERSION || '3.4.0'
 
 const LOGO_SVG = (
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="1em" height="1em" fill="none" aria-hidden="true">
@@ -64,6 +63,7 @@ function AdminNav({ onLogout }) {
 
 function VersionStrip({ updateAvailable, latestVersion, onOpenChangelog }) {
   const { t } = useTranslation()
+  const appVersion = useAppVersion()
   return (
     <div className="version-strip">
       <button
@@ -73,7 +73,7 @@ function VersionStrip({ updateAvailable, latestVersion, onOpenChangelog }) {
         style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit', color: 'inherit' }}
         aria-label={t('View changelog')}
       >
-        v{APP_VERSION}
+        {appVersion ? `v${appVersion}` : t('Changelog')}
       </button>
       {updateAvailable && latestVersion && (
         <a

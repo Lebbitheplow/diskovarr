@@ -31,6 +31,10 @@ RUN npm run build
 FROM node:26.7.0-alpine
 WORKDIR /app
 
+# Release version, passed by CI from the git tag (.git isn't in the image).
+ARG APP_VERSION=""
+ENV DISKOVARR_VERSION=${APP_VERSION}
+
 # ffmpeg: yt-dlp needs it to merge 1080p video+audio streams.
 # python3: runs the universal yt-dlp zipapp (PyInstaller binaries are glibc-only).
 RUN apk add --no-cache ffmpeg python3

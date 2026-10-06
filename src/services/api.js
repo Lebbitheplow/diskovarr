@@ -284,6 +284,12 @@ export const publicReviewsApi = {
   getShareConfig: () => api.get('/public/share-config'),
 }
 
+/** Installed version + GitHub release notes (public) */
+export const versionApi = {
+  getVersion: () => api.get('/public/version'),
+  getChangelog: () => api.get('/public/changelog'),
+}
+
 /** Follow System */
 export const followApi = {
   initFollows: () => api.post('/users/init-follows'),

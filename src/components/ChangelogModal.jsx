@@ -1,5 +1,9 @@
-import React from 'react'
+import React, { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { versionApi } from '../services/api'
+import { renderInlineMarkdown } from '../utils/renderRichText'
+
+const RELEASES_URL = 'https://github.com/Lebbitheplow/diskovarr/releases'
 
 const SECTION_LABEL_STYLE = {
   margin: '4px 0 2px',
@@ -11,16 +15,91 @@ const SECTION_LABEL_STYLE = {
 }
 
 const LIST_STYLE = { margin: '0 0 8px', paddingLeft: '18px', display: 'flex', flexDirection: 'column', gap: '4px' }
-const LIST_STYLE_LAST = { ...LIST_STYLE, margin: '0' }
 const ITEM_STYLE = { fontSize: '0.84rem' }
+const PARA_STYLE = { fontSize: '0.84rem', margin: '0 0 8px' }
 const DATE_STYLE = { fontWeight: '400', color: 'var(--text-secondary)', fontSize: '0.78rem' }
+const LINK_STYLE = { color: 'var(--accent)', textDecoration: 'underline' }
 
-// Shows the current release plus the two before it — older history lives in
-// server/CHANGELOG.md.
+const LINK_RE = /\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)/g
+
+// Inline markdown plus [text](https://…) links. React elements only — no HTML.
+function renderInline(text, key) {
+  const out = []
+  let last = 0
+  let i = 0
+  for (const m of text.matchAll(LINK_RE)) {
+    if (m.index > last) out.push(...renderInlineMarkdown(text.slice(last, m.index), `${key}-${i}`))
+    out.push(<a key={`${key}-a${i}`} href={m[2]} target="_blank" rel="noopener noreferrer" style={LINK_STYLE}>{m[1]}</a>)
+    last = m.index + m[0].length
+    i++
+  }
+  if (last < text.length) out.push(...renderInlineMarkdown(text.slice(last), `${key}-${i}`))
+  return out
+}
+
+// The subset of GitHub markdown release notes use: headings, bullet lists
+// (with wrapped continuation lines) and paragraphs.
+function parseNotes(body) {
+  const blocks = []
+  let list = null
+  let para = null
+  for (const raw of String(body || '').replace(/\r\n/g, '\n').split('\n')) {
+    const line = raw.trim()
+    if (!line) { list = null; para = null; continue }
+    const heading = line.match(/^#{1,6}\s+(.*)$/)
+    const bullet = line.match(/^[-*+]\s+(.*)$/)
+    if (heading) {
+      blocks.push({ type: 'heading', text: heading[1] })
+      list = null; para = null
+    } else if (bullet) {
+      if (!list) { list = { type: 'list', items: [] }; blocks.push(list) }
+      list.items.push(bullet[1])
+      para = null
+    } else if (list && /^\s/.test(raw)) {
+      list.items[list.items.length - 1] += ` ${line}`
+    } else if (para) {
+      para.text += ` ${line}`
+    } else {
+      para = { type: 'para', text: line }
+      blocks.push(para)
+      list = null
+    }
+  }
+  return blocks
+}
+
+function ReleaseNotes({ body, id }) {
+  return parseNotes(body).map((b, i) => {
+    const key = `${id}-${i}`
+    if (b.type === 'heading') return <p key={key} style={SECTION_LABEL_STYLE}>{b.text}</p>
+    if (b.type === 'list') {
+      return (
+        <ul key={key} style={LIST_STYLE}>
+          {b.items.map((item, j) => <li key={j} style={ITEM_STYLE}>{renderInline(item, `${key}-${j}`)}</li>)}
+        </ul>
+      )
+    }
+    return <p key={key} style={PARA_STYLE}>{renderInline(b.text, key)}</p>
+  })
+}
+
+// The installed release plus the two before it, straight from GitHub releases
+// (fetched and cached by the server).
 export default function ChangelogModal({ open, onClose }) {
   const { t } = useTranslation()
+  const [state, setState] = useState({ loading: true, releases: [] })
+
+  useEffect(() => {
+    if (!open) return
+    let cancelled = false
+    versionApi.getChangelog()
+      .then(({ data }) => { if (!cancelled) setState({ loading: false, releases: data?.releases || [] }) })
+      .catch(() => { if (!cancelled) setState({ loading: false, releases: [] }) })
+    return () => { cancelled = true }
+  }, [open])
+
   if (!open) return null
-  const currentVersion = import.meta.env.VITE_APP_VERSION || '3.4.0'
+  const { loading, releases } = state
 
   return (
     <div className="info-modal-backdrop open" onClick={onClose}>
@@ -30,56 +109,24 @@ export default function ChangelogModal({ open, onClose }) {
           <span className="logo-text">{t('Changelog')}</span>
         </div>
         <div className="info-modal-sections" id="changelog-entries">
-          <div className="info-modal-section">
-            <div className="info-modal-section-title">
-              v{currentVersion}{' '}
-              <span style={DATE_STYLE}>2026-09-23</span>
+          {loading && releases.length === 0 && (
+            <p style={PARA_STYLE}>{t('Loading release notes…')}</p>
+          )}
+          {!loading && releases.length === 0 && (
+            <p style={PARA_STYLE}>{t("Release notes couldn't be loaded from GitHub.")}</p>
+          )}
+          {releases.map(r => (
+            <div className="info-modal-section" key={r.version}>
+              <div className="info-modal-section-title">
+                <a href={r.url} target="_blank" rel="noopener noreferrer" style={{ color: 'inherit', textDecoration: 'none' }}>v{r.version}</a>{' '}
+                <span style={DATE_STYLE}>{r.date}</span>
+              </div>
+              <ReleaseNotes body={r.body} id={r.version} />
             </div>
-            <p style={SECTION_LABEL_STYLE}>{t('New')}</p>
-            <ul style={LIST_STYLE}>
-              <li style={ITEM_STYLE}>Riven reset — a "Riven reset" button on DUMB requests in the queue and on open issues blacklists the torrent Riven downloaded, clears the files and sends the item straight back to Riven's queue, so a bad download can be redone without opening Riven</li>
-              <li style={ITEM_STYLE}>For shows, pick the entire show, whole seasons, or single episodes (each showing its Riven state); an issue reported against a season or episode comes pre-selected</li>
-              <li style={ITEM_STYLE}>Titles that share a TMDB id across movies and shows (Doctor Who and The Two Towers are both 121) are looked up by IMDb id, so the right one is reset</li>
-            </ul>
-            <p style={SECTION_LABEL_STYLE}>{t('Changes')}</p>
-            <ul style={LIST_STYLE_LAST}>
-              <li style={ITEM_STYLE}>New background — a velvet stage curtain replaces the floating orbs: its folds ripple slowly as if in a draught, the velvet catches the light where they bunch, and a soft spotlight wanders across it, all in your accent colour</li>
-              <li style={ITEM_STYLE}>A faint film grain and warm vignette over the whole stage</li>
-            </ul>
-          </div>
-          <div className="info-modal-section">
-            <div className="info-modal-section-title">
-              v3.3.4{' '}
-              <span style={DATE_STYLE}>2026-09-23</span>
-            </div>
-            <p style={SECTION_LABEL_STYLE}>{t('Changes')}</p>
-            <ul style={LIST_STYLE}>
-              <li style={ITEM_STYLE}>New look: Velvet Marquee — cinema-lobby display type, condensed caps on labels and buttons, cream text on a warm stage, and ticket-stub buttons, all driven by your accent colour</li>
-              <li style={ITEM_STYLE}>Hero: a slow projector-beam sweep over the key art and a ticket-stub pager that fills with each rotation; the details window slides in on a frosted velvet card</li>
-              <li style={ITEM_STYLE}>The page background tints toward your accent colour with no flash on reload</li>
-            </ul>
-            <p style={SECTION_LABEL_STYLE}>{t('Fixes')}</p>
-            <ul style={LIST_STYLE_LAST}>
-              <li style={ITEM_STYLE}>Search results showed a literal \u2605 instead of a star next to the rating</li>
-            </ul>
-          </div>
-          <div className="info-modal-section">
-            <div className="info-modal-section-title">
-              v3.3.3{' '}
-              <span style={DATE_STYLE}>2026-09-21</span>
-            </div>
-            <p style={SECTION_LABEL_STYLE}>{t('New')}</p>
-            <ul style={LIST_STYLE}>
-              <li style={ITEM_STYLE}>Movie Night — a new side-rail section for movie nights with your people: create a group (one-off scheduled night, weekly recurring, or always-on rolling list), invite members, nominate movies and shows straight from the details window, and let everyone vote +1/-1 on the pile</li>
-              <li style={ITEM_STYLE}>Movie Night rotation — turn on rotation and the app keeps a round-robin of who picks each night (members and personas in order), shows who's next up and their top pick, and moves the cursor on when a title is marked watched</li>
-              <li style={ITEM_STYLE}>Personas — extra voters for people sharing an account (kids, partner, the dog): each persona casts its own votes and posts comments under its own name</li>
-              <li style={ITEM_STYLE}>Weekday themes, per-title comments, and tonight reminders through your enabled notification channels</li>
-            </ul>
-            <p style={SECTION_LABEL_STYLE}>{t('Changes')}</p>
-            <ul style={LIST_STYLE_LAST}>
-              <li style={ITEM_STYLE}>Security: nodemailer upgraded to 9.1.1</li>
-            </ul>
-          </div>
+          ))}
+          <a href={RELEASES_URL} target="_blank" rel="noopener noreferrer" style={{ ...LINK_STYLE, fontSize: '0.84rem' }}>
+            {t('All releases on GitHub')}
+          </a>
         </div>
       </div>
     </div>

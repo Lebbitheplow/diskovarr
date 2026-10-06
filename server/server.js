@@ -87,7 +87,7 @@ app.get('/health', (req, res) => {
     require('./db/database').prepare('SELECT 1').get()
     res.json({
       status: 'ok',
-      version: require('./package.json').version,
+      version: require('./services/appVersion').currentVersion(),
       uptime: Math.floor(process.uptime()),
     })
   } catch (err) {
