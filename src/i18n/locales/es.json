@@ -1209,5 +1209,8 @@
   "Who's watching": "Quién está viendo",
   "You can close this page. Pausing or skipping with any TV remote carries over to everyone.": "Puedes cerrar esta página. Pausar o saltar con cualquier mando se aplica a todos.",
   "Your TV": "Tu TV",
-  "{{name}} will start the party once everyone is ready.": "{{name}} iniciará la sesión cuando todos estén listos."
+  "{{name}} will start the party once everyone is ready.": "{{name}} iniciará la sesión cuando todos estén listos.",
+  "Loading release notes…": "Cargando notas de la versión…",
+  "Release notes couldn't be loaded from GitHub.": "No se pudieron cargar las notas de la versión desde GitHub.",
+  "All releases on GitHub": "Todas las versiones en GitHub"
 }

@@ -8,7 +8,7 @@ const recommender = require('../services/recommender');
 const discoverRecommender = require('../services/discoverRecommender');
 const logger = require('../services/logger');
 const { enqueueForUser } = require('../services/notificationAgents');
-const { version: APP_VERSION } = require('../package.json');
+const appVersion = require('../services/appVersion');
 
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -17,37 +17,6 @@ const loginLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: 'Too many login attempts, please try again later' },
 });
-
-// ── Update check (GitHub releases, 6h cache) ─────────────────────────────────
-
-let _updateCache = { checkedAt: 0, latestVersion: null };
-const UPDATE_CHECK_TTL = 6 * 60 * 60 * 1000;
-
-async function getLatestVersion() {
-  if (Date.now() - _updateCache.checkedAt < UPDATE_CHECK_TTL) {
-    return _updateCache.latestVersion;
-  }
-  try {
-    const res = await fetch('https://api.github.com/repos/Lebbitheplow/diskovarr/releases/latest', {
-      headers: { 'User-Agent': 'diskovarr-update-check' },
-      signal: AbortSignal.timeout(5000),
-    });
-    if (!res.ok) throw new Error(`GitHub API ${res.status}`);
-    const data = await res.json();
-    const tag = (data.tag_name || '').replace(/^v/, '');
-    _updateCache = { checkedAt: Date.now(), latestVersion: tag || null };
-  } catch {
-    _updateCache.checkedAt = Date.now(); // suppress retries for TTL window
-  }
-  return _updateCache.latestVersion;
-}
-
-function isNewerVersion(latest, current) {
-  if (!latest) return false;
-  const [lM, lm, lp] = latest.split('.').map(Number);
-  const [cM, cm, cp] = current.split('.').map(Number);
-  return lM > cM || (lM === cM && lm > cm) || (lM === cM && lm === cm && lp > cp);
-}
 
 // ── Auth middleware ───────────────────────────────────────────────────────────
 
@@ -198,12 +167,7 @@ router.get('/status', requireAdmin, (req, res) => {
 // ── Update check ──────────────────────────────────────────────────────────────
 
 router.get('/update-status', requireAdmin, async (req, res) => {
-  const latest = await getLatestVersion();
-  res.json({
-    current: APP_VERSION,
-    latest,
-    updateAvailable: isNewerVersion(latest, APP_VERSION),
-  });
+  res.json(await appVersion.getUpdateStatus());
 });
 
 // ── Library sync controls ─────────────────────────────────────────────────────

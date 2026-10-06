@@ -7,6 +7,7 @@
 const express = require('express');
 const router = express.Router();
 const { getShareData, getConfiguredPublicUrl, canShareExternally } = require('../services/reviewShare');
+const appVersion = require('../services/appVersion');
 
 // Share configuration for the client: the canonical link base + whether the
 // instance is reachable enough for social-network sharing (crawler-dependent).
@@ -33,6 +34,16 @@ router.get('/review/:id', (req, res) => {
     createdAt: r.created_at,
     watchedDate: r.watched_date,
   });
+});
+
+// Installed version (footer, info modal) and its release notes from GitHub.
+// Both are public on GitHub already; the release fetch is cached server-side.
+router.get('/version', (req, res) => {
+  res.json({ version: appVersion.currentVersion() });
+});
+
+router.get('/changelog', async (req, res) => {
+  res.json(await appVersion.getChangelog(3));
 });
 
 module.exports = router;
