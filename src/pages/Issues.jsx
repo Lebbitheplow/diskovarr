@@ -532,7 +532,7 @@ export default function Issues() {
                     <td>
                      <div className="queue-title-cell">
                         {issue.posterUrl ? (
-                         <img className="queue-poster" src={posterUrl(issue.posterUrl)} alt="" loading="lazy" />
+                         <img className="queue-poster" src={posterUrl(issue.posterUrl, 240)} alt="" loading="lazy" />
                         ) : (
                          <div className="queue-poster-placeholder">?</div>
                         )}

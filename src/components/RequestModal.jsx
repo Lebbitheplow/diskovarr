@@ -5,6 +5,7 @@ import { useToast } from '../context/ToastContext'
 import { useAuth } from '../context/AuthContext'
 import { useTranslation } from 'react-i18next'
 import { invalidateMissingSeasons } from '../hooks/useMissingSeasons'
+import useModalOpen from '../hooks/useModalOpen'
 
 // Shared request dialog used by Explore, Search, and DetailModal flows.
 // Handles season selection and alternate-service choice. YouTube-sourced items
@@ -21,6 +22,7 @@ import { invalidateMissingSeasons } from '../hooks/useMissingSeasons'
 const seasonFromNumber = (n) => ({ number: Number(n), selectable: true, complete: false, requested: false })
 
 export default function RequestModal({ item, services, onClose, onSubmitted }) {
+  useModalOpen(!!item)
   const { t } = useTranslation()
   const { error: toastError, success: toastSuccess } = useToast()
   const { user } = useAuth()

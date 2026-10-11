@@ -21,7 +21,7 @@ function Commenter({ src, name }) {
   if (isEmoji) {
     return <span className="mn-avatar mn-avatar-emoji" aria-hidden="true">{src}</span>
   }
-  if (src) return <img className="mn-avatar" src={posterUrl(src)} alt="" />
+  if (src) return <img className="mn-avatar" src={posterUrl(src, 120)} alt="" />
   return <span className="mn-avatar">{(name || '?')[0].toUpperCase()}</span>
 }
 

@@ -14,7 +14,7 @@ const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Frida
 function Avatar({ src, name, emoji, size = 28 }) {
   const style = { width: size, height: size }
   if (emoji) return <span className="mn-avatar mn-avatar-emoji" style={style} aria-hidden="true">{emoji}</span>
-  if (src) return <img className="mn-avatar" style={style} src={posterUrl(src)} alt="" />
+  if (src) return <img className="mn-avatar" style={style} src={posterUrl(src, 120)} alt="" />
   return <span className="mn-avatar" style={style}>{(name || '?')[0].toUpperCase()}</span>
 }
 
@@ -97,7 +97,7 @@ function AddEntryBar({ groupId, personas, onAdded }) {
               disabled={!!busyId}
             >
               {item.posterUrl
-                ? <img src={posterUrl(item.posterUrl)} alt="" style={{ width: 28, height: 42, objectFit: 'cover', borderRadius: 4, background: 'var(--bg-secondary)' }} />
+                ? <img src={posterUrl(item.posterUrl, 120)} alt="" style={{ width: 28, height: 42, objectFit: 'cover', borderRadius: 4, background: 'var(--bg-secondary)' }} />
                 : <span className="mn-avatar" style={{ width: 28, height: 42, borderRadius: 4 }}>{(item.title || '?')[0]}</span>}
               <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', minWidth: 0 }}>
                 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 260 }}>{item.title}</span>
@@ -126,7 +126,7 @@ function EntryRow({ entry, personas, isPrivileged, isHost, me, myVote, onVote, o
   return (
     <div className={`mn-entry ${entry.status === 'watched' ? 'watched' : ''} ${entry.status === 'cancelled' ? 'cancelled' : ''}`}>
       {entry.thumb
-        ? <img className="mn-entry-poster" src={posterUrl(entry.thumb)} alt="" loading="lazy" />
+        ? <img className="mn-entry-poster" src={posterUrl(entry.thumb, 240)} alt="" loading="lazy" />
         : <div className="mn-entry-poster" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)' }}>{entry.title?.[0] || '?'}</div>}
       <div className="mn-entry-main">
         <div className="mn-entry-title">
@@ -413,7 +413,7 @@ export default function MovieNightDetail() {
         <div className="mn-rotation">
           <span className="mn-rotation-label">{t('Next up')}</span>
           <span className="mn-rotation-pick">
-            {nextPick.entry.thumb && <img className="mn-rotation-poster" src={posterUrl(nextPick.entry.thumb)} alt="" />}
+            {nextPick.entry.thumb && <img className="mn-rotation-poster" src={posterUrl(nextPick.entry.thumb, 120)} alt="" />}
             <span>{nextPick.entry.title} {nextPick.entry.year && <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>({nextPick.entry.year})</span>}</span>
           </span>
           <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>

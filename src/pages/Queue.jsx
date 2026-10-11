@@ -461,7 +461,7 @@ export default function Queue() {
                     <td>
                       <div className="queue-title-cell">
                         {r.posterUrl ? (
-                          <img className="queue-poster" src={posterUrl(r.posterUrl)} alt="" loading="lazy" onClick={() => handleOpenDetail(r)} style={{ cursor: 'pointer' }} />
+                          <img className="queue-poster" src={posterUrl(r.posterUrl, 240)} alt="" loading="lazy" onClick={() => handleOpenDetail(r)} style={{ cursor: 'pointer' }} />
                         ) : (
                           <div className="queue-poster-placeholder" onClick={() => handleOpenDetail(r)} style={{ cursor: 'pointer' }}>?</div>
                         )}

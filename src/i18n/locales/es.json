@@ -1212,5 +1212,11 @@
   "{{name}} will start the party once everyone is ready.": "{{name}} iniciará la sesión cuando todos estén listos.",
   "Loading release notes…": "Cargando notas de la versión…",
   "Release notes couldn't be loaded from GitHub.": "No se pudieron cargar las notas de la versión desde GitHub.",
-  "All releases on GitHub": "Todas las versiones en GitHub"
+  "All releases on GitHub": "Todas las versiones en GitHub",
+  "Play": "Reproducir",
+  "Monitor": "Monitorizar",
+  "Report issue": "Informar de una incidencia",
+  "Issue reported": "Incidencia informada",
+  "Submitting…": "Enviando…",
+  "Description (optional)": "Descripción (opcional)"
 }

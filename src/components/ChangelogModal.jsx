@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { versionApi } from '../services/api'
 import { renderInlineMarkdown } from '../utils/renderRichText'
+import useModalOpen from '../hooks/useModalOpen'
 
 const RELEASES_URL = 'https://github.com/Lebbitheplow/diskovarr/releases'
 
@@ -86,6 +87,7 @@ function ReleaseNotes({ body, id }) {
 // The installed release plus the two before it, straight from GitHub releases
 // (fetched and cached by the server).
 export default function ChangelogModal({ open, onClose }) {
+  useModalOpen(open)
   const { t } = useTranslation()
   const [state, setState] = useState({ loading: true, releases: [] })
 

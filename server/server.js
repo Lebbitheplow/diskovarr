@@ -77,6 +77,8 @@ app.use((req, res, next) => {
 // Express 5 defaults to its "simple" query parser (no nested keys or a[]=
 // arrays); keep the extended qs behaviour the routes were written against.
 app.set('query parser', 'extended')
+// Gzip/brotli for JSON bodies (recommendation payloads are hundreds of KB)
+app.use(require('./middleware/compressJson')())
 app.use(express.json())
 app.use(express.urlencoded({ extended: true }))
 
@@ -316,7 +318,9 @@ app.get('/discord-avatar.png', (req, res) => {
   }
 })
 
-// Serve React static files
+// Serve React static files. Hashed build assets get precompressed variants
+// and a long cache lifetime; index.html and the rest revalidate as before.
+app.use('/assets', require('./middleware/builtAssets')(path.join(__dirname, '../dist/assets')))
 app.use(express.static(path.join(__dirname, '../dist')))
 
 // Plex auth callback — store PIN in session server-side (same pattern as original app's GET /auth/callback)

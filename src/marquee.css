@@ -5,9 +5,9 @@
    touching the motion rules in effects.css. Every warm tone is
    derived from --accent through the tokens in style.css, so the
    admin theme colour still drives the whole app.
-   Perf: adds one always-on animated layer (the hero beam) and one
-   blur surface (the detail modal card, which replaced an opaque
-   card — the modal is only ever open alongside the rail).
+   Perf: adds one always-on animated layer (the hero beam), paused
+   with the rest of the background motion while a modal is open or
+   the hero is scrolled away.
    ============================================================ */
 
 /* ── Display type ────────────────────────────────────────────── */
@@ -479,7 +479,6 @@
   .rail { background: rgba(18, 11, 8, 0.97); }
   .topbar.is-scrolled { background: rgba(20, 12, 9, 0.97); }
   .section-header { background: rgba(30, 19, 13, 0.96); }
-  .detail-modal-card { background: rgba(30, 19, 13, 0.98); }
 }
 
 /* ── Ambient stage: vignette + film grain over the curtain canvas ──
@@ -496,18 +495,21 @@
 .ambient-bg::after {
   content: '';
   position: absolute;
-  inset: -20%;
+  /* One noise tile of overhang on the two edges the drift moves away from —
+     enough to stay covered, a fraction of the old 140% × 140% layer. No blend
+     mode: screen over a near-black stage is the same as normal blending at
+     this opacity, minus the extra compositing pass. */
+  inset: 0 -220px -220px 0;
   opacity: 0.045;
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 0.95  0 0 0 0 0.86  0 0 0 0.9 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
   background-size: 220px 220px;
-  mix-blend-mode: screen;
   animation: ambient-grain 0.9s steps(6) infinite;
   pointer-events: none;
 }
 
 @keyframes ambient-grain {
   0% { transform: translate(0, 0); }
-  100% { transform: translate(-6%, -4%); }
+  100% { transform: translate(-132px, -66px); }
 }
 
 @media (max-width: 768px) {
@@ -516,6 +518,18 @@
 
 @media (prefers-reduced-motion: reduce) {
   .ambient-bg::after { animation: none; }
+}
+
+/* While a modal covers the page (hooks/useModalOpen) or the hero has
+   scrolled away, the looping background motion holds still: nothing can
+   see it, and a backdrop that doesn't change is one the compositor doesn't
+   have to redraw. The curtain canvas pauses on the same flag. */
+[data-modal-open] .ambient-bg::after,
+[data-modal-open] .spotlight-art,
+[data-modal-open] .spotlight-beam,
+.spotlight[data-offscreen] .spotlight-art,
+.spotlight[data-offscreen] .spotlight-beam {
+  animation-play-state: paused;
 }
 
 /* ── Spotlight hero ──────────────────────────────────────────── */
@@ -538,7 +552,9 @@
     transparent 26deg);
   mix-blend-mode: soft-light;
   transform-origin: 0 0;
-  animation: spotlight-beam 9s ease-in-out infinite alternate;
+  /* 12 updates a second, like the art's zoom: the soft edge moves ~2px per
+     step, and the soft-light blend makes every update a full hero redraw */
+  animation: spotlight-beam 9s steps(108) infinite alternate;
   pointer-events: none;
   will-change: transform, opacity;
 }
@@ -664,7 +680,7 @@
   width: 100%;
   background: var(--accent);
   transform-origin: left center;
-  animation: spotlight-fill var(--spotlight-rotate, 7s) linear forwards;
+  animation: spotlight-fill var(--spotlight-rotate, 7s) steps(84) forwards; /* ~12 updates a second */
 }
 
 .spotlight[data-paused] .spotlight-dot.is-active::after { animation-play-state: paused; }
@@ -824,10 +840,11 @@
 
 .detail-modal-wrap.open { animation: marquee-fade-in 0.22s ease both; }
 
+/* Opaque, in the colour the old 90% fill over a blurred, dimmed page averaged
+   out to. The blur only ever showed through as a faint wash, yet it was
+   recomputed on every frame of the open animation and every modal scroll. */
 .detail-modal-card {
-  background: rgba(30, 19, 13, 0.9);
-  backdrop-filter: blur(24px) saturate(140%);
-  -webkit-backdrop-filter: blur(24px) saturate(140%);
+  background: rgb(29, 18, 12);
   border: 1px solid rgba(255, 226, 190, 0.12);
   border-radius: 18px;
   box-shadow: 0 30px 90px rgba(0, 0, 0, 0.75);
@@ -990,38 +1007,215 @@
   padding: 10px 18px;
 }
 
-.modal-btn-cast,
-.modal-btn-monitor,
-.modal-btn-plex {
+.modal-btn-monitor {
   background: color-mix(in oklab, var(--velvet) 65%, transparent);
   color: var(--velvet-text);
   border-color: transparent;
 }
 
-.modal-btn-cast:hover,
-.modal-btn-monitor:hover,
-.modal-btn-plex:hover {
+.modal-btn-monitor:hover {
   background: color-mix(in oklab, var(--velvet) 95%, transparent);
   color: var(--velvet-text);
   border-color: transparent;
 }
 
-.modal-btn-dismiss {
-  color: var(--text-muted);
-  border-color: var(--well-border);
+/* ── Detail modal actions (DetailActions.jsx) ─────────────────
+   Two tiers. Under the title: one gold primary, then the velvet
+   "ways to watch". Under the tab content: quiet text actions for
+   managing the title, with "not interested" pinned to the far end. */
+.detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0 20px;
 }
 
-.modal-btn-dismiss:hover {
-  color: #ff8a70;
-  border-color: rgba(255, 120, 90, 0.4);
+.detail-actions .modal-btn,
+.detail-action,
+.detail-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.detail-action-icon { flex: none; }
+
+.detail-action {
+  padding: 10px 14px;
+  border: none;
+  border-radius: 9px;
+  background: color-mix(in oklab, var(--velvet) 65%, transparent);
+  color: var(--velvet-text);
+  font-family: var(--font-condensed);
+  font-weight: 700;
+  font-size: 0.86rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-spring);
+}
+
+.detail-action:hover:not(:disabled),
+.detail-action.is-open {
+  background: color-mix(in oklab, var(--velvet) 95%, transparent);
+}
+
+.detail-action:active:not(:disabled) { transform: scale(0.97); }
+.detail-action:disabled { opacity: 0.6; cursor: default; }
+
+.detail-cast-picker { margin: -12px 0 20px; }
+
+.detail-manage {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 4px;
+  margin-top: 20px;
+  padding-top: 12px;
+  border-top: 1px solid var(--well-border);
+}
+
+/* Pulls the first item's padding back so its text lines up with the copy */
+.detail-manage > :first-child { margin-left: -10px; }
+
+.detail-link {
+  padding: 7px 10px;
+  border: none;
+  border-radius: 8px;
   background: none;
+  color: var(--text-secondary);
+  font-family: var(--font-condensed);
+  font-weight: 600;
+  font-size: 0.8rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
 }
 
-.btn-tmdb-link { border-color: var(--well-border); border-radius: 9px; padding: 9px 14px; }
+.detail-link:hover:not(:disabled),
+.detail-link.is-open {
+  background: var(--cream-fill);
+  color: var(--text-primary);
+}
+
+.detail-link-accent { color: var(--accent-bright); }
+.detail-link.is-done { color: var(--text-muted); cursor: default; }
+.detail-link.is-done:hover { background: none; color: var(--text-muted); }
+
+.detail-link-dismiss {
+  margin-left: auto;
+  color: var(--text-muted);
+}
+
+.detail-link-dismiss:hover:not(:disabled) {
+  color: #ff8a70;
+  background: rgba(255, 120, 90, 0.1);
+}
+
+.detail-action:focus-visible,
+.detail-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Report-an-issue form, opened from the footer */
+.report-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 10px;
+  padding: 14px;
+  border: 1px solid var(--well-border);
+  border-radius: 12px;
+  background: var(--well-bg);
+}
+
+.report-row { display: flex; gap: 12px; }
+
+.report-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.report-field > span {
+  font-family: var(--font-condensed);
+  font-weight: 600;
+  font-size: 0.76rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.report-input {
+  padding: 7px 9px;
+  border: 1px solid var(--well-border);
+  border-radius: 7px;
+  background: rgba(var(--bg-rgb), 0.7);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.86rem;
+}
+
+.report-input:focus { outline: none; border-color: var(--accent-edge); }
+.report-input-num { width: 90px; }
+.report-input-text { min-height: 70px; resize: vertical; }
+
+.report-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 0.84rem;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.report-check input { margin-top: 3px; }
+
+.report-check small {
+  display: block;
+  font-size: 0.76rem;
+  color: var(--text-secondary);
+}
+
+.report-error { font-size: 0.8rem; color: #ff8a70; }
+
+.report-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+}
+
+.report-actions .modal-btn { padding: 8px 20px; }
 
 @media (max-width: 560px) {
   .detail-modal-card { border-radius: 18px 18px 0 0; }
   .detail-modal-poster { width: 96px; min-width: 96px; }
+
+  /* The primary takes the full width; the ways to watch share the row
+     below as equal icon-over-label tiles */
+  .detail-actions { gap: 6px; }
+  .detail-action-primary { flex: 1 0 100%; justify-content: center; }
+
+  .detail-action {
+    flex: 1 1 0;
+    min-width: 0;
+    flex-direction: column;
+    gap: 5px;
+    padding: 10px 4px;
+    font-size: 0.74rem;
+    letter-spacing: 0.08em;
+    text-align: center;
+  }
+
+  .detail-link { padding: 7px 8px; letter-spacing: 0.08em; }
+  .detail-manage > :first-child { margin-left: -8px; }
 }
 
 /* Generic modal cards (broadcast, info, request, review) */
@@ -1036,6 +1230,10 @@
 }
 
 .info-modal-card { border-radius: 18px; }
+
+/* Lost its backdrop blur (effects.css); opaque so the page doesn't show
+   through sharp where the blur used to smear it */
+.modal-card { background: rgb(29, 18, 12); }
 
 /* ── Toasts ──────────────────────────────────────────────────── */
 .toast,

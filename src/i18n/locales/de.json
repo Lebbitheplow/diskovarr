@@ -1212,5 +1212,11 @@
   "{{name}} will start the party once everyone is ready.": "{{name}} startet die Party, sobald alle bereit sind.",
   "Loading release notes…": "Versionshinweise werden geladen…",
   "Release notes couldn't be loaded from GitHub.": "Die Versionshinweise konnten nicht von GitHub geladen werden.",
-  "All releases on GitHub": "Alle Versionen auf GitHub"
+  "All releases on GitHub": "Alle Versionen auf GitHub",
+  "Play": "Abspielen",
+  "Monitor": "Überwachen",
+  "Report issue": "Problem melden",
+  "Issue reported": "Problem gemeldet",
+  "Submitting…": "Wird gesendet…",
+  "Description (optional)": "Beschreibung (optional)"
 }

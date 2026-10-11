@@ -7,7 +7,6 @@ import WatchPartyInviteModal from './WatchPartyInviteModal'
 import {
   libraryApi,
   watchlistApi,
-  issuesApi,
   exploreApi,
   searchApi,
   socialReviewsApi,
@@ -16,127 +15,14 @@ import { useToast } from '../context/ToastContext'
 import CastCrewTab from './CastCrewTab'
 import ReviewsTab from './ReviewsTab'
 import RatingBadges from './RatingBadges'
-import MonitorDropdown from './MonitorManager/MonitorDropdown'
-import { posterUrl } from '../utils/media'
-import useCastPlayer from '../hooks/useCastPlayer'
+import { DetailActionBar, DetailManageRow } from './DetailActions'
+import { posterUrl, posterSrcSet, CARD_SIZES } from '../utils/media'
 import useMissingSeasons from '../hooks/useMissingSeasons'
 import { useTranslation } from 'react-i18next'
-
-const CAST_ICON = (
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="15" height="15" fill="currentColor" style={{ verticalAlign: '-2px', marginRight: '6px' }}>
-    <path d="M1 18v3h3c0-1.66-1.34-3-3-3zm0-4v2c2.76 0 5 2.24 5 5h2c0-3.87-3.13-7-7-7zm0-4v2c4.97 0 9 4.03 9 9h2C12 14.14 7.03 9 1 10zm20-7H3C1.9 3 1 3.9 1 5v3h2V5h18v14h-7v2h7c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z" />
-  </svg>
-)
-
-
-function ReportIssueForm({ item }) {
-  const { t } = useTranslation()
-  const [open, setOpen] = useState(false)
-  const [submitting, setSubmitting] = useState(false)
-  const [reported, setReported] = useState(false)
-  const [error, setError] = useState(null)
-  const { success } = useToast()
-
-  const isShow = item.type === 'show' || item.mediaType === 'tv'
-  const [scope, setScope] = useState('series')
-  const [season, setSeason] = useState('')
-  const [episode, setEpisode] = useState('')
-  const [missing, setMissing] = useState(false)
-  const [description, setDescription] = useState('')
-
-  // The "missing" flag only applies to a specific season/episode of a show.
-  const canMarkMissing = isShow && (scope === 'season' || scope === 'episode')
-
-  const handleSubmit = async () => {
-    setSubmitting(true)
-    setError(null)
-    try {
-      await issuesApi.createIssue({
-        ratingKey: item.ratingKey,
-        title: item.title,
-        mediaType: item.type === 'show' ? 'show' : 'movie',
-        posterPath: item.thumb || null,
-        scope,
-        scopeSeason: isShow ? (parseInt(season) || null) : null,
-        scopeEpisode: isShow && scope === 'episode' ? (parseInt(episode) || null) : null,
-        missing: canMarkMissing ? missing : false,
-        description: description.trim() || null,
-      })
-      success('Issue reported')
-      setReported(true)
-      setOpen(false)
-    } catch (e) {
-      setError(e.message || 'Submit failed')
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
-  if (reported) return (
-    <button className="modal-btn modal-btn-dismiss" style={{ background: 'rgba(0,180,216,0.08)', color: '#00b4d8', borderColor: 'rgba(0,180,216,0.2)', width: '100%', cursor: 'default' }}>
-      {t('✓ Issue Reported')}
-    </button>
-  )
-
-  return (
-    <div style={{ width: '100%' }}>
-      <button
-        className="modal-btn modal-btn-dismiss"
-        style={{ background: 'rgba(0,180,216,0.08)', color: '#00b4d8', borderColor: 'rgba(0,180,216,0.2)' }}
-        onClick={() => setOpen(!open)}
-      >
-        {open ? '▲ Close Report' : '⚑ Report Issue'}
-      </button>
-      {open && (
-        <div style={{ marginTop: '10px', padding: '12px', background: 'var(--bg-elevated)', borderRadius: '8px', border: '1px solid var(--border)' }}>
-          {isShow && (
-            <div style={{ marginBottom: '10px' }}>
-              <label style={{ display: 'block', fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: '5px' }}>{t('Scope')}</label>
-              <select className="filter-select" value={scope} onChange={e => setScope(e.target.value)} style={{ width: '100%', padding: '6px 8px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text)', fontSize: '0.85rem' }}>
-                <option value="series">{t('Entire Series')}</option>
-                <option value="season">{t('Specific Season')}</option>
-                <option value="episode">{t('Specific Episode')}</option>
-              </select>
-            </div>
-          )}
-          {isShow && (scope === 'season' || scope === 'episode') && (
-            <div style={{ marginBottom: '10px' }}>
-              <label style={{ display: 'block', fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: '5px' }}>{t('Season Number')}</label>
-              <input type="number" min="1" className="filter-select" value={season} onChange={e => setSeason(e.target.value)} style={{ width: '80px', padding: '6px 8px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text)', fontSize: '0.85rem' }} />
-            </div>
-          )}
-          {isShow && scope === 'episode' && (
-            <div style={{ marginBottom: '10px' }}>
-              <label style={{ display: 'block', fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: '5px' }}>{t('Episode Number')}</label>
-              <input type="number" min="1" className="filter-select" value={episode} onChange={e => setEpisode(e.target.value)} style={{ width: '80px', padding: '6px 8px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text)', fontSize: '0.85rem' }} />
-            </div>
-          )}
-          {canMarkMissing && (
-            <label style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', marginBottom: '10px', fontSize: '0.82rem', color: 'var(--text)', cursor: 'pointer' }}>
-              <input type="checkbox" className="bulk-checkbox" checked={missing} onChange={e => setMissing(e.target.checked)} style={{ marginTop: '2px' }} />
-              <span>{t('This content is missing from the library')}
-                <span style={{ display: 'block', fontSize: '0.74rem', color: 'var(--text-secondary)' }}>{t('Automatically queues a search for it in the default request app')}</span>
-              </span>
-            </label>
-          )}
-          <div style={{ marginBottom: '10px' }}>
-            <label style={{ display: 'block', fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: '5px' }}>Description (optional)</label>
-            <textarea className="filter-select" placeholder={t('Describe the problem...')} value={description} onChange={e => setDescription(e.target.value)} style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text)', fontSize: '0.85rem', resize: 'vertical', minHeight: '70px', fontFamily: 'inherit', boxSizing: 'border-box' }} />
-          </div>
-          {error && <div style={{ fontSize: '0.78rem', color: '#ff5252', marginBottom: '8px' }}>Error: {error}</div>}
-          <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-            <button className="chip-sm" onClick={() => setOpen(false)} style={{ padding: '5px 12px', borderRadius: '6px', border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-secondary)', fontSize: '0.82rem', cursor: 'pointer' }}>{t('Cancel')}</button>
-            <button className="chip-sm" onClick={handleSubmit} disabled={submitting} style={{ padding: '5px 12px', borderRadius: '6px', border: 'none', background: 'rgba(0,180,216,0.18)', color: '#00b4d8', fontSize: '0.82rem', fontWeight: '600', cursor: 'pointer' }}>
-              {submitting ? 'Submitting…' : 'Submit'}
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
+import useModalOpen from '../hooks/useModalOpen'
 
 export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
+  useModalOpen(!!item)
   const { t } = useTranslation()
   const navigate = useNavigate()
   const [trailerKey, setTrailerKey] = useState(null)
@@ -150,7 +36,6 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
     setTrailerLoading(!!item?.tmdbId)
   }
   const [inWatchlist, setInWatchlist] = useState(item?.isInWatchlist || false)
-  const { castOpen, castLoading, castingId, clients, handleCastClick, handleCastMedia, canCast, noClientsMessage } = useCastPlayer()
   const [activeTab, setActiveTab] = useState('overview')
   const [credits, setCredits] = useState(
     item?.structuredCast ? { cast: item.structuredCast, crew: item.structuredCrew } : null
@@ -426,7 +311,19 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
           <div className="detail-modal-hero" style={{ backgroundImage: `url(${posterUrl(heroPath)})` }} />
         )}
         <div className="detail-modal-body" style={!heroPath ? { marginTop: '0', paddingTop: '22px' } : {}}>
-          <img className="detail-modal-poster" src={posterUrl(item.thumb)} alt={item.title} style={item.thumb ? {} : { display: 'none' }} />
+          {/* Same srcset and sizes as the cards, so the browser picks the very
+              file the clicked card already shows. The poster morph
+              (utils/viewTransition) snapshots this image as soon as it
+              renders; a different size would still be downloading then, and
+              the morph would land on an empty frame. */}
+          <img
+            className="detail-modal-poster"
+            src={posterUrl(item.thumb, 360)}
+            srcSet={posterSrcSet(item.thumb)}
+            sizes={CARD_SIZES}
+            alt={item.title}
+            style={item.thumb ? {} : { display: 'none' }}
+          />
           <div className="detail-modal-info" style={!heroPath ? { paddingTop: '0' } : {}}>
             <div className="detail-modal-title">{item.title}</div>
             <div className="detail-modal-meta">
@@ -457,6 +354,16 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
                 <span key={i} className="genre-tag">{g}</span>
               ))}
             </div>
+            <DetailActionBar
+              item={item}
+              inLibrary={inLibrary}
+              inWatchlist={inWatchlist}
+              onWatchlist={handleWatchlist}
+              onRequest={handleRequest}
+              onNotify={handleNotify}
+              onMovieNight={item.tmdbId ? () => setMovieNightOpen(true) : null}
+              onWatchTogether={() => setWatchPartyOpen(true)}
+            />
             <div className="detail-modal-tabs">
               <button
                 className={'detail-modal-tab' + (activeTab === 'overview' ? ' active' : '')}
@@ -516,73 +423,13 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
                 onMonitorCast={handleMonitorCast}
               />
             )}
-            <div className="detail-modal-actions">
-              {inLibrary ? (
-                <>
-                  <button className={'modal-btn modal-btn-watchlist' + (inWatchlist ? ' in-watchlist' : '')} onClick={handleWatchlist}>
-                    {inWatchlist ? '✓ In Watchlist' : '+ Watchlist'}
-                  </button>
-                  {canCast(item) && (
-                    <div className="modal-cast-wrap">
-                      <button className="modal-btn modal-btn-cast" onClick={() => handleCastClick(item)} disabled={castLoading} style={{ display: castLoading ? 'flex' : 'inline-flex' }}>
-                        {castLoading ? '…' : CAST_ICON}
-                      </button>
-                      {castOpen && !castLoading && (
-                        <div className="modal-cast-picker">
-                          {clients.length === 0 && <span className="cast-no-clients">{noClientsMessage}</span>}
-                          {clients.map(client => (
-                            <button key={client.machineIdentifier} className="cast-client-btn" onClick={() => handleCastMedia(item, client)} disabled={!!castingId}>
-                              {castingId === client.machineIdentifier
-                                ? t('Casting…')
-                                : client.name + (client.product ? ' · ' + client.product : '')}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  {canCast(item) && (
-                    <button className="modal-btn modal-btn-watchlist" onClick={() => setWatchPartyOpen(true)}>
-                      {t('Watch Together')}
-                    </button>
-                  )}
-                  {isShow && item.tmdbId && hasMissingSeasons && (
-                    <button
-                      className="modal-btn modal-btn-watchlist"
-                      onClick={handleRequestMissing}
-                      style={{ background: 'rgba(0,180,216,0.18)', color: '#00b4d8' }}
-                    >
-                      {t('Request missing seasons')}
-                    </button>
-                  )}
-                  <MonitorDropdown item={item} />
-                  <button className="modal-btn modal-btn-dismiss" onClick={handleDismiss}>{t('✕ Not Interested')}</button>
-                  <ReportIssueForm item={item} />
-                </>
-              ) : (
-                <>
-                  <button
-                    className={'modal-btn modal-btn-watchlist' + (item.isRequested ? ' in-watchlist' : '')}
-                    onClick={item.isRequested ? handleNotify : handleRequest}
-                    style={{ background: item.isRequested ? 'rgba(255,193,7,0.12)' : 'rgba(0,180,216,0.18)', color: item.isRequested ? '#ffc107' : '#00b4d8' }}
-                  >
-                    {item.isRequested ? 'Notify Me' : 'Request'}
-                  </button>
-                  <MonitorDropdown item={item} />
-                  <button className="modal-btn modal-btn-dismiss" onClick={handleDismiss}>{t('✕ Not Interested')}</button>
-                  {item.tmdbId && (
-                    <a className="modal-btn modal-btn-dismiss" href={`https://www.themoviedb.org/${item.mediaType === 'tv' ? 'tv' : 'movie'}/${item.tmdbId}`} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none', cursor: 'pointer' }}>
-                      {t('View on TMDB')}
-                    </a>
-                  )}
-                </>
-              )}
-              {item.tmdbId && (
-                <button className="modal-btn modal-btn-watchlist" onClick={() => setMovieNightOpen(true)} style={{ background: 'rgba(229,160,13,0.16)', color: 'var(--accent)' }}>
-                  + {t('Movie Night')}
-                </button>
-              )}
-            </div>
+            <DetailManageRow
+              key={item.ratingKey || `${item.mediaType}:${item.tmdbId}`}
+              item={item}
+              inLibrary={inLibrary}
+              onDismiss={handleDismiss}
+              onRequestMissing={isShow && item.tmdbId && hasMissingSeasons ? handleRequestMissing : null}
+            />
           </div>
         </div>
         {(trailerKey || trailerLoading) && (

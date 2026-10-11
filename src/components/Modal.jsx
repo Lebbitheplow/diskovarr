@@ -1,7 +1,9 @@
 import React, { useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
+import useModalOpen from '../hooks/useModalOpen'
 
 export default function Modal({ isOpen, onClose, children }) {
+  useModalOpen(isOpen)
   const { t } = useTranslation()
   useEffect(() => {
     if (!isOpen) return

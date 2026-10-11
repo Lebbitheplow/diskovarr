@@ -18,7 +18,7 @@ function formatTime(ms) {
 }
 
 function Avatar({ src, name }) {
-  if (src) return <img className="mn-avatar" src={posterUrl(src)} alt="" />
+  if (src) return <img className="mn-avatar" src={posterUrl(src, 120)} alt="" />
   return <span className="mn-avatar">{(name || '?')[0].toUpperCase()}</span>
 }
 
@@ -189,7 +189,7 @@ export default function WatchParty() {
       <div style={{ marginBottom: 8 }}><Link to="/movie-night" style={{ color: 'var(--text-secondary)', textDecoration: 'none', fontSize: '0.85rem' }}>← {t('Movie Night')}</Link></div>
 
       <div className="mn-detail-hero">
-        {party.thumb && <img className="wp-poster" src={posterUrl(party.thumb)} alt="" />}
+        {party.thumb && <img className="wp-poster" src={posterUrl(party.thumb, 360)} alt="" />}
         <div className="mn-detail-hero-main">
           <h1>{party.title}</h1>
           <div className="mn-detail-hero-meta">

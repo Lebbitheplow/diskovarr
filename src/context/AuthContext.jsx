@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react'
 import axios from 'axios'
-import i18n from '../i18n'
+import i18n, { changeUiLanguage } from '../i18n'
 import { setUnauthorizedHandler } from '../services/api'
 
 const AuthContext = createContext(null)
@@ -27,7 +27,7 @@ export function AuthProvider({ children }) {
         axios.get('/api/user/settings', { withCredentials: true }).then(({ data }) => {
           if (data?.ui_language && data.ui_language !== i18n.language) {
             localStorage.setItem('uiLanguage', data.ui_language)
-            i18n.changeLanguage(data.ui_language)
+            changeUiLanguage(data.ui_language)
           }
         }).catch(() => { /* settings fetch is best-effort */ })
       }

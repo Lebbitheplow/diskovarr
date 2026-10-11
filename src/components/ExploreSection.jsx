@@ -1,7 +1,7 @@
 import React, { memo } from 'react'
 import { useTranslation } from 'react-i18next'
 import Carousel from './Carousel'
-import { posterUrl } from '../utils/media'
+import { posterUrl, posterSrcSet, CARD_SIZES } from '../utils/media'
 import { formatReleaseDate } from '../utils/format'
 
 // Memoized so opening a modal or toggling page-level state in Explore doesn't
@@ -16,7 +16,7 @@ const ExploreCard = memo(function ExploreCard({
   return (
     <div key={item.tmdbId + item.mediaType} className="card" data-tmdb-id={item.tmdbId} data-adult={item.adult ? 'true' : undefined} data-request-tmdb={item.tmdbId} onClick={() => onOpenModal(item)}>
       <button className="card-poster-link" onClick={() => onOpenModal(item)} type="button" aria-label={item.title}>
-        {item.posterUrl && <img className="card-poster" src={posterUrl(item.posterUrl)} alt="" loading="lazy" />}
+        {item.posterUrl && <img className="card-poster" src={posterUrl(item.posterUrl, 360)} srcSet={posterSrcSet(item.posterUrl)} sizes={CARD_SIZES} alt="" loading="lazy" decoding="async" />}
         <div className="card-poster-placeholder">{item.title?.charAt(0) || '?'}</div>
       </button>
       {(upcoming || isFutureRelease)

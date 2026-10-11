@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { timeAgo, formatReleaseDate } from '../src/utils/format'
-import { posterUrl } from '../src/utils/media'
+import { posterUrl, posterSrcSet } from '../src/utils/media'
 
 afterEach(() => vi.useRealTimers())
 
@@ -49,5 +49,35 @@ describe('posterUrl', () => {
   it('returns null for falsy input', () => {
     expect(posterUrl(null)).toBeNull()
     expect(posterUrl('')).toBeNull()
+  })
+
+  it('asks the proxy for a resized copy when given a width', () => {
+    expect(posterUrl('/library/metadata/123/thumb/456', 360)).toBe(
+      '/api/poster?path=' + encodeURIComponent('/library/metadata/123/thumb/456') + '&w=360'
+    )
+  })
+
+  it('steps TMDB URLs down to the smallest CDN size that covers the width', () => {
+    expect(posterUrl('https://image.tmdb.org/t/p/w342/x.jpg', 120)).toBe('https://image.tmdb.org/t/p/w154/x.jpg')
+    expect(posterUrl('https://image.tmdb.org/t/p/original/x.jpg', 1280)).toBe('https://image.tmdb.org/t/p/w1280/x.jpg')
+  })
+
+  it('never upsizes a TMDB URL or touches other hosts', () => {
+    expect(posterUrl('https://image.tmdb.org/t/p/w342/x.jpg', 540)).toBe('https://image.tmdb.org/t/p/w342/x.jpg')
+    expect(posterUrl('https://plex.tv/users/abc/avatar', 120)).toBe('https://plex.tv/users/abc/avatar')
+  })
+})
+
+describe('posterSrcSet', () => {
+  it('offers resized proxy copies for media-server art', () => {
+    const p = encodeURIComponent('/library/metadata/1/thumb/2')
+    expect(posterSrcSet('/library/metadata/1/thumb/2')).toBe(
+      `/api/poster?path=${p}&w=240 240w, /api/poster?path=${p}&w=360 360w, /api/poster?path=${p}&w=540 540w`
+    )
+  })
+
+  it('has nothing to offer for absolute URLs or missing art', () => {
+    expect(posterSrcSet('https://image.tmdb.org/t/p/w342/x.jpg')).toBeUndefined()
+    expect(posterSrcSet(null)).toBeUndefined()
   })
 })

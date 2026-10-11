@@ -5,6 +5,7 @@ import TitlesStep from './TitlesStep'
 import PeopleStep from './PeopleStep'
 import MoodStep from './MoodStep'
 import './TasteQuiz.css'
+import useModalOpen from '../../hooks/useModalOpen'
 
 const MAX_ENTRIES = 200
 
@@ -46,6 +47,7 @@ function ReviewStep({ entries }) {
 }
 
 function TasteQuizInner({ onClose, initialEntries, onSaved, canSkip }) {
+  useModalOpen()
   const initial = initialEntries || []
   const [step, setStep] = useState(0)
   const [genres, setGenres] = useState(() => {

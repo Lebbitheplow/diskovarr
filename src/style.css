@@ -953,12 +953,23 @@ img {
   opacity: 0;
   transform: translateX(7%);
   transition: opacity 0.9s var(--ease-out), transform 0.9s var(--ease-out);
+}
+
+/* Only the two slides that cross-slide hold a compositor layer; the rest
+   would otherwise each keep a hero-sized texture alive while invisible */
+.spotlight-slide.is-active,
+.spotlight-slide.is-prev {
   will-change: opacity, transform;
 }
 
 .spotlight-slide.is-active {
   opacity: 1;
   transform: none;
+}
+
+/* Hidden slides hold their zoom rather than animating unseen */
+.spotlight-slide:not(.is-active):not(.is-prev) .spotlight-art {
+  animation-play-state: paused;
 }
 
 /* Slides already shown exit to the left, so the run reads in one direction */
@@ -971,14 +982,20 @@ img {
   inset: 0;
   background-size: cover;
   background-position: center 20%;
-  animation: spotlight-zoom 24s ease-in-out infinite alternate;
+  /* Stepped at 12 updates a second rather than every display frame: the edge
+     moves ~0.2px per step, far below what can be seen, and each step costs a
+     recomposite of the whole hero (art, scrim, blended beam) */
+  animation: spotlight-zoom 24s steps(288) infinite alternate;
 }
 
 /* Poster fallback: portrait art stretched across a landscape box needs the blur
-   to hide the upscaling, and a bump in scale to cover the blur's soft edges. */
+   to hide the upscaling, and a bump in scale to cover the blur's soft edges.
+   No zoom: under a moving transform the 28px blur is recomputed every frame,
+   and on art this soft the drift can't be seen anyway. */
 .spotlight-art-poster {
   filter: blur(28px) saturate(120%);
   transform: scale(1.15);
+  animation: none;
 }
 
 @keyframes spotlight-zoom {
@@ -1477,7 +1494,6 @@ img {
   opacity: 0;
   transition: opacity 0.2s, background 0.15s, border-color 0.15s;
   pointer-events: none;
-  backdrop-filter: blur(4px);
 }
 
 .carousel-wrap:hover .carousel-arrow:not(:disabled) {
@@ -1540,14 +1556,17 @@ img {
 }
 
 /* Scrim that keeps the title legible over any poster. Grows on hover to cover
-   the taller stack (actions + reason tags). */
+   the taller stack (actions + reason tags). It is laid out at the hover
+   height and scaled down at rest: scaling a gradient is identical to drawing
+   it in a shorter box, and a transform animates on the compositor where
+   height would re-run layout and paint every frame. */
 .card::after {
   content: '';
   position: absolute;
   left: 0;
   right: 0;
   bottom: 0;
-  height: 60%;
+  height: 82%;
   z-index: 1;
   pointer-events: none;
   background: linear-gradient(
@@ -1556,7 +1575,9 @@ img {
     rgba(8, 9, 11, 0.74) 42%,
     transparent 100%
   );
-  transition: height var(--dur-med) var(--ease-out);
+  transform: scaleY(0.7317); /* 60% of the card */
+  transform-origin: bottom;
+  transition: transform var(--dur-med) var(--ease-out);
 }
 
 /* Lift gated to real pointers so touch devices don't get sticky hover */
@@ -1569,7 +1590,7 @@ img {
 
   .card:hover::after,
   .card:focus-within::after {
-    height: 82%;
+    transform: none;
   }
 }
 
@@ -2458,36 +2479,7 @@ img {
   border-color: var(--accent-border);
 }
 
-.modal-btn-dismiss {
-  background: transparent;
-  color: var(--text-muted);
-  border-color: var(--border);
-}
-
-.modal-btn-dismiss:hover {
-  color: #e05050;
-  border-color: rgba(220, 60, 60, 0.4);
-  background: rgba(220, 60, 60, 0.08);
-}
-
-.modal-btn-cast {
-  background: var(--bg-elevated);
-  color: var(--text-secondary);
-  border-color: var(--border);
-}
-
-.modal-btn-cast:hover {
-  color: var(--accent);
-  border-color: var(--accent-border);
-  background: var(--accent-dim);
-}
-
-.modal-cast-wrap {
-  display: contents;
-}
-
 .modal-cast-picker {
-  grid-column: 1 / -1;
   background: var(--bg-primary);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -3363,25 +3355,6 @@ img {
 .detail-credit-label {
   color: var(--text-primary);
   font-weight: 600;
-}
-.detail-modal-actions {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  flex-wrap: wrap;
-}
-.btn-tmdb-link {
-  font-size: 0.8rem;
-  color: var(--text-secondary);
-  text-decoration: none;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 6px 14px;
-  transition: color 0.15s, border-color 0.15s;
-}
-.btn-tmdb-link:hover {
-  color: var(--text-primary);
-  border-color: var(--text-secondary);
 }
 /* Mobile: no backdrop overlap, stack vertically */
 @media (max-width: 560px) {
