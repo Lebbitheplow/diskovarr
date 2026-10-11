@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import { posterUrl as makePosterSrc } from '../utils/media'
+import { posterUrl as makePosterSrc, posterSrcSet, CARD_SIZES } from '../utils/media'
 
 export default function MediaCard({
   item, onOpenModal, onToggleWatchlist, onDismiss, variant = 'home',
@@ -25,7 +25,7 @@ export default function MediaCard({
     if (onDismiss) onDismiss(item)
   }, [onDismiss, item])
 
-  const posterSrc = posterPath && !imgError ? makePosterSrc(posterPath) : null
+  const posterSrc = posterPath && !imgError ? makePosterSrc(posterPath, 360) : null
 
   // The poster button, the action overlay and the info panel are siblings
   // stacked over the card rather than nested. Nesting the action buttons inside
@@ -38,8 +38,11 @@ export default function MediaCard({
           <img
             className="card-poster"
             src={posterSrc}
+            srcSet={posterSrcSet(posterPath)}
+            sizes={CARD_SIZES}
             alt=""
             loading="lazy"
+            decoding="async"
             onError={() => setImgError(true)}
           />
         ) : (

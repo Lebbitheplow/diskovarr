@@ -17,7 +17,7 @@ function fmtTime(ts) {
 
 function Avatar({ src, name, size = '28px' }) {
   if (src) {
-    return <img src={posterUrl(src)} alt="" style={{ width: size, height: size, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
+    return <img src={posterUrl(src, 120)} alt="" style={{ width: size, height: size, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
   }
   return (
     <div style={{ width: size, height: size, borderRadius: '50%', background: 'var(--accent-dim2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: '600', color: 'var(--accent)', flexShrink: 0 }}>

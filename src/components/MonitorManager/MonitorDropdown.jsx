@@ -4,7 +4,7 @@ import MonitorEditor from './MonitorEditor'
 import { useToast } from '../../context/ToastContext'
 import { useTranslation } from 'react-i18next'
 
-export default function MonitorDropdown({ item, onClose }) {
+export default function MonitorDropdown({ item, onClose, buttonClassName = 'modal-btn modal-btn-monitor', label }) {
   const { t } = useTranslation()
   const toast = useToast()
   const [open, setOpen] = useState(false)
@@ -111,11 +111,12 @@ export default function MonitorDropdown({ item, onClose }) {
   return (
     <div className="modal-monitor-wrap" ref={ref}>
       <button
-        className="modal-btn modal-btn-monitor"
+        className={buttonClassName + (open ? ' is-open' : '')}
         onClick={() => setOpen(!open)}
         disabled={saving}
+        aria-expanded={open}
       >
-        {saving ? '...' : 'Monitor'}
+        {saving ? '...' : (label || 'Monitor')}
       </button>
 
       {open && (

@@ -46,8 +46,10 @@ function normalise(item) {
  * `ratingKey` so it offers Play and Watchlist, while an Explore row has
  * neither and offers Request instead — the same rule the cards already use.
  *
- * Auto-rotation pauses on hover, on keyboard focus, and while the tab is
- * hidden, and never starts at all under prefers-reduced-motion.
+ * Auto-rotation pauses on hover, on keyboard focus, while the tab is hidden,
+ * while a modal covers the page and while the hero is scrolled out of view,
+ * and never starts at all under prefers-reduced-motion. The last two also
+ * hold the art's zoom and the beam (marquee.css).
  */
 export default function SpotlightHero({
   items, loading,
@@ -59,7 +61,12 @@ export default function SpotlightHero({
   const slides = (items || []).filter(Boolean).slice(0, MAX_SLIDES)
   const [active, setActive] = useState(0)
   const [paused, setPaused] = useState(false)
+  const [hidden, setHidden] = useState(false)
+  const [covered, setCovered] = useState(false)
+  const [offscreen, setOffscreen] = useState(false)
   const reduced = useRef(false)
+  const sectionRef = useRef(null)
+  const halted = paused || hidden || covered || offscreen
 
   useEffect(() => {
     reduced.current = window.matchMedia(REDUCED).matches
@@ -75,17 +82,34 @@ export default function SpotlightHero({
   const outgoing = count ? (current - 1 + count) % count : 0
 
   useEffect(() => {
-    if (count < 2 || paused || reduced.current) return
+    if (count < 2 || halted || reduced.current) return
     const id = setInterval(() => setActive((i) => (i + 1) % count), ROTATE_MS)
     return () => clearInterval(id)
-  }, [count, paused])
+  }, [count, halted])
 
-  // Don't burn through the rotation in a background tab
+  // Don't burn through the rotation in a background tab, under a modal
+  // (hooks/useModalOpen) or while scrolled past
   useEffect(() => {
-    const onVisibility = () => setPaused(document.hidden)
+    const onVisibility = () => setHidden(document.hidden)
     document.addEventListener('visibilitychange', onVisibility)
-    return () => document.removeEventListener('visibilitychange', onVisibility)
+    const root = document.documentElement
+    const modalWatch = new MutationObserver(() => setCovered(root.hasAttribute('data-modal-open')))
+    modalWatch.observe(root, { attributes: true, attributeFilter: ['data-modal-open'] })
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility)
+      modalWatch.disconnect()
+    }
   }, [])
+
+  // The section only exists once there are slides to show
+  const mounted = !loading && count > 0
+  useEffect(() => {
+    const el = sectionRef.current
+    if (!mounted || !el) return undefined
+    const io = new IntersectionObserver(([e]) => setOffscreen(!e.isIntersecting))
+    io.observe(el)
+    return () => io.disconnect()
+  }, [mounted])
 
   const go = useCallback((i) => {
     setActive(i)
@@ -99,6 +123,7 @@ export default function SpotlightHero({
 
   return (
     <section
+      ref={sectionRef}
       className="spotlight"
       aria-roledescription="carousel"
       aria-label={t('Top picks for you')}
@@ -107,8 +132,9 @@ export default function SpotlightHero({
       onFocusCapture={() => setPaused(true)}
       onBlurCapture={() => setPaused(false)}
       // The pager's fill bar runs on the same clock as the rotation and must
-      // hold whenever the rotation does (hover, focus, hidden tab)
-      data-paused={paused ? '' : undefined}
+      // hold whenever the rotation does
+      data-paused={halted ? '' : undefined}
+      data-offscreen={offscreen ? '' : undefined}
     >
       {/* Every slide's art stays mounted so switching is a cross-slide rather
           than a fresh image load. The zoom lives on an inner element — the
@@ -116,7 +142,8 @@ export default function SpotlightHero({
       <div className="spotlight-stage" aria-hidden="true">
         {slides.map((s, i) => {
           const art = posterUrl(s.art || s.backdropUrl)
-          const fallback = posterUrl(s.thumb || s.posterUrl)
+          // Blurred heavily, so a small copy is indistinguishable
+          const fallback = posterUrl(s.thumb || s.posterUrl, 240)
           return (
             <div
               key={s.tmdbId ? `${s.tmdbId}:${s.mediaType || ''}` : (s.ratingKey || i)}

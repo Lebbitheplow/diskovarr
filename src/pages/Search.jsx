@@ -13,7 +13,7 @@ import SkeletonLoader from '../components/SkeletonLoader'
 import DetailModal from '../components/DetailModal'
 import RequestModal from '../components/RequestModal'
 import { useToast } from '../context/ToastContext'
-import { posterUrl } from '../utils/media'
+import { posterUrl, posterSrcSet, CARD_SIZES } from '../utils/media'
 import { useTranslation } from 'react-i18next'
 import { withViewTransition } from '../utils/viewTransition'
 import useMissingSeasons from '../hooks/useMissingSeasons'
@@ -31,7 +31,7 @@ function SearchCard({ item, inWatchlist, onOpenModal, onToggleWatchlist, onReque
     <div className="card search-card">
       <button className="card-poster-link" onClick={() => onOpenModal(item)} type="button" aria-label={item.title}>
         {item.posterUrl && (
-          <img className="card-poster" src={posterUrl(item.posterUrl)} alt="" loading="lazy" />
+          <img className="card-poster" src={posterUrl(item.posterUrl, 360)} srcSet={posterSrcSet(item.posterUrl)} sizes={CARD_SIZES} alt="" loading="lazy" decoding="async" />
         )}
         <div className="card-poster-placeholder">{item.title?.charAt(0) || '?'}</div>
       </button>
@@ -442,7 +442,7 @@ export default function Search() {
                     >
                       <div className="hero-suggest-poster">
                         {item.posterUrl ? (
-                          <img src={posterUrl(item.posterUrl)} alt="" loading="lazy" />
+                          <img src={posterUrl(item.posterUrl, 120)} alt="" loading="lazy" />
                         ) : (
                           item.title?.charAt(0) || '?'
                         )}

@@ -7,7 +7,7 @@
    backdrop-filter on .card (dozens per page).
    ============================================================ */
 
-/* ── Ambient background (bokeh orb canvas) ──────────────────── */
+/* ── Ambient background (velvet curtain canvas) ─────────────── */
 .ambient-bg {
   position: fixed;
   inset: 0;
@@ -19,6 +19,11 @@
 .ambient-canvas {
   position: absolute;
   inset: 0;
+  /* The canvas renders at half resolution (ambient/runner.js); the
+     compositor stretches it. An explicit size is needed either way — an
+     absolutely positioned canvas otherwise displays at its pixel size. */
+  width: 100%;
+  height: 100%;
 }
 
 /* ── Glass surfaces ─────────────────────────────────────────── */
@@ -84,18 +89,23 @@
   -webkit-backdrop-filter: blur(2px);
 }
 
+/* No blur of its own: the backdrop behind it is already blurred and dimmed,
+   and a second, larger blur under a near-opaque card was invisible while
+   being recomputed on every frame of the open animation. */
 .modal-card {
   background: rgba(24, 24, 24, 0.86);
-  backdrop-filter: blur(20px) saturate(140%);
-  -webkit-backdrop-filter: blur(20px) saturate(140%);
   border-color: var(--glass-border);
 }
 
 .carousel-arrow {
   background: var(--glass-bg);
+  border-color: var(--glass-border);
+}
+
+/* Every shelf has two arrows; only blur the ones actually showing */
+.carousel-wrap:hover .carousel-arrow:not(:disabled) {
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
-  border-color: var(--glass-border);
 }
 
 .carousel-arrow:hover {

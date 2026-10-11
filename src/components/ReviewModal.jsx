@@ -4,6 +4,7 @@ import { useToast } from '../context/ToastContext'
 import { useAuth } from '../context/AuthContext'
 import ShareModal from './ShareModal'
 import { useTranslation } from 'react-i18next'
+import useModalOpen from '../hooks/useModalOpen'
 
 // Letterboxd-style rating: 5 stars, each selectable in half-star increments.
 // The left half of a star selects X.5 below the whole; the right half selects
@@ -73,6 +74,7 @@ function fmtWatchedDate(ts) {
 }
 
 export default function ReviewModal({ onClose, historyItem, onSave }) {
+  useModalOpen()
   const { t } = useTranslation()
   const { success: toastSuccess, error: toastError } = useToast()
   const { user } = useAuth()

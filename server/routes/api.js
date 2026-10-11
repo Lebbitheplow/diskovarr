@@ -24,6 +24,7 @@ const monitorNotifier = require('../services/monitorNotifier');
 const { enqueueForUser } = require('../services/notificationAgents');
 const searchCandidates = require('../services/searchCandidates');
 const seasonAvailability = require('../services/seasonAvailability');
+const posterUpstream = require('../services/posterUpstream');
 
 // Reverse maps: TMDB genre ID → genre name (built once at startup)
 const MOVIE_ID_TO_GENRE = {};
@@ -246,30 +247,31 @@ router.get('/popular', async (req, res) => {
 });
 
 // GET /api/poster?path=/library/metadata/... (Plex) or /Items/<id>/Images/... (Jellyfin)
-// Proxies media-server art through the server — browser never sees tokens
+// Proxies media-server art through the server — browser never sees tokens.
+// Optional &w=<px> resizes upstream (see services/posterUpstream).
 router.get('/poster', async (req, res) => {
-  const { path: posterPath } = req.query;
-
-  // Security: only Plex /library/ or Jellyfin /Items/ image paths with no
-  // traversal segments — blocks SSRF to other hosts and stops '..' from
-  // reaching non-media endpoints with a server token.
-  const isPlexPath = posterPath && posterPath.startsWith('/library/');
-  const isJellyfinPath = posterPath && /^\/Items\/[A-Za-z0-9-]+\/Images\//.test(posterPath);
-  if (!posterPath || (!isPlexPath && !isJellyfinPath) || posterPath.split('/').includes('..')) {
+  const { path: posterPath, w } = req.query;
+  const kind = posterUpstream.posterKind(posterPath);
+  if (!kind) {
     return res.status(400).json({ error: 'Invalid poster path' });
   }
 
   try {
-    const url = isJellyfinPath
-      ? `${jellyfinService.getJellyfinUrl()}${posterPath}`
-      : `${plexService.getPlexUrl()}${posterPath}?X-Plex-Token=${plexService.getPlexToken()}`;
+    const url = posterUpstream.upstreamUrl(posterPath, {
+      width: w,
+      plexUrl: kind === 'plex' ? plexService.getPlexUrl() : null,
+      plexToken: kind === 'plex' ? plexService.getPlexToken() : null,
+      jellyfinUrl: kind === 'jellyfin' ? jellyfinService.getJellyfinUrl() : null,
+    });
     const imgRes = await fetch(url, { signal: AbortSignal.timeout(10000) });
     if (!imgRes.ok) {
       return res.status(imgRes.status).send('Poster not found');
     }
     const contentType = imgRes.headers.get('content-type') || 'image/jpeg';
     res.setHeader('Content-Type', contentType);
-    res.setHeader('Cache-Control', 'public, max-age=86400');
+    // Plex paths end in the item's update timestamp and most Jellyfin paths
+    // carry an image tag, so changed art usually arrives under a new URL.
+    res.setHeader('Cache-Control', 'public, max-age=604800, stale-while-revalidate=86400');
 
     const buffer = await imgRes.arrayBuffer();
     res.send(Buffer.from(buffer));

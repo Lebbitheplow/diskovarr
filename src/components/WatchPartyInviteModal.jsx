@@ -63,7 +63,7 @@ export default function WatchPartyInviteModal({ item, onClose }) {
               <label key={u.user_id} className={'wp-user-option' + (picked.has(u.user_id) ? ' selected' : '')}>
                 <input type="checkbox" checked={picked.has(u.user_id)} onChange={() => toggle(u.user_id)} />
                 {u.thumb
-                  ? <img className="mn-avatar" src={posterUrl(u.thumb)} alt="" />
+                  ? <img className="mn-avatar" src={posterUrl(u.thumb, 120)} alt="" />
                   : <span className="mn-avatar">{(u.username || '?')[0].toUpperCase()}</span>}
                 <span>{u.username || u.user_id}</span>
               </label>

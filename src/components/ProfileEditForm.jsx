@@ -243,7 +243,7 @@ export default function ProfileEditForm({ profile, onCancel, onUpdated }) {
                     }}
                   >
                     {item.posterUrl ? (
-                      <img src={posterUrl(item.posterUrl)} alt="" style={{ width: '28px', height: '42px', objectFit: 'cover', borderRadius: '4px', flexShrink: 0 }} />
+                      <img src={posterUrl(item.posterUrl, 120)} alt="" style={{ width: '28px', height: '42px', objectFit: 'cover', borderRadius: '4px', flexShrink: 0 }} />
                     ) : (
                       <div style={{ width: '28px', height: '42px', background: 'var(--bg-primary)', borderRadius: '4px', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem' }}>?</div>
                     )}
@@ -269,7 +269,7 @@ export default function ProfileEditForm({ profile, onCancel, onUpdated }) {
                 background: 'var(--bg-primary)', borderRadius: '20px', border: '1px solid var(--border)',
               }}>
                 {item.posterUrl ? (
-                  <img src={posterUrl(item.posterUrl)} alt="" style={{ width: '24px', height: '36px', objectFit: 'cover', borderRadius: '3px' }} />
+                  <img src={posterUrl(item.posterUrl, 120)} alt="" style={{ width: '24px', height: '36px', objectFit: 'cover', borderRadius: '3px' }} />
                 ) : (
                   <div style={{ width: '24px', height: '36px', background: 'var(--bg-secondary)', borderRadius: '3px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.6rem' }}>?</div>
                 )}

@@ -3,6 +3,7 @@ import { useToast } from '../context/ToastContext'
 import { publicReviewsApi } from '../services/api'
 import { buildTargets, mastodonHref } from '../utils/shareTargets'
 import { useTranslation } from 'react-i18next'
+import useModalOpen from '../hooks/useModalOpen'
 
 // Compact brand glyphs (simple-icons paths), 24×24, drawn in white on a brand chip.
 const ICONS = {
@@ -53,6 +54,7 @@ const ic = (d) => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" st
 //   { path, imageBase, filenameBase, summary, subject, heading, subheading }
 // Defaults reproduce the original review behavior exactly.
 export default function ShareModal({ reviewId, review = {}, onClose, share = null }) {
+  useModalOpen()
   const { t } = useTranslation()
   const { success: toastSuccess, error: toastError } = useToast() || {}
   const [commentary, setCommentary] = useState('')

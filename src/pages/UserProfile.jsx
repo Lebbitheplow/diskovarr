@@ -7,7 +7,7 @@ import ReviewPost from '../components/ReviewPost'
 import ProfileEditForm from '../components/ProfileEditForm'
 import SkeletonLoader from '../components/SkeletonLoader'
 import DetailModal from '../components/DetailModal'
-import { posterUrl } from '../utils/media'
+import { posterUrl, posterSrcSet, CARD_SIZES } from '../utils/media'
 import { useTranslation } from 'react-i18next'
 
 const PER_PAGE = 20
@@ -15,7 +15,7 @@ const PER_PAGE = 20
 function Avatar({ src, name, size }) {
   const s = size || '80px'
   if (src) {
-    return <img src={posterUrl(src)} alt="" style={{ width: s, height: s, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
+    return <img src={posterUrl(src, 120)} alt="" style={{ width: s, height: s, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
   }
   return (
     <div style={{ width: s, height: s, borderRadius: '50%', background: 'var(--accent-dim2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: s === '80px' ? '2rem' : '0.85rem', fontWeight: '600', color: 'var(--accent)', flexShrink: 0 }}>
@@ -310,7 +310,7 @@ function FavoriteMediaGrid({ items }) {
         {items.map((item, i) => (
           <div key={i} className="profile-favorite-card" onClick={() => handleOpenModal(item)}>
             {item.posterUrl ? (
-              <img src={posterUrl(item.posterUrl)} alt={item.title || ''} loading="lazy" />
+              <img src={posterUrl(item.posterUrl, 360)} alt={item.title || ''} loading="lazy" />
             ) : (
               <div className="profile-favorite-placeholder">{(item.title || '?')[0].toUpperCase()}</div>
             )}
@@ -488,7 +488,7 @@ function WatchlistTab() {
         {items.map(item => (
           <div key={item.ratingKey} className="card">
             <button className="card-poster-link" type="button" onClick={() => setSelectedItem(item)}>
-              {item.thumb ? <img className="card-poster" src={posterUrl(item.thumb)} alt={item.title} loading="lazy" /> : <div className="card-poster card-poster-placeholder">🎬<span>{item.title}</span></div>}
+              {item.thumb ? <img className="card-poster" src={posterUrl(item.thumb, 360)} srcSet={posterSrcSet(item.thumb)} sizes={CARD_SIZES} alt={item.title} loading="lazy" decoding="async" /> : <div className="card-poster card-poster-placeholder">🎬<span>{item.title}</span></div>}
             </button>
             <div className="card-info">
               <div className="card-title">{item.title}</div>
@@ -576,7 +576,7 @@ function BlacklistTab() {
         {items.map(item => (
           <div key={`${item.source}-${item.ratingKey || item.tmdbId}`} className="card">
             <button className="card-poster-link" type="button" onClick={() => handleOpenModal(item)}>
-              {item.posterUrl ? <img className="card-poster" src={posterUrl(item.posterUrl)} alt={item.title} loading="lazy" /> : <div className="card-poster card-poster-placeholder">🎬<span>{item.title}</span></div>}
+              {item.posterUrl ? <img className="card-poster" src={posterUrl(item.posterUrl, 360)} srcSet={posterSrcSet(item.posterUrl)} sizes={CARD_SIZES} alt={item.title} loading="lazy" decoding="async" /> : <div className="card-poster card-poster-placeholder">🎬<span>{item.title}</span></div>}
             </button>
             <div className="card-info">
               <div className="card-title">{item.title}</div>

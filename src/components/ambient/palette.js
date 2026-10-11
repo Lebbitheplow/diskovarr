@@ -27,9 +27,13 @@ export function seeded(seed) {
   return () => (s = (s * 48271) % 2147483647) / 2147483647
 }
 
+// OffscreenCanvas where available: it's the only kind a worker can create
 export function makeCanvas(w, h) {
+  const cw = Math.max(1, Math.ceil(w))
+  const ch = Math.max(1, Math.ceil(h))
+  if (typeof OffscreenCanvas !== 'undefined') return new OffscreenCanvas(cw, ch)
   const c = document.createElement('canvas')
-  c.width = Math.max(1, Math.ceil(w))
-  c.height = Math.max(1, Math.ceil(h))
+  c.width = cw
+  c.height = ch
   return c
 }

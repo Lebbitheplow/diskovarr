@@ -6,8 +6,12 @@ import { seeded, makeCanvas } from './palette'
 // the folds, bunching and spreading them, and the velvet brightens where they
 // bunch. A soft spotlight wanders across it, and the lower viewport falls
 // into shadow so the shelves sit on a quiet stage.
+// The curtain is soft enough to render at half resolution. The runner sizes
+// the output canvas at this scale too and lets CSS stretch it to the viewport.
+export const RENDER_SCALE = 0.5
+
 export default function createCurtain(pal, { ambient = 0.16, spot = 0.34 } = {}) {
-  const S = 0.5          // render scale; the curtain is soft enough for half-res
+  const S = RENDER_SCALE
   const M = 18           // side margin in sprite px so the warp never shows an edge
   let COLS = 16, ROWS = 64
   // Ripples in sprite px (half the page px). Two waves travelling in opposite

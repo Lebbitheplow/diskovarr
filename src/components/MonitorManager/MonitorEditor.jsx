@@ -3,6 +3,7 @@ import { monitorsApi } from '../../services/monitorsApi'
 import CriterionAutocomplete from './CriterionAutocomplete'
 import { useToast } from '../../context/ToastContext'
 import { useTranslation } from 'react-i18next'
+import useModalOpen from '../../hooks/useModalOpen'
 
 const CRITERIA_TYPES = [
   { value: 'media_type', label: 'Media Type', autocomplete: false, options: ['Movie', 'TV'] },
@@ -21,6 +22,7 @@ const CRITERIA_TYPES = [
 ]
 
 export default function MonitorEditor({ monitor, onSave, onCancel, prefillName, prefillCriteria }) {
+  useModalOpen()
   const { t } = useTranslation()
   const toast = useToast()
   const [name, setName] = useState(monitor?.name || prefillName || '')

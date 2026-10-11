@@ -1,9 +1,14 @@
 import i18n from 'i18next'
 import { initReactI18next } from 'react-i18next'
-import es from './locales/es.json'
-import fr from './locales/fr.json'
-import de from './locales/de.json'
-import pt from './locales/pt.json'
+
+// Each locale is its own chunk, fetched only when that language is in use.
+// Bundled eagerly, the four of them were over a third of the main bundle.
+const LOCALES = {
+  es: () => import('./locales/es.json'),
+  fr: () => import('./locales/fr.json'),
+  de: () => import('./locales/de.json'),
+  pt: () => import('./locales/pt.json'),
+}
 
 // Keys are the literal English strings (gettext style): English needs no
 // resource file — a missing key falls through to the key itself — and the
@@ -23,14 +28,11 @@ function detectLanguage() {
   return SUPPORTED_LANGUAGES.some(l => l.value === nav) ? nav : 'en'
 }
 
+const initialLanguage = detectLanguage()
+
 i18n.use(initReactI18next).init({
-  resources: {
-    es: { translation: es },
-    fr: { translation: fr },
-    de: { translation: de },
-    pt: { translation: pt },
-  },
-  lng: detectLanguage(),
+  resources: {},
+  lng: initialLanguage,
   fallbackLng: 'en',
   // English strings are the keys, so '.' and ':' must not be treated as separators
   keySeparator: false,
@@ -39,12 +41,29 @@ i18n.use(initReactI18next).init({
   returnEmptyString: false,
 })
 
+async function loadLocale(lang) {
+  if (!LOCALES[lang] || i18n.hasResourceBundle(lang, 'translation')) return
+  const { default: strings } = await LOCALES[lang]()
+  i18n.addResourceBundle(lang, 'translation', strings)
+}
+
+// Switches the live UI once the language's strings are loaded. A failed load
+// still switches: missing keys fall back to English rather than nothing.
+export async function changeUiLanguage(lang) {
+  try { await loadLocale(lang) } catch { /* fall back to English keys */ }
+  return i18n.changeLanguage(lang)
+}
+
+// main.jsx waits on this before the first render, so a non-English session
+// never flashes English. Resolves at once for English.
+export const i18nReady = loadLocale(initialLanguage).catch(() => {})
+
 // Single entry point for switching language — keeps localStorage (instant on
 // next boot) in sync with the live i18next instance. Server persistence is
 // handled by the Settings page alongside the user's other preferences.
 export function setUiLanguage(lang) {
   localStorage.setItem('uiLanguage', lang)
-  i18n.changeLanguage(lang)
+  return changeUiLanguage(lang)
 }
 
 export default i18n

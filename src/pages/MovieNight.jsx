@@ -18,7 +18,7 @@ const MODES = [
 function Avatar({ src, name, emoji, size = 28 }) {
   const style = { width: size, height: size }
   if (emoji) return <span className="mn-avatar mn-avatar-emoji" style={style} aria-hidden="true">{emoji}</span>
-  if (src) return <img className="mn-avatar" style={style} src={posterUrl(src)} alt="" />
+  if (src) return <img className="mn-avatar" style={style} src={posterUrl(src, 120)} alt="" />
   return <span className="mn-avatar" style={style}>{(name || '?')[0].toUpperCase()}</span>
 }
 
@@ -34,7 +34,7 @@ function GroupCard({ group }) {
     <Link to={`/movie-night/${group.id}`} className="mn-card">
       <div className="mn-card-collage">
         {group.posterCollage?.length
-          ? group.posterCollage.map((p, i) => <img key={i} src={posterUrl(p)} alt="" loading="lazy" />)
+          ? group.posterCollage.map((p, i) => <img key={i} src={posterUrl(p, 240)} alt="" loading="lazy" />)
           : <div className="mn-collage-empty">{group.themeEmoji || '🎬'}</div>}
       </div>
       <div className="mn-card-body">
