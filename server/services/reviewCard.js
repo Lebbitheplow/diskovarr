@@ -7,6 +7,8 @@
  * Two variants are produced:
  *   - og     : 1200×630, the standard Open Graph / Twitter `summary_large_image`.
  *   - square : 1080×1080, for Instagram Stories/Posts and mobile sharing.
+ *   - full   : 1200 wide, height grows to fit the whole review (min 630) — the
+ *              downloadable image, where truncating the text would lose the review.
  *
  * Spoiler reviews never render their text here — the snippet is replaced with a
  * "Spoiler Review" badge so spoilers can't leak through a public image.
@@ -53,7 +55,7 @@ function fmtDate(ts) {
 }
 
 // ── Card tree ────────────────────────────────────────────────────────────────
-function buildTree({ posterUri, avatarUri, username, title, year, rating, reviewText, spoiler, dateTs, square, accent }) {
+function buildTree({ posterUri, avatarUri, username, title, year, rating, reviewText, spoiler, dateTs, square, full, accent }) {
   const stars = starRowDataUri(rating, accent);
   const posterW = square ? 300 : 280;
   const posterH = Math.round(posterW * 1.5);
@@ -91,10 +93,15 @@ function buildTree({ posterUri, avatarUri, username, title, year, rating, review
           ).toString('base64')}`),
         'Spoiler Review',
       ])
-    : txt(
-        { fontSize: square ? 30 : 28, color: COLORS.textDim, lineHeight: 1.4 },
-        truncate(reviewText, square ? 180 : 200) || 'No written review.'
-      );
+    : full
+      ? txt(
+          { fontSize: 28, color: COLORS.textDim, lineHeight: 1.4, whiteSpace: 'pre-wrap' },
+          (reviewText || '').trim().replace(/\n{3,}/g, '\n\n') || 'No written review.'
+        )
+      : txt(
+          { fontSize: square ? 30 : 28, color: COLORS.textDim, lineHeight: 1.4 },
+          truncate(reviewText, square ? 180 : 200) || 'No written review.'
+        );
 
   const branding = el('div', { display: 'flex', alignItems: 'center', gap: 10, marginTop: 'auto' }, [
     el('img', { width: 30, height: 30 }, undefined, brandLogoUri(accent)),
@@ -116,8 +123,11 @@ function buildTree({ posterUri, avatarUri, username, title, year, rating, review
   return el('div', {
     display: 'flex',
     flexDirection: square ? 'column' : 'row',
-    width: '100%', height: '100%', padding: square ? 64 : 60, gap: square ? 40 : 56,
-    backgroundColor: COLORS.bg, alignItems: square ? 'center' : 'flex-start',
+    width: '100%', padding: square ? 64 : 60, gap: square ? 40 : 56,
+    // full: no fixed height — satori sizes the card to its content; stretch keeps
+    // the branding pinned to the bottom when the text is shorter than the poster.
+    ...(full ? { minHeight: 630, alignItems: 'stretch' } : { height: '100%', alignItems: square ? 'center' : 'flex-start' }),
+    backgroundColor: COLORS.bg,
     fontFamily: 'Inter',
   }, [poster, rightCol]);
 }
@@ -127,12 +137,13 @@ function buildTree({ posterUri, avatarUri, username, title, year, rating, review
  * Render a PNG buffer for a review card.
  * @param cardData normalized review data: { username, avatar, title, year, rating,
  *                 reviewText, spoiler, dateTs, posterPath }
- * @param variant 'og' | 'square'
+ * @param variant 'og' | 'square' | 'full'
  */
 async function renderPng(cardData, variant = 'og') {
   const square = variant === 'square';
+  const full = variant === 'full';
   const width = square ? 1080 : 1200;
-  const height = square ? 1080 : 630;
+  const height = full ? undefined : (square ? 1080 : 630);
   const accent = accentHex();
 
   const [posterUri, avatarUri] = await Promise.all([
@@ -140,7 +151,7 @@ async function renderPng(cardData, variant = 'og') {
     fetchAsDataUri(cardData.avatar),
   ]);
 
-  const tree = buildTree({ ...cardData, posterUri, avatarUri, square, accent });
+  const tree = buildTree({ ...cardData, posterUri, avatarUri, square, full, accent });
   return rasterize(tree, width, height);
 }
 

@@ -99,11 +99,12 @@ export default function ShareModal({ reviewId, review = {}, onClose, share = nul
   }, [toastSuccess, toastError])
 
   const fetchImageBlob = useCallback(async (square) => {
-    const src = square ? `${imageBase}/square.png` : `${imageBase}.png`
+    // Review downloads use the full-length card; the 1200×630 og card truncates the text.
+    const src = square ? `${imageBase}/square.png` : (share ? `${imageBase}.png` : `${imageBase}/full.png`)
     const res = await fetch(src)
     if (!res.ok) throw new Error('image fetch failed')
     return res.blob()
-  }, [imageBase])
+  }, [imageBase, share])
 
   const downloadImage = useCallback(async (square) => {
     setWorking(true)

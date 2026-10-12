@@ -98,6 +98,7 @@ function brandLogoUri(accent, size = 30) {
 /**
  * Rasterize a satori VDOM tree to a PNG buffer.
  * Renders at 2× the logical size so text stays crisp after platforms downscale.
+ * Omit `height` to let satori size the card to its content.
  */
 async function rasterize(tree, width, height) {
   const svg = await satori(tree, { width, height, fonts: FONTS });

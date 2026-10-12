@@ -37,6 +37,7 @@ async function serveCard(req, res, variant) {
 // Express 5 dropped inline regex constraints on params; serveCard validates id.
 router.get('/review/:id.png', (req, res) => serveCard(req, res, 'og'));
 router.get('/review/:id/square.png', (req, res) => serveCard(req, res, 'square'));
+router.get('/review/:id/full.png', (req, res) => serveCard(req, res, 'full'));
 
 // ── Wrapped stat cards ─────────────────────────────────────────────────────────
 // Also public (the share flow needs crawler/no-session access), but unlike review
