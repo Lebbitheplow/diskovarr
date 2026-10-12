@@ -7,8 +7,11 @@ const plexService = require('../services/plex');
 const recommender = require('../services/recommender');
 const discoverRecommender = require('../services/discoverRecommender');
 const logger = require('../services/logger');
-const { enqueueForUser } = require('../services/notificationAgents');
 const appVersion = require('../services/appVersion');
+const { parseImageDataUri, AVATAR_MAX_BYTES } = require('../utils/imageUpload');
+const requestPolicy = require('../services/requestPolicy');
+const requestNotifications = require('../services/requestNotifications');
+const { isDiscordWebhookUrl } = require('../services/notificationAgents/destinations');
 
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -59,7 +62,7 @@ router.get('/login', (req, res) => {
   res.sendFile(require('path').resolve(__dirname, '../../dist/index.html'));
 });
 
-router.post('/login', loginLimiter, (req, res) => {
+router.post('/login', loginLimiter, async (req, res) => {
   const { password } = req.body;
   const adminPassword = process.env.ADMIN_PASSWORD;
 
@@ -78,6 +81,13 @@ router.post('/login', loginLimiter, (req, res) => {
   }
 
   logger.info(`Admin login success: ip=${req.ip}`);
+  // Elevation gets a fresh session ID; any signed-in user identity carries over
+  try {
+    await requireAuth.regenerateSession(req);
+  } catch (err) {
+    logger.error(`Admin login session error: ${err.message}`);
+    return res.status(500).json({ error: 'Could not start an admin session' });
+  }
   req.session.isAdmin = true;
   res.json({ ok: true });
 });
@@ -346,6 +356,30 @@ router.post('/sync/libraries', requireAdmin, async (req, res) => {
 
 // ── Per-user watched sync ─────────────────────────────────────────────────────
 
+// Plex token from an unexpired session in the configured session store, or
+// null. Read-only and best-effort: a missing/locked sessions.db just means no token.
+function sessionPlexToken(userId) {
+  const file = db.dataPath('sessions.db');
+  if (!require('fs').existsSync(file)) return null;
+  let sessDb;
+  try {
+    const { DatabaseSync } = require('node:sqlite');
+    sessDb = new DatabaseSync(file, { readOnly: true });
+    const rows = sessDb.prepare('SELECT sess FROM sessions WHERE expired >= ?').all(Math.floor(Date.now() / 1000));
+    for (const row of rows) {
+      try {
+        const s = JSON.parse(row.sess);
+        if (s.plexUser && String(s.plexUser.id) === String(userId) && s.plexUser.token) return s.plexUser.token;
+      } catch { /* malformed session JSON — skip */ }
+    }
+  } catch (err) {
+    logger.debug(`[Admin] session token lookup failed: ${err.message}`);
+  } finally {
+    try { sessDb?.close(); } catch {}
+  }
+  return null;
+}
+
 router.post('/sync/watched/:userId', requireAdmin, async (req, res) => {
   const { userId } = req.params;
   const jellyfin = require('../services/jellyfin');
@@ -369,29 +403,9 @@ router.post('/sync/watched/:userId', requireAdmin, async (req, res) => {
     return;
   }
 
-  // Find the user's token from active sessions
-  const { DatabaseSync } = require('node:sqlite');
-  const sessDb = new DatabaseSync(require('path').join(__dirname, '..', 'data', 'sessions.db'));
-  const rows = sessDb.prepare('SELECT sess FROM sessions').all();
-  sessDb.close();
-
-  let userToken = null;
-  for (const row of rows) {
-    try {
-      const s = JSON.parse(row.sess);
-      if (s.plexUser && String(s.plexUser.id) === String(userId)) {
-        userToken = s.plexUser.token;
-        break;
-      }
-    } catch {}
-  }
-
-  if (!userToken) {
-    const storedUser = db.prepare('SELECT plex_token FROM known_users WHERE user_id = ?').get(String(userId));
-    if (storedUser && storedUser.plex_token) {
-      userToken = storedUser.plex_token;
-    }
-  }
+  // known_users holds the token from the user's latest sign-in (and is seeded
+  // from live sessions at boot); a live session is the fallback.
+  const userToken = db.getKnownUserById(String(userId))?.plex_token || sessionPlexToken(userId);
 
   if (!userToken) {
     return res.json({ success: false, message: 'No token available for this user. They need to sign in to Diskovarr first.' });
@@ -504,7 +518,76 @@ router.post('/settings/owner-user', requireAdmin, (req, res) => {
     return res.status(400).json({ error: 'Invalid userId' });
   }
   db.setOwnerUserId(userId);
+  // The owner is exempt from library access limits — re-evaluate everyone
+  require('../services/libraryAccess').changed(null);
   res.json({ success: true, userId });
+});
+
+// ── Library access (Plex sharing / Jellyfin policy — services/libraryAccess) ──
+
+// Section titles for the status table, live from the media servers; ids alone
+// when a server is slow or unreachable (the table shouldn't wait on it).
+async function librarySectionTitles() {
+  const titles = {};
+  const jellyfin = require('../services/jellyfin');
+  const lookups = [
+    plexService.getPlexSections().then(list => { for (const s of list) titles[s.id] = s.title; }),
+    jellyfin.isEnabled()
+      ? jellyfin.getFolders().then(list => { for (const f of list) titles[jellyfin.SECTION_PREFIX + f.id] = f.title; })
+      : null,
+  ].filter(Boolean).map(p => p.catch(() => { /* server unreachable */ }));
+  let timer;
+  await Promise.race([Promise.all(lookups), new Promise(resolve => { timer = setTimeout(resolve, 5000); })]);
+  clearTimeout(timer);
+  return { ...titles };
+}
+
+async function libraryAccessStatus() {
+  const status = require('../services/libraryAccess').status();
+  const titles = await librarySectionTitles();
+  const named = (ids) => ids.map(id => ({ id, title: titles[id] || null }));
+  return {
+    ...status,
+    users: status.users.map(u => ({
+      ...u,
+      snapshots: u.snapshots.map(({ sectionIds, filteredSectionIds, ...snap }) => ({
+        ...snap, sections: named(sectionIds), filteredSections: named(filteredSectionIds),
+      })),
+    })),
+  };
+}
+
+router.get('/library-access', requireAdmin, async (req, res) => {
+  try {
+    res.json(await libraryAccessStatus());
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to load library access', message: err.message });
+  }
+});
+
+// Refresh every user now. Answers when done or after 25 s (the run carries on
+// and the status shows refreshing: true).
+router.post('/library-access/refresh', requireAdmin, async (req, res) => {
+  const run = require('../services/libraryAccess').refreshAll().catch(err => {
+    logger.warn(`Library access refresh failed: ${err.message}`);
+  });
+  let timer;
+  await Promise.race([run, new Promise(resolve => { timer = setTimeout(resolve, 25_000); })]);
+  clearTimeout(timer);
+  try {
+    res.json(await libraryAccessStatus());
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to load library access', message: err.message });
+  }
+});
+
+// Kill switch: off = every user sees every synced library, as before
+router.post('/library-access/settings', requireAdmin, (req, res) => {
+  const { enforced } = req.body || {};
+  if (typeof enforced !== 'boolean') return res.status(400).json({ error: 'enforced must be true or false' });
+  require('../services/libraryAccess').setEnforced(enforced);
+  logger.info(`Library access enforcement ${enforced ? 'enabled' : 'disabled'} by admin`);
+  res.json({ success: true, enforced });
 });
 
 // ── Connections & external service config ────────────────────────────────────
@@ -557,7 +640,9 @@ router.get('/connections/settings', requireAdmin, (req, res) => {
     jellyfin_url:                db.getSetting('jellyfin_url', '') || process.env.JELLYFIN_URL || '',
     jellyfin_enabled:            require('../services/jellyfin').isEnabled(),
     default_request_service:     db.getSetting('default_request_service', 'overseerr'),
-    direct_request_access:       db.getSetting('direct_request_access', '0'),
+    // Normalized like the enforcement in services/requestPolicy, so a legacy
+    // stored 'admin' shows as admin-only rather than everyone
+    direct_request_access:       db.getDirectRequestAccess(),
   });
 });
 
@@ -569,6 +654,8 @@ router.post('/connections/save', requireAdmin, (req, res) => {
   const toBool01 = (v) => (v === true || v === 1 || v === '1' || v === 'true') ? '1' : '0';
   for (const key of CONNECTION_KEYS) {
     if (key in body) {
+      // direct_request_access is stored canonical '0'/'1' (legacy values normalized like its reader)
+      if (key === 'direct_request_access') { db.setSetting(key, db.normalizeDirectRequestAccess(body[key])); continue; }
       db.setSetting(key, BOOL_KEYS.has(key) ? toBool01(body[key]) : (body[key] ?? ''));
     }
   }
@@ -925,9 +1012,10 @@ router.get('/requests', requireAdmin, (req, res) => {
 
   // Enrich with TMDB data and availability status
   const libraryTmdbKeys = db.getLibraryTmdbKeys();
+  const libraryTvdbKeys = db.getLibraryTvdbKeys();
   const enriched = rows.map(r => {
     const cached = db.getTmdbCache(r.tmdb_id, r.media_type);
-    const isAvailable = libraryTmdbKeys.has(`${r.tmdb_id}:${r.media_type}`);
+    const isAvailable = db.requestIsAvailable(r, libraryTmdbKeys, libraryTvdbKeys);
     let displayStatus = r.status;
     if (r.status === 'approved') displayStatus = isAvailable ? 'available' : 'requested';
     return {
@@ -947,7 +1035,7 @@ router.get('/requests', requireAdmin, (req, res) => {
   });
 });
 
-router.put('/requests/:id', requireAdmin, (req, res) => {
+router.put('/requests/:id', requireAdmin, async (req, res) => {
   const request = db.getRequestById(req.params.id);
   if (!request) return res.status(404).json({ error: 'Request not found' });
   if (request.status !== 'pending') return res.status(400).json({ error: 'Request is not pending' });
@@ -957,12 +1045,21 @@ router.put('/requests/:id', requireAdmin, (req, res) => {
   if (request.downloader === 'youtube' && service && service !== 'sonarr') {
     return res.status(400).json({ error: 'YouTube requests can only be handled by Sonarr' });
   }
-  const seasonsJson = Array.isArray(seasons) && seasons.length > 0 ? JSON.stringify(seasons.map(Number)) : null;
-  const seasonsCount = Array.isArray(seasons) && seasons.length > 0 ? seasons.length : 1;
+  let plan;
+  try {
+    // Whole-show selections are priced at the show's real season count, and
+    // name their seasons when the show is already in the library
+    const ids = { tmdbId: request.tmdb_id, tvdbId: request.tvdb_id };
+    plan = requestPolicy.pinLibrarySeasons(
+      await requestPolicy.resolveSeasonPlan({ ...ids, mediaType: request.media_type, seasons }), ids);
+  } catch (err) {
+    return res.status(err.status || 400).json({ error: err.message });
+  }
   db.updateRequest(request.id, {
     service: request.downloader === 'youtube' ? 'sonarr' : (service || request.service),
-    seasonsJson,
-    seasonsCount,
+    seasonsJson: plan.seasons ? JSON.stringify(plan.seasons) : null,
+    seasonsCount: request.media_type === 'tv' ? (plan.cost || 1) : 1,
+    seasonGated: request.media_type === 'tv' && requestPolicy.isSeasonGated(plan, { tmdbId: request.tmdb_id, tvdbId: request.tvdb_id }),
   });
   res.json({ success: true, request: db.getRequestById(request.id) });
 });
@@ -970,88 +1067,75 @@ router.put('/requests/:id', requireAdmin, (req, res) => {
 router.post('/requests/:id/approve', requireAdmin, async (req, res) => {
   try {
     const { submitRequestToService } = require('./api');
-    const request = db.getRequestById(req.params.id);
-    if (!request) return res.status(404).json({ error: 'Request not found' });
-    if (request.status !== 'pending') return res.status(400).json({ error: 'Request is not pending' });
+    const found = db.getRequestById(req.params.id);
+    if (!found) return res.status(404).json({ error: 'Request not found' });
+    // Under the owner's request lock, re-read: a double click or a second
+    // approver must not submit it to the download app twice
+    const request = await requestPolicy.withUserLock(found.user_id, async () => {
+      const row = db.getRequestById(found.id);
+      if (!row || row.status !== 'pending') return null;
 
-    const storedSeasons = request.seasons_json ? JSON.parse(request.seasons_json) : null;
-    // If service is 'none', pick the best available service now.
-    // YouTube requests always route to Sonarr — no other service can handle them.
-    const dumbPullActive = db.getSetting('dumb_request_mode', 'pull') === 'pull' && ['1', 'true'].includes(db.getSetting('riven_enabled', '0'));
-    const service = request.downloader === 'youtube' ? 'sonarr'
-      : (!request.service || request.service === 'none')
-      ? (dumbPullActive ? 'riven'
-        : (request.media_type === 'movie'
-            ? (db.getConnectionSettings().radarrEnabled ? 'radarr' : db.getConnectionSettings().overseerrEnabled ? 'overseerr' : 'riven')
-            : (db.getConnectionSettings().sonarrEnabled ? 'sonarr' : db.getConnectionSettings().overseerrEnabled ? 'overseerr' : 'riven')))
-      : request.service;
-    if (service !== 'none') {
-      await submitRequestToService({
-        tmdbId: request.tmdb_id,
-        mediaType: request.media_type,
-        title: request.title,
-        service,
-        seasons: storedSeasons,
-        tvdbId: request.tvdb_id || null,
-        downloader: request.downloader || undefined,
-        youtube: request.youtube_json ? JSON.parse(request.youtube_json) : null,
-      });
-    }
-
-    db.updateRequestStatus(request.id, 'approved', null);
-    logger.info(`Request approved by admin: id=${request.id} tmdbId=${request.tmdb_id} title="${request.title}"`);
-    // Notify the requester
-    try {
-      const prefs = db.getUserNotificationPrefs(request.user_id);
-      if (prefs.notify_approved) {
-        const notifId = db.createOrBundleNotification({
-          userId: request.user_id,
-          type: 'request_approved',
-          title: `"${request.title}" approved`,
-          body: 'Your request has been approved and submitted.',
-          data: { requestId: request.id, tmdbId: request.tmdb_id, mediaType: request.media_type, title: request.title },
+      const storedSeasons = row.seasons_json ? JSON.parse(row.seasons_json) : null;
+      // If service is 'none', pick the best available service now.
+      // YouTube requests always route to Sonarr — no other service can handle them.
+      const dumbPullActive = db.getSetting('dumb_request_mode', 'pull') === 'pull' && ['1', 'true'].includes(db.getSetting('riven_enabled', '0'));
+      const service = row.downloader === 'youtube' ? 'sonarr'
+        : (!row.service || row.service === 'none')
+        ? (dumbPullActive ? 'riven'
+          : (row.media_type === 'movie'
+              ? (db.getConnectionSettings().radarrEnabled ? 'radarr' : db.getConnectionSettings().overseerrEnabled ? 'overseerr' : 'riven')
+              : (db.getConnectionSettings().sonarrEnabled ? 'sonarr' : db.getConnectionSettings().overseerrEnabled ? 'overseerr' : 'riven')))
+        : row.service;
+      if (service !== 'none') {
+        await submitRequestToService({
+          tmdbId: row.tmdb_id,
+          mediaType: row.media_type,
+          title: row.title,
+          service,
+          seasons: storedSeasons,
+          tvdbId: row.tvdb_id || null,
+          downloader: row.downloader || undefined,
+          youtube: row.youtube_json ? JSON.parse(row.youtube_json) : null,
         });
-        enqueueForUser({ notificationId: notifId, userId: request.user_id, payload: { type: 'request_approved', title: `"${request.title}" approved`, body: 'Your request has been approved and submitted.', posterUrl: request.poster_url } });
       }
-    } catch (e) { logger.warn('notification error:', e.message); }
+
+      db.updateRequestStatus(row.id, 'approved', null);
+      db.setRequestSubmitError(row.id, null);
+      return row;
+    });
+    if (!request) return res.status(400).json({ error: 'Request is not pending' });
+    logger.info(`Request approved by admin: id=${request.id} tmdbId=${request.tmdb_id} title="${request.title}"`);
+    requestNotifications.notifyApproved(request);
     res.json({ success: true, request: db.getRequestById(request.id) });
   } catch (err) {
     console.error('admin approve error:', err);
-    // Notify admins of the failure
-    try {
-      const request = db.getRequestById(req.params.id);
-      const title = request?.title || 'Unknown';
-      const tmdbId = request?.tmdb_id;
-      const mediaType = request?.media_type;
-      for (const adminId of db.getPrivilegedUserIds()) {
-        const prefs = db.getUserNotificationPrefs(adminId);
-        if (prefs.notify_process_failed) {
-          db.createOrBundleNotification({
-            userId: adminId, type: 'request_process_failed',
-            title: `Request failed: "${title}"`,
-            body: err.message,
-            data: { tmdbId, mediaType, title },
-          });
-        }
-      }
-    } catch (e) { logger.warn('notification error:', e.message); }
+    // Notify admins of the failure (bell + providers, same as the main API)
+    const request = db.getRequestById(req.params.id);
+    requestNotifications.notifyProcessFailed({
+      title: request?.title || 'Unknown', tmdbId: request?.tmdb_id, mediaType: request?.media_type,
+      error: err, posterUrl: request?.poster_url,
+    });
     res.status(500).json({ error: err.message });
   }
 });
 
-router.post('/requests/:id/deny', requireAdmin, (req, res) => {
+// Same notification path as POST /api/queue/:id/deny
+router.post('/requests/:id/deny', requireAdmin, async (req, res) => {
   const { note } = req.body;
-  const request = db.getRequestById(req.params.id);
+  const found = db.getRequestById(req.params.id);
+  if (!found) return res.status(404).json({ error: 'Request not found' });
+  const { request, conflict } = await requestPolicy.denyRequest(found, note);
   if (!request) return res.status(404).json({ error: 'Request not found' });
-  db.updateRequestStatus(request.id, 'denied', note || null);
+  if (conflict) return res.status(409).json({ error: `The request was ${request.status} meanwhile — reload the queue` });
   logger.info(`Request denied by admin: id=${request.id} title="${request.title}"`);
-  res.json({ success: true, request: db.getRequestById(request.id) });
+  res.json({ success: true, request });
 });
 
 router.delete('/requests/:id', requireAdmin, (req, res) => {
   const request = db.getRequestById(req.params.id);
   if (!request) return res.status(404).json({ error: 'Request not found' });
   db.deleteRequest(request.id);
+  db.pruneOrphanFollowers(request);
   res.json({ success: true });
 });
 
@@ -1072,39 +1156,36 @@ router.get('/users/:userId/settings', requireAdmin, (req, res) => {
 });
 
 router.post('/users/:userId/settings', requireAdmin, (req, res) => {
-  const {
-    movieLimit,
-    seasonLimit,
-    movieWindowDays,
-    tvWindowDays,
-    overrideGlobal,
-    auto_approve_movies,
-    auto_approve_tv,
-    is_admin,
-    region,
-    language,
-    auto_request_movies,
-    auto_request_tv,
-    landing_page,
-    notificationPrefs,
-  } = req.body;
+  const body = req.body || {};
+  const { notificationPrefs } = body;
+  // Fields the caller left out stay undefined so saveUserSettings keeps them
+  const pick = (key, parse) => (body[key] === undefined ? undefined : parse(body[key]));
+  const flag = v => v === true || v === '1';
+  const optionalFlag = v => (v === null || v === 'null' ? null : flag(v));
+  const days = v => Math.max(1, parseInt(v) || 7);
+  const orNull = v => v || null;
+  // Older modal builds posted `override_global`
+  const overrideRaw = body.overrideGlobal ?? body.override_global;
+  // Same rule as the user's own settings save (S05), checked before any write
+  const webhook = notificationPrefs && typeof notificationPrefs.discord_webhook === 'string' ? notificationPrefs.discord_webhook.trim() : '';
+  if (webhook && !isDiscordWebhookUrl(webhook)) {
+    return res.status(400).json({ error: 'Discord webhook must be an https://discord.com/api/webhooks/… URL' });
+  }
   try {
     db.saveUserSettings(req.params.userId, {
-      movieLimit: parseInt(movieLimit) || 0,
-      seasonLimit: parseInt(seasonLimit) || 0,
-      movieWindowDays: Math.max(1, parseInt(movieWindowDays) || 7),
-      tvWindowDays: Math.max(1, parseInt(tvWindowDays) || 7),
-      overrideGlobal: overrideGlobal === true || overrideGlobal === '1',
-      auto_approve_movies: auto_approve_movies === null || auto_approve_movies === 'null' ? null
-        : (auto_approve_movies === true || auto_approve_movies === '1'),
-      auto_approve_tv: auto_approve_tv === null || auto_approve_tv === 'null' ? null
-        : (auto_approve_tv === true || auto_approve_tv === '1'),
-      is_admin: is_admin === true || is_admin === '1',
-      region: region || null,
-      language: language || null,
-      auto_request_movies: auto_request_movies === true || auto_request_movies === '1',
-      auto_request_tv: auto_request_tv === true || auto_request_tv === '1',
-      landing_page: landing_page || null,
+      movieLimit: pick('movieLimit', v => parseInt(v) || 0),
+      seasonLimit: pick('seasonLimit', v => parseInt(v) || 0),
+      movieWindowDays: pick('movieWindowDays', days),
+      tvWindowDays: pick('tvWindowDays', days),
+      overrideGlobal: overrideRaw === undefined ? undefined : flag(overrideRaw),
+      auto_approve_movies: pick('auto_approve_movies', optionalFlag),
+      auto_approve_tv: pick('auto_approve_tv', optionalFlag),
+      is_admin: pick('is_admin', flag),
+      region: pick('region', orNull),
+      language: pick('language', orNull),
+      auto_request_movies: pick('auto_request_movies', flag),
+      auto_request_tv: pick('auto_request_tv', flag),
+      landing_page: pick('landing_page', orNull),
     });
     if (notificationPrefs && typeof notificationPrefs === 'object') {
       // Start from the stored row so channels this modal doesn't expose
@@ -1122,7 +1203,7 @@ router.post('/users/:userId/settings', requireAdmin, (req, res) => {
         notify_issue_comment: notificationPrefs.notify_issue_comment !== false,
         discord_user_id:      notificationPrefs.discord_user_id      || null,
         discord_enabled:      !!notificationPrefs.discord_enabled,
-        discord_webhook:      notificationPrefs.discord_webhook      || null,
+        discord_webhook:      webhook || null,
         pushover_user_key:    notificationPrefs.pushover_user_key    || null,
         pushover_enabled:     !!notificationPrefs.pushover_enabled,
         pushover_application_token: notificationPrefs.pushover_application_token || null,
@@ -1210,24 +1291,26 @@ router.post('/settings/auto-request', requireAdmin, (req, res) => {
 // ── Discord avatar upload ─────────────────────────────────────────────────────
 
 router.post('/settings/discord-avatar', requireAdmin, (req, res) => {
-  const { imageDataUri, clear } = req.body;
+  const { imageDataUri, clear } = req.body || {};
   if (clear) {
     db.setSetting('discord_avatar_data_uri', null);
     return res.json({ success: true, cleared: true });
   }
-  if (!imageDataUri || typeof imageDataUri !== 'string') {
-    return res.status(400).json({ error: 'imageDataUri required' });
-  }
-  // Validate it's an image data URI (png, jpeg, or gif)
-  const match = imageDataUri.match(/^data:(image\/(?:png|jpeg|gif));base64,(.+)$/);
-  if (!match) return res.status(400).json({ error: 'Must be a PNG, JPG, or GIF image' });
-  const bytes = Buffer.byteLength(match[2], 'base64');
-  if (bytes > 2 * 1024 * 1024) return res.status(400).json({ error: 'Image exceeds 2 MB limit' });
-  db.setSetting('discord_avatar_data_uri', imageDataUri);
+  // Checks the decoded bytes (signature + 2 MB cap), not just the URI prefix.
+  // The body itself gets through via a route-scoped parser in server.js, since
+  // the global JSON limit is far smaller than a 2 MB image in base64.
+  const image = parseImageDataUri(imageDataUri, { maxBytes: AVATAR_MAX_BYTES });
+  if (!image.ok) return res.status(image.status).json({ error: image.error });
+  db.setSetting('discord_avatar_data_uri', image.dataUri);
   res.json({ success: true });
 });
 
 // ── Notification agent settings ───────────────────────────────────────────────
+
+// Type selections are stored as flat lists of canonical event ids (grouped
+// checkboxes used to arrive as one comma-joined element that never matched).
+const { normalizeNotificationTypes } = require('../services/notificationAgents/types');
+const normalizeTypes = (list) => normalizeNotificationTypes(list || []);
 
 router.post('/settings/discord', requireAdmin, async (req, res) => {
   const { enabled, mode, webhookUrl, botToken, botUsername, botAvatarUrl, publicUrl,
@@ -1255,10 +1338,10 @@ router.post('/settings/discord', requireAdmin, async (req, res) => {
     webhookEmbedPoster: webhookEmbedPoster !== undefined ? !!webhookEmbedPoster : !!embedPoster,
     botEmbedPoster: botEmbedPoster !== undefined ? !!botEmbedPoster : !!embedPoster,
     // New per-mode notification types; fall back to shared notificationTypes for old clients
-    webhookNotificationTypes: webhookNotificationTypes || notificationTypes || [],
-    botNotificationTypes: botNotificationTypes || notificationTypes || [],
+    webhookNotificationTypes: normalizeTypes(webhookNotificationTypes || notificationTypes),
+    botNotificationTypes: normalizeTypes(botNotificationTypes || notificationTypes),
     // Keep legacy field for old code reading it
-    notificationTypes: notificationTypes || webhookNotificationTypes || [],
+    notificationTypes: normalizeTypes(notificationTypes || webhookNotificationTypes),
     inviteLink: inviteLink || null,
   };
   db.setSetting('discord_agent', JSON.stringify(config));
@@ -1284,7 +1367,7 @@ router.post('/settings/discord/test', requireAdmin, async (req, res) => {
 
 router.post('/settings/pushover', requireAdmin, (req, res) => {
   const { enabled, appToken, userKey, sound, embedPoster, notificationTypes } = req.body;
-  const config = { enabled: !!enabled, appToken, userKey, sound, embedPoster: !!embedPoster, notificationTypes: notificationTypes || [] };
+  const config = { enabled: !!enabled, appToken, userKey, sound, embedPoster: !!embedPoster, notificationTypes: normalizeTypes(notificationTypes) };
   db.setSetting('pushover_agent', JSON.stringify(config));
   res.json({ success: true });
 });
@@ -1328,7 +1411,7 @@ router.post('/settings/webhook', requireAdmin, (req, res) => {
     customHeaders: customHeaders || [],
     supportVariables: !!supportVariables,
     embedPoster: !!embedPoster,
-    notificationTypes: notificationTypes || [],
+    notificationTypes: normalizeTypes(notificationTypes),
   };
   db.setSetting('webhook_agent', JSON.stringify(config));
   res.json({ success: true });
@@ -1355,7 +1438,7 @@ router.post('/settings/slack', requireAdmin, (req, res) => {
     enabled: !!enabled,
     webhookUrl: webhookUrl || '',
     embedPoster: !!embedPoster,
-    notificationTypes: notificationTypes || [],
+    notificationTypes: normalizeTypes(notificationTypes),
   }));
   res.json({ success: true });
 });
@@ -1382,7 +1465,7 @@ router.post('/settings/gotify', requireAdmin, (req, res) => {
     url: url || '',
     token: token || '',
     priority: priority ?? 0,
-    notificationTypes: notificationTypes || [],
+    notificationTypes: normalizeTypes(notificationTypes),
   }));
   res.json({ success: true });
 });
@@ -1414,7 +1497,7 @@ router.post('/settings/ntfy', requireAdmin, (req, res) => {
     password: password || '',
     priority: priority ?? 3,
     embedPoster: !!embedPoster,
-    notificationTypes: notificationTypes || [],
+    notificationTypes: normalizeTypes(notificationTypes),
   }));
   res.json({ success: true });
 });
@@ -1443,7 +1526,7 @@ router.post('/settings/telegram', requireAdmin, (req, res) => {
     messageThreadId: messageThreadId || '',
     sendSilently: !!sendSilently,
     embedPoster: !!embedPoster,
-    notificationTypes: notificationTypes || [],
+    notificationTypes: normalizeTypes(notificationTypes),
   }));
   res.json({ success: true });
 });
@@ -1469,7 +1552,7 @@ router.post('/settings/pushbullet', requireAdmin, (req, res) => {
     enabled: !!enabled,
     accessToken: accessToken || '',
     channelTag: channelTag || '',
-    notificationTypes: notificationTypes || [],
+    notificationTypes: normalizeTypes(notificationTypes),
   }));
   res.json({ success: true });
 });
@@ -1505,7 +1588,7 @@ router.post('/settings/email', requireAdmin, (req, res) => {
     allowSelfSigned: !!allowSelfSigned,
     senderName: senderName || 'Diskovarr',
     embedPoster: !!embedPoster,
-    notificationTypes: notificationTypes || [],
+    notificationTypes: normalizeTypes(notificationTypes),
   }));
   res.json({ success: true });
 });
@@ -1546,19 +1629,16 @@ router.post('/settings/webpush/test', requireAdmin, async (req, res) => {
   }
 });
 
-// Register browser push subscription
+// Legacy alias of POST /api/user/webpush/subscribe (the app no longer calls
+// it). Same provider-enabled gate and endpoint validation, shared via
+// webpushAgent.registerSubscription.
 router.post('/webpush/subscribe', requireAuth, (req, res) => {
-  try {
-    const { subscription } = req.body;
-    if (!subscription || !subscription.endpoint) {
-      return res.status(400).json({ error: 'Invalid subscription' });
-    }
-    const webpushAgent = require('../services/webpushAgent');
-    const ok = webpushAgent.saveSubscription(req.session.plexUser?.id || req.session.plexUser?.userId || 'anonymous', subscription);
-    res.json({ success: ok });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  const userId = req.session.plexUser?.id;
+  if (!userId) return res.status(401).json({ error: 'Not authenticated' });
+  const webpushAgent = require('../services/webpushAgent');
+  const result = webpushAgent.registerSubscription(userId, req.body?.subscription);
+  if (!result.ok) return res.status(result.status || 400).json({ error: result.error });
+  res.json({ success: true });
 });
 
 // Get VAPID public key for browser registration
@@ -1579,11 +1659,32 @@ router.post('/notifications/broadcast', requireAdmin, async (req, res) => {
   for (const user of users) {
     db.createOrBundleNotification({ userId: user.user_id, type: 'broadcast', title: 'Message from Server Admin', body: msg });
   }
-  // Use the manager to broadcast to all agents
+  // Use the manager to broadcast to all agents; each reports real per-destination counts
   const { manager } = require('../services/notificationAgents');
-  await manager.sendBroadcast(msg);
-  logger.info(`Admin broadcast sent to ${users.length} users`);
-  res.json({ success: true, userCount: users.length });
+  const delivery = await manager.sendBroadcast(msg);
+  const external = Object.entries(delivery).filter(([, t]) => t.attempted > 0);
+  const failed = external.reduce((n, [, t]) => n + t.failed, 0);
+  const parts = external.map(([key, t]) => `${key} ${t.sent}/${t.attempted}`);
+  const message_ = `Sent to ${users.length} user${users.length === 1 ? '' : 's'} in-app`
+    + (parts.length ? `; external: ${parts.join(', ')}` : '; no external destinations')
+    + (failed ? ` (${failed} failed)` : '');
+  logger.info(`Admin broadcast: ${message_}`);
+  res.json({ success: true, userCount: users.length, delivery, message: message_ });
+});
+
+// GET /admin/notifications/failures — queued external deliveries that failed
+// permanently (or exhausted their retries), newest first.
+router.get('/notifications/failures', requireAdmin, (req, res) => {
+  const rows = db.getFailedQueuedNotifications(Number(req.query.limit) || 50).map(r => {
+    let payload = {};
+    try { payload = JSON.parse(r.payload || '{}') || {}; } catch { /* keep empty */ }
+    return {
+      id: r.id, agent: r.agent, userId: r.user_id, notificationId: r.notification_id,
+      type: payload.type || null, title: payload.title || null,
+      attempts: r.attempts, error: r.last_error, createdAt: r.created_at, failedAt: r.updated_at,
+    };
+  });
+  res.json({ failures: rows });
 });
 
 // ── Agregarr / API Apps management ───────────────────────────────────────────

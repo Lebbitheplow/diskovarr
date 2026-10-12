@@ -5,9 +5,12 @@ const path = require('path')
 const fs = require('fs')
 
 const PORT = process.env.PORT || 3232
-// Overridable for tests and non-Docker installs that keep data elsewhere
-const dataDir = process.env.DISKOVARR_DATA_DIR || path.join(__dirname, 'data')
-if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true })
+// DISKOVARR_DATA_DIR or server/data — resolved once in utils/dataDir
+const { dataDir } = require('./utils/dataDir')
+// Secrets stay owner-only: private umask for new files, and tighten the data
+// dir, databases, backups and .env an older install left readable.
+const filePerms = require('./utils/filePerms')
+filePerms.hardenDataDir(dataDir, [path.join(__dirname, '.env'), path.resolve('.env')])
 
 const { DatabaseSync } = require('node:sqlite')
 
@@ -61,9 +64,12 @@ class SQLiteStore extends session.Store {
 }
 
 const app = express()
-// Behind Cloudflare → NPM; trust the first proxy hop so req.protocol/req.ip
-// reflect the original request (needed for secure:'auto' cookies & rate limits)
-app.set('trust proxy', 1)
+// Which upstream hops may set X-Forwarded-For/-Proto, so req.ip/req.protocol
+// reflect the original request (rate limits, secure:'auto' cookies). Default:
+// proxies on loopback/link-local/private addresses; TRUST_PROXY overrides it.
+const { trustProxySetting, securityHeaders } = require('./middleware/httpSecurity')
+app.set('trust proxy', trustProxySetting(process.env.TRUST_PROXY))
+app.use(securityHeaders)
 app.use(express.static(path.join(__dirname, 'public')))
 
 app.use((req, res, next) => {
@@ -79,7 +85,14 @@ app.use((req, res, next) => {
 app.set('query parser', 'extended')
 // Gzip/brotli for JSON bodies (recommendation payloads are hundreds of KB)
 app.use(require('./middleware/compressJson')())
-app.use(express.json())
+// The Discord avatar upload is a base64 image of up to 2 MB, well past the
+// default 100 KB JSON limit. The global parser leaves that route's body
+// unread; it gets its own larger parser after the session middleware, behind
+// requireAdmin (below), so anonymous callers are refused before it is read.
+// Every other route keeps the small default.
+const DISCORD_AVATAR_UPLOAD = '/admin/settings/discord-avatar'
+const { imageJsonParser, jsonParserExcept } = require('./utils/imageUpload')
+app.use(jsonParserExcept(DISCORD_AVATAR_UPLOAD))
 app.use(express.urlencoded({ extended: true }))
 
 // Unauthenticated health check for Docker/monitoring — verifies the DB answers.
@@ -125,8 +138,11 @@ app.use('/api/public', require('./routes/public'))
 app.use('/api/wrapped', require('./middleware/requireAuth'), require('./routes/wrapped'))
 // Riven item actions (reset / re-queue) for admins and privileged request managers
 app.use('/api/riven', require('./middleware/requireAuth'), require('./routes/api').requirePrivileged, require('./routes/rivenItems'))
-app.use('/api/watch-party', require('./middleware/requireAuth'), require('./routes/watchParty'))
+app.use('/api/watch-party', require('./middleware/requireAuth'), require('./services/libraryAccess').middleware, require('./routes/watchParty'))
 app.use('/api', require('./routes/api'))
+// Admin check first, so an unauthenticated avatar upload gets its 401 without
+// the up-to-2.8 MB body being buffered and parsed (see the JSON parser above)
+app.post(DISCORD_AVATAR_UPLOAD, require('./routes/admin').requireAdmin, imageJsonParser())
 app.use('/admin', require('./routes/admin'))
 app.use('/admin/riven', require('./routes/admin').requireAdmin, require('./routes/riven'))
 app.use('/admin/automation/categories', require('./routes/adminCategories'))
@@ -323,16 +339,11 @@ app.get('/discord-avatar.png', (req, res) => {
 app.use('/assets', require('./middleware/builtAssets')(path.join(__dirname, '../dist/assets')))
 app.use(express.static(path.join(__dirname, '../dist')))
 
-// Plex auth callback — store PIN in session server-side (same pattern as original app's GET /auth/callback)
-// This runs before the SPA catch-all so the session cookie is set in the same response that serves the app
+// Plex auth callback — serves the SPA, which polls /auth/check-pin. The PIN
+// itself is never taken from this URL: /auth/create-pin stored it in the
+// session that created it, so a crafted link can't plant someone else's PIN.
 app.get('/callback', (req, res) => {
-  const { pinId, pinCode } = req.query
-  console.log(`[/callback] pinId=${pinId} pinCode=${pinCode ? pinCode.slice(0,6)+'...' : 'missing'} sessionID=${req.sessionID}`)
-  if (pinId && pinCode) {
-    req.session.plexPinId = String(pinId)
-    req.session.plexPinCode = String(pinCode)
-    console.log(`[/callback] stored pinId=${pinId} in session ${req.sessionID}`)
-  }
+  console.log(`[/callback] pinId=${req.query.pinId} sessionID=${req.sessionID}`)
   res.sendFile(path.join(__dirname, '../dist/index.html'))
 })
 
@@ -404,6 +415,7 @@ const server = app.listen(PORT, '0.0.0.0', () => {
       const dest = path.join(backupsDir, `diskovarr-${stamp}.db`)
       if (fs.existsSync(dest)) fs.rmSync(dest) // same-day rerun replaces
       db.backupTo(dest)
+      filePerms.chmodIfOwned(dest, 0o600)
       const old = fs.readdirSync(backupsDir)
         .filter(f => /^diskovarr-\d{4}-\d{2}-\d{2}\.db$/.test(f))
         .sort()
@@ -437,7 +449,8 @@ const server = app.listen(PORT, '0.0.0.0', () => {
       }
       for (const f of ['cookies.txt', 'api_key.txt']) {
         const p = path.join(srcDir, f)
-        if (fs.existsSync(p)) fs.copyFileSync(p, path.join(destDir, f))
+        // copyFile keeps the source's mode; backups are always owner-only
+        if (fs.existsSync(p)) { fs.copyFileSync(p, path.join(destDir, f)); filePerms.chmodIfOwned(path.join(destDir, f), 0o600) }
       }
       const old = fs.readdirSync(backupsDir)
         .filter(f => /^tuberr-\d{4}-\d{2}-\d{2}$/.test(f))
@@ -594,6 +607,13 @@ const server = app.listen(PORT, '0.0.0.0', () => {
     6 * 60 * 60 * 1000
   )
 
+  // Per-user library access (Plex sharing / Jellyfin policy): everyone shortly
+  // after boot — before the rec pre-warm — then every 6h with the library re-sync
+  const refreshLibraryAccess = () => require('./services/libraryAccess').refreshAll()
+    .catch(err => logger.warn('Library access refresh failed:', err.message))
+  setTimeout(refreshLibraryAccess, 15_000)
+  setInterval(refreshLibraryAccess, 6 * 60 * 60 * 1000)
+
   // Refresh cached watch history every 15 min (picks up new plays + in-progress updates)
   setInterval(() => tautulliService.syncWatchHistory()
     .catch(err => logger.warn('Periodic watch-history sync failed:', err.message)),
@@ -671,6 +691,15 @@ const server = app.listen(PORT, '0.0.0.0', () => {
   setInterval(() => autoRequest.runDueLists()
     .catch(err => logger.warn('Auto request sync failed:', err.message)),
     15 * 60 * 1000
+  )
+  // Watchlist auto-request (Admin → Users → Auto-Request Watchlist, or the
+  // per-user flags). A no-op unless enabled; runs on the watchlist sync cadence.
+  const watchlistAutoRequest = require('./services/watchlistAutoRequest')
+  setTimeout(() => watchlistAutoRequest.run()
+    .catch(err => logger.warn('Watchlist auto-request failed:', err.message)), 3 * 60 * 1000)
+  setInterval(() => watchlistAutoRequest.run()
+    .catch(err => logger.warn('Watchlist auto-request failed:', err.message)),
+    30 * 60 * 1000
   )
   // Collections quick sync: fold newly added library items into their list
   // collections every 30 min without re-fetching the sources.

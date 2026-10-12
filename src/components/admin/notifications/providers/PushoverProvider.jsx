@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from 'react'
 import { adminNotifications } from '../../../../services/adminApi'
-import { PUSHOVER_NOTIFICATION_TYPES, PUSHOVER_SOUNDS, DEFAULT_PUSHOVER_TYPES } from '../constants'
+import { PUSHOVER_NOTIFICATION_TYPES, PUSHOVER_SOUNDS, DEFAULT_PUSHOVER_TYPES, initialTypeSelection, isTypeOptionChecked, toggleTypeOption } from '../constants'
 import { useTranslation } from 'react-i18next'
 
 function Checkbox({ checked, onChange, children }) {
@@ -20,13 +20,13 @@ export default function PushoverProvider({ initial, onToast, onOpenAgentInfo, on
   const [sound, setSound] = useState(initial?.sound || '')
   const [embedPoster, setEmbedPoster] = useState(!!initial?.embedPoster)
   const [notifTypes, setNotifTypes] = useState(
-    (initial?.notificationTypes || []).length > 0 ? initial.notificationTypes : [...DEFAULT_PUSHOVER_TYPES]
+    () => initialTypeSelection(initial?.notificationTypes, DEFAULT_PUSHOVER_TYPES)
   )
   const [testing, setTesting] = useState(false)
 
-  const getChecked = useCallback((types, value) => types.includes(value), [])
-  const toggleType = useCallback((setTypes, value) => {
-    setTypes(prev => prev.includes(value) ? prev.filter(t => t !== value) : [...prev, value])
+  const getChecked = useCallback((types, option) => isTypeOptionChecked(types, option), [])
+  const toggleType = useCallback((setTypes, option) => {
+    setTypes(prev => toggleTypeOption(prev, option))
   }, [])
 
   const handleSave = useCallback(async () => {
@@ -88,7 +88,7 @@ export default function PushoverProvider({ initial, onToast, onOpenAgentInfo, on
           <p style={{ fontSize: '0.72rem', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-secondary)', margin: '0 0 8px' }}>{t('Notification Types')}</p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {PUSHOVER_NOTIFICATION_TYPES.map(t => (
-              <Checkbox key={t.value} checked={getChecked(notifTypes, t.value)} onChange={() => toggleType(setNotifTypes, t.value)}>{t.label}</Checkbox>
+              <Checkbox key={t.value} checked={getChecked(notifTypes, t)} onChange={() => toggleType(setNotifTypes, t)}>{t.label}</Checkbox>
             ))}
           </div>
         </div>

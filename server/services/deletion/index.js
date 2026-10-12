@@ -25,18 +25,25 @@ function buildContext() {
   };
 }
 
-function getAllLibraryItems() {
+// Sections whose items may be deletion candidates. Jellyfin sections join the
+// pool only while Jellyfin is enabled: their play stats come from the mirrored
+// watch_history (source='jellyfin') and the fallback delete path is
+// Jellyfin's own DELETE /Items/{id}.
+function candidateSections() {
   const sectionIds = new Set([String(plexService.MOVIES_SECTION), String(plexService.TV_SECTION)]);
   try { for (const id of db.getEnabledSectionIds()) sectionIds.add(String(id)); } catch {}
-  // Jellyfin sections join the candidate pool only while Jellyfin is enabled:
-  // their play stats come from the mirrored watch_history (source='jellyfin')
-  // and the fallback delete path is Jellyfin's own DELETE /Items/{id}.
   const jellyfinEnabled = (() => { try { return require('../jellyfin').isEnabled(); } catch { return false; } })();
+  return [...sectionIds].filter(id => jellyfinEnabled || !id.startsWith('jf_'));
+}
+
+// An item belongs to its section's server (a stray cross-source row never does).
+const matchesSectionSource = (item, sectionId) =>
+  (item.source || 'plex') === (String(sectionId).startsWith('jf_') ? 'jellyfin' : 'plex');
+
+function getAllLibraryItems() {
   const items = [];
-  for (const sectionId of sectionIds) {
-    const isJellyfin = sectionId.startsWith('jf_');
-    if (isJellyfin && !jellyfinEnabled) continue;
-    items.push(...db.getLibraryItemsFromDb(sectionId).filter(i => (i.source || 'plex') === (isJellyfin ? 'jellyfin' : 'plex')));
+  for (const sectionId of candidateSections()) {
+    items.push(...db.getLibraryItemsFromDb(sectionId).filter(i => matchesSectionSource(i, sectionId)));
   }
   return items;
 }
@@ -54,13 +61,14 @@ function candidateDetails(match, ctx) {
   };
 }
 
+// Bell + every active provider; each provider relays it only when its
+// "Media deletion notices" (deletion) type is selected.
 function notifyAdmins(title, body) {
   try {
+    const { enqueueForUser } = require('../notificationAgents');
     for (const adminId of db.getPrivilegedUserIds()) {
       const notifId = db.createOrBundleNotification({ userId: adminId, type: 'deletion', title, body, data: {} });
-      for (const agent of ['discord', 'pushover']) {
-        db.enqueueNotification({ notificationId: notifId, agent, userId: adminId, payload: { type: 'deletion', title, body } });
-      }
+      enqueueForUser({ notificationId: notifId, userId: adminId, payload: { type: 'deletion', title, body } });
     }
   } catch (e) {
     logger.warn(`[deletion] admin notification failed: ${e.message}`);
@@ -88,18 +96,48 @@ function previewProfile(profile) {
   };
 }
 
+// Why a stored candidate may no longer be deleted, or null if it still may.
+// A review can sit in the queue for days: since then the title may have been
+// watchlisted, watched, labelled into an exclusion, or the profile edited,
+// disabled or switched to dry-run. Re-runs the same evaluation as a scheduled
+// run, against current data, for just this item.
+function ineligibleReason(profile, item, ctx, sections) {
+  if (!profile.enabled) return 'profile is disabled';
+  if (profile.mode === 'dry_run') return 'profile is in dry-run mode';
+  if (!sections.includes(String(item.sectionId)) || !matchesSectionSource(item, item.sectionId)) {
+    return 'library section is no longer evaluated';
+  }
+  if (evaluator.usesWatchData(profile) && !ctx.watchHistoryAvailable) return 'watch history unavailable';
+  const result = evaluator.evaluateItem(profile, item, ctx);
+  if (!result) return 'no longer matches the profile criteria';
+  return result.excluded ? `now protected (${result.excluded})` : null;
+}
+
 // Delete specific candidate rows (admin-approved review items). Shared by the
-// approve endpoint and the auto mode path.
-async function executeCandidates(candidateIds) {
-  const results = { deleted: 0, failed: 0, freedBytes: 0, sections: [] };
+// approve endpoint and the auto mode path. Each candidate is re-checked
+// against current conditions first; one that no longer qualifies is skipped
+// and recorded as dismissed with the reason (a later run re-queues it if it
+// matches again). Pass the run's ctx to skip rebuilding it.
+async function executeCandidates(candidateIds, { ctx = buildContext() } = {}) {
+  const results = { deleted: 0, failed: 0, skipped: 0, freedBytes: 0, sections: [], skippedItems: [] };
+  const sections = candidateSections();
   for (const id of candidateIds) {
     const candidate = automation.getCandidateById(id);
-    if (!candidate || candidate.status === 'deleted') continue;
+    // Only open candidates are executable — not deleted, dismissed or failed history
+    if (!candidate || !['pending_review', 'matched'].includes(candidate.status)) continue;
     const profile = automation.getDeletionProfile(candidate.profileId);
     const item = db.getLibraryItemByKey(candidate.ratingKey);
     if (!item || !profile) {
       automation.setCandidateStatus(id, 'failed', { error: !item ? 'item no longer in library' : 'profile missing' });
       results.failed++;
+      continue;
+    }
+    const reason = ineligibleReason(profile, item, ctx, sections);
+    if (reason) {
+      automation.markCandidateIneligible(id, `Not deleted: ${reason}`);
+      results.skipped++;
+      results.skippedItems.push({ id, title: item.title, reason });
+      logger.info(`[deletion] skipped "${item.title}" — ${reason}`);
       continue;
     }
     try {
@@ -157,7 +195,7 @@ async function runProfiles() {
         .filter(c => c.firstMatchedAt <= graceCutoff)
         .slice(0, profile.maxDeletionsPerRun);
       if (eligible.length > 0) {
-        const result = await executeCandidates(eligible.map(c => c.id));
+        const result = await executeCandidates(eligible.map(c => c.id), { ctx });
         summary.deleted = result.deleted;
         summary.failed = result.failed;
         summary.freedBytes = result.freedBytes;
@@ -178,4 +216,4 @@ async function runProfiles() {
   return runSummary;
 }
 
-module.exports = { runProfiles, previewProfile, executeCandidates };
+module.exports = { runProfiles, previewProfile, executeCandidates, notifyAdmins };

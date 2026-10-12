@@ -3,15 +3,48 @@ const logger = require('./logger');
 const BaseAgent = require('./notificationAgents/base');
 const { hasNotificationType } = require('./notificationAgents/types');
 const { toPlainText } = require('./messageFormat');
+const { resolveAudience, runTargets, skipped, emptyTally, tallySend } = require('./notificationAgents/delivery');
 const nodemailer = require('nodemailer');
 
 // Email agent — SMTP with optional PGP encryption
 // Supports templates, sender name, TLS options
 
+// Everything that shapes the SMTP connection. The cached transport is reused
+// only while all of these are unchanged, so a saved host/port/TLS/auth change
+// takes effect on the very next send.
+function connectionConfig(settings) {
+  const config = {
+    host: settings.smtpHost,
+    port: Number(settings.smtpPort) || 587,
+    secure: !!settings.secure, // true for port 465
+    requireTLS: !!settings.requireTls,
+    ignoreTLS: !!settings.ignoreTls,
+    tls: {
+      rejectUnauthorized: !settings.allowSelfSigned,
+      // Allow all ciphers for maximum compatibility
+      ciphers: 'ALL',
+    },
+    // Fail fast instead of nodemailer's minutes-long defaults so one dead
+    // server can't stall the notification worker.
+    connectionTimeout: 15000,
+    greetingTimeout: 15000,
+    socketTimeout: 30000,
+  };
+  // Auth
+  if (settings.authUser || settings.authPass) {
+    config.auth = {
+      user: settings.authUser || '',
+      pass: settings.authPass || '',
+    };
+  }
+  return config;
+}
+
 class EmailAgent extends BaseAgent {
   constructor() {
     super('email_agent');
     this._transporter = null;
+    this._fingerprint = null;
   }
 
   shouldSend() {
@@ -26,35 +59,27 @@ class EmailAgent extends BaseAgent {
     return hasNotificationType(types, diskovarrType);
   }
 
-  // Build SMTP transporter (cached)
+  // A fresh transport for the given settings (used directly by Send Test, so
+  // unsaved test settings never touch the shared transport).
+  buildTransport(settings) {
+    return nodemailer.createTransport(connectionConfig(settings));
+  }
+
+  // Shared transport for the saved settings, rebuilt whenever the connection
+  // fingerprint changes.
   getTransporter() {
-    if (this._transporter) return this._transporter;
-
     const settings = this.getSettings();
-    if (!settings) return null;
-
-    const transporterConfig = {
-      host: settings.smtpHost,
-      port: Number(settings.smtpPort) || 587,
-      secure: !!settings.secure, // true for port 465
-      tls: {
-        rejectUnauthorized: !settings.allowSelfSigned,
-        // Allow all ciphers for maximum compatibility
-        ciphers: 'ALL',
-      },
-      requireTLS: !!settings.requireTls,
-    };
-
-    // Auth
-    if (settings.authUser || settings.authPass) {
-      transporterConfig.auth = {
-        user: settings.authUser || '',
-        pass: settings.authPass || '',
-      };
-    }
+    if (!settings || !settings.smtpHost) return null;
+    const fingerprint = JSON.stringify(connectionConfig(settings));
+    if (this._transporter && this._fingerprint === fingerprint) return this._transporter;
 
     try {
-      this._transporter = nodemailer.createTransport(transporterConfig);
+      const previous = this._transporter;
+      this._transporter = this.buildTransport(settings);
+      this._fingerprint = fingerprint;
+      if (previous && typeof previous.close === 'function') {
+        try { previous.close(); } catch { /* already closed */ }
+      }
       return this._transporter;
     } catch (err) {
       logger.warn('Email: failed to create transporter:', err.message);
@@ -63,8 +88,7 @@ class EmailAgent extends BaseAgent {
   }
 
   // Build HTML email template
-  buildHTML(payload) {
-    const settings = this.getSettings();
+  buildHTML(payload, settings = this.getSettings() || {}) {
     const senderName = settings.senderName || 'Diskovarr';
     const title = payload.title || '';
     const body = payload.body || '';
@@ -115,16 +139,19 @@ class EmailAgent extends BaseAgent {
       .replace(/"/g, '&quot;');
   }
 
+  // Throws on failure (nodemailer errors carry responseCode/code for retry
+  // classification).
   async sendToEmail(to, name, payload) {
     const settings = this.getSettings();
     const transporter = this.getTransporter();
-    if (!transporter || !to) return false;
+    if (!transporter) throw new Error('SMTP is not configured');
+    if (!to) throw new Error('No recipient address');
 
     const mailOptions = {
       from: `"${settings.senderName || 'Diskovarr'}" <${settings.emailFrom}>`,
       to: to,
       subject: payload.title || 'Diskovarr Notification',
-      html: this.buildHTML(payload),
+      html: this.buildHTML(payload, settings),
       text: `${payload.title || ''}\n\n${payload.body || ''}`,
     };
 
@@ -139,35 +166,28 @@ class EmailAgent extends BaseAgent {
     return true;
   }
 
-  async send(type, payload) {
+  // Personal only: the recipient's own address from their notification
+  // settings, when they opted in. Email has no admin feed.
+  async send(type, payload, ctx) {
     const settings = this.getSettings();
-    if (!settings || !settings.enabled) return;
-    if (!this.shouldSendType(type)) return;
-
-    let sent = 0;
-
-    try {
-      // Send to specific user if provided
-      if (payload.userId) {
-        const prefs = db.getUserNotificationPrefs(payload.userId);
-        // The address comes from the user's own notification settings. It used
-        // to be read off the known_users record, which has no email column, so
-        // this branch could never fire.
-        if (prefs?.email_enabled && prefs.email_address) {
-          const users = db.getKnownUsers();
-          const user = users.find((u) => u.user_id === payload.userId);
-          await this.sendToEmail(prefs.email_address, user?.username || '', payload);
-          sent++;
-          logger.debug(`Email: sent to user ${payload.userId}`);
-        }
+    if (!settings || !settings.enabled) return skipped('Email disabled');
+    if (!this.shouldSendType(type)) return skipped(`type ${type} not selected`);
+    const { recipientId } = resolveAudience(payload, ctx);
+    const targets = [];
+    if (recipientId) {
+      const prefs = db.getUserNotificationPrefs(recipientId);
+      if (prefs?.email_enabled && prefs.email_address) {
+        const user = db.getKnownUsers().find((u) => u.user_id === recipientId);
+        targets.push({ id: 'user', send: () => this.sendToEmail(prefs.email_address, user?.username || '', payload) });
       }
-    } catch (err) {
-      logger.warn('Email agent error:', err.message);
     }
-
-    return sent > 0;
+    const result = await runTargets(targets, ctx);
+    if (result.error) logger.warn('Email agent error:', result.error);
+    return result;
   }
 
+  // Tests exactly the submitted (possibly unsaved) connection on its own
+  // transport; the shared transport and queued mail are left alone.
   async sendTest(payload) {
     const settings = {
       smtpHost: payload.smtpHost,
@@ -175,22 +195,18 @@ class EmailAgent extends BaseAgent {
       secure: !!payload.secure,
       allowSelfSigned: !!payload.allowSelfSigned,
       requireTls: !!payload.requireTls,
+      ignoreTls: !!payload.ignoreTls,
       authUser: payload.authUser || '',
       authPass: payload.authPass || '',
       emailFrom: payload.emailFrom,
       senderName: payload.senderName || 'Diskovarr',
     };
+    if (!settings.smtpHost) throw new Error('SMTP host required');
+    if (!settings.emailFrom) throw new Error('Sender address required');
 
-    // Override settings temporarily for test
-    const origSettings = this._settings;
-    this._settings = settings;
-    this._transporter = null; // Force recreate
-
+    const transporter = this.buildTransport(settings);
     try {
-      const transporter = this.getTransporter();
-      if (!transporter) throw new Error('Failed to create SMTP transporter');
-
-      const mailOptions = {
+      await transporter.sendMail({
         from: `"${settings.senderName}" <${settings.emailFrom}>`,
         to: settings.emailFrom, // Send to same address as from
         subject: 'Diskovarr Test Notification',
@@ -198,36 +214,40 @@ class EmailAgent extends BaseAgent {
           title: 'Diskovarr Test Notification',
           body: 'Email notifications are working correctly.',
           posterUrl: '',
-        }),
+        }, settings),
         text: 'Diskovarr Test Notification\n\nEmail notifications are working correctly.',
-      };
-
-      await transporter.sendMail(mailOptions);
+      });
       return true;
     } finally {
-      this._settings = origSettings;
-      this._transporter = null;
+      if (typeof transporter.close === 'function') {
+        try { transporter.close(); } catch { /* already closed */ }
+      }
     }
   }
 
+  // Same addressing as regular delivery: each user's own notification address,
+  // only when they enabled email. Returns { attempted, sent, failed }.
   async sendBroadcast(message) {
+    const tally = emptyTally();
     const settings = this.getSettings();
-    if (!settings || !settings.enabled) return;
+    if (!settings || !settings.enabled) return tally;
 
     const payload = {
       title: 'Message from Server Admin',
       body: toPlainText(message),
     };
 
-    const users = db.getKnownUsers();
-    for (const user of users) {
+    const seen = new Set();
+    for (const user of db.getKnownUsers()) {
       const prefs = db.getUserNotificationPrefs(user.user_id);
-      if (user.email && prefs?.email_enabled) {
-        await this.sendToEmail(user.email, user.username || '', payload).catch((err) => {
-          logger.warn(`Email broadcast to ${user.email} failed:`, err.message);
-        });
-      }
+      const address = prefs?.email_enabled ? prefs.email_address : null;
+      if (!address || seen.has(address.toLowerCase())) continue;
+      seen.add(address.toLowerCase());
+      await tallySend(tally,
+        () => this.sendToEmail(address, user.username || '', payload),
+        (err) => logger.warn(`Email broadcast to user ${user.user_id} failed:`, err.message));
     }
+    return tally;
   }
 }
 

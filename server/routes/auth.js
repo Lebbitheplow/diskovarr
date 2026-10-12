@@ -4,6 +4,11 @@ const rateLimit = require('express-rate-limit');
 const db = require('../db/database');
 const logger = require('../services/logger');
 const jellyfinService = require('../services/jellyfin');
+const { regenerateSession, syncSessionRole } = require('../middleware/requireAuth');
+const libraryAccess = require('../services/libraryAccess');
+
+// Pending Plex PIN / account-link state, consumed by a completed login.
+const PIN_STATE = ['plexPinId', 'plexPinCode', 'plexLinkMode'];
 
 const checkPinLimiter = rateLimit({
   windowMs: 60 * 1000,
@@ -71,7 +76,12 @@ const PLEX_TV_HEADERS = {
   'X-Plex-Platform': 'Web',
 };
 
-// POST /auth/create-pin — creates a Plex PIN server-side (avoids browser CORS restrictions)
+// POST /auth/create-pin — creates a Plex PIN server-side (avoids browser CORS
+// restrictions) and binds it to this session, like OAuth state: check-pin only
+// ever polls the PIN this browser created, so a crafted /callback link can't
+// complete someone else's PIN here (login CSRF, or worse, merging a Jellyfin
+// account into an attacker's Plex account). `link: true` from a signed-in,
+// unlinked Jellyfin user marks the flow as an account-link rather than a login.
 router.post('/create-pin', async (req, res) => {
   try {
     const pinRes = await fetch('https://plex.tv/api/v2/pins', {
@@ -82,7 +92,14 @@ router.post('/create-pin', async (req, res) => {
     });
     if (!pinRes.ok) throw new Error(`Plex PIN creation failed: ${pinRes.status}`);
     const pin = await pinRes.json();
-    logger.info(`PIN created: id=${pin.id}`);
+    const sessionUser = req.session.plexUser;
+    const link = req.body?.link === true && sessionUser?.provider === 'jellyfin'
+      && String(sessionUser.id).startsWith('jf_');
+    req.session.plexPinId = String(pin.id);
+    req.session.plexPinCode = String(pin.code);
+    if (link) req.session.plexLinkMode = true;
+    else delete req.session.plexLinkMode;
+    logger.info(`PIN created: id=${pin.id}${link ? ' (link mode)' : ''}`);
     res.json({ id: pin.id, code: pin.code });
   } catch (err) {
     logger.error(`PIN creation error: ${err.message}`);
@@ -90,21 +107,19 @@ router.post('/create-pin', async (req, res) => {
   }
 });
 
-// POST /auth/callback — stores PIN in session (for React SPA). `link: true`
-// marks this PIN flow as an account-link for a signed-in Jellyfin user rather
-// than a fresh login.
+// POST /auth/callback — the Callback page reports the PIN Plex sent it back
+// with. create-pin already stored this session's PIN, so this changes nothing:
+// a PIN the session didn't create is ignored, and link mode can't be turned on
+// here. `ok` says whether the PIN is the one this session is waiting on.
 router.post('/callback', (req, res) => {
-  const { pinId, pinCode, link } = req.body || {};
-  logger.info(`POST callback: sessionID=${req.sessionID} pinId=${pinId || 'missing'}${link ? ' (link mode)' : ''}`);
-  if (pinId && pinCode) {
-    req.session.plexPinId = pinId;
-    req.session.plexPinCode = pinCode;
-    if (link && req.session.plexUser?.provider === 'jellyfin') req.session.plexLinkMode = true;
-  }
-  res.json({ ok: true });
+  const { pinId } = req.body || {};
+  const ok = !!pinId && !!req.session.plexPinId && String(pinId) === req.session.plexPinId;
+  logger.info(`POST callback: sessionID=${req.sessionID} pinId=${pinId || 'missing'}${ok ? '' : ' (not issued to this session, ignored)'}`);
+  res.json({ ok });
 });
 
-// GET /auth/check-pin — polled by client JS
+// GET /auth/check-pin — polled by client JS; only for the PIN create-pin issued
+// to this session
 router.get('/check-pin', checkPinLimiter, async (req, res) => {
   const pinId = req.session.plexPinId;
   logger.info(`check-pin: sessionID=${req.sessionID} pinId=${pinId || 'MISSING'}`);
@@ -171,10 +186,16 @@ router.get('/check-pin', checkPinLimiter, async (req, res) => {
       db.linkJellyfinAccount(jfDiskovarrId, plexId);
       logger.info(`Linked Jellyfin account ${jfDiskovarrId} to Plex user ${plexId}`);
     }
-    delete req.session.plexLinkMode;
+
+    // Which libraries Plex shares with this user (bounded; never blocks login;
+    // skipped for the owner). Awaited before the session is regenerated: the
+    // Callback page keeps polling every 2 s, and a poll landing meanwhile must
+    // still find the PIN in this session rather than answer 'expired'.
+    await libraryAccess.refreshOnLogin(plexId, { serverToken });
 
     // Attach a linked Jellyfin identity (if any) so source-specific features work
     const jfRow = db.getLinkedJellyfinRow(plexId);
+    await regenerateSession(req, PIN_STATE);
     req.session.plexUser = {
       ...buildSessionUser({
         canonicalId: plexId,
@@ -189,11 +210,8 @@ router.get('/check-pin', checkPinLimiter, async (req, res) => {
     };
     req.session.activeSource = pickActiveSource('plex', plexId);
 
-    // Set Plex admin flag if user has is_admin set in DB
+    // Set Plex admin flag if user has is_admin set in DB (requireAuth keeps it current)
     req.session.isPlexAdminUser = db.isAdminUser(plexId);
-
-    delete req.session.plexPinId;
-    delete req.session.plexPinCode;
 
     logger.info(`Plex login success: user=${userData.id} username="${username}" ip=${req.ip}`);
     const userPrefs = db.getUserPreferences(String(userData.id));
@@ -235,6 +253,7 @@ router.post('/jellyfin/login', jellyfinLoginLimiter, async (req, res) => {
     db.upsertJellyfinUser(jfDiskovarrId, auth.name, avatar, auth.accessToken);
 
     const canonicalId = db.resolveCanonicalUserId(jfDiskovarrId);
+    await regenerateSession(req, PIN_STATE);
     if (canonicalId !== jfDiskovarrId) {
       // Linked → sign in as the canonical Plex identity with Jellyfin attached
       const plexRow = db.getKnownUserById(canonicalId);
@@ -257,6 +276,8 @@ router.post('/jellyfin/login', jellyfinLoginLimiter, async (req, res) => {
     }
     req.session.activeSource = pickActiveSource('jellyfin', canonicalId);
     req.session.isPlexAdminUser = db.isAdminUser(canonicalId);
+    // The Jellyfin policy came with the login: folders + parental controls
+    await libraryAccess.refreshOnLogin(jfDiskovarrId, { policy: auth.policy || null });
 
     logger.info(`Jellyfin login success: user=${jfDiskovarrId} username="${auth.name}" ip=${req.ip}`);
     const userPrefs = db.getUserPreferences(canonicalId);
@@ -272,23 +293,27 @@ router.post('/jellyfin/login', jellyfinLoginLimiter, async (req, res) => {
 // GET /auth/check-auth — checks if user is logged in (for React SPA)
 router.get('/check-auth', (req, res) => {
   if (req.session?.plexUser) {
-    const userId = String(req.session.plexUser.id);
-    const isAdmin = !!(req.session.isAdmin || req.session.isPlexAdminUser);
+    const sessionUser = req.session.plexUser;
+    const userId = String(sessionUser.id);
+    const isAdmin = !!req.session.isAdmin || syncSessionRole(req);
     const isElevated = !isAdmin && db.getPrivilegedUserIds().includes(userId);
     // Wrapped appears once any year has unlocked (Dec 1) and history exists;
     // admins always get it so they can preview the in-progress year.
     const wrappedStats = require('../services/wrappedStats');
     const wrappedYears = wrappedStats.getAvailableYears(isAdmin || isElevated);
     const sources = availableSources();
-    const isJellyfinIdentity = userId.startsWith('jf_');
     return res.json({
       authenticated: true,
-      // The Jellyfin token stays server-side; expose only that a link exists.
+      // An explicit identity DTO: the Plex user/server tokens and the Jellyfin
+      // token stay in the server-side session (the browser reaches both
+      // servers only through Diskovarr), so only link flags are exposed.
       user: {
-        ...req.session.plexUser,
-        jellyfin: undefined,
-        hasJellyfin: !!req.session.plexUser.jellyfin,
-        isPlexLinked: !isJellyfinIdentity,
+        id: userId,
+        username: sessionUser.username,
+        thumb: sessionUser.thumb || null,
+        provider: sessionUser.provider || 'plex',
+        hasJellyfin: !!sessionUser.jellyfin,
+        isPlexLinked: !userId.startsWith('jf_'),
         isAdmin,
         isElevated,
       },

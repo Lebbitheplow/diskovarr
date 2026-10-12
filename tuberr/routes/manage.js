@@ -2,8 +2,9 @@ const express = require('express');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
-const { db, getSetting, setSetting } = require('../db');
+const { db, getSetting, setSetting, writeApiKeyFile } = require('../db');
 const config = require('../config');
+const qbitAuth = require('../lib/qbitAuth');
 const naming = require('../lib/naming');
 const torrentLib = require('../lib/torrent');
 const downloader = require('../lib/downloader');
@@ -91,12 +92,15 @@ router.put('/config', (req, res) => {
 // route middleware already enforced that), so a compromised key can be
 // replaced from Diskovarr's Connections page. Persists to the DB + the
 // mirrored api_key.txt; the caller is responsible for updating anything that
-// stores the old key (Diskovarr's tuberr_api_key + Sonarr's indexer).
+// stores the old key (Diskovarr's tuberr_api_key + Sonarr's indexer and
+// download-client password). qBittorrent-API sessions were authenticated with
+// the old key, so they are all revoked.
 router.post('/regenerate-key', (req, res) => {
   const newKey = crypto.randomBytes(24).toString('hex');
   setSetting('api_key', newKey);
+  qbitAuth.clearSessions();
   try {
-    fs.writeFileSync(path.join(config.dataDir, 'api_key.txt'), newKey + '\n', { mode: 0o600 });
+    writeApiKeyFile(newKey);
   } catch { /* non-fatal — key is still in the DB */ }
   res.json({ ok: true, apiKey: newKey });
 });
@@ -125,7 +129,8 @@ router.get('/downloads', (req, res) => {
 });
 
 // Dev helper: mint a torrent for any videoId so the qbit flow can be exercised
-// without the torznab side (curl -F torrents=@file /api/v2/torrents/add)
+// without the torznab side: log in first (curl -c jar -d username=tuberr
+// -d password=$KEY /api/v2/auth/login), then curl -b jar -F torrents=@file /api/v2/torrents/add
 router.post('/debug/torrent', (req, res) => {
   const { videoId, releaseTitle, durationSec } = req.body || {};
   if (!videoId) return res.status(400).json({ error: 'videoId required' });

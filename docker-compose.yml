@@ -5,7 +5,9 @@ services:
     restart: unless-stopped
     ports:
       - "3232:3232"
-      # Tuberr (bundled YouTube downloader for Sonarr) — expose so Sonarr can reach it
+      # Tuberr (bundled YouTube downloader for Sonarr) — expose so Sonarr can reach it.
+      # Its download/indexer/management APIs all require Tuberr's API key, but nothing outside your LAN needs them:
+      # on an internet-facing host bind it to the LAN address, e.g. "192.168.1.x:9832:9832".
       - "9832:9832"
     volumes:
       - ./data:/app/data
@@ -30,6 +32,13 @@ services:
       # - TMDB_API_KEY=your_tmdb_api_key
       # - RIVEN_SETTINGS_PATH=/opt/riven/settings.json
       # - APP_URL=https://diskovarr.example.com
+      # ── Reverse proxy trust ────────────────────────────────────────
+      # Which proxies may set X-Forwarded-For/-Proto (client IP for rate
+      # limits, HTTPS detection for secure cookies). The default trusts
+      # proxies on loopback, link-local and private/Docker networks. Set your
+      # proxy's IP/CIDR, a hop count (e.g. 1), or false for no proxy; add
+      # e.g. 100.64.0.0/10 if the proxy reaches Diskovarr over Tailscale.
+      # - TRUST_PROXY=loopback, linklocal, uniquelocal
       # ── Jellyfin (v2.6.0) — alternative or addition to Plex ────────
       # Can also be configured in Admin → Connections (those values win).
       # Jellyfin tracks watch history natively, so Tautulli isn't needed.

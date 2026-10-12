@@ -1,4 +1,5 @@
 const express = require('express');
+const path = require('path');
 const config = require('./config');
 const { getSetting } = require('./db');
 const downloader = require('./lib/downloader');
@@ -23,9 +24,22 @@ app.use('/manage', require('./routes/manage'));
 app.listen(config.port, () => {
   console.log(`[tuberr] listening on :${config.port}`);
   console.log(`[tuberr] downloads dir: ${config.downloadsDir}`);
-  console.log(`[tuberr] management api key: ${getSetting('api_key')}`);
+  // Never log the key itself: logs end up in journald/docker logs and
+  // Diskovarr's log viewer. The last 4 characters are enough to tell keys apart.
+  const apiKey = getSetting('api_key');
+  console.log(`[tuberr] management api key: …${apiKey.slice(-4)} (full key in ${path.join(config.dataDir, 'api_key.txt')})`);
   ytdlp.startAutoUpdate();   // bootstrap + daily self-update of the bundled yt-dlp
   scheduler.start();         // periodic episode/video re-sync + auto-match
   janitor.start();           // purge staging copies Sonarr has already imported
   downloader.resumePending();
 });
+
+// yt-dlp runs in its own process group, so stop it explicitly on shutdown;
+// otherwise it outlives Tuberr and races the re-run resumePending starts on
+// the next boot.
+for (const signal of ['SIGTERM', 'SIGINT']) {
+  process.once(signal, () => {
+    downloader.stopAll();
+    process.exit(0);
+  });
+}

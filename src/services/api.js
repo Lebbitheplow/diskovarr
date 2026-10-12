@@ -79,7 +79,8 @@ export const popularApi = {
 
 /** Discover / Library Browse */
 export const discoverApi = {
-  getDiscover: (params) => api.get('/discover', { params }),
+  // config: e.g. { signal } so a superseded filter query can be aborted
+  getDiscover: (params, config) => api.get('/discover', { ...config, params }),
   getGenres: () => api.get('/discover/genres'),
   getFacets: (field, q = '', limit) => api.get('/discover/facets', { params: { field, q, limit } }),
 }

@@ -15,6 +15,7 @@ const tmdbService = require('./tmdb');
 const logger = require('./logger');
 const { enqueueForUser } = require('./notificationAgents');
 const policy = require('./collectionPolicy');
+const requestNotifications = require('./requestNotifications');
 
 const SYSTEM_USER_ID = 'autorequest';
 const EXCLUSIONS_SETTING = 'autorequest_exclusions';
@@ -80,10 +81,34 @@ function setGlobalLimits(limits) {
   return clean;
 }
 
+// "Notify me" followers ride on someone else's request and acquire nothing.
 function activeRequestExists(tmdbId, mediaType) {
   return !!db.prepare(
-    "SELECT 1 FROM discover_requests WHERE tmdb_id = ? AND media_type = ? AND status != 'denied' LIMIT 1"
+    "SELECT 1 FROM discover_requests WHERE tmdb_id = ? AND media_type = ? AND status != 'denied' AND is_follow = 0 LIMIT 1"
   ).get(Number(tmdbId), String(mediaType));
+}
+
+// The list's own approved request for an item whose submission failed. A
+// later sync re-submits this row instead of skipping the item forever (the row
+// itself made activeRequestExists true) or creating a second request.
+function failedListRequest(listId, item, known) {
+  const linked = known?.requestId ? db.getRequestById(known.requestId) : null;
+  const row = (linked && linked.user_id === SYSTEM_USER_ID && Number(linked.tmdb_id) === Number(item.tmdbId) && linked.media_type === item.mediaType)
+    ? linked
+    // Rows from before the failure was linked back to the list item
+    : db.prepare(`
+        SELECT * FROM discover_requests
+        WHERE user_id = ? AND origin_list_id = ? AND tmdb_id = ? AND media_type = ?
+        ORDER BY id DESC LIMIT 1
+      `).get(SYSTEM_USER_ID, Number(listId), Number(item.tmdbId), String(item.mediaType));
+  return row && row.status === 'approved' ? row : null;
+}
+
+function parseSeasons(json) {
+  try {
+    const list = json ? JSON.parse(json) : null;
+    return Array.isArray(list) && list.length ? list.map(Number) : null;
+  } catch { return null; }
 }
 
 function notifyAdmins(title, body) {
@@ -190,6 +215,39 @@ async function syncList(listSource) {
       // 'deleted' = a deletion profile removed this item from the library; never
       // re-request it just because it is still on the external list.
       if (known && known.status === 'deleted') { automation.upsertListItem({ ...base, status: 'deleted' }); summary.skipped++; continue; }
+      const stale = known && known.status === 'failed' ? failedListRequest(listSource.id, item, known) : null;
+      // Already resent from the Queue (PUT /api/queue/:id cleared the linked
+      // row's submit_error): settle the item instead of submitting it again
+      if (stale && known.requestId && stale.id === Number(known.requestId) && !stale.submit_error) {
+        automation.upsertListItem({ ...base, title: stale.title, status: 'requested', requestId: stale.id });
+        summary.skipped++;
+        continue;
+      }
+      if (stale) {
+        if (requestBudget <= 0) {
+          automation.upsertListItem({ ...base, status: 'failed', requestId: stale.id });
+          summary.skipped++;
+          continue;
+        }
+        requestBudget--;
+        const service = stale.service && stale.service !== 'none' ? stale.service : pickService(item.mediaType);
+        try {
+          if (service !== 'none') {
+            await submitRequestToService({ tmdbId: item.tmdbId, mediaType: item.mediaType, title: stale.title, service, seasons: parseSeasons(stale.seasons_json) });
+          }
+        } catch (e) {
+          db.setRequestSubmitError(stale.id, e.message);
+          automation.upsertListItem({ ...base, title: stale.title, status: 'failed', requestId: stale.id });
+          summary.failed++;
+          logger.warn(`[autorequest] retry failed for tmdb:${item.tmdbId}: ${e.message}`);
+          continue;
+        }
+        db.setRequestSubmitError(stale.id, null);
+        automation.upsertListItem({ ...base, title: stale.title, status: 'requested', requestId: stale.id });
+        summary.requested++;
+        logger.info(`[autorequest] retried: "${stale.title}" (tmdb:${item.tmdbId} ${item.mediaType}) via ${service}`);
+        continue;
+      }
       const existing = known && ['requested', 'pending'].includes(known.status) ? known : null;
       if (existing || activeRequestExists(item.tmdbId, item.mediaType)) {
         automation.upsertListItem({ ...base, status: existing ? existing.status : 'requested' });
@@ -229,7 +287,18 @@ async function syncList(listSource) {
       budget[pool] -= cost;
 
       if (status === 'approved' && service !== 'none') {
-        await submitRequestToService({ tmdbId: item.tmdbId, mediaType: item.mediaType, title, service, seasons });
+        try {
+          await submitRequestToService({ tmdbId: item.tmdbId, mediaType: item.mediaType, title, service, seasons });
+        } catch (e) {
+          // Keep the row (it holds the list's budget) but mark it unsent and
+          // link it, so the next sync re-submits it instead of skipping it
+          db.setRequestSubmitError(requestId, e.message);
+          automation.upsertListItem({ ...base, title, status: 'failed', requestId });
+          summary.failed++;
+          logger.warn(`[autorequest] failed to request tmdb:${item.tmdbId}: ${e.message}`);
+          requestNotifications.notifyProcessFailed({ title, tmdbId: item.tmdbId, mediaType: item.mediaType, error: e, posterUrl });
+          continue;
+        }
       }
       automation.upsertListItem({ ...base, title, status: status === 'approved' ? 'requested' : 'pending', requestId });
       requestBudget--;

@@ -6,6 +6,7 @@ const logger = require('./logger');
 const C = require('./recommend/constants');
 const affinity = require('./recommend/affinity');
 const tasteProfile = require('./recommend/tasteProfile');
+const libraryAccess = require('./libraryAccess');
 
 // "Related items" from whichever server owns the seed. Plex rating keys are
 // numeric (/library/metadata/<key>/related); Jellyfin items are GUIDs and go
@@ -30,11 +31,31 @@ const SIGNAL_TYPE_RANK = { collection: 0, director: 1, similar: 2, taste: 3, act
 function getMoviesSection() { return db.getSetting('plex_movies_section', null) || process.env.PLEX_MOVIES_SECTION_ID || '1'; }
 function getTvSection()     { return db.getSetting('plex_tv_section', null)     || process.env.PLEX_TV_SECTION_ID     || '2'; }
 
-// Per-user recommendation cache: userId -> { pools, builtAt }
+// Per-user recommendation cache: userId -> { pools, builtAt, accessFp }
 // pools holds large score-sorted arrays; each request samples randomly from them
 // so every page load / shuffle gives different results without re-scoring.
+// Pools only hold titles the user may see, so an entry built for a different
+// library-access fingerprint (services/libraryAccess) is stale.
 const recCache = new Map();
 const REC_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+
+function isFresh(entry, accessFp) {
+  return !!entry?.pools && Date.now() - entry.builtAt < REC_CACHE_TTL && entry.accessFp === accessFp;
+}
+
+// Access that sees no library at all (no snapshot yet, removed share): its
+// pools would be empty, so background warm-ups skip it.
+function seesNothing(access) {
+  return !!access && !access.plex && !access.jellyfin;
+}
+
+// The `access` a rec entry point runs with. Only an omitted argument (`given`
+// false) is resolved from userId; an explicit undefined (req.libraryAccess on
+// a router without libraryAccess.middleware) sees nothing, as in the core.
+function resolveAccess(userId, given, access) {
+  if (!given) return libraryAccess.forUser(userId);
+  return access === undefined ? libraryAccess.NO_ACCESS : access;
+}
 
 // Pool sizes — how many items to keep in cache per section
 const POOL_SIZES = { movies: 200, tv: 150, anime: 100, topPicks: 150 };
@@ -1071,12 +1092,17 @@ function buildTopPicks(scoredMovies, scoredTV, scoredAnime, profile) {
 // `sourceFilter` scopes results to one media server ('plex' | 'jellyfin').
 // Pools are built and cached over the union of both libraries; filtering
 // happens at sample time so the nav toggle doesn't force a rebuild.
-async function getRecommendations(userId, userToken, sourceFilter = null) {
+// `access` (services/libraryAccess) limits the pools to titles the user may
+// see: null is unrestricted; omitted, it is resolved from userId (background
+// warm-up, rec-debug). Routes pass req.libraryAccess (see resolveAccess).
+async function getRecommendations(userId, userToken, sourceFilter = null, access) {
+  access = resolveAccess(userId, arguments.length >= 4, access);
   const userIdStr = String(userId);
+  const accessFp = libraryAccess.fingerprint(access);
   const cached = recCache.get(userIdStr);
 
   let pools;
-  if (cached && cached.pools && Date.now() - cached.builtAt < REC_CACHE_TTL) {
+  if (isFresh(cached, accessFp)) {
     // Pools already built — just re-sample (fast, no Plex/Tautulli calls)
     pools = cached.pools;
   } else {
@@ -1095,12 +1121,17 @@ async function getRecommendations(userId, userToken, sourceFilter = null) {
       Promise.resolve(db.getDismissals(userId)),
     ]);
     const jfItems = jellyfinService.isEnabled() ? db.getLibraryItemsBySource('jellyfin') : [];
-    const movies = [...plexMovies, ...jfItems.filter(i => i.type === 'movie')];
-    const tv = [...plexTv, ...jfItems.filter(i => i.type === 'show')];
+    const allMovies = [...plexMovies, ...jfItems.filter(i => i.type === 'movie')];
+    const allTv = [...plexTv, ...jfItems.filter(i => i.type === 'show')];
 
-    // Build library map from already-fetched items, then build profile (reuses same data)
-    const libraryMap = new Map([...movies, ...tv].map(i => [i.ratingKey, i]));
+    // Build library map from already-fetched items, then build profile (reuses same data).
+    // The profile reads the whole library so the user's own history counts in
+    // full; everything below (pools, enrichment, affinity baseline) only sees
+    // the titles the user may access.
+    const libraryMap = new Map([...allMovies, ...allTv].map(i => [i.ratingKey, i]));
     const profile = await buildPreferenceProfile(userId, libraryMap);
+    const movies = libraryAccess.filter(access, allMovies);
+    const tv = libraryAccess.filter(access, allTv);
 
     // Anime = TV items with 'anime' genre (case-insensitive)
     const animeItems = tv.filter(item =>
@@ -1130,8 +1161,8 @@ async function getRecommendations(userId, userToken, sourceFilter = null) {
       }
     }
 
-    // Signed affinity: user's watch distribution vs. this library's baseline.
-    // Computed once per pool build; scoreItem reads profile.affinity.
+    // Signed affinity: user's watch distribution vs. the baseline of the
+    // library they can see. Computed once per pool build; scoreItem reads profile.affinity.
     if (profile) {
       const baselineItems = [...movies, ...tv].map(i => ({
         genres: i.genres,
@@ -1177,7 +1208,7 @@ async function getRecommendations(userId, userToken, sourceFilter = null) {
       anime: scoredAnime.slice(0, POOL_SIZES.anime),
     };
 
-    recCache.set(userIdStr, { pools, builtAt: Date.now() });
+    recCache.set(userIdStr, { pools, builtAt: Date.now(), accessFp });
   }
 
   // Sample fresh results from the pools on every call — this is what creates variety
@@ -1222,7 +1253,8 @@ function invalidateAllCaches() {
 /**
  * Pre-warm recommendation caches for all known users.
  * Called after each library sync so the first page load is instant.
- * Uses DB-cached watched data (no user token needed).
+ * Uses DB-cached watched data (no user token needed). Each user's pools are
+ * built for their own library access, resolved from the user id.
  */
 async function warmAllUserCaches() {
   const usersWithTokens = db.getAllKnownUsersWithTokens();
@@ -1230,12 +1262,19 @@ async function warmAllUserCaches() {
   if (!allUsers.length) return;
   let warmed = 0;
   let skipped = 0;
+  // Nothing to show them, or built within the TTL. Freshness ignores the
+  // fingerprint: a password-admin session on a Plex user's id builds an 'all'
+  // pool, and rebuilding it here for forUser(id) would only flip it back on
+  // their next load. Reads rebuild on any mismatch, and libraryAccess.changed()
+  // drops the cache of a user whose access changed.
+  const builtRecently = (entry) => !!entry?.pools && Date.now() - entry.builtAt < REC_CACHE_TTL;
+  const skip = (key, access) => seesNothing(access) || builtRecently(recCache.get(key));
   for (const { user_id, plex_token } of usersWithTokens) {
     const key = String(user_id);
-    const existing = recCache.get(key);
-    if (existing && (Date.now() - existing.builtAt) < REC_CACHE_TTL) { skipped++; continue; }
+    const access = libraryAccess.forUser(key);
+    if (skip(key, access)) { skipped++; continue; }
     try {
-      await getRecommendations(key, plex_token);
+      await getRecommendations(key, plex_token, null, access);
       warmed++;
     } catch (err) {
       logger.debug(`warmAllUserCaches: skip user ${key} — ${err.message}`);
@@ -1247,10 +1286,10 @@ async function warmAllUserCaches() {
     for (const u of db.getJellyfinUsers()) {
       if (u.linked_user_id) continue; // linked users warm under their Plex id above
       const key = String(u.user_id);
-      const existing = recCache.get(key);
-      if (existing && (Date.now() - existing.builtAt) < REC_CACHE_TTL) { skipped++; continue; }
+      const access = libraryAccess.forUser(key);
+      if (skip(key, access)) { skipped++; continue; }
       try {
-        await getRecommendations(key, null);
+        await getRecommendations(key, null, null, access);
         warmed++;
       } catch (err) {
         logger.debug(`warmAllUserCaches: skip jellyfin user ${key} — ${err.message}`);
@@ -1259,16 +1298,16 @@ async function warmAllUserCaches() {
   } catch { /* jellyfin helpers unavailable — nothing to warm */ }
   const usersWithoutTokens = allUsers.length - usersWithTokens.length;
   if (usersWithoutTokens > 0) {
-    logger.info(`Rec pre-warm: ${warmed} warmed, ${skipped} already fresh, ${usersWithoutTokens} users without stored tokens (${allUsers.length} total)`);
+    logger.info(`Rec pre-warm: ${warmed} warmed, ${skipped} fresh or without library access, ${usersWithoutTokens} users without stored tokens (${allUsers.length} total)`);
   } else {
-    logger.info(`Rec pre-warm: ${warmed} warmed, ${skipped} already fresh (${allUsers.length} total users)`);
+    logger.info(`Rec pre-warm: ${warmed} warmed, ${skipped} fresh or without library access (${allUsers.length} total users)`);
   }
 }
 
 module.exports = {
   getRecommendations, invalidateUserCache, invalidateAllCaches, warmAllUserCaches,
   // Exported for use by discoverRecommender
-  buildPreferenceProfile, partialShuffle, tieredSample, getRelatedForItem,
+  buildPreferenceProfile, partialShuffle, tieredSample, getRelatedForItem, seesNothing, resolveAccess,
   // Exported for tests and the rec-debug script
   scoreItem, scoreFallback,
 };

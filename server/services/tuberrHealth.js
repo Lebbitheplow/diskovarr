@@ -18,6 +18,11 @@ const UNREACHABLE_ALERT_AFTER_MS = 15 * 60 * 1000;
 const REFRESH_STALE_MS = 12 * 60 * 60 * 1000;
 const RECENT_WINDOW_MS = 24 * 60 * 60 * 1000;
 const STAGING_WARN_BYTES = 50 * 1024 ** 3;
+// A download client refused this long without any successful login in between
+// has stale credentials (e.g. a hand-made client still on the pre-auth
+// password); shorter streaks are Sonarr catching up after its wiring changed.
+const AUTH_REJECT_GRACE_MS = 10 * 60 * 1000;
+const AUTH_REJECT_RECENT_MS = 15 * 60 * 1000;
 
 const state = {
   enabled: false, configured: false,
@@ -30,7 +35,7 @@ const state = {
 
 let unreachableSince = null;
 let lastSeenFailureAt = 0;
-const notified = { unreachable: false, refresh: false, botCheck: false, quota: false, process: false };
+const notified = { unreachable: false, refresh: false, botCheck: false, quota: false, process: false, qbitAuth: false };
 let running = false;
 let timer = null;
 
@@ -66,7 +71,12 @@ function transition(key, condition, onTitle, onBody, offTitle) {
 
 async function checkWiring(force) {
   const now = Date.now();
-  if (!force && state.lastWiringCheckAt && now - state.lastWiringCheckAt < WIRING_INTERVAL_MS) return;
+  // Wiring written by an older Diskovarr (e.g. the pre-auth download-client
+  // password) is invisible to verifySonarrWiring, so it is re-applied once —
+  // retried every check, not every 6 h, until it succeeds, because YouTube
+  // downloads are broken in the meantime.
+  const outdated = tuberr.sonarrWiringOutdated();
+  if (!force && !outdated && state.lastWiringCheckAt && now - state.lastWiringCheckAt < WIRING_INTERVAL_MS) return;
   state.lastWiringCheckAt = now;
   const c = db.getConnectionSettings();
   if (!c.sonarrUrl || !c.sonarrApiKey) {
@@ -75,6 +85,13 @@ async function checkWiring(force) {
   }
   try {
     let wiring = await tuberr.verifySonarrWiring();
+    if (outdated && !wiring.downloadClient) {
+      // No Tuberr download client in Sonarr → nothing old to migrate; a later
+      // setupSonarr writes the current credentials anyway.
+      tuberr.markSonarrWiringCurrent();
+    } else if (outdated) {
+      wiring = { ...wiring, ok: false, message: [wiring.ok ? '' : wiring.message, 'download client was set up by an older version and needs the current Tuberr credentials'].filter(Boolean).join('; ') };
+    }
     if (!wiring.ok && db.getSetting('tuberr_auto_wire', '1') === '1') {
       try {
         const r = await tuberr.setupSonarr();
@@ -84,6 +101,8 @@ async function checkWiring(force) {
       } catch (e) {
         wiring.message += ` — auto-repair failed: ${e.message}`;
       }
+    } else if (outdated && wiring.downloadClient) {
+      wiring.message += ' — click Set up Sonarr in Admin → Connections → YouTube (auto-repair is off)';
     }
     state.sonarrWiring = wiring;
   } catch (e) {
@@ -156,6 +175,14 @@ async function check({ force = false } = {}) {
       const quota = !!(s.quota?.exceededAt && now - s.quota.exceededAt < RECENT_WINDOW_MS);
       if (quota) alerts.push('YouTube Data API quota exceeded — matching pauses until the daily reset');
       transition('quota', quota, 'YouTube API quota exceeded', s.quota?.lastError || 'The YouTube Data API returned quotaExceeded. Matching resumes after the daily reset (midnight Pacific).', null);
+
+      const qa = s.qbitAuth;
+      const authRefused = !!(qa?.rejectedAt && qa.rejectingSince
+        && now - qa.rejectedAt < AUTH_REJECT_RECENT_MS && now - qa.rejectingSince >= AUTH_REJECT_GRACE_MS);
+      if (authRefused) alerts.push(`Tuberr keeps refusing a download client's login (user '${qa.rejectedUser}' from ${qa.rejectedFrom}) — in Sonarr set it to username tuberr and the Tuberr API key as password, or click Set up Sonarr`);
+      transition('qbitAuth', authRefused, 'Sonarr cannot log in to the YouTube downloader',
+        `A qBittorrent download client (user '${qa?.rejectedUser}' from ${qa?.rejectedFrom}) has been failing to log in to Tuberr for 10+ minutes, so YouTube episodes will not download. In Sonarr, set that client's username to tuberr and its password to the Tuberr API key (Admin → Connections → YouTube), or click Set up Sonarr.`,
+        'Sonarr can log in to the YouTube downloader again');
 
       const failures = Array.isArray(s.recentFailures) ? s.recentFailures.filter(f => f.at > lastSeenFailureAt) : [];
       if (failures.length) {

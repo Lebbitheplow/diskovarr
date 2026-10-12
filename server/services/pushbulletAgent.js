@@ -3,6 +3,7 @@ const logger = require('./logger');
 const BaseAgent = require('./notificationAgents/base');
 const { hasNotificationType } = require('./notificationAgents/types');
 const { toPlainText } = require('./messageFormat');
+const { resolveAudience, runTargets, skipped, ensureOk, emptyTally, tallySend } = require('./notificationAgents/delivery');
 
 // Pushbullet agent — push notifications
 // Docs: https://docs.pushbullet.com/
@@ -56,41 +57,31 @@ class PushbulletAgent extends BaseAgent {
       signal: AbortSignal.timeout(10000),
     });
 
-    if (!res.ok) {
-      throw new Error(`Pushbullet ${res.status}: ${await res.text().catch(() => '')}`);
-    }
+    await ensureOk(res, 'Pushbullet');
     return true;
   }
 
-  async send(type, payload) {
+  // Feed: the admin account (optionally a channel). Personal: the recipient's token.
+  async send(type, payload, ctx) {
     const settings = this.getSettings();
-    if (!settings || !settings.enabled || !settings.accessToken) return;
-    if (!this.shouldSendType(type)) return;
+    if (!settings || !settings.enabled || !settings.accessToken) return skipped('Pushbullet disabled');
+    if (!this.shouldSendType(type)) return skipped(`type ${type} not selected`);
+    const { recipientId, feed } = resolveAudience(payload, ctx);
+    const targets = [];
 
-    let sent = 0;
-
-    try {
-      // Send to admin account
-      await this.sendToToken(settings.accessToken, payload, settings.channelTag || null);
-      sent++;
-      logger.debug('Pushbullet: sent to admin account');
-
-      // Send to specific user if provided
-      if (payload.userId) {
-        const prefs = db.getUserNotificationPrefs(payload.userId);
-        if (prefs?.pushbullet_enabled && prefs?.pushbullet_access_token) {
-          if (prefs.pushbullet_access_token !== settings.accessToken) {
-            await this.sendToToken(prefs.pushbullet_access_token, payload, null);
-            sent++;
-            logger.debug(`Pushbullet: sent to user ${payload.userId}`);
-          }
-        }
+    if (feed) {
+      targets.push({ id: 'feed', send: () => this.sendToToken(settings.accessToken, payload, settings.channelTag || null) });
+    }
+    if (recipientId) {
+      const prefs = db.getUserNotificationPrefs(recipientId);
+      if (prefs?.pushbullet_enabled && prefs?.pushbullet_access_token && prefs.pushbullet_access_token !== settings.accessToken) {
+        targets.push({ id: 'user', send: () => this.sendToToken(prefs.pushbullet_access_token, payload, null) });
       }
-    } catch (err) {
-      logger.warn('Pushbullet agent error:', err.message);
     }
 
-    return sent > 0;
+    const result = await runTargets(targets, ctx);
+    if (result.error) logger.warn('Pushbullet agent error:', result.error);
+    return result;
   }
 
   async sendTest(payload) {
@@ -119,34 +110,34 @@ class PushbulletAgent extends BaseAgent {
     return true;
   }
 
+  // Returns { attempted, sent, failed }.
   async sendBroadcast(message) {
+    const tally = emptyTally();
     const settings = this.getSettings();
-    if (!settings || !settings.enabled || !settings.accessToken) return;
+    if (!settings || !settings.enabled || !settings.accessToken) return tally;
 
     const payload = {
       title: 'Message from Server Admin',
       body: toPlainText(message),
     };
 
-    try {
-      // Send to admin account
-      await this.sendToToken(settings.accessToken, payload, settings.channelTag || null);
+    // Send to admin account
+    await tallySend(tally,
+      () => this.sendToToken(settings.accessToken, payload, settings.channelTag || null),
+      (err) => logger.warn('Pushbullet broadcast error:', err.message));
 
-      // Send to all users with Pushbullet configured
-      const users = db.getKnownUsers();
-      for (const user of users) {
-        const prefs = db.getUserNotificationPrefs(user.user_id);
-        if (prefs?.pushbullet_enabled && prefs?.pushbullet_access_token) {
-          if (prefs.pushbullet_access_token !== settings.accessToken) {
-            await this.sendToToken(prefs.pushbullet_access_token, payload, null).catch((err) => {
-              logger.warn(`Pushbullet broadcast to user ${user.user_id} failed:`, err.message);
-            });
-          }
-        }
+    // Send to all users with Pushbullet configured
+    const tokens = new Set([settings.accessToken]);
+    for (const user of db.getKnownUsers()) {
+      const prefs = db.getUserNotificationPrefs(user.user_id);
+      if (prefs?.pushbullet_enabled && prefs?.pushbullet_access_token && !tokens.has(prefs.pushbullet_access_token)) {
+        tokens.add(prefs.pushbullet_access_token);
+        await tallySend(tally,
+          () => this.sendToToken(prefs.pushbullet_access_token, payload, null),
+          (err) => logger.warn(`Pushbullet broadcast to user ${user.user_id} failed:`, err.message));
       }
-    } catch (err) {
-      logger.warn('Pushbullet broadcast error:', err.message);
     }
+    return tally;
   }
 }
 

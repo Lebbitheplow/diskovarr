@@ -36,7 +36,8 @@ function Avatar({ src, name, size = '36px' }) {
 
 function MediaPoster({ posterUrl, title }) {
   const { t } = useTranslation()
-  const [error, setError] = useState(false)
+  // Remembers which URL failed, so a different poster gets its own try
+  const [failedUrl, setFailedUrl] = useState(null)
   return (
     <div
       style={{
@@ -44,12 +45,13 @@ function MediaPoster({ posterUrl, title }) {
         background: 'var(--bg-secondary)', position: 'relative',
       }}
     >
-      {posterUrl && !error ? (
+      {posterUrl && posterUrl !== failedUrl ? (
         <img
+          key={posterUrl}
           src={posterUrl}
           alt={title || ''}
           style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
-          onError={() => setError(true)}
+          onError={() => setFailedUrl(posterUrl)}
           loading="lazy"
         />
       ) : (

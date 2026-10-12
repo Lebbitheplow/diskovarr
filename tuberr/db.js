@@ -7,6 +7,23 @@ const config = require('./config');
 const db = new DatabaseSync(path.join(config.dataDir, 'tuberr.db'));
 db.exec('PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;');
 
+// Owner-only modes on the files holding secrets (DB, management key, YouTube
+// cookies). The data dir goes 0700 only when downloads live outside it —
+// Sonarr, often another OS user, must traverse into a nested downloads dir.
+if (process.platform !== 'win32') {
+  const restrict = (p, mode) => {
+    try {
+      const st = fs.lstatSync(p);
+      if (!st.isSymbolicLink() && st.uid === process.getuid() && (st.mode & 0o777) !== mode) fs.chmodSync(p, mode);
+    } catch { /* missing or not ours — leave it */ }
+  };
+  for (const f of ['tuberr.db', 'tuberr.db-wal', 'tuberr.db-shm', 'cookies.txt', 'api_key.txt']) {
+    restrict(path.join(config.dataDir, f), 0o600);
+  }
+  const rel = path.relative(config.dataDir, config.downloadsDir);
+  if (rel.startsWith('..') || path.isAbsolute(rel)) restrict(config.dataDir, 0o700);
+}
+
 db.exec(`
   CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
@@ -118,14 +135,22 @@ function setSetting(key, value) {
     .run(key, String(value));
 }
 
+// Owner-only mirror of the management API key. writeFileSync's mode only
+// applies when the file is created, so an older world-readable copy is chmodded.
+function writeApiKeyFile(key) {
+  const file = path.join(config.dataDir, 'api_key.txt');
+  fs.writeFileSync(file, key + '\n', { mode: 0o600 });
+  fs.chmodSync(file, 0o600);
+}
+
 // Self-provision the management API key on first boot. Also mirror it to a
-// plain-text file so admins can grab it without spelunking logs or sqlite —
-// Diskovarr's Connections page needs it once, then displays it from there.
+// plain-text file so admins can grab it without spelunking sqlite (it is not
+// logged) — Diskovarr's Connections page needs it once, then displays it from there.
 if (!getSetting('api_key')) {
   setSetting('api_key', crypto.randomBytes(24).toString('hex'));
 }
 try {
-  fs.writeFileSync(path.join(config.dataDir, 'api_key.txt'), getSetting('api_key') + '\n', { mode: 0o600 });
-} catch { /* non-fatal — key is still in the log and DB */ }
+  writeApiKeyFile(getSetting('api_key'));
+} catch { /* non-fatal — key is still in the DB */ }
 
-module.exports = { db, getSetting, setSetting };
+module.exports = { db, getSetting, setSetting, writeApiKeyFile };

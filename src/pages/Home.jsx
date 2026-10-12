@@ -125,24 +125,17 @@ export default function Home() {
     searchApi.getDetails(tmdbId, mediaType)
       .then(({ data }) => {
         if (data) {
+          // Keep the whole resolved item (library state, isRequested, links,
+          // structured credits…) so the modal acts as it does from any other
+          // page; only the display fields DetailModal reads are mapped.
           setSelectedItem({
-            ratingKey: data.ratingKey || null,
-            title: data.title,
-            year: data.year,
+            ...data,
+            tmdbId: data.tmdbId || tmdbId,
+            mediaType,
             type: mediaType === 'tv' ? 'show' : 'movie',
             thumb: data.posterUrl || data.thumb || null,
             art: data.backdropUrl || data.art || null,
-            rating: data.rating || null,
-            audienceRating: data.audienceRating || null,
-            contentRating: data.contentRating || null,
-            genres: data.genres || [],
             summary: data.summary || data.overview || '',
-            directors: data.directors || [],
-            cast: data.cast || [],
-            studio: data.studio || null,
-            tmdbId: tmdbId,
-            isWatched: data.isWatched || false,
-            isInWatchlist: data.isInWatchlist || false,
           })
         }
       })

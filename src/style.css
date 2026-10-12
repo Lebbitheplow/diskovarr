@@ -1588,8 +1588,11 @@ img {
     z-index: var(--z-card-hover);
   }
 
-  .card:hover::after,
-  .card:focus-within::after {
+  /* Keyboard focus reveals the card like hover does. :focus-visible rather
+     than :focus-within: a dialog closed with the mouse hands focus back to the
+     card, which shouldn't hold it open. Inside :is() so browsers without
+     :has() still apply the :hover half. */
+  .card:is(:hover, :has(:focus-visible))::after {
     transform: none;
   }
 }
@@ -1678,8 +1681,8 @@ img {
    revealing it pushes content up so the tap landed on Not Interested instead of
    the poster. Touch users get the same actions from the detail modal. */
 @media (hover: hover) and (pointer: fine) {
-  .card:hover .card-overlay,
-  .card:focus-within .card-overlay {
+  /* :focus-visible, not :focus-within — see .card::after above */
+  .card:is(:hover, :has(:focus-visible)) .card-overlay {
     max-height: 48px;
     opacity: 1;
     pointer-events: auto;
@@ -1795,8 +1798,7 @@ img {
       margin-top var(--dur-med) var(--ease-out);
   }
 
-  .card:hover .card-reasons,
-  .card:focus-within .card-reasons {
+  .card:is(:hover, :has(:focus-visible)) .card-reasons {
     max-height: 56px;
     opacity: 1;
     margin-top: 6px;

@@ -5,6 +5,7 @@ const { db } = require('../db');
 const config = require('../config');
 const ytdlp = require('./ytdlp');
 const nfo = require('./nfo');
+const paths = require('./paths');
 const { getOptions } = require('./options');
 const runtime = require('./state');
 
@@ -30,8 +31,15 @@ const TRANSIENT_RE = /HTTP Error (?:403|429|5\d\d)|throttl|timed out|Connection 
 const BOT_CHECK_RE = /Sign in to confirm you.re not a bot|cookies are no longer valid|Please sign in/i;
 const RETRY_DELAYS_MS = [30 * 1000, 120 * 1000];
 
+// Cancelling (torrents/delete) sends SIGTERM to the yt-dlp process group
+// (yt-dlp + its ffmpeg merge), then SIGKILL if it is still alive after this.
+const CANCEL_GRACE_MS = 5000;
+// Upper bound on how long cancel() waits for the job to wind down
+const CANCEL_WAIT_MS = 15000;
+
 const queue = [];
-const active = new Set();
+// infoHash → { proc, cancelled, wake, done } for every download being worked on
+const jobs = new Map();
 
 const stmtUpdateProgress = db.prepare(
   'UPDATE downloads SET progress = ?, size_bytes = ?, dlspeed = ?, eta = ?, state = ? WHERE info_hash = ?');
@@ -44,24 +52,100 @@ function num(text) {
   return Number.isFinite(n) ? Math.round(n) : 0;
 }
 
-const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+// Retry backoff that a cancel can cut short
+function cancellableSleep(job, ms) {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    job.wake = () => { clearTimeout(timer); resolve(); };
+  });
+}
+
+// yt-dlp runs as its own process group (spawned detached) so the ffmpeg
+// merge it starts dies with it.
+function killTree(proc, signal) {
+  if (!proc || !proc.pid) return;
+  try {
+    process.kill(-proc.pid, signal);
+  } catch {
+    try { proc.kill(signal); } catch { /* already gone */ }
+  }
+}
 
 function enqueue(infoHash) {
-  if (queue.includes(infoHash) || active.has(infoHash)) return;
+  if (queue.includes(infoHash) || jobs.has(infoHash)) return;
   queue.push(infoHash);
   pump();
 }
 
 function pump() {
-  while (active.size < maxConcurrent() && queue.length > 0) {
+  while (jobs.size < maxConcurrent() && queue.length > 0) {
     const infoHash = queue.shift();
-    const row = db.prepare('SELECT * FROM downloads WHERE info_hash = ?').get(infoHash);
+    let row;
+    try {
+      row = db.prepare('SELECT * FROM downloads WHERE info_hash = ?').get(infoHash);
+    } catch (e) {
+      console.error(`[downloader] could not load ${infoHash}: ${e.message}`);
+      continue;
+    }
     if (!row || row.state === 'completed') continue;
-    active.add(infoHash);
-    run(row).finally(() => {
-      active.delete(infoHash);
-      pump();
-    });
+    const job = { proc: null, cancelled: false, wake: null, done: null };
+    jobs.set(infoHash, job);
+    // done never rejects: failures before/around yt-dlp mark the row as error
+    job.done = run(row, job)
+      .catch(err => { if (!job.cancelled) markError(row, err); })
+      .finally(() => {
+        jobs.delete(infoHash);
+        try { pump(); } catch (e) { console.error(`[downloader] queue pump failed: ${e.message}`); }
+      });
+  }
+}
+
+// Stops a queued or running download and resolves once its job has wound
+// down (or CANCEL_WAIT_MS passed). A cancelled job never touches its row or
+// writes files again, even if yt-dlp exits successfully after the signal.
+// Resolves true if a running job was cancelled.
+async function cancel(infoHash) {
+  const queued = queue.indexOf(infoHash);
+  if (queued !== -1) queue.splice(queued, 1);
+  const job = jobs.get(infoHash);
+  if (!job) return false;
+  job.cancelled = true;
+  if (job.wake) job.wake();
+  if (job.proc) {
+    killTree(job.proc, 'SIGTERM');
+    const proc = job.proc;
+    setTimeout(() => { if (job.proc === proc) killTree(proc, 'SIGKILL'); }, CANCEL_GRACE_MS).unref();
+  }
+  let timer;
+  await Promise.race([job.done, new Promise(resolve => { timer = setTimeout(resolve, CANCEL_WAIT_MS); })]);
+  clearTimeout(timer);
+  console.log(`[downloader] cancelled ${infoHash}`);
+  return true;
+}
+
+// Process shutdown: stop every yt-dlp so none outlives Tuberr and races the
+// re-run that resumePending starts on the next boot.
+function stopAll() {
+  queue.length = 0;
+  for (const job of jobs.values()) {
+    job.cancelled = true;
+    if (job.wake) job.wake();
+    killTree(job.proc, 'SIGTERM');
+  }
+}
+
+// Durable failure for errors outside yt-dlp itself (mkdir, cookie copy, path
+// containment): handled like a yt-dlp failure — match marked broken, row
+// removed, failure surfaced in /manage/status. Leaving an 'error' row would
+// strand the episode: Sonarr never fails a qBittorrent item by its state
+// ('error' and 'missingFiles' are both only warnings), so it would sit in
+// Sonarr's queue forever instead of returning to wanted.
+function markError(row, err) {
+  const message = String((err && err.message) || err || 'download failed').slice(0, 1000);
+  try {
+    failDownload(row, message, 0);
+  } catch (e) {
+    console.error(`[downloader] could not record failure for ${row.info_hash}: ${e.message}`);
   }
 }
 
@@ -90,32 +174,40 @@ function buildArgs(row, outTemplate, opts, cookiesFile) {
   return args;
 }
 
-function spawnYtdlp(row, args) {
+function spawnYtdlp(row, args, job) {
   const stderrTail = [];
   return new Promise((resolve) => {
-    const proc = spawn(ytdlp.binaryPath(), args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    // detached: own process group, so cancel() can signal yt-dlp + ffmpeg together
+    const proc = spawn(ytdlp.binaryPath(), args, { stdio: ['ignore', 'pipe', 'pipe'], detached: true });
+    job.proc = proc;
     let stdoutBuf = '';
     proc.stdout.on('data', (chunk) => {
       stdoutBuf += chunk.toString('utf8');
       const lines = stdoutBuf.split('\n');
       stdoutBuf = lines.pop();
       for (const line of lines) {
-        if (!line.startsWith(PROGRESS_PREFIX)) continue;
+        if (!line.startsWith(PROGRESS_PREFIX) || job.cancelled) continue;
         const [downloaded, total, speed, eta] = line.slice(PROGRESS_PREFIX.length).split('|').map(num);
         const size = total || row.size_bytes;
         const progress = size > 0 ? Math.min(downloaded / size, 0.99) : 0;
-        stmtUpdateProgress.run(progress, size, speed, eta, 'downloading', row.info_hash);
+        try {
+          stmtUpdateProgress.run(progress, size, speed, eta, 'downloading', row.info_hash);
+        } catch { /* progress is best effort; a busy db must not crash the process */ }
       }
     });
     proc.stderr.on('data', (chunk) => {
       stderrTail.push(chunk.toString('utf8'));
       if (stderrTail.length > 20) stderrTail.shift();
     });
+    const finish = (exitCode) => {
+      if (job.proc === proc) job.proc = null;
+      resolve({ exitCode, stderr: stderrTail.join('') });
+    };
     proc.on('error', (err) => {
       stderrTail.push(err.message);
-      resolve({ exitCode: -1, stderr: stderrTail.join('') });
+      finish(-1);
     });
-    proc.on('close', (code) => resolve({ exitCode: code, stderr: stderrTail.join('') }));
+    proc.on('close', (code) => finish(code));
   });
 }
 
@@ -154,7 +246,8 @@ function writeNfoAndCleanup(row, outDir, opts) {
     if (opts.writeNfo) {
       const info = JSON.parse(fs.readFileSync(infoPath, 'utf8'));
       const xml = nfo.buildEpisodeNfo(nfo.fromInfoJson(info, episodeMetaFor(row)));
-      fs.writeFileSync(path.join(outDir, `${row.release_title}.nfo`), xml);
+      // re-checked here: a symlink planted in the release dir must not redirect the write
+      fs.writeFileSync(paths.assertInsideDownloads(path.join(outDir, `${row.release_title}.nfo`), 'nfo path'), xml);
     }
   } catch (e) {
     console.error(`[downloader] nfo for ${row.video_id} failed: ${e.message}`);
@@ -190,36 +283,54 @@ function failDownload(row, stderr, attemptsMade) {
   console.error(`[downloader] failed ${row.video_id} after ${attemptsMade} attempt(s) (removed from queue): ${lastLine}`);
 }
 
-async function run(row) {
+// Where a row downloads to: <save_path>/<release_title>. Re-validated at run
+// time (rows can predate validation, or come back via resumePending).
+function outDirFor(row) {
+  if (!paths.isSafeSegment(row.release_title)) {
+    throw new Error(`unsafe release name ${JSON.stringify(String(row.release_title).slice(0, 200))}`);
+  }
+  return paths.assertInsideDownloads(path.join(String(row.save_path || ''), row.release_title), 'download dir');
+}
+
+// Thrown errors (bad path, mkdir/cookie-copy failures) reject; pump() hands
+// them to markError, which removes the row. A cancelled job returns without
+// touching anything.
+async function run(row, job) {
   const opts = getOptions();
-  const outDir = path.join(row.save_path, row.release_title);
+  const outDir = outDirFor(row);
   fs.mkdirSync(outDir, { recursive: true });
   const outTemplate = path.join(outDir, `${row.release_title}.%(ext)s`);
-  const tempCookies = tempCookiesFor(row);
-  const args = buildArgs(row, outTemplate, opts, tempCookies);
-
-  stmtUpdateProgress.run(0, row.size_bytes, 0, 0, 'downloading', row.info_hash);
-  console.log(`[downloader] starting ${row.video_id} → ${outDir}`);
-
+  let tempCookies = null;
   let result;
   let attemptsMade = 0;
-  for (;;) {
-    result = await spawnYtdlp(row, args);
-    attemptsMade++;
-    if (result.exitCode === 0) break;
-    if (BOT_CHECK_RE.test(result.stderr)) runtime.state.cookies.botCheckAt = Date.now();
-    const retriesLeft = RETRY_DELAYS_MS.length - (attemptsMade - 1);
-    if (retriesLeft <= 0 || !TRANSIENT_RE.test(result.stderr)) break;
-    const delay = RETRY_DELAYS_MS[attemptsMade - 1];
-    const lastLine = result.stderr.trim().split('\n').filter(Boolean).pop() || `exit ${result.exitCode}`;
-    stmtNote.run(`retry ${attemptsMade}/${RETRY_DELAYS_MS.length} in ${delay / 1000}s: ${lastLine.slice(-300)}`, row.info_hash);
-    console.warn(`[downloader] transient failure for ${row.video_id} (attempt ${attemptsMade}), retrying in ${delay / 1000}s: ${lastLine}`);
-    await sleep(delay);
-    if (tempCookies) fs.copyFileSync(path.join(config.dataDir, 'cookies.txt'), tempCookies);
-  }
+  try {
+    tempCookies = tempCookiesFor(row);
+    const args = buildArgs(row, outTemplate, opts, tempCookies);
 
-  if (tempCookies) {
-    try { fs.unlinkSync(tempCookies); } catch { /* already gone */ }
+    stmtUpdateProgress.run(0, row.size_bytes, 0, 0, 'downloading', row.info_hash);
+    console.log(`[downloader] starting ${row.video_id} → ${outDir}`);
+
+    for (;;) {
+      if (job.cancelled) return;
+      result = await spawnYtdlp(row, args, job);
+      attemptsMade++;
+      if (job.cancelled) return;
+      if (result.exitCode === 0) break;
+      if (BOT_CHECK_RE.test(result.stderr)) runtime.state.cookies.botCheckAt = Date.now();
+      const retriesLeft = RETRY_DELAYS_MS.length - (attemptsMade - 1);
+      if (retriesLeft <= 0 || !TRANSIENT_RE.test(result.stderr)) break;
+      const delay = RETRY_DELAYS_MS[attemptsMade - 1];
+      const lastLine = result.stderr.trim().split('\n').filter(Boolean).pop() || `exit ${result.exitCode}`;
+      stmtNote.run(`retry ${attemptsMade}/${RETRY_DELAYS_MS.length} in ${delay / 1000}s: ${lastLine.slice(-300)}`, row.info_hash);
+      console.warn(`[downloader] transient failure for ${row.video_id} (attempt ${attemptsMade}), retrying in ${delay / 1000}s: ${lastLine}`);
+      await cancellableSleep(job, delay);
+      if (job.cancelled) return;
+      if (tempCookies) fs.copyFileSync(path.join(config.dataDir, 'cookies.txt'), tempCookies);
+    }
+  } finally {
+    if (tempCookies) {
+      try { fs.unlinkSync(tempCookies); } catch { /* already gone */ }
+    }
   }
 
   if (result.exitCode === 0) {
@@ -248,4 +359,8 @@ function ytdlpVersion() {
   return ytdlp.version();
 }
 
-module.exports = { enqueue, resumePending, ytdlpVersion, buildArgs, TRANSIENT_RE, BOT_CHECK_RE };
+function isActive(infoHash) {
+  return jobs.has(infoHash);
+}
+
+module.exports = { enqueue, cancel, stopAll, isActive, resumePending, ytdlpVersion, buildArgs, TRANSIENT_RE, BOT_CHECK_RE };

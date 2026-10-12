@@ -4,6 +4,7 @@ import { publicReviewsApi } from '../services/api'
 import { buildTargets, mastodonHref } from '../utils/shareTargets'
 import { useTranslation } from 'react-i18next'
 import useModalOpen from '../hooks/useModalOpen'
+import useDialogLayer from '../hooks/useDialogLayer'
 
 // Compact brand glyphs (simple-icons paths), 24×24, drawn in white on a brand chip.
 const ICONS = {
@@ -87,11 +88,9 @@ export default function ShareModal({ reviewId, review = {}, onClose, share = nul
     [url, review.title, review.username, review.rating, commentary, shareSummary, shareSubject]
   )
 
-  useEffect(() => {
-    const onKey = e => { if (e.key === 'Escape') onClose?.() }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [onClose])
+  // Topmost-only Escape: this opens over the detail modal's Reviews tab and
+  // over ReviewModal, which must stay open behind it
+  useDialogLayer(true, onClose)
 
   const copy = useCallback(async (value, msg) => {
     try { await navigator.clipboard.writeText(value); toastSuccess?.(msg) }

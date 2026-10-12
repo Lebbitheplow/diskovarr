@@ -42,3 +42,12 @@ export function posterSrcSet(path) {
   if (!path || path.startsWith('http://') || path.startsWith('https://')) return undefined
   return CARD_WIDTHS.map(w => `${posterUrl(path, w)} ${w}w`).join(', ')
 }
+
+/**
+ * Poster paths to try in order, blanks and repeats dropped. A card steps to
+ * the next one when an image fails to load (media-server art first, then the
+ * CDN copy) and shows its letter placeholder once they've all failed.
+ */
+export function posterCandidates(...paths) {
+  return [...new Set(paths.filter(p => typeof p === 'string' && p))]
+}

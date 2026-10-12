@@ -1,20 +1,27 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { notificationsApi } from '../services/api'
+import { notificationDestination } from '../utils/notificationRoutes'
 
 // Notification-bell state for the app shell: unread-count polling, the
 // lazily-loaded list, read-state mutations, and the per-type navigation.
 //
-// Lifted out of NavigationBar during the rail refresh. The behaviour here is
-// deliberately unchanged from what shipped in 2.6.0 — including the branch
-// ordering in handleItemClick, where `request_available` is matched by the
-// earlier `request_` prefix test and so routes to /queue. Changing that is a
-// product decision, not a side effect of moving the nav.
+// The badge always shows the server's unreadCount — the list is capped at 20
+// unread rows, so its length is not the count. Destinations per event type
+// live in src/utils/notificationRoutes.js (request_available → /queue is a
+// deliberate product decision documented there).
 export default function useNotifications() {
   const navigate = useNavigate()
   const [bellCount, setBellCount] = useState(0)
   const [notifications, setNotifications] = useState([])
   const [selectedBroadcast, setSelectedBroadcast] = useState(null)
+
+  const refreshCount = useCallback(async () => {
+    try {
+      const { data } = await notificationsApi.getNotifications({ countOnly: 1 })
+      setBellCount(data?.unreadCount || 0)
+    } catch { /* ignore */ }
+  }, [])
 
   useEffect(() => {
     const fetchCount = async () => {
@@ -34,57 +41,44 @@ export default function useNotifications() {
       const unread = data?.notifications || []
       const read = data?.recentRead || []
       setNotifications([...unread, ...read])
-      if (unread.length > 0) setBellCount(unread.length)
+      if (typeof data?.unreadCount === 'number') setBellCount(data.unreadCount)
     } catch { /* ignore */ }
   }, [])
 
-  const markRead = useCallback(async (id) => {
+  // Only an unread row changes anything; the server's count after the
+  // mutation is authoritative (a failed call re-reads it and restores the row).
+  const markRead = useCallback(async (notification) => {
+    if (!notification || notification.read) return
+    const { id } = notification
+    setBellCount((c) => Math.max(0, c - 1))
+    setNotifications((ns) => ns.map((n) => n.id === id ? { ...n, read: true } : n))
     try {
-      await notificationsApi.markAsRead({ ids: [id] })
-      setBellCount((c) => Math.max(0, c - 1))
-      setNotifications((ns) => ns.map((n) => n.id === id ? { ...n, read: true } : n))
-    } catch { /* ignore */ }
-  }, [])
+      const { data } = await notificationsApi.markAsRead({ ids: [id] })
+      if (typeof data?.unreadCount === 'number') setBellCount(data.unreadCount)
+    } catch {
+      setNotifications((ns) => ns.map((n) => n.id === id ? { ...n, read: false } : n))
+      refreshCount()
+    }
+  }, [refreshCount])
 
   const markAllRead = useCallback(async () => {
     try {
-      await notificationsApi.markAllAsRead()
-      setBellCount(0)
+      const { data } = await notificationsApi.markAllAsRead()
+      setBellCount(typeof data?.unreadCount === 'number' ? data.unreadCount : 0)
       setNotifications((ns) => ns.map((n) => ({ ...n, read: true })))
     } catch { /* ignore */ }
   }, [])
 
   // `onBroadcast` lets the shell close its dropdown before the modal opens.
   const handleItemClick = useCallback(async (notification, onBroadcast) => {
-    await markRead(notification.id)
+    const destination = notificationDestination(notification)
+    await markRead(notification)
 
-    if (notification.type === 'broadcast') {
+    if (destination?.kind === 'broadcast') {
       if (onBroadcast) onBroadcast()
       setSelectedBroadcast(notification)
-    } else if (notification.type.startsWith('request_')) {
-      navigate('/queue')
-    } else if (notification.type === 'request_available') {
-      const data = typeof notification.data === 'string' ? JSON.parse(notification.data) : notification.data
-      if (data?.tmdbId && data?.mediaType) {
-        navigate(`/?openModal=${encodeURIComponent(data.tmdbId)}&mediaType=${encodeURIComponent(data.mediaType)}`)
-      } else {
-        navigate('/queue?filter=available')
-      }
-    } else if (notification.type.startsWith('issue_')) {
-      navigate('/issues')
-    } else if (notification.type === 'tuberr_alert') {
-      // Admin tabs are hash-addressed (src/pages/Admin.jsx reads location.hash)
-      navigate('/admin#youtube')
-    } else if (notification.type === 'watch_party_invite') {
-      const data = typeof notification.data === 'string' ? JSON.parse(notification.data) : notification.data
-      navigate(data?.partyId ? `/watch-party/${data.partyId}` : '/movie-night')
-    } else if (notification.type === 'monitor_match') {
-      const data = typeof notification.data === 'string' ? JSON.parse(notification.data) : notification.data
-      if (data?.tmdbId && data?.mediaType) {
-        navigate(`/search?q=${encodeURIComponent(data.title || '')}&selectedTmdbId=${encodeURIComponent(data.tmdbId)}&selectedType=${encodeURIComponent(data.mediaType)}`)
-      } else {
-        navigate('/search')
-      }
+    } else if (destination?.kind === 'navigate') {
+      navigate(destination.path)
     }
   }, [markRead, navigate])
 

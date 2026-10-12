@@ -8,6 +8,8 @@ const db = require('../../db/database');
 const engine = require('./syncEngine');
 const PartyError = require('./partyError');
 const logger = require('../logger');
+const libraryAccess = require('../libraryAccess');
+const { RESTRICTED_MESSAGE } = require('../requestPolicy');
 const { enqueueForUser } = require('../notificationAgents');
 
 // A party lives on one media server; its driver knows how to load, command and
@@ -27,10 +29,17 @@ function rememberCreds(sessionUser) {
   for (const driver of Object.values(DRIVERS)) driver.rememberCreds(sessionUser);
 }
 
+// The library row for a key, or null (episodes, unknown ids). Jellyfin ids
+// arrive with or without dashes; rows hold the 32-hex form.
+function libraryRow(key) {
+  const k = String(key);
+  return db.getLibraryItemByKey(k) || (/[A-F-]/.test(k) ? db.getLibraryItemByKey(k.toLowerCase().replace(/-/g, '')) : null);
+}
+
 // Jellyfin item ids are GUIDs; anything numeric that the library does not
 // place on Jellyfin is a Plex rating key.
 function sourceOf(ratingKey) {
-  const libItem = db.getLibraryItemByKey(ratingKey);
+  const libItem = libraryRow(ratingKey);
   if (libItem) return (libItem.source || 'plex') === 'jellyfin' ? 'jellyfin' : 'plex';
   return /^\d+$/.test(String(ratingKey)) ? 'plex' : 'jellyfin';
 }
@@ -39,10 +48,35 @@ function displayName(userId) {
   return db.getKnownUserById(userId)?.username || 'Someone';
 }
 
+// Whether a user may watch the party's title: the library row the host
+// started from (Plex sharing / Jellyfin policy). `access` defaults to the
+// user's own. Parties from before the row was stored check their own key; a
+// key that isn't a library row (an episode) can't be placed in a section, so
+// only unrestricted users may watch it.
+function canWatch(party, userId, access = libraryAccess.forUser(userId)) {
+  if (party.section_id) {
+    return libraryAccess.allows(access, { sectionId: party.section_id, ratingKey: party.library_key, source: party.source });
+  }
+  if (access === null) return true;
+  const row = libraryRow(party.library_key || party.rating_key);
+  return !!row && libraryAccess.allows(access, row);
+}
+
+function requireAccess(party, userId, access) {
+  if (!canWatch(party, userId, access)) throw new PartyError(RESTRICTED_MESSAGE, 403);
+}
+
+// Invites each new guest once. Users who can't access the title are left out
+// and returned in `skipped` ({ userId, username }) so the host can be told.
 function invite(party, userIds) {
   const host = displayName(party.host_id);
+  const skipped = [];
   for (const userId of [...new Set((userIds || []).map(String))]) {
     if (userId === party.host_id || !db.getKnownUserById(userId)) continue;
+    if (!db.getWatchPartyMember(party.id, userId) && !canWatch(party, userId)) {
+      skipped.push({ userId, username: displayName(userId) });
+      continue;
+    }
     if (!db.addWatchPartyMember(party.id, userId)) continue;
     const title = `${host} invited you to watch ${party.title}`;
     const body = 'Open the invite, pick the TV you are watching on, and the host will start everyone together.';
@@ -52,20 +86,32 @@ function invite(party, userIds) {
     });
     enqueueForUser({ notificationId: notifId, userId, payload: { type: 'watch_party_invite', title, body, userId } });
   }
+  return { skipped };
 }
 
-async function createParty({ hostId, ratingKey, userIds }) {
+// `access` is the host's (req.libraryAccess; defaults to forUser(hostId)): a
+// title in a library they can't access is refused. So is a key that isn't a
+// library row, for a restricted host: an episode or unknown id can't be placed
+// in a section, and a Jellyfin party may load on the admin key. The UI only
+// starts parties from library rows. Resolves { party, skipped }.
+async function createParty({ hostId, ratingKey, userIds, access = libraryAccess.forUser(hostId) }) {
+  const libItem = libraryRow(ratingKey);
+  if (libItem ? !libraryAccess.allows(access, libItem) : access !== null) throw new PartyError(RESTRICTED_MESSAGE, 403);
   const source = sourceOf(ratingKey);
-  const item = await DRIVERS[source].resolveItem(String(ratingKey), hostId);
-  const party = db.createWatchParty({ hostId, source, ...item });
-  invite(party, userIds);
-  return party;
+  const item = await DRIVERS[source].resolveItem(String(libItem?.ratingKey ?? ratingKey), hostId);
+  const party = db.createWatchParty({
+    hostId, source, ...item, libraryKey: libItem?.ratingKey ?? String(ratingKey), sectionId: libItem?.sectionId ?? null,
+  });
+  const { skipped } = invite(party, userIds);
+  return { party, skipped };
 }
 
 // Registers the player a member will watch on, after the driver has proved
-// this server can actually control it.
-async function setDevice(party, userId, clientId) {
+// this server can actually control it. A member who lost access to the title
+// since the invite is refused (`access` defaults to their own).
+async function setDevice(party, userId, clientId, access = undefined) {
   if (party.status === 'ended') throw new PartyError('This party has ended.');
+  requireAccess(party, userId, access);
   const device = await DRIVERS[party.source].registerDevice(userId, clientId);
   db.setWatchPartyMemberDevice(party.id, userId, { clientId, ...device });
 }
@@ -177,8 +223,11 @@ async function tickParty(partyId) {
 
 async function startParty(party) {
   if (party.status !== 'lobby') throw new PartyError('This party has already started.');
-  const ready = db.getWatchPartyMembers(party.id).filter(m => m.status === 'ready');
-  if (!ready.some(m => m.user_id === party.host_id)) throw new PartyError('Pick the TV you are watching on first.');
+  const picked = db.getWatchPartyMembers(party.id).filter(m => m.status === 'ready');
+  if (!picked.some(m => m.user_id === party.host_id)) throw new PartyError('Pick the TV you are watching on first.');
+  // Access is re-checked: a member may have lost the share since picking a TV
+  requireAccess(party, party.host_id);
+  const ready = picked.filter(m => m.user_id === party.host_id || canWatch(party, m.user_id));
   const driver = DRIVERS[party.source];
   db.setWatchPartyStatus(party.id, 'starting');
   try {
@@ -212,10 +261,12 @@ async function startParty(party) {
   }
 }
 
-// A member who missed the start (or dropped out) jumps in at the party's spot.
-async function joinPlaying(party, userId) {
+// A member who missed the start (or dropped out) jumps in at the party's spot
+// (if they can still access the title; `access` defaults to their own).
+async function joinPlaying(party, userId, access = undefined) {
   const rt = _live.get(party.id);
   if (!rt) throw new PartyError('This party is not playing.');
+  requireAccess(party, userId, access);
   const member = db.getWatchPartyMember(party.id, userId);
   const player = member && await rt.driver.playerFor(member);
   if (!player) throw new PartyError('Pick the TV you are watching on first.');

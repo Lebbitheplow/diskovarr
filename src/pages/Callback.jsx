@@ -16,7 +16,9 @@ export default function Callback() {
   const handleAuth = useCallback(async () => {
     const pinId = searchParams.get('pinId')
     const pinCode = searchParams.get('pinCode')
-    // Account-link flow: a signed-in Jellyfin user connecting their Plex account
+    // Account-link flow: a signed-in Jellyfin user connecting their Plex account.
+    // Only picks where to land afterwards; the server decided link mode when
+    // the PIN was created.
     const isLink = searchParams.get('link') === '1'
 
     if (!pinId || !pinCode) {
@@ -27,10 +29,11 @@ export default function Callback() {
 
     setStatus('waiting')
 
-    // Store the pin in the session via XHR so the session cookie used here matches the one check-pin will use
+    // The PIN is already in the session /auth/create-pin set up; this just
+    // reports which one Plex sent back (a PIN this browser didn't create is ignored)
     try {
-      await authApi.callback({ pinId, pinCode, link: isLink })
-    } catch { /* session may already be set server-side, continue */ }
+      await authApi.callback({ pinId, pinCode })
+    } catch { /* check-pin below decides either way */ }
 
     // Poll /auth/check-pin every 2 seconds
     const pollInterval = setInterval(async () => {

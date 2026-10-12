@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState } from 'react'
 import { tasteApi } from '../../services/api'
 import GenreStep from './GenreStep'
 import TitlesStep from './TitlesStep'
@@ -6,6 +6,7 @@ import PeopleStep from './PeopleStep'
 import MoodStep from './MoodStep'
 import './TasteQuiz.css'
 import useModalOpen from '../../hooks/useModalOpen'
+import useDialogLayer from '../../hooks/useDialogLayer'
 
 const MAX_ENTRIES = 200
 
@@ -62,11 +63,9 @@ function TasteQuizInner({ onClose, initialEntries, onSaved, canSkip }) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
-  useEffect(() => {
-    const handleEsc = (e) => { if (e.key === 'Escape') onClose() }
-    document.addEventListener('keydown', handleEsc)
-    return () => document.removeEventListener('keydown', handleEsc)
-  }, [onClose])
+  // Drawn above the detail modal, so it stays the top layer for Escape and
+  // Back even when a deep-linked detail modal finishes loading after it
+  useDialogLayer(true, onClose, { priority: 1 })
 
   const buildEntries = () => [
     ...Object.entries(genres).map(([name, sentiment]) => ({ kind: 'genre', sentiment, entity_name: name })),

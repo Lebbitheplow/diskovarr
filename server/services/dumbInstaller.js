@@ -7,14 +7,16 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { execFile } = require('child_process');
+const { withSharedUmask } = require('../utils/filePerms');
 
 const DEFAULT_IMAGE = process.env.DUMB_IMAGE || 'ghcr.io/lebbitheplow/dumb-traktless:latest';
 const DEFAULT_DIR = process.env.DUMB_INSTALL_DIR || path.join(os.homedir(), 'docker', 'DUMB');
 
 function run(cmd, args, opts = {}) {
   return new Promise((resolve) => {
-    execFile(cmd, args, { timeout: opts.timeout || 15000, cwd: opts.cwd, maxBuffer: 4 * 1024 * 1024 },
-      (err, stdout, stderr) => resolve({ ok: !err, code: err?.code ?? 0, stdout: String(stdout || ''), stderr: String(stderr || err?.message || '') }));
+    // Boot-time umask: docker/compose shouldn't inherit Diskovarr's private one
+    withSharedUmask(() => execFile(cmd, args, { timeout: opts.timeout || 15000, cwd: opts.cwd, maxBuffer: 4 * 1024 * 1024 },
+      (err, stdout, stderr) => resolve({ ok: !err, code: err?.code ?? 0, stdout: String(stdout || ''), stderr: String(stderr || err?.message || '') })));
   });
 }
 
@@ -95,11 +97,15 @@ async function install({ dir, image, overwrite = false } = {}) {
   if (!docker.available || !docker.compose) {
     return { ok: false, manual: true, reason: docker.reason, dir: target, compose: composeYaml({ image }) };
   }
-  fs.mkdirSync(target, { recursive: true });
-  for (const sub of ['config', 'log', 'data', 'mnt/debrid']) fs.mkdirSync(path.join(target, sub), { recursive: true });
   const composePath = path.join(target, 'docker-compose.yml');
   const existed = fs.existsSync(composePath);
-  if (!existed || overwrite) fs.writeFileSync(composePath, composeYaml({ image }));
+  // Boot-time umask: the container user and a native Plex (reading mnt/debrid)
+  // need these readable, unlike Diskovarr's own owner-only data.
+  withSharedUmask(() => {
+    fs.mkdirSync(target, { recursive: true });
+    for (const sub of ['config', 'log', 'data', 'mnt/debrid']) fs.mkdirSync(path.join(target, sub), { recursive: true });
+    if (!existed || overwrite) fs.writeFileSync(composePath, composeYaml({ image }));
+  });
   const up = await run('docker', ['compose', 'up', '-d'], { cwd: target, timeout: 10 * 60 * 1000 });
   return {
     ok: up.ok, dir: target, composePath, wroteCompose: !existed || overwrite,

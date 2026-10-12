@@ -2,6 +2,7 @@ const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const db = require('../db/database');
+const { withSharedUmask } = require('../utils/filePerms');
 
 // Supervises the bundled Tuberr instance (../../tuberr) as a child process:
 // started when the YouTube integration is enabled, stopped when disabled, and
@@ -58,11 +59,13 @@ function attachStream(stream, isStderr) {
 
 function start() {
   if (child || restartTimer) return;
-  child = spawn(process.execPath, ['server.js'], {
+  // Under the boot-time umask, not Diskovarr's private one: Sonarr (often a
+  // different OS user) has to read and move the files Tuberr downloads.
+  child = withSharedUmask(() => spawn(process.execPath, ['server.js'], {
     cwd: TUBERR_DIR,
     env: process.env,
     stdio: ['ignore', 'pipe', 'pipe'],
-  });
+  }));
   startedAt = Date.now();
   attachStream(child.stdout, false);
   attachStream(child.stderr, true);

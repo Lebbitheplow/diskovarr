@@ -25,6 +25,10 @@ const { enqueueForUser } = require('../services/notificationAgents');
 const searchCandidates = require('../services/searchCandidates');
 const seasonAvailability = require('../services/seasonAvailability');
 const posterUpstream = require('../services/posterUpstream');
+const { fetchImage, ImageFetchError } = require('../services/imageFetch');
+const requestPolicy = require('../services/requestPolicy');
+const requestNotifications = require('../services/requestNotifications');
+const libraryAccess = require('../services/libraryAccess');
 
 // Reverse maps: TMDB genre ID → genre name (built once at startup)
 const MOVIE_ID_TO_GENRE = {};
@@ -37,6 +41,9 @@ for (const [name, ids] of Object.entries(tmdbService.TV_GENRE_MAP || {})) {
 }
 
 router.use(requireAuth);
+// req.libraryAccess: what this user may see of the libraries (Plex sharing /
+// Jellyfin policy) — null when unrestricted. See services/libraryAccess.
+router.use(libraryAccess.middleware);
 
 // Deep links for a library item, dispatched on which server it lives on.
 // Plex items keep the plexAppLink native-app URI; Jellyfin has no equivalent.
@@ -57,14 +64,26 @@ function activeSource(req) {
   return req.session?.activeSource === 'jellyfin' ? 'jellyfin' : 'plex';
 }
 
-// Adds Jellyfin rows to a Plex item list for availability indexing (in-library
-// is the union of both servers). Items present on both resolve to the active
-// source — later entries win in buildLibraryIndex's maps.
-function withJellyfin(plexItems, req) {
-  const jellyfinService = require('../services/jellyfin');
-  if (!jellyfinService.isEnabled()) return plexItems;
-  const jf = db.getLibraryItemsBySource('jellyfin');
-  return activeSource(req) === 'jellyfin' ? [...plexItems, ...jf] : [...jf, ...plexItems];
+// The search family's availability index for this user: the Plex movie/TV
+// sections plus Jellyfin rows they may see (in-library is the union of both
+// servers; a title on both resolves to the active source, as later entries win
+// in buildLibraryIndex's maps), and which titles the library holds only where
+// they can't see them (the restricted tri-state, requestPolicy.restrictedTitles).
+async function libraryIndexFor(req) {
+  const access = req.libraryAccess;
+  const [plex, jf] = await Promise.all([
+    libraryAccess.libraryPool(access, { source: 'plex' }),
+    libraryAccess.libraryPool(access, { source: 'jellyfin' }),
+  ]);
+  const items = activeSource(req) === 'jellyfin' ? [...plex, ...jf] : [...jf, ...plex];
+  return buildLibraryIndex(items, requestPolicy.restrictedTitles(access));
+}
+
+// Library browse follows the toggled source (Jellyfin rows, or Plex's movie/TV
+// sections), limited to what the user may see. type: 'movie' | 'show'.
+function browsePool(req, type) {
+  const source = jellyfinService.isEnabled() && activeSource(req) === 'jellyfin' ? 'jellyfin' : 'plex';
+  return libraryAccess.libraryPool(req.libraryAccess, { source, type });
 }
 
 // Abuse guards for compute/TMDB-heavy endpoints. Limits are far above normal
@@ -141,7 +160,7 @@ router.get('/recommendations', async (req, res) => {
     const { id: userId, token: userToken } = req.session.plexUser;
     // Scope Home recs to the toggled library source once Jellyfin is in play
     const sourceFilter = jellyfinService.isEnabled() ? activeSource(req) : null;
-    const data = await recommender.getRecommendations(userId, userToken, sourceFilter);
+    const data = await recommender.getRecommendations(userId, userToken, sourceFilter, req.libraryAccess);
     // Score breakdowns are admin-only debugging output (?debug=1)
     const showDebug = req.query.debug === '1' && !!(req.session.isAdmin || req.session.isPlexAdminUser);
     // Attach deepLink to every item so the client can open them in Plex
@@ -205,7 +224,8 @@ router.get('/popular', async (req, res) => {
       const result = [];
       for (const entry of items) {
         if (result.length >= POPULAR_LIMIT) break;
-        const libItem = db.getLibraryItemByKey(entry.ratingKey);
+        // Popularity is server-wide; only titles this user may see are shown
+        const libItem = db.getLibraryItemByKeyFor(entry.ratingKey, req.libraryAccess);
         if (!libItem) continue;
 
         const tmdbCached = libItem.tmdbId ? db.getTmdbCache(libItem.tmdbId, mediaType) : null;
@@ -248,12 +268,19 @@ router.get('/popular', async (req, res) => {
 
 // GET /api/poster?path=/library/metadata/... (Plex) or /Items/<id>/Images/... (Jellyfin)
 // Proxies media-server art through the server — browser never sees tokens.
-// Optional &w=<px> resizes upstream (see services/posterUpstream).
+// Only known image path shapes are accepted, and only image bodies (capped)
+// are relayed. Optional &w=<px> resizes upstream (see services/posterUpstream).
 router.get('/poster', async (req, res) => {
   const { path: posterPath, w } = req.query;
   const kind = posterUpstream.posterKind(posterPath);
   if (!kind) {
     return res.status(400).json({ error: 'Invalid poster path' });
+  }
+  // Art of a library title the user can't access on the media server looks
+  // like any missing poster. Ids that aren't library rows (episodes, seasons,
+  // collections) pass.
+  if (!libraryAccess.allowsPoster(req.libraryAccess, posterPath)) {
+    return res.status(404).send('Poster not found');
   }
 
   try {
@@ -263,20 +290,20 @@ router.get('/poster', async (req, res) => {
       plexToken: kind === 'plex' ? plexService.getPlexToken() : null,
       jellyfinUrl: kind === 'jellyfin' ? jellyfinService.getJellyfinUrl() : null,
     });
-    const imgRes = await fetch(url, { signal: AbortSignal.timeout(10000) });
-    if (!imgRes.ok) {
-      return res.status(imgRes.status).send('Poster not found');
-    }
-    const contentType = imgRes.headers.get('content-type') || 'image/jpeg';
-    res.setHeader('Content-Type', contentType);
+    if (!url) return res.status(404).send('Poster not found'); // media server not configured
+    const img = await fetchImage(url, { timeoutMs: 10000 });
+    res.setHeader('Content-Type', img.contentType);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
     // Plex paths end in the item's update timestamp and most Jellyfin paths
     // carry an image tag, so changed art usually arrives under a new URL.
-    res.setHeader('Cache-Control', 'public, max-age=604800, stale-while-revalidate=86400');
-
-    const buffer = await imgRes.arrayBuffer();
-    res.send(Buffer.from(buffer));
+    // With per-user library access enforced, a shared cache must not hand art
+    // fetched by one user to another, so only the browser may keep it.
+    const scope = libraryAccess.isEnforced() ? 'private' : 'public';
+    res.setHeader('Cache-Control', `${scope}, max-age=604800, stale-while-revalidate=86400`);
+    res.send(img.body);
   } catch (err) {
-    console.error('poster proxy error:', err);
+    if (err instanceof ImageFetchError) return res.status(err.status).send('Poster not found');
+    console.error('poster proxy error:', err.message);
     res.status(500).send('Failed to fetch poster');
   }
 });
@@ -288,14 +315,15 @@ router.get('/jellyfin/avatar/:jfUserId', posterLimiter, async (req, res) => {
   if (!/^[A-Za-z0-9-]+$/.test(jfUserId)) return res.status(400).send('Invalid user id');
   try {
     const tag = /^[A-Za-z0-9]+$/.test(String(req.query.tag || '')) ? `?tag=${req.query.tag}` : '';
-    const imgRes = await fetch(`${jellyfinService.getJellyfinUrl()}/Users/${jfUserId}/Images/Primary${tag}`, {
-      signal: AbortSignal.timeout(10000),
+    const img = await fetchImage(`${jellyfinService.getJellyfinUrl()}/Users/${jfUserId}/Images/Primary${tag}`, {
+      timeoutMs: 10000, maxBytes: 5 * 1024 * 1024,
     });
-    if (!imgRes.ok) return res.status(imgRes.status).send('Avatar not found');
-    res.setHeader('Content-Type', imgRes.headers.get('content-type') || 'image/jpeg');
+    res.setHeader('Content-Type', img.contentType);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Cache-Control', 'public, max-age=86400');
-    res.send(Buffer.from(await imgRes.arrayBuffer()));
-  } catch {
+    res.send(img.body);
+  } catch (err) {
+    if (err instanceof ImageFetchError) return res.status(err.status).send('Avatar not found');
     res.status(500).send('Failed to fetch avatar');
   }
 });
@@ -305,17 +333,45 @@ router.get('/watchlist', (req, res) => {
   const { id: userId } = req.session.plexUser;
   const keys = db.getWatchlistFromDb(userId);
   const watchedKeys = db.getWatchedKeysFromDb(userId);
-  const items = keys.map(k => {
+  const items = [];
+  for (const k of keys) {
     const libItem = db.getLibraryItemByKey(k);
-    return {
+    // Left out: titles in a library this user can't access (Plex sharing /
+    // Jellyfin policy) — e.g. added before their share changed
+    if (libItem && !libraryAccess.allows(req.libraryAccess, libItem)) continue;
+    items.push({
       ratingKey: k,
       isWatched: watchedKeys.has(String(k)),
       isInWatchlist: true,
       ...(libItem || {}),
-    };
-  });
+    });
+  }
   res.json({ items });
 });
+
+// A title this user can't open (Plex sharing / Jellyfin policy): its library
+// row is in a section hidden from them or — known only by TMDB id — the
+// library holds it only in such sections (requestPolicy.isRestrictedTitle).
+// Always false for unrestricted (null) access; undefined sees no library.
+function libraryTitleRestricted(access, { ratingKey, tmdbId, mediaType }) {
+  if (access === null) return false;
+  access = access ?? libraryAccess.NO_ACCESS;
+  if (ratingKey != null && ratingKey !== '') {
+    if (!libraryAccess.allowsKey(access, ratingKey)) return true;
+    if (db.getLibraryItemByKey(ratingKey)) return false; // an allowed copy
+  }
+  return tmdbId != null && ['movie', 'tv'].includes(mediaType)
+    && requestPolicy.isRestrictedTitle({ access, tmdbId, mediaType });
+}
+
+// Answers 403 (and returns true) for a rating key in a library section the
+// user can't access. Keys that aren't library rows (episodes, seasons,
+// collections) pass — they aren't a section's title.
+function refuseRestrictedKey(req, res, ratingKey) {
+  if (libraryAccess.allowsKey(req.libraryAccess, ratingKey)) return false;
+  res.status(403).json({ error: requestPolicy.RESTRICTED_MESSAGE, restricted: true });
+  return true;
+}
 
 // The signed-in user's Jellyfin user GUID, whether they logged in with
 // Jellyfin or linked it to their Plex account. Null when neither.
@@ -331,6 +387,7 @@ router.post('/watchlist/add', (req, res) => {
   const { ratingKey } = req.body;
   if (!ratingKey) return res.status(400).json({ error: 'ratingKey required' });
   if (!/^[A-Za-z0-9-]+$/.test(String(ratingKey))) return res.status(400).json({ error: 'Invalid ratingKey' });
+  if (refuseRestrictedKey(req, res, ratingKey)) return;
 
   const { id: userId, token: userToken, serverToken } = req.session.plexUser;
 
@@ -499,18 +556,8 @@ router.get('/discover', async (req, res) => {
 
     // Library browse follows the toggled source: Jellyfin rows come straight
     // from the DB (synced on its own schedule); Plex keeps its cache path.
-    let movies, tv, dismissedKeys;
-    if (jellyfinService.isEnabled() && activeSource(req) === 'jellyfin') {
-      movies = db.getLibraryItemsBySource('jellyfin', 'movie');
-      tv = db.getLibraryItemsBySource('jellyfin', 'show');
-      dismissedKeys = db.getDismissals(userId);
-    } else {
-      [movies, tv, dismissedKeys] = await Promise.all([
-        plexService.getLibraryItems(plexService.MOVIES_SECTION),
-        plexService.getLibraryItems(plexService.TV_SECTION),
-        Promise.resolve(db.getDismissals(userId)),
-      ]);
-    }
+    const [movies, tv] = await Promise.all([browsePool(req, 'movie'), browsePool(req, 'show')]);
+    const dismissedKeys = db.getDismissals(userId);
     const watchedKeys = db.getWatchedKeysFromDb(String(userId));
 
     // Categorise TV
@@ -649,18 +696,10 @@ router.get('/discover', async (req, res) => {
 });
 
 // Library pool for the toggled source — matches the /discover browse pool so
-// filter options always describe the library the user is actually browsing.
+// filter options always describe the library the user is actually browsing
+// (facet values would otherwise leak titles from libraries they can't see).
 async function libraryPoolForSource(req) {
-  if (jellyfinService.isEnabled() && activeSource(req) === 'jellyfin') {
-    return [
-      ...db.getLibraryItemsBySource('jellyfin', 'movie'),
-      ...db.getLibraryItemsBySource('jellyfin', 'show'),
-    ];
-  }
-  const [movies, tv] = await Promise.all([
-    plexService.getLibraryItems(plexService.MOVIES_SECTION),
-    plexService.getLibraryItems(plexService.TV_SECTION),
-  ]);
+  const [movies, tv] = await Promise.all([browsePool(req, 'movie'), browsePool(req, 'show')]);
   return [...movies, ...tv];
 }
 
@@ -759,9 +798,18 @@ async function jellyfinClientsFor(user) {
 // Dispatch is on the item's source, so a GUID never reaches Plex validation.
 async function tryJellyfinCast(req, res, ratingKey, clientId) {
   const key = String(ratingKey);
-  const libItem = db.getLibraryItemByKey(key);
+  // Jellyfin ids arrive with or without dashes; rows hold the 32-hex form
+  const libItem = db.getLibraryItemByKey(key)
+    || (/[A-F-]/.test(key) ? db.getLibraryItemByKey(key.toLowerCase().replace(/-/g, '')) : null);
   const isJellyfinItem = libItem ? (libItem.source || 'plex') === 'jellyfin' : !/^\d+$/.test(key);
   if (!isJellyfinItem) return false;
+  // A restricted user may only start library rows they can access (checked
+  // by refuseRestrictedKey): a non-row id is played unscoped below, with the
+  // admin key when the session has no Jellyfin token
+  if (!libItem && req.libraryAccess) {
+    res.status(403).json({ error: requestPolicy.RESTRICTED_MESSAGE, restricted: true });
+    return true;
+  }
   const jf = req.session.plexUser?.jellyfin;
   if (!jf?.userId || !jellyfinService.isEnabled()) {
     res.status(400).json({ error: 'Playing on a device requires a linked Jellyfin account' });
@@ -891,6 +939,8 @@ router.post('/cast/prepare', async (req, res) => {
   try {
     const { ratingKey, clientId } = req.body;
     if (!ratingKey || !clientId) return res.status(400).json({ error: 'ratingKey and clientId required' });
+    // Both servers: a title in a library this user can't access is refused up front
+    if (refuseRestrictedKey(req, res, ratingKey)) return;
     // Jellyfin items play server-side in one step: { ok, source: 'jellyfin', clientName }.
     if (await tryJellyfinCast(req, res, ratingKey, clientId)) return;
     if (!/^\d+$/.test(String(ratingKey))) return res.status(400).json({ error: 'Invalid ratingKey' });
@@ -926,6 +976,7 @@ router.post('/cast', async (req, res) => {
   try {
     const { ratingKey, clientId } = req.body;
     if (!ratingKey || !clientId) return res.status(400).json({ error: 'ratingKey and clientId required' });
+    if (refuseRestrictedKey(req, res, ratingKey)) return;
     if (await tryJellyfinCast(req, res, ratingKey, clientId)) return;
     if (!/^\d+$/.test(String(ratingKey))) return res.status(400).json({ error: 'Invalid ratingKey' });
 
@@ -1139,21 +1190,19 @@ router.get('/search/details', async (req, res) => {
     const item = await tmdbService.getItemDetails(Number(tmdbId), type);
     if (!item) return res.status(404).json({ error: 'Not found' });
 
-    // Cross-reference with library
-    const [movies, tv] = await Promise.all([
-      plexService.getLibraryItems(plexService.MOVIES_SECTION),
-      plexService.getLibraryItems(plexService.TV_SECTION),
-    ]);
-    const libraryIndex = buildLibraryIndex(withJellyfin([...movies, ...tv], req));
+    // Cross-reference with the library this user may see
+    const libraryIndex = await libraryIndexFor(req);
 
     const libItem = libraryIndex.lookup(tmdbId, null, type);
+    const restricted = !libItem && libraryIndex.restricted(tmdbId, null, type);
     const watchlistKeys = new Set(db.getWatchlistFromDb(userId));
     const requestedIds = db.getAllRequestedTmdbIds();
-    const isRequested = requestedIds.has(`${tmdbId}:${type}`);
+    const isRequested = !restricted && requestedIds.has(`${tmdbId}:${type}`);
 
     const result = {
       ...item,
       inLibrary: !!libItem,
+      ...restrictedFlag(restricted),
       ratingKey: libItem?.ratingKey || null,
       // Rotten Tomatoes critic/audience scores live only on the Plex library item
       // (not TMDB), so surface them from the cross-referenced match. Lets the detail
@@ -1188,9 +1237,12 @@ router.get('/search/seasons', async (req, res) => {
   try {
     const tmdbSeasons = await seasonAvailability.fetchTmdbSeasons(Number(tmdbId));
 
-    let libItem = ratingKey ? db.getLibraryItemByKey(ratingKey) : null;
+    // Only a copy this user may see: one in a library they can't access must
+    // neither reveal its seasons nor grey them out as already held
+    const access = req.libraryAccess;
+    let libItem = ratingKey ? db.getLibraryItemByKeyFor(ratingKey, access) : null;
     if (!libItem) {
-      const row = db.getLibraryItemByTmdbId(tmdbId, 'tv');
+      const row = db.getLibraryItemByTmdbId(tmdbId, 'tv', null, access);
       if (row) libItem = db.getLibraryItemByKey(row.rating_key);
     }
     let librarySeasons = null;
@@ -1236,7 +1288,10 @@ function libKey(id, mediaType) {
   return `${id}:${mediaType}`;
 }
 
-function buildLibraryIndex(items) {
+// `restricted` (tmdbId, tvdbId, mediaType) → bool marks titles held only in
+// libraries the user can't access; they are never in `items`, so lookup()
+// misses them and the caller reports inLibrary:false, restricted:true.
+function buildLibraryIndex(items, restricted = () => false) {
   const byTmdb = new Map();
   const byTvdb = new Map();
   for (const i of items) {
@@ -1247,6 +1302,7 @@ function buildLibraryIndex(items) {
   return {
     byTmdb,
     byTvdb,
+    restricted,
     lookup(tmdbId, tvdbId, mediaType) {
       if (tmdbId) {
         const hit = byTmdb.get(libKey(tmdbId, mediaType));
@@ -1259,6 +1315,12 @@ function buildLibraryIndex(items) {
       return null;
     },
   };
+}
+
+// Results only carry `restricted` when it is true, so unrestricted users get
+// exactly the payload they always have.
+function restrictedFlag(restricted) {
+  return restricted ? { restricted: true } : {};
 }
 
 // In-memory cache of the TMDB-derived pool per (query, lang, region). Keeps
@@ -1379,13 +1441,9 @@ router.get('/search', async (req, res) => {
   if (!db.hasTmdbKey() || !db.isDiscoverEnabled()) {
     try {
       const { id: userId } = req.session.plexUser;
-      const [movies, tv] = await Promise.all([
-        plexService.getLibraryItems(plexService.MOVIES_SECTION),
-        plexService.getLibraryItems(plexService.TV_SECTION),
-      ]);
-      // Search spans both servers, like the TMDB-backed path's availability union.
-      const pool = [...movies, ...tv];
-      if (jellyfinService.isEnabled()) pool.push(...db.getLibraryItemsBySource('jellyfin'));
+      // Search spans both servers, like the TMDB-backed path's availability
+      // union — only the libraries this user may see.
+      const pool = await libraryAccess.libraryPool(req.libraryAccess);
       const watchlistKeys = new Set(db.getWatchlistFromDb(userId));
       const watchedKeys = db.getWatchedKeysFromDb(String(userId));
       const ql = q.toLowerCase();
@@ -1422,13 +1480,8 @@ router.get('/search', async (req, res) => {
     const userLanguage = userPrefs?.language || null;
     const userRegion = userPrefs?.region || null;
 
-    // Fetch library items for cross-referencing
-    const [movies, tv] = await Promise.all([
-      plexService.getLibraryItems(plexService.MOVIES_SECTION),
-      plexService.getLibraryItems(plexService.TV_SECTION),
-    ]);
-
-    const libraryIndex = buildLibraryIndex(withJellyfin([...movies, ...tv], req));
+    // Library items for cross-referencing
+    const libraryIndex = await libraryIndexFor(req);
     const watchlistKeys = new Set(db.getWatchlistFromDb(userId));
     const watchedKeys = db.getWatchedKeysFromDb(String(userId));
     const requestedIds = db.getAllRequestedTmdbIds();
@@ -1537,10 +1590,13 @@ router.get('/search', async (req, res) => {
     kickEnrichment(poolEntry);
 
     // Common path: enrich, filter, paginate (works for both genre and text search)
-    // For genre search we historically hide items already in library; preserve that.
-    // Text search keeps in-library items so users can find what they own.
+    // For genre search we historically hide items already in library; preserve that
+    // (titles held only in libraries the user can't access count as in the library:
+    // they can't be requested either). Text search keeps in-library items so users
+    // can find what they own.
+    const isRestricted = (item) => libraryIndex.restricted(item.tmdbId, item.tvdbId, item.mediaType);
     const visiblePool = isGenreSearch
-      ? externalResults.filter(item => !libraryIndex.lookup(item.tmdbId, item.tvdbId, item.mediaType))
+      ? externalResults.filter(item => !libraryIndex.lookup(item.tmdbId, item.tvdbId, item.mediaType) && !isRestricted(item))
       : externalResults;
 
     let filteredPool = applySearchFilters(visiblePool, filterOpts);
@@ -1562,6 +1618,8 @@ router.get('/search', async (req, res) => {
     const results = pageItems.map(item => {
       const libItem = libraryIndex.lookup(item.tmdbId, item.tvdbId, item.mediaType);
       const inLibrary = isGenreSearch ? false : !!libItem;
+      // In a library the user can't access: no ratingKey, links or watch flags
+      const restricted = !libItem && isRestricted(item);
       const requestKey = item.tmdbId
         ? `${item.tmdbId}:${item.mediaType}`
         : `tvdb:${item.tvdbId}:${item.mediaType}`;
@@ -1584,11 +1642,12 @@ router.get('/search', async (req, res) => {
         // the detail modal fetches credits/studio itself in that case.
         enriched: item.enriched !== false,
         inLibrary,
+        ...restrictedFlag(restricted),
         ratingKey: inLibrary ? libItem.ratingKey : null,
         ...mediaLinks(inLibrary ? libItem : null),
         isInWatchlist: inLibrary ? watchlistKeys.has(libItem.ratingKey) : false,
         isWatched: inLibrary ? watchedKeys.has(libItem.ratingKey) : false,
-        isRequested: !inLibrary && requestedIds.has(requestKey),
+        isRequested: !inLibrary && !restricted && requestedIds.has(requestKey),
       };
     });
 
@@ -1627,19 +1686,17 @@ router.get('/search/similar', async (req, res) => {
   const dismissedKeys = db.getDismissals(userId);
 
   try {
-    // Fetch library items for cross-referencing inLibrary status
-    const [movies, tv] = await Promise.all([
-      plexService.getLibraryItems(plexService.MOVIES_SECTION),
-      plexService.getLibraryItems(plexService.TV_SECTION),
-    ]);
-    const libraryIndex = buildLibraryIndex(withJellyfin([...movies, ...tv], req));
+    // Library items for cross-referencing inLibrary status
+    const libraryIndex = await libraryIndexFor(req);
     const watchedKeys = db.getWatchedKeysFromDb(String(userId));
     const watchlistKeys = new Set(db.getWatchlistFromDb(userId));
 
     // Helper to build a result item from a TMDB-enriched candidate
     function buildResult(candidate) {
       const libItem = libraryIndex.lookup(candidate.tmdbId, null, candidate.mediaType);
-      if (hideLib && libItem) return null;
+      // Held only in a library the user can't access: hidden with the library
+      const restricted = !libItem && libraryIndex.restricted(candidate.tmdbId, null, candidate.mediaType);
+      if (hideLib && (libItem || restricted)) return null;
       if (!discoverEnabled && !libItem) return null;
       return {
         tmdbId: candidate.tmdbId,
@@ -1653,11 +1710,12 @@ router.get('/search/similar', async (req, res) => {
         genres: candidate.genres || [],
         contentRating: candidate.contentRating || null,
         inLibrary: !!libItem,
+        ...restrictedFlag(restricted),
         ratingKey: libItem?.ratingKey || null,
         ...mediaLinks(libItem),
         isInWatchlist: libItem ? watchlistKeys.has(libItem.ratingKey) : false,
         isWatched: libItem ? watchedKeys.has(libItem.ratingKey) : false,
-        isRequested: !libItem && requestedIds.has(`${candidate.tmdbId}:${candidate.mediaType}`),
+        isRequested: !libItem && !restricted && requestedIds.has(`${candidate.tmdbId}:${candidate.mediaType}`),
         _popularity: candidate.popularity || 0,
         _rank: candidate._rank ?? 9999,
       };
@@ -1860,18 +1918,15 @@ router.get('/search/person', async (req, res) => {
   const dismissedKeys = db.getDismissals(userId);
 
   try {
-    const [movies, tv] = await Promise.all([
-      plexService.getLibraryItems(plexService.MOVIES_SECTION),
-      plexService.getLibraryItems(plexService.TV_SECTION),
-    ]);
-    const libraryIndex = buildLibraryIndex(withJellyfin([...movies, ...tv], req));
+    const libraryIndex = await libraryIndexFor(req);
     const watchedKeys = db.getWatchedKeysFromDb(String(userId));
     const watchlistKeys = new Set(db.getWatchlistFromDb(userId));
 
     // Same shape as /search/similar so the cards render identically client-side.
     function buildResult(candidate) {
       const libItem = libraryIndex.lookup(candidate.tmdbId, null, candidate.mediaType);
-      if (hideLib && libItem) return null;
+      const restricted = !libItem && libraryIndex.restricted(candidate.tmdbId, null, candidate.mediaType);
+      if (hideLib && (libItem || restricted)) return null;
       if (!discoverEnabled && !libItem) return null;
       return {
         tmdbId: candidate.tmdbId,
@@ -1885,11 +1940,12 @@ router.get('/search/person', async (req, res) => {
         genres: candidate.genres || [],
         contentRating: candidate.contentRating || null,
         inLibrary: !!libItem,
+        ...restrictedFlag(restricted),
         ratingKey: libItem?.ratingKey || null,
         ...mediaLinks(libItem),
         isInWatchlist: libItem ? watchlistKeys.has(libItem.ratingKey) : false,
         isWatched: libItem ? watchedKeys.has(libItem.ratingKey) : false,
-        isRequested: !libItem && requestedIds.has(`${candidate.tmdbId}:${candidate.mediaType}`),
+        isRequested: !libItem && !restricted && requestedIds.has(`${candidate.tmdbId}:${candidate.mediaType}`),
       };
     }
 
@@ -1923,8 +1979,11 @@ router.get('/explore/services', (req, res) => {
   const sideCount = [hasOverseerr, hasRiven, hasRadarr || hasSonarr].filter(Boolean).length;
   const defaultService = sideCount >= 2 ? (c.defaultRequestService || 'overseerr') : null;
   const directRequestAccess = db.getDirectRequestAccess();
+  // Whether this session may pick Radarr/Sonarr as an alternate app (enforced
+  // server-side by requestPolicy.checkServiceAccess)
+  const directAllowed = directRequestAccess !== '1' || requestPolicy.isPrivilegedSession(req.session);
   const tuberr = c.youtubeEnabled && hasSonarr && !!c.tuberrUrl && !!c.tuberrApiKey;
-  res.json({ overseerr: hasOverseerr, radarr: hasRadarr, sonarr: hasSonarr, riven: hasRiven, tuberr, defaultService, directRequestAccess });
+  res.json({ overseerr: hasOverseerr, radarr: hasRadarr, sonarr: hasSonarr, riven: hasRiven, tuberr, defaultService, directRequestAccess, directAllowed });
 });
 
 // GET /api/tuberr/channels?q= — channel suggestions for the YouTube downloader
@@ -1955,7 +2014,7 @@ router.get('/explore/recommendations', async (req, res) => {
     const { id: userId, token: userToken } = req.session.plexUser;
     const mature = req.query.mature === 'true';
     const hideRequested = req.query.hideRequested === 'true';
-    const data = await discoverRecommender.getDiscoverRecommendations(userId, userToken, { mature, hideRequested });
+    const data = await discoverRecommender.getDiscoverRecommendations(userId, userToken, { mature, hideRequested, access: req.libraryAccess });
     // Score breakdowns are admin-only debugging output (?debug=1)
     const showDebug = req.query.debug === '1' && !!(req.session.isAdmin || req.session.isPlexAdminUser);
     if (!showDebug && data && typeof data === 'object') {
@@ -1989,22 +2048,29 @@ router.post('/explore/dismiss', (req, res) => {
 });
 
 // POST /api/explore/follow — "notify me when available" for already-requested items
-// Creates a request record for this user so they receive a fulfillment notification.
-// Does not re-submit to any download service (item is already being fetched).
+// Attaches a follower row (is_follow) to someone's live pending/approved request
+// so this user also gets the fulfillment notification. A follower acquires
+// nothing: no submission, no quota, never listed to pull-mode consumers. Titles
+// nobody has an active request for can't be followed (409) — request them.
 router.post('/explore/follow', async (req, res) => {
   if (!db.isDiscoverEnabled()) return res.status(403).json({ error: 'Discover not enabled' });
   const { tmdbId, mediaType, title } = req.body;
   if (!tmdbId || !mediaType) return res.status(400).json({ error: 'tmdbId and mediaType required' });
   if (!['movie', 'tv'].includes(mediaType)) return res.status(400).json({ error: 'Invalid mediaType' });
+  if (!/^\d+$/.test(String(tmdbId))) return res.status(400).json({ error: 'Invalid tmdbId' });
   const { id: userId } = req.session.plexUser;
-  // Check if this user already has a request for this item
-  const existing = db.getRequestedTmdbIds(userId);
-  if (existing.has(`${tmdbId}:${mediaType}`)) {
-    return res.json({ success: true, alreadyFollowing: true });
+  try {
+    // No Notify Me for a title held only in a library this user can't access
+    requestPolicy.checkLibraryAccess({ userId, access: req.libraryAccess, tmdbId: Number(tmdbId), mediaType });
+    const result = requestPolicy.followRequest({ userId, tmdbId: Number(tmdbId), mediaType, title });
+    if (result.alreadyFollowing) return res.json({ success: true, alreadyFollowing: true });
+    logger.info(`Follow created: user=${userId} tmdbId=${tmdbId} type=${mediaType} follows request #${result.followsRequestId}`);
+    res.json({ success: true });
+  } catch (err) {
+    if (err instanceof requestPolicy.RequestError) return res.status(err.status).json({ error: err.message, ...err.extra });
+    logger.error('explore/follow error:', err.message);
+    res.status(500).json({ error: 'Failed to follow' });
   }
-  db.addDiscoverRequestWithStatus(userId, Number(tmdbId), mediaType, title || '', 'none', 1, 'approved', null, null);
-  logger.info(`Follow request created: user=${userId} tmdbId=${tmdbId} type=${mediaType} title="${title}"`);
-  res.json({ success: true });
 });
 
 // ── Reusable request submission function ─────────────────────────────────────
@@ -2156,23 +2222,31 @@ async function submitRequestToService(requestData) {
         ytTagId = created.id;
       }
     }
+    // A season selection must reach Sonarr as an explicit per-season monitor
+    // list. Without it a new series would be added monitoring (and
+    // downloading) every season, so a failed lookup never adds the series —
+    // it can only update one Sonarr already has (below).
+    const selection = Array.isArray(seasons) && seasons.length > 0;
     let seasonsPayload = undefined;
-    if (Array.isArray(seasons) && seasons.length > 0) {
+    let lookupError = null;
+    if (selection) {
       try {
         const lookupRes = await fetch(`${c.sonarrUrl.replace(/\/$/, '')}/api/v3/series/lookup?term=tvdb:${tvdbId}`, {
           headers: { 'X-Api-Key': c.sonarrApiKey },
           signal: AbortSignal.timeout(8000),
         });
-        const lookupData = lookupRes.ok ? await lookupRes.json() : [];
-        const seriesInfo = lookupData[0];
-        if (seriesInfo?.seasons) {
-          const selectedNums = new Set(seasons.map(Number));
-          seasonsPayload = seriesInfo.seasons.map(s => ({
-            ...s,
-            monitored: selectedNums.has(s.seasonNumber),
-          }));
-        }
-      } catch { /* fall back to default behaviour */ }
+        if (!lookupRes.ok) throw new Error(`HTTP ${lookupRes.status}`);
+        const lookupData = await lookupRes.json();
+        const seriesInfo = Array.isArray(lookupData) ? lookupData[0] : null;
+        if (!Array.isArray(seriesInfo?.seasons)) throw new Error('no season list returned');
+        const selectedNums = new Set(seasons.map(Number));
+        seasonsPayload = seriesInfo.seasons.map(s => ({
+          ...s,
+          monitored: selectedNums.has(s.seasonNumber),
+        }));
+      } catch (e) {
+        lookupError = e;
+      }
     }
 
     const sonarrBody = {
@@ -2187,17 +2261,17 @@ async function submitRequestToService(requestData) {
     if (seasonsPayload) sonarrBody.seasons = seasonsPayload;
     if (ytTagId) sonarrBody.tags = [ytTagId];
 
-    const r = await fetch(`${c.sonarrUrl.replace(/\/$/, '')}/api/v3/series`, {
+    const r = lookupError ? null : await fetch(`${c.sonarrUrl.replace(/\/$/, '')}/api/v3/series`, {
       method: 'POST',
       headers: { 'X-Api-Key': c.sonarrApiKey, 'Content-Type': 'application/json' },
       body: JSON.stringify(sonarrBody),
       signal: AbortSignal.timeout(10000),
     });
     let sonarrSeries = null;
-    if (r.ok) {
+    if (r && r.ok) {
       sonarrSeries = await r.json().catch(() => null);
     } else {
-      const body = await r.text();
+      const body = r ? await r.text() : null;
       // Sonarr rejects adding a series it already has. That's the normal case
       // for "request missing seasons" on a library show (and for YouTube
       // re-routes): monitor the requested seasons on the existing entry and
@@ -2206,7 +2280,11 @@ async function submitRequestToService(requestData) {
         .then(x => (x.ok ? x.json() : []))
         .catch(() => []);
       sonarrSeries = existing[0] || null;
-      if (!sonarrSeries) throw new Error(`Sonarr error: ${body}`);
+      if (!sonarrSeries) {
+        throw new Error(lookupError
+          ? `Sonarr season lookup failed (${lookupError.message}); not adding the series without the selected seasons`
+          : `Sonarr error: ${body}`);
+      }
 
       const selected = (Array.isArray(seasons) && seasons.length > 0) ? new Set(seasons.map(Number)) : null;
       const updated = {
@@ -2227,9 +2305,19 @@ async function submitRequestToService(requestData) {
       const commands = selected
         ? [...selected].map(n => ({ name: 'SeasonSearch', seriesId: sonarrSeries.id, seasonNumber: n }))
         : [{ name: 'SeriesSearch', seriesId: sonarrSeries.id }];
+      // The search is the acquisition here (the series was already added), so
+      // a rejected command fails the submission instead of reporting success.
       for (const cmd of commands) {
-        await sonarrFetch('/command', { method: 'POST', body: JSON.stringify(cmd) })
-          .catch(e => logger.warn(`Sonarr ${cmd.name} failed for series ${sonarrSeries.id}: ${e.message}`));
+        let cmdRes;
+        try {
+          cmdRes = await sonarrFetch('/command', { method: 'POST', body: JSON.stringify(cmd) });
+        } catch (e) {
+          throw new Error(`Sonarr ${cmd.name} failed for series ${sonarrSeries.id}: ${e.message}`);
+        }
+        if (!cmdRes.ok) {
+          const detail = await cmdRes.text().catch(() => '');
+          throw new Error(`Sonarr ${cmd.name} failed for series ${sonarrSeries.id}: HTTP ${cmdRes.status}${detail ? ` ${detail.slice(0, 200)}` : ''}`);
+        }
       }
       logger.info(`Sonarr already had tvdb=${tvdbId}; monitored ${selected ? [...selected].join(',') : 'all'} season(s) and queued a search`);
     }
@@ -2339,137 +2427,71 @@ router.post('/request', async (req, res) => {
   if (!['movie', 'tv'].includes(mediaType)) {
     return res.status(400).json({ error: 'Invalid mediaType' });
   }
+  if (tmdbId && !/^\d+$/.test(String(tmdbId))) {
+    return res.status(400).json({ error: 'Invalid tmdbId' });
+  }
 
   const { id: userId, token: userToken } = req.session.plexUser;
 
-  // Enforce per-user request limits (if enabled globally)
-  const limits = db.getEffectiveLimits(userId);
-  if (limits) {
-    if (mediaType === 'movie' && limits.movieLimit > 0) {
-      const recentCount = db.countRecentMovieRequests(userId, limits.movieWindowDays);
-      if (recentCount >= limits.movieLimit) {
-        return res.status(429).json({
-          error: `Movie request limit reached: ${limits.movieLimit} per ${limits.movieWindowDays} day${limits.movieWindowDays !== 1 ? 's' : ''}. Try again later.`,
-        });
-      }
-    }
-    if (mediaType === 'tv' && limits.seasonLimit > 0) {
-      const requestedSeasons = Array.isArray(seasons) && seasons.length > 0 ? seasons.length : 1;
-      const recentCount = db.countRecentSeasonRequests(userId, limits.seasonWindowDays);
-      if (recentCount + requestedSeasons > limits.seasonLimit) {
-        const remaining = Math.max(0, limits.seasonLimit - recentCount);
-        return res.status(429).json({
-          error: `Season request limit reached: ${limits.seasonLimit} per ${limits.seasonWindowDays} day${limits.seasonWindowDays !== 1 ? 's' : ''}. You can request ${remaining} more season${remaining !== 1 ? 's' : ''}.`,
-        });
-      }
-    }
-  }
-
+  // Policy (direct-service access, season-accurate quota, duplicate refusal),
+  // approval, submission and notifications live in services/requestPolicy so
+  // the watchlist auto-request worker applies exactly the same rules.
+  let result;
   try {
-    const seasonsCount = mediaType === 'tv'
-      ? (Array.isArray(seasons) && seasons.length > 0 ? seasons.length : 1)
-      : 1;
-
-    // Check auto-approve setting
-    const autoApprove = db.getEffectiveAutoApprove(userId, mediaType);
-
-    const cachedItem = db.getTmdbCache(tmdbId, mediaType);
-    const storedPosterUrl = cachedItem?.posterUrl || null;
-
-    // Honor the service the user explicitly selected. When DUMB pull mode is active the client
-    // resolves the *default* to 'riven' (which submitRequestToService early-returns on so DUMB
-    // can poll for it) — but an explicit Radarr/Sonarr/Overseerr pick must NOT be coerced to riven,
-    // otherwise the alternate-app selection silently never reaches the chosen service.
-    const effectiveService = service;
-
-    const requestExtras = { tvdbId, downloader, youtube };
-
-    // "Request missing seasons" on a show the library already has. The
-    // fulfillment check only knows the show is present, so left alone it would
-    // fire a "now available" alert immediately — stamp it as notified instead.
-    const fillingMissingSeasons = mediaType === 'tv' && Array.isArray(seasons) && seasons.length > 0
-      && !!tmdbId && db.getLibraryTmdbKeys().has(`${tmdbId}:tv`);
-
-    if (!autoApprove) {
-      // Store as pending — do NOT submit to service
-      const requestId = db.addDiscoverRequestWithStatus(userId, tmdbId, mediaType, title || '', effectiveService, seasonsCount, 'pending', seasons || null, storedPosterUrl, requestExtras);
-      if (fillingMissingSeasons) db.markRequestsNotifiedAvailable([requestId]);
-      logger.info(`Request queued (pending approval): user=${userId} tmdbId=${tmdbId} type=${mediaType} title="${title}" service=${service}`);
-      // Notify admins of new pending request
-      try {
-        const username = req.session.plexUser.username || userId;
-        const adminIds = db.getPrivilegedUserIds();
-        for (const adminId of adminIds) {
-          const prefs = db.getUserNotificationPrefs(adminId);
-          if (prefs.notify_pending) {
-            const notifId = db.createOrBundleNotification({
-              userId: adminId,
-              type: 'request_pending',
-              title: `New request: "${title}"`,
-              body: `${username} requested ${mediaType === 'movie' ? 'a movie' : 'a TV show'}.`,
-              data: { tmdbId, mediaType, title },
-            });
-            enqueueForUser({ notificationId: notifId, userId: adminId, payload: { type: 'request_pending', title: `New request: "${title}"`, body: `${username} requested ${mediaType === 'movie' ? 'a movie' : 'a TV show'}.`, posterUrl: storedPosterUrl } });
-          }
-        }
-      } catch (e) { logger.warn('notification error:', e.message); }
-      return res.json({ success: true, pending: true });
-    }
-
-    // Auto-approve: submit to service immediately (skip if no service configured)
-    if (effectiveService !== 'none') await submitRequestToService({ tmdbId, mediaType, title, service: effectiveService, seasons, tvdbId, downloader, youtube });
-
-    const requestId = db.addDiscoverRequestWithStatus(userId, tmdbId, mediaType, title || '', effectiveService, seasonsCount, 'approved', seasons || null, storedPosterUrl, requestExtras);
-    if (fillingMissingSeasons) db.markRequestsNotifiedAvailable([requestId]);
-    logger.info(`Request submitted: user=${userId} tmdbId=${tmdbId} type=${mediaType} title="${title}" service=${effectiveService}${fillingMissingSeasons ? ' (missing seasons of a library show)' : ''}`);
-
-
-    // Add the item to the user's native Plex.tv Watchlist so they can track it
-    // in the Plex app while waiting for the download.
-    const watchlistMode = db.getAdminWatchlistMode();
-    const ownerUserId = db.getOwnerUserId();
-    const isOwnerInPlaylistMode = watchlistMode === 'playlist' && userId === ownerUserId;
-
-    // Unlinked Jellyfin identities have no plex.tv token to watchlist with.
-    if (!isOwnerInPlaylistMode && userToken) {
-      fetch(`https://discover.provider.plex.tv/library/search?query=${encodeURIComponent(title || '')}&limit=10&X-Plex-Token=${userToken}`, {
-        headers: { Accept: 'application/json' },
-        signal: AbortSignal.timeout(8000),
-      })
-        .then(r => r.ok ? r.json() : null)
-        .then(async data => {
-          const hits = data?.MediaContainer?.SearchResult || [];
-          const hit = hits.find(h => {
-            const guids = h.Metadata?.Guid || [];
-            const hasTmdb = guids.some(g => g.id === `tmdb://${tmdbId}`);
-            const titleMatch = h.Metadata?.title === title && String(h.Metadata?.year) === String(year);
-            return hasTmdb || titleMatch;
-          });
-          if (!hit?.Metadata?.ratingKey) return;
-          const plexGuid = String(hit.Metadata.ratingKey);
-          await plexService.addToPlexTvWatchlistByGuid(userToken, plexGuid);
-        })
-        .catch(() => {});
-    }
-
-    res.json({ success: true });
+    result = await requestPolicy.createRequest({
+      userId,
+      username: req.session.plexUser.username || userId,
+      tmdbId: tmdbId ? Number(tmdbId) : null,
+      tvdbId,
+      mediaType,
+      title,
+      service,
+      seasons,
+      downloader,
+      youtube,
+      privileged: requestPolicy.isPrivilegedSession(req.session),
+      access: req.libraryAccess,
+    });
   } catch (err) {
+    if (err instanceof requestPolicy.RequestError) {
+      if (err.status >= 500) console.error('request error:', err.message);
+      return res.status(err.status).json({ error: err.message, ...err.extra });
+    }
     console.error('request error:', err);
-    try {
-      for (const adminId of db.getPrivilegedUserIds()) {
-        const prefs = db.getUserNotificationPrefs(adminId);
-        if (prefs.notify_process_failed) {
-          db.createOrBundleNotification({
-            userId: adminId, type: 'request_process_failed',
-            title: `Request failed: "${title}"`,
-            body: err.message,
-            data: { tmdbId, mediaType, title },
-          });
-        }
-      }
-    } catch (e) { logger.warn('notification error:', e.message); }
-    res.status(500).json({ error: 'Request failed: ' + err.message });
+    requestNotifications.notifyProcessFailed({ title, tmdbId, mediaType, error: err });
+    return res.status(500).json({ error: 'Request failed: ' + err.message });
   }
+  if (result.status === 'pending') return res.json({ success: true, pending: true });
+
+  // Add the item to the user's native Plex.tv Watchlist so they can track it
+  // in the Plex app while waiting for the download.
+  const watchlistMode = db.getAdminWatchlistMode();
+  const ownerUserId = db.getOwnerUserId();
+  const isOwnerInPlaylistMode = watchlistMode === 'playlist' && userId === ownerUserId;
+
+  // Unlinked Jellyfin identities have no plex.tv token to watchlist with.
+  if (!isOwnerInPlaylistMode && userToken) {
+    fetch(`https://discover.provider.plex.tv/library/search?query=${encodeURIComponent(title || '')}&limit=10&X-Plex-Token=${userToken}`, {
+      headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(8000),
+    })
+      .then(r => r.ok ? r.json() : null)
+      .then(async data => {
+        const hits = data?.MediaContainer?.SearchResult || [];
+        const hit = hits.find(h => {
+          const guids = h.Metadata?.Guid || [];
+          const hasTmdb = guids.some(g => g.id === `tmdb://${tmdbId}`);
+          const titleMatch = h.Metadata?.title === title && String(h.Metadata?.year) === String(year);
+          return hasTmdb || titleMatch;
+        });
+        if (!hit?.Metadata?.ratingKey) return;
+        const plexGuid = String(hit.Metadata.ratingKey);
+        await plexService.addToPlexTvWatchlistByGuid(userToken, plexGuid);
+      })
+      .catch(() => {});
+  }
+
+  res.json({ success: true });
 });
 
 // ── Queue management endpoints (Plex admin users) ─────────────────────────────
@@ -2480,12 +2502,26 @@ function requirePlexAdmin(req, res, next) {
   res.status(403).json({ error: 'Admin access required' });
 }
 
+// Checked against the current database per request (see requireAuth), so a
+// revoked role stops working without waiting for the session to end.
 function requirePrivileged(req, res, next) {
   if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
-  if (req.session.isAdmin || req.session.isPlexAdminUser) return next();
-  const userId = String(req.session.plexUser.id);
-  if (db.getPrivilegedUserIds().includes(userId)) return next();
+  if (requireAuth.isPrivilegedRequest(req)) return next();
   res.status(403).json({ error: 'Privileged access required' });
+}
+
+// requestIsAvailable as the request's requester sees it: a title that only
+// sits in library sections they can't access (Plex sharing / Jellyfin policy)
+// is not available to them. Key sets are built once per distinct access.
+function requestAvailability() {
+  const sets = new Map(); // access fingerprint → [tmdbKeys, tvdbKeys]
+  return (row) => {
+    const access = libraryAccess.forUser(row.user_id);
+    const fp = libraryAccess.fingerprint(access);
+    if (!sets.has(fp)) sets.set(fp, [db.getLibraryTmdbKeys(null, access), db.getLibraryTvdbKeys(access)]);
+    const [tmdbKeys, tvdbKeys] = sets.get(fp);
+    return db.requestIsAvailable(row, tmdbKeys, tvdbKeys);
+  };
 }
 
 // GET /api/queue
@@ -2508,11 +2544,10 @@ router.get('/queue', async (req, res) => {
   const serviceFilter = ALLOWED_SERVICES.includes(serviceParam) ? serviceParam : null;
 
   // 'requested' and 'available' are computed displayStatuses derived from approved rows:
-  //   requested = approved + NOT in library
-  //   available = approved + IN library
+  //   requested = approved + NOT available
+  //   available = approved + in library (season-gated rows: their seasons are, see requestIsAvailable)
   // Both require fetching all approved and filtering in memory.
-  const libraryTmdbKeys = db.getLibraryTmdbKeys();
-  const libraryTvdbKeys = db.getLibraryTvdbKeys();
+  const isAvailableToRequester = requestAvailability();
   const isComputedFilter = status === 'requested' || status === 'available';
   const dbStatus = isComputedFilter ? 'approved' : status;
 
@@ -2522,7 +2557,7 @@ router.get('/queue', async (req, res) => {
       ? db.getAllRequests(10000, 0, 'approved', sortCol, sortDir, search || null, userIdFilter, dateFrom, dateTo, serviceFilter)
       : db.getUserRequests(userId, 10000, 0, 'approved', sortCol, sortDir, search || null, dateFrom, dateTo, serviceFilter);
     const filtered = all.rows.filter(r => {
-      const owned = libraryTmdbKeys.has(`${r.tmdb_id}:${r.media_type}`);
+      const owned = isAvailableToRequester(r);
       return status === 'available' ? owned : !owned;
     });
     total = filtered.length;
@@ -2551,7 +2586,7 @@ router.get('/queue', async (req, res) => {
 
   const enriched = rows.map(r => {
     const cached = db.getTmdbCache(r.tmdb_id, r.media_type);
-    const isAvailable = db.requestIsInLibrary(r, libraryTmdbKeys, libraryTvdbKeys);
+    const isAvailable = isAvailableToRequester(r);
     let displayStatus = r.status;
     if (r.status === 'approved') displayStatus = isAvailable ? 'available' : 'requested';
     // Backfill seasons_json for TV requests that predate the seasons feature.
@@ -2606,163 +2641,217 @@ router.get('/queue/:id', (req, res) => {
   res.json(request);
 });
 
-// PUT /api/queue/:id — edit a pending request, or an approved request not yet in library
+// PUT /api/queue/:id — edit a pending request, or an approved request not yet available
 router.put('/queue/:id', async (req, res) => {
   if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
-  const isAdmin = !!(req.session.isAdmin || req.session.isPlexAdminUser)
-    || db.getPrivilegedUserIds().includes(String(req.session.plexUser.id));
+  const isAdmin = requestPolicy.isPrivilegedSession(req.session);
   const request = db.getRequestById(req.params.id);
   if (!request) return res.status(404).json({ error: 'Request not found' });
   if (!isAdmin && request.user_id !== req.session.plexUser.id) return res.status(403).json({ error: 'Forbidden' });
+  // A follower only waits for someone else's request — editing it would turn
+  // it into an acquisition of its own
+  if (request.is_follow) return res.status(400).json({ error: 'Notify-only subscriptions can’t be edited' });
   if (request.status !== 'pending' && request.status !== 'approved') {
     return res.status(400).json({ error: 'Request is not editable' });
   }
   if (request.status === 'approved') {
-    if (db.requestIsInLibrary(request, db.getLibraryTmdbKeys(), db.getLibraryTvdbKeys())) {
+    if (requestAvailability()(request)) {
       return res.status(400).json({ error: 'Content is already available in the library' });
     }
   }
-
-  const { service, seasons } = req.body;
-  // YouTube-downloader requests only work through Sonarr + Tuberr — reassigning
-  // them to Overseerr/DUMB/etc. would silently break the download path
-  if (request.downloader === 'youtube' && service && service !== 'sonarr') {
-    return res.status(400).json({ error: 'YouTube requests can only be handled by Sonarr' });
-  }
-  const seasonsJson = Array.isArray(seasons) && seasons.length > 0 ? JSON.stringify(seasons.map(Number)) : null;
-  const seasonsCount = Array.isArray(seasons) && seasons.length > 0 ? seasons.length : 1;
-  db.updateRequest(request.id, {
-    service: request.downloader === 'youtube' ? 'sonarr' : (service || request.service),
-    seasonsJson,
-    seasonsCount,
-  });
-
-  // For approved requests, re-submit to the service with updated configuration
-  if (request.status === 'approved') {
-    const dumbPullActive = db.getSetting('dumb_request_mode', 'pull') === 'pull' && ['1', 'true'].includes(db.getSetting('riven_enabled', '0'));
-    // YouTube requests always route to Sonarr — never the DUMB/Overseerr fallbacks
-    const effectiveService = request.downloader === 'youtube' ? 'sonarr'
-      : (service && service !== 'none')
-      ? service
-      : (dumbPullActive ? 'riven'
-        : (request.media_type === 'movie'
-            ? (db.getConnectionSettings().radarrEnabled ? 'radarr' : db.getConnectionSettings().overseerrEnabled ? 'overseerr' : 'riven')
-            : (db.getConnectionSettings().sonarrEnabled ? 'sonarr' : db.getConnectionSettings().overseerrEnabled ? 'overseerr' : 'riven')));
-    const storedSeasons = request.seasons_json ? JSON.parse(request.seasons_json) : null;
-    const effectiveSeasons = (Array.isArray(seasons) && seasons.length > 0) ? seasons : storedSeasons;
+  // A requester's own edit of a title the library now holds only where they
+  // can't see it is refused like a new request. Queue management by admins
+  // and request managers stays unfiltered, like /queue/:id/approve.
+  const ownRequest = String(request.user_id) === String(req.session.plexUser.id);
+  if (ownRequest) {
     try {
-      await submitRequestToService({
-        tmdbId: request.tmdb_id,
-        mediaType: request.media_type,
-        title: request.title,
-        service: effectiveService,
-        seasons: effectiveSeasons,
-        tvdbId: request.tvdb_id || null,
-        downloader: request.downloader || undefined,
-        youtube: request.youtube_json ? JSON.parse(request.youtube_json) : null,
+      requestPolicy.checkLibraryAccess({
+        userId: request.user_id, access: req.libraryAccess,
+        tmdbId: request.tmdb_id, tvdbId: request.tvdb_id, mediaType: request.media_type,
       });
-      logger.info(`Request re-submitted after edit: id=${request.id} tmdbId=${request.tmdb_id}`);
-    } catch (e) {
-      logger.warn(`Re-submission after edit failed (edit still saved): id=${request.id} error=${e.message}`);
+    } catch (err) {
+      return res.status(err.status || 409).json({ error: err.message, ...err.extra });
     }
   }
 
-  res.json({ success: true, request: db.getRequestById(request.id) });
+  const { service } = req.body;
+  // seasons: an explicit list, 'all' for the whole show, or omitted/empty to
+  // keep the stored selection. The edit dialog has no season list to show for
+  // TVDB-only (YouTube) shows or when the TMDB lookup fails, and a plain Save
+  // there must not turn the request into the whole series.
+  const storedSeasons = requestPolicy.parseSeasonList(request.seasons_json);
+  const rawSeasons = req.body.seasons;
+  const keepSeasons = rawSeasons == null || (Array.isArray(rawSeasons) && rawSeasons.length === 0);
+  const seasons = rawSeasons === 'all' ? null : (keepSeasons ? storedSeasons : rawSeasons);
+  // YouTube-downloader requests only work through Sonarr + Tuberr — reassigning
+  // them to Overseerr/DUMB/etc. would silently break the download path
+  const isYoutube = request.downloader === 'youtube';
+  if (isYoutube && service && service !== 'sonarr') {
+    return res.status(400).json({ error: 'YouTube requests can only be handled by Sonarr' });
+  }
+  if (service && !['overseerr', 'radarr', 'sonarr', 'riven', 'none'].includes(service)) {
+    return res.status(400).json({ error: 'Invalid service' });
+  }
+  const tvdbOnly = !request.tmdb_id && !!request.tvdb_id;
+  try {
+    if (service) {
+      requestPolicy.checkServiceAccess({
+        service, mediaType: request.media_type, tvdbOnly, downloader: request.downloader,
+        privileged: isAdmin, currentService: request.service,
+      });
+    }
+  } catch (err) {
+    return res.status(err.status || 400).json({ error: err.message });
+  }
+
+  let outcome;
+  try {
+    outcome = await requestPolicy.withUserLock(request.user_id, async () => {
+      const ids = { tmdbId: request.tmdb_id, tvdbId: request.tvdb_id };
+      const plan = requestPolicy.pinLibrarySeasons(
+        await requestPolicy.resolveSeasonPlan({ ...ids, mediaType: request.media_type, seasons }), ids);
+      // Re-pricing a TV request (e.g. one season → the whole show) is still
+      // bound by the owner's quota; admins editing on their behalf are not.
+      if (request.media_type === 'tv' && !isAdmin) {
+        requestPolicy.checkQuota(request.user_id, 'tv', plan.cost, { replacing: request });
+      }
+      const fields = {
+        seasonsJson: plan.seasons ? JSON.stringify(plan.seasons) : null,
+        seasonsCount: request.media_type === 'tv' ? (plan.cost || 1) : 1,
+        seasonGated: request.media_type === 'tv' && requestPolicy.isSeasonGated(plan, { tmdbId: request.tmdb_id, tvdbId: request.tvdb_id }),
+      };
+      if (request.status === 'pending') {
+        db.updateRequest(request.id, { service: isYoutube ? 'sonarr' : (service || request.service), ...fields });
+        return { ok: true };
+      }
+
+      // An approved request was approved for the seasons it named; adding
+      // seasons is a new acquisition and needs the approval a fresh request
+      // would. Refused rather than sent back to pending: the approved seasons
+      // were already sent, and a denial would wrongly cover them too.
+      if (request.media_type === 'tv' && !isAdmin && !db.getEffectiveAutoApprove(request.user_id, 'tv')
+        && storedSeasons && (!plan.seasons || plan.seasons.some(n => !storedSeasons.includes(n)))) {
+        throw new requestPolicy.RequestError(403, 'Adding seasons to an approved request needs approval. Request the extra seasons as a new request.');
+      }
+
+      // Approved: re-submit with the new configuration, then store the routing
+      // that was actually used. YouTube requests always route to Sonarr;
+      // "Default" means the configured default app, as in the request dialog.
+      const dumbPullActive = db.getSetting('dumb_request_mode', 'pull') === 'pull' && ['1', 'true'].includes(db.getSetting('riven_enabled', '0'));
+      let effectiveService = isYoutube ? 'sonarr'
+        : (service && service !== 'none') ? service
+        : dumbPullActive ? 'riven'
+        : requestPolicy.resolveDefaultService(request.media_type, { tvdbOnly });
+      // Nothing configured: keep the routing the request already has
+      if (effectiveService === 'none') effectiveService = request.service || 'none';
+      // The service actually used must pass the same gate as an explicit pick
+      requestPolicy.checkServiceAccess({
+        service: effectiveService, mediaType: request.media_type, tvdbOnly, downloader: request.downloader,
+        privileged: isAdmin, currentService: request.service,
+      });
+      try {
+        if (effectiveService !== 'none') await submitRequestToService({
+          tmdbId: request.tmdb_id,
+          mediaType: request.media_type,
+          title: request.title,
+          service: effectiveService,
+          seasons: plan.seasons,
+          tvdbId: request.tvdb_id || null,
+          downloader: request.downloader || undefined,
+          youtube: request.youtube_json ? JSON.parse(request.youtube_json) : null,
+        });
+      } catch (e) {
+        // Keep what the user asked for, flagged as not sent: saving again retries it
+        db.updateRequest(request.id, { service: effectiveService, ...fields });
+        db.setRequestSubmitError(request.id, e.message);
+        logger.warn(`Re-submission after edit failed: id=${request.id} service=${effectiveService} error=${e.message}`);
+        requestNotifications.notifyProcessFailed({ title: request.title, tmdbId: request.tmdb_id, mediaType: request.media_type, error: e, posterUrl: request.poster_url });
+        return { ok: false, service: effectiveService, error: e };
+      }
+      db.updateRequest(request.id, { service: effectiveService, ...fields });
+      db.setRequestSubmitError(request.id, null);
+      logger.info(`Request re-submitted after edit: id=${request.id} tmdbId=${request.tmdb_id} service=${effectiveService}`);
+      return { ok: true };
+    });
+  } catch (err) {
+    if (err instanceof requestPolicy.RequestError) return res.status(err.status).json({ error: err.message });
+    console.error('queue edit error:', err);
+    return res.status(500).json({ error: 'Failed to update request' });
+  }
+
+  const updated = db.getRequestById(request.id);
+  if (!outcome.ok) {
+    return res.status(502).json({
+      error: `Saved, but sending it to ${outcome.service} failed: ${outcome.error.message}. Save again to retry.`,
+      request: updated,
+    });
+  }
+  res.json({ success: true, request: updated });
 });
 
 // POST /api/queue/:id/approve
 router.post('/queue/:id/approve', requirePrivileged, async (req, res) => {
   try {
-    const request = db.getRequestById(req.params.id);
-    if (!request) return res.status(404).json({ error: 'Request not found' });
-    if (request.status !== 'pending') return res.status(400).json({ error: 'Request is not pending' });
+    const found = db.getRequestById(req.params.id);
+    if (!found) return res.status(404).json({ error: 'Request not found' });
+    // Under the owner's request lock, re-read: a double click or a second
+    // approver must not submit it to the download app twice
+    const request = await requestPolicy.withUserLock(found.user_id, async () => {
+      const row = db.getRequestById(found.id);
+      if (!row || row.status !== 'pending') return null;
 
-    const storedSeasons = request.seasons_json ? JSON.parse(request.seasons_json) : null;
-    // If service is 'none' (e.g. queued via shim), pick the best available service now.
-    // When DUMB pull mode is active, prefer riven so submitRequestToService early-returns cleanly.
-    // YouTube requests always route to Sonarr — no other service can handle them.
-    const dumbPullActive = db.getSetting('dumb_request_mode', 'pull') === 'pull' && ['1', 'true'].includes(db.getSetting('riven_enabled', '0'));
-    const service = request.downloader === 'youtube' ? 'sonarr'
-      : (!request.service || request.service === 'none')
-      ? (dumbPullActive ? 'riven'
-        : (request.media_type === 'movie'
-            ? (db.getConnectionSettings().radarrEnabled ? 'radarr' : db.getConnectionSettings().overseerrEnabled ? 'overseerr' : 'riven')
-            : (db.getConnectionSettings().sonarrEnabled ? 'sonarr' : db.getConnectionSettings().overseerrEnabled ? 'overseerr' : 'riven')))
-      : request.service;
-    await submitRequestToService({
-      tmdbId: request.tmdb_id,
-      mediaType: request.media_type,
-      title: request.title,
-      service,
-      seasons: storedSeasons,
-      tvdbId: request.tvdb_id || null,
-      downloader: request.downloader || undefined,
-      youtube: request.youtube_json ? JSON.parse(request.youtube_json) : null,
+      const storedSeasons = row.seasons_json ? JSON.parse(row.seasons_json) : null;
+      // If service is 'none' (e.g. queued via shim), pick the best available service now.
+      // When DUMB pull mode is active, prefer riven so submitRequestToService early-returns cleanly.
+      // YouTube requests always route to Sonarr — no other service can handle them.
+      const dumbPullActive = db.getSetting('dumb_request_mode', 'pull') === 'pull' && ['1', 'true'].includes(db.getSetting('riven_enabled', '0'));
+      const service = row.downloader === 'youtube' ? 'sonarr'
+        : (!row.service || row.service === 'none')
+        ? (dumbPullActive ? 'riven'
+          : (row.media_type === 'movie'
+              ? (db.getConnectionSettings().radarrEnabled ? 'radarr' : db.getConnectionSettings().overseerrEnabled ? 'overseerr' : 'riven')
+              : (db.getConnectionSettings().sonarrEnabled ? 'sonarr' : db.getConnectionSettings().overseerrEnabled ? 'overseerr' : 'riven')))
+        : row.service;
+      await submitRequestToService({
+        tmdbId: row.tmdb_id,
+        mediaType: row.media_type,
+        title: row.title,
+        service,
+        seasons: storedSeasons,
+        tvdbId: row.tvdb_id || null,
+        downloader: row.downloader || undefined,
+        youtube: row.youtube_json ? JSON.parse(row.youtube_json) : null,
+      });
+
+      db.updateRequestStatus(row.id, 'approved', null);
+      db.setRequestSubmitError(row.id, null);
+      return row;
     });
-
-    db.updateRequestStatus(request.id, 'approved', null);
+    if (!request) return res.status(400).json({ error: 'Request is not pending' });
     logger.info(`Request approved by admin: id=${request.id} tmdbId=${request.tmdb_id} title="${request.title}"`);
-    // Notify the requester
-    try {
-      const prefs = db.getUserNotificationPrefs(request.user_id);
-      if (prefs.notify_approved) {
-        const notifId = db.createOrBundleNotification({
-          userId: request.user_id,
-          type: 'request_approved',
-          title: `"${request.title}" approved`,
-          body: 'Your request has been approved and submitted.',
-          data: { requestId: request.id, tmdbId: request.tmdb_id, mediaType: request.media_type, title: request.title },
-        });
-        enqueueForUser({ notificationId: notifId, userId: request.user_id, payload: { type: 'request_approved', title: `"${request.title}" approved`, body: 'Your request has been approved and submitted.', posterUrl: request.poster_url } });
-      }
-    } catch (e) { logger.warn('notification error:', e.message); }
+    requestNotifications.notifyApproved(request);
     res.json({ success: true, request: db.getRequestById(request.id) });
   } catch (err) {
     console.error('queue approve error:', err);
-    try {
-      const request = db.getRequestById(req.params.id);
-      const title = request?.title || 'Unknown';
-      const tmdbId = request?.tmdb_id;
-      const mediaType = request?.media_type;
-      for (const adminId of db.getPrivilegedUserIds()) {
-        const prefs = db.getUserNotificationPrefs(adminId);
-        if (prefs.notify_process_failed) {
-          db.createOrBundleNotification({
-            userId: adminId, type: 'request_process_failed',
-            title: `Request failed: "${title}"`,
-            body: err.message,
-            data: { tmdbId, mediaType, title },
-          });
-        }
-      }
-    } catch (e) { logger.warn('notification error:', e.message); }
+    const request = db.getRequestById(req.params.id);
+    requestNotifications.notifyProcessFailed({
+      title: request?.title || 'Unknown', tmdbId: request?.tmdb_id, mediaType: request?.media_type,
+      error: err, posterUrl: request?.poster_url,
+    });
     res.status(500).json({ error: err.message });
   }
 });
 
 // POST /api/queue/:id/deny
-router.post('/queue/:id/deny', requirePrivileged, (req, res) => {
+router.post('/queue/:id/deny', requirePrivileged, async (req, res) => {
   const { note } = req.body;
-  const request = db.getRequestById(req.params.id);
+  const found = db.getRequestById(req.params.id);
+  if (!found) return res.status(404).json({ error: 'Request not found' });
+  const { request, conflict } = await requestPolicy.denyRequest(found, note);
   if (!request) return res.status(404).json({ error: 'Request not found' });
-  db.updateRequestStatus(request.id, 'denied', note || null);
+  if (conflict) return res.status(409).json({ error: `The request was ${request.status} meanwhile — reload the queue` });
   logger.info(`Request denied by admin: id=${request.id} tmdbId=${request.tmdb_id} title="${request.title}"`);
-  // Notify the requester
-  try {
-    const prefs = db.getUserNotificationPrefs(request.user_id);
-    if (prefs.notify_denied) {
-      const denyBody = note ? `Reason: ${note}` : 'Your request has been declined.';
-      const notifId = db.createOrBundleNotification({
-        userId: request.user_id,
-        type: 'request_denied',
-        title: `"${request.title}" declined`,
-        body: denyBody,
-        data: { requestId: request.id, tmdbId: request.tmdb_id, mediaType: request.media_type, title: request.title },
-      });
-      enqueueForUser({ notificationId: notifId, userId: request.user_id, payload: { type: 'request_denied', title: `"${request.title}" declined`, body: denyBody, posterUrl: request.poster_url } });
-    }
-  } catch (e) { logger.warn('notification error:', e.message); }
-  res.json({ success: true, request: db.getRequestById(request.id) });
+  res.json({ success: true, request });
 });
 
 // DELETE /api/queue/:id
@@ -2771,7 +2860,9 @@ router.post('/queue/bulk-delete', requirePrivileged, (req, res) => {
   const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(Number).filter(Number.isFinite) : [];
   if (ids.length === 0) return res.status(400).json({ error: 'No ids provided' });
   if (ids.length > 500) return res.status(400).json({ error: 'Too many ids (max 500)' });
+  const rows = ids.map(id => db.getRequestById(id)).filter(Boolean);
   const deletedCount = db.deleteRequestsByIds(ids);
+  for (const row of rows) db.pruneOrphanFollowers(row);
   res.json({ success: true, deletedCount });
 });
 
@@ -2783,9 +2874,11 @@ router.delete('/queue/:id', (req, res) => {
   if (!request) return res.status(404).json({ error: 'Request not found' });
   if (!isAdmin) {
     if (request.user_id !== req.session.plexUser.id) return res.status(403).json({ error: 'Forbidden' });
-    if (request.status !== 'pending') return res.status(403).json({ error: 'Can only delete pending requests' });
+    // Users may withdraw pending requests and unfollow (followers acquire nothing)
+    if (request.status !== 'pending' && !request.is_follow) return res.status(403).json({ error: 'Can only delete pending requests' });
   }
   db.deleteRequest(request.id);
+  db.pruneOrphanFollowers(request);
   res.json({ success: true });
 });
 
@@ -2887,6 +2980,7 @@ router.post('/issues', async (req, res) => {
   const userId = String(req.session.plexUser.id);
   const { ratingKey, title, mediaType, posterPath, scope, scopeSeason, scopeEpisode, description, missing } = req.body;
   if (!ratingKey || !title || !mediaType) return res.status(400).json({ error: 'Missing required fields' });
+  if (refuseRestrictedKey(req, res, ratingKey)) return;
 
   // A "missing content" report for a specific season/episode of a show can auto-queue
   // a search. If this user's requests need admin approval, hold it for an admin instead.
@@ -3294,100 +3388,102 @@ router.get('/user/settings', (req, res) => {
   });
 });
 
-// POST /api/user/settings — save user's own content preferences + notification prefs
+// POST /api/user/settings — save user's own content preferences + notification prefs.
+// Partial update: only fields present in the body change; everything else
+// (including the admin-managed auto-request flags) keeps its stored value. The
+// whole payload is validated before anything is written.
+const { isDiscordWebhookUrl } = require('../services/notificationAgents/destinations');
+const USER_PREF_TEXT_FIELDS = ['region', 'language', 'ui_language', 'landing_page'];
+// Opt-out toggles (on unless explicitly false); the second list only for privileged users.
+const NOTIF_TOGGLE_FIELDS = ['notify_approved', 'notify_denied', 'notify_available', 'notify_issue_update',
+  'notify_issue_comment', 'notify_monitor', 'notify_movie_night_added', 'notify_movie_night_comment'];
+const NOTIF_PRIVILEGED_TOGGLE_FIELDS = ['notify_pending', 'notify_auto_approved', 'notify_process_failed', 'notify_issue_new'];
+// Channel switches (off unless explicitly true) and destinations.
+const NOTIF_FLAG_FIELDS = ['discord_enabled', 'pushover_enabled', 'telegram_send_silently', 'telegram_enabled',
+  'pushbullet_enabled', 'email_enabled', 'webpush_enabled'];
+const NOTIF_TEXT_FIELDS = ['discord_webhook', 'discord_user_id', 'pushover_user_key', 'pushover_application_token',
+  'pushover_sound', 'telegram_chat_id', 'telegram_message_thread_id', 'pushbullet_access_token', 'email_address', 'pgp_key'];
+
 router.post('/user/settings', (req, res) => {
   const userId = req.session.plexUser.id;
-  const { region, language, ui_language, landing_page, show_mature, review_privacy,
-          notify_approved, notify_denied, notify_available,
-          discord_webhook, discord_enabled, discord_user_id, pushover_user_key, pushover_enabled,
-          pushover_application_token, pushover_sound,
-          telegram_chat_id, telegram_message_thread_id, telegram_send_silently, telegram_enabled,
-          pushbullet_access_token, pushbullet_enabled,
-          email_enabled, email_address, pgp_key,
-          webpush_enabled,
-          notify_pending, notify_auto_approved, notify_process_failed,
-          notify_issue_new, notify_issue_update, notify_issue_comment, notify_monitor,
-          notify_movie_night_added, notify_movie_night_comment } = req.body;
-  // Read current prefs so partial updates (e.g. only show_mature) don't reset other fields
+  const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {};
+  const has = (key) => body[key] !== undefined;
+
+  // ── Validate everything first ──
+  for (const field of [...USER_PREF_TEXT_FIELDS, ...NOTIF_TEXT_FIELDS]) {
+    const v = body[field];
+    if (v === undefined || v === null) continue;
+    const max = field === 'pgp_key' ? 20000 : 2048;
+    if ((typeof v !== 'string' && typeof v !== 'number') || String(v).length > max) {
+      return res.status(400).json({ error: `Invalid ${field}` });
+    }
+  }
+  if (has('review_privacy') && body.review_privacy !== null && !['public', 'private'].includes(body.review_privacy)) {
+    return res.status(400).json({ error: 'Invalid review_privacy' });
+  }
+  // Shape check only — a bad address would just bounce, but this keeps obvious
+  // junk (and anything header-injection shaped) out of the mailer.
+  let newEmailAddress;
+  if (typeof body.email_address === 'string' && body.email_address.trim()) {
+    const addr = body.email_address.trim();
+    if (addr.length > 254 || !/^[^\s@<>,;:"]+@[^\s@<>,;:"]+\.[^\s@<>,;:"]{2,}$/.test(addr)) {
+      return res.status(400).json({ error: 'Invalid email address' });
+    }
+    newEmailAddress = addr;
+  } else if (has('email_address')) {
+    newEmailAddress = null;
+  }
+  // A personal webhook must be Discord's own HTTPS webhook endpoint, so a user
+  // can't point server-originated requests at internal services.
+  let newDiscordWebhook;
+  if (typeof body.discord_webhook === 'string' && body.discord_webhook.trim()) {
+    if (!isDiscordWebhookUrl(body.discord_webhook)) {
+      return res.status(400).json({ error: 'Discord webhook must be an https://discord.com/api/webhooks/… URL' });
+    }
+    newDiscordWebhook = body.discord_webhook.trim();
+  } else if (has('discord_webhook')) {
+    newDiscordWebhook = null;
+  }
+
+  // ── Build the partial update ──
   const oldPrefs = db.getUserPreferences(userId);
-  const oldNotif = db.getUserNotificationPrefs(userId);
   // Admin-facing event toggles only exist for privileged users (the ones those
   // events are delivered to); everyone else keeps the stored default.
   const isPrivileged = !!(req.session.isAdmin || req.session.isPlexAdminUser)
     || db.getPrivilegedUserIds().includes(String(userId));
 
-  const newRegion      = region      !== undefined ? (region      || null) : oldPrefs.region;
-  const newLanguage    = language    !== undefined ? (language    || null) : oldPrefs.language;
-  const newUiLanguage  = ui_language !== undefined ? (ui_language || null) : oldPrefs.ui_language;
-  const newLandingPage = landing_page !== undefined ? (landing_page || null) : oldPrefs.landing_page;
-  const newShowMature  = show_mature !== undefined
-    ? (show_mature === true || show_mature === 'true' || show_mature === 1)
-    : oldPrefs.show_mature;
-  const newReviewPrivacy = review_privacy !== undefined ? review_privacy : oldPrefs.review_privacy;
-  db.setUserPreferences(userId, {
-    region: newRegion, language: newLanguage, ui_language: newUiLanguage, landing_page: newLandingPage, show_mature: newShowMature, review_privacy: newReviewPrivacy,
-  });
+  const preferences = {};
+  for (const field of USER_PREF_TEXT_FIELDS) if (has(field)) preferences[field] = body[field] ? String(body[field]) : null;
+  if (has('show_mature')) preferences.show_mature = body.show_mature === true || body.show_mature === 'true' || body.show_mature === 1;
+  if (has('review_privacy')) preferences.review_privacy = body.review_privacy === 'private' ? 'private' : 'public';
+
+  const notificationPrefs = {};
+  for (const field of [...NOTIF_TOGGLE_FIELDS, ...(isPrivileged ? NOTIF_PRIVILEGED_TOGGLE_FIELDS : [])]) {
+    if (has(field)) notificationPrefs[field] = body[field] !== false && body[field] !== 'false';
+  }
+  for (const field of NOTIF_FLAG_FIELDS) {
+    if (has(field)) notificationPrefs[field] = body[field] === true || body[field] === 'true';
+  }
+  for (const field of NOTIF_TEXT_FIELDS) {
+    if (has(field)) notificationPrefs[field] = body[field] ? String(body[field]) : null;
+  }
+  if (newEmailAddress !== undefined) notificationPrefs.email_address = newEmailAddress;
+  if (newDiscordWebhook !== undefined) notificationPrefs.discord_webhook = newDiscordWebhook;
+
+  db.updateOwnUserSettings(userId, { preferences, notificationPrefs });
+
   // Invalidate discover pool cache if any pref that affects pool selection changed
-  const poolChanged = oldPrefs.show_mature !== newShowMature
-    || oldPrefs.region   !== newRegion
-    || oldPrefs.language !== newLanguage;
+  const newPrefs = db.getUserPreferences(userId);
+  const poolChanged = oldPrefs.show_mature !== newPrefs.show_mature
+    || oldPrefs.region   !== newPrefs.region
+    || oldPrefs.language !== newPrefs.language;
   if (poolChanged) {
     try { require('../services/discoverRecommender').invalidateUserCache(userId); } catch {}
   }
   // Toggling review privacy changes which reviews belong in the public feed.
-  if (oldPrefs.review_privacy !== newReviewPrivacy) {
+  if (oldPrefs.review_privacy !== newPrefs.review_privacy) {
     reviewFeed.invalidateFeedCache();
   }
-  // Helper: preserve existing value when field is absent from request body
-  const _b = (val, fallback) => val === undefined ? fallback : (val !== false && val !== 'false');
-  const _s = (val, fallback) => val === undefined ? fallback : (val || null);
-  const _e = (val, fallback) => val === undefined ? fallback : (val === true || val === 'true');
-  // Shape check only — a bad address would just bounce, but this keeps obvious
-  // junk (and anything header-injection shaped) out of the mailer.
-  let newEmailAddress = email_address;
-  if (typeof email_address === 'string' && email_address.trim()) {
-    const addr = email_address.trim();
-    if (addr.length > 254 || !/^[^\s@<>,;:"]+@[^\s@<>,;:"]+\.[^\s@<>,;:"]{2,}$/.test(addr)) {
-      return res.status(400).json({ error: 'Invalid email address' });
-    }
-    newEmailAddress = addr;
-  } else if (email_address !== undefined) {
-    newEmailAddress = null;
-  }
-  db.setUserNotificationPrefs(userId, {
-    notify_approved:       _b(notify_approved,      oldNotif.notify_approved),
-    notify_denied:         _b(notify_denied,         oldNotif.notify_denied),
-    notify_available:      _b(notify_available,      oldNotif.notify_available),
-    discord_webhook:       _s(discord_webhook,       oldNotif.discord_webhook),
-    discord_enabled:       _e(discord_enabled,       oldNotif.discord_enabled),
-    discord_user_id:       _s(discord_user_id,       oldNotif.discord_user_id),
-    pushover_user_key:     _s(pushover_user_key,     oldNotif.pushover_user_key),
-    pushover_enabled:      _e(pushover_enabled,      oldNotif.pushover_enabled),
-    // These are all written by setUserNotificationPrefs. Any that the route
-    // failed to pass through were being reset on every save, so configuring
-    // one channel silently wiped the others.
-    pushover_application_token: _s(pushover_application_token, oldNotif.pushover_application_token),
-    pushover_sound:        _s(pushover_sound,        oldNotif.pushover_sound),
-    telegram_chat_id:      _s(telegram_chat_id,      oldNotif.telegram_chat_id),
-    telegram_message_thread_id: _s(telegram_message_thread_id, oldNotif.telegram_message_thread_id),
-    telegram_send_silently: _e(telegram_send_silently, oldNotif.telegram_send_silently),
-    telegram_enabled:      _e(telegram_enabled,      oldNotif.telegram_enabled),
-    pushbullet_access_token: _s(pushbullet_access_token, oldNotif.pushbullet_access_token),
-    pushbullet_enabled:    _e(pushbullet_enabled,    oldNotif.pushbullet_enabled),
-    email_enabled:         _e(email_enabled,         oldNotif.email_enabled),
-    email_address:         _s(newEmailAddress,       oldNotif.email_address),
-    pgp_key:               _s(pgp_key,               oldNotif.pgp_key),
-    webpush_enabled:       _e(webpush_enabled,       oldNotif.webpush_enabled),
-    notify_pending:        isPrivileged ? _b(notify_pending,        oldNotif.notify_pending)        : oldNotif.notify_pending,
-    notify_auto_approved:  isPrivileged ? _b(notify_auto_approved,  oldNotif.notify_auto_approved)  : oldNotif.notify_auto_approved,
-    notify_process_failed: isPrivileged ? _b(notify_process_failed, oldNotif.notify_process_failed) : oldNotif.notify_process_failed,
-    notify_issue_new:      isPrivileged ? _b(notify_issue_new,      oldNotif.notify_issue_new)      : oldNotif.notify_issue_new,
-    notify_issue_update:   _b(notify_issue_update,   oldNotif.notify_issue_update),
-    notify_issue_comment:  _b(notify_issue_comment,  oldNotif.notify_issue_comment),
-    notify_monitor:        _b(notify_monitor,        oldNotif.notify_monitor),
-    notify_movie_night_added:   _b(notify_movie_night_added,   oldNotif.notify_movie_night_added),
-    notify_movie_night_comment: _b(notify_movie_night_comment, oldNotif.notify_movie_night_comment),
-  });
   res.json({ ok: true });
 });
 
@@ -3491,17 +3587,21 @@ router.get('/notifications', (req, res) => {
   res.json({ notifications, recentRead, unreadCount });
 });
 
+// Body: { ids: [..] } marks those; { all: true } marks everything. An empty or
+// missing ids list marks nothing. Returns the fresh unread count so the bell
+// can reconcile.
 router.post('/notifications/read', (req, res) => {
   const userId = req.session.plexUser.id;
-  const { ids, all } = req.body;
-  db.markNotificationsRead(userId, all ? null : (ids || []));
-  res.json({ ok: true });
+  const { ids, all } = req.body || {};
+  if (all === true) db.markAllNotificationsRead(userId);
+  else db.markNotificationsRead(userId, Array.isArray(ids) ? ids : []);
+  res.json({ ok: true, unreadCount: db.getUnreadNotificationCount(userId) });
 });
 
 router.post('/notifications/read-all', (req, res) => {
   const userId = req.session.plexUser.id;
-  db.markNotificationsRead(userId, null);
-  res.json({ ok: true });
+  db.markAllNotificationsRead(userId);
+  res.json({ ok: true, unreadCount: db.getUnreadNotificationCount(userId) });
 });
 
 router.delete('/notifications/:id', (req, res) => {
@@ -3550,22 +3650,14 @@ router.get('/user/webpush/vapid-key', (req, res) => {
 });
 
 // POST /api/user/webpush/subscribe — register this browser for the signed-in user
+// The endpoint must be an https push service, never loopback/private/localhost
+// (webpushAgent.registerSubscription, shared with the legacy admin route).
+// Subscribing is the opt-in, so the user's webpush channel flag is switched on.
 router.post('/user/webpush/subscribe', (req, res) => {
-  if (!webpushEnabled()) return res.status(400).json({ error: 'Browser notifications are not enabled by the admin' });
-  const { subscription } = req.body || {};
-  if (!subscription || typeof subscription.endpoint !== 'string' || !/^https:\/\//.test(subscription.endpoint)
-      || !subscription.keys?.auth || !subscription.keys?.p256dh) {
-    return res.status(400).json({ error: 'Invalid push subscription' });
-  }
   const webpushAgent = require('../services/webpushAgent');
-  const userId = req.session.plexUser.id;
-  const ok = webpushAgent.saveSubscription(userId, subscription);
-  if (ok) {
-    // Subscribing is the opt-in; keep the channel flag in step so the
-    // sidebar dot and the agent's per-user check agree.
-    db.setUserNotificationPrefs(userId, { ...db.getUserNotificationPrefs(userId), webpush_enabled: true });
-  }
-  res.json({ success: ok });
+  const result = webpushAgent.registerSubscription(req.session.plexUser.id, (req.body || {}).subscription);
+  if (!result.ok) return res.status(result.status || 400).json({ error: result.error });
+  res.json({ success: true });
 });
 
 // POST /api/user/webpush/unsubscribe — forget this browser's subscription
@@ -3789,13 +3881,9 @@ router.get('/monitors/criteria/suggest', requireAuth, async (req, res) => {
       return res.json({ values: results.slice(0, maxLimit) });
     }
 
+    // Library-derived suggestions come from the libraries this user may see
     if (type === 'country') {
-      const [movies, tv] = await Promise.all([
-        plexService.getLibraryItems(plexService.MOVIES_SECTION),
-        plexService.getLibraryItems(plexService.TV_SECTION),
-      ]);
-      const pool = [...movies, ...tv];
-      if (jellyfinService.isEnabled()) pool.push(...db.getLibraryItemsBySource('jellyfin'));
+      const pool = await libraryAccess.libraryPool(req.libraryAccess);
       const set = new Set();
       for (const item of pool) {
         for (const c of (item.countries || [])) { if (c) set.add(c); }
@@ -3813,12 +3901,7 @@ router.get('/monitors/criteria/suggest', requireAuth, async (req, res) => {
     };
     const facetKey = FACET_MAP[type];
     if (facetKey) {
-      const [movies, tv] = await Promise.all([
-        plexService.getLibraryItems(plexService.MOVIES_SECTION),
-        plexService.getLibraryItems(plexService.TV_SECTION),
-      ]);
-      const pool = [...movies, ...tv];
-      if (jellyfinService.isEnabled()) pool.push(...db.getLibraryItemsBySource('jellyfin'));
+      const pool = await libraryAccess.libraryPool(req.libraryAccess);
       const set = new Set();
       for (const item of pool) {
         const val = item[facetKey];
@@ -3835,10 +3918,7 @@ router.get('/monitors/criteria/suggest', requireAuth, async (req, res) => {
 
     // Network: use studio field from library
     if (type === 'network') {
-      const tv = await plexService.getLibraryItems(plexService.TV_SECTION);
-      const pool = jellyfinService.isEnabled()
-        ? [...tv, ...db.getLibraryItemsBySource('jellyfin', 'show')]
-        : tv;
+      const pool = await libraryAccess.libraryPool(req.libraryAccess, { type: 'show' });
       const set = new Set();
       for (const item of pool) {
         if (item.studio) set.add(item.studio);
@@ -4105,6 +4185,20 @@ router.get('/reviews/:mediaType/:tmdbId', (req, res) => {
   });
 });
 
+// Server-side match for the review textarea's maxLength — also what keeps the
+// public full-review share image (and its render cost) bounded.
+const REVIEW_TEXT_MAX = 2000;
+const REVIEW_TITLE_MAX = 500;
+function reviewTextError({ reviewText, title }) {
+  if (reviewText != null && (typeof reviewText === 'object' || String(reviewText).length > REVIEW_TEXT_MAX)) {
+    return `Review text must be at most ${REVIEW_TEXT_MAX} characters`;
+  }
+  if (title != null && (typeof title === 'object' || String(title).length > REVIEW_TITLE_MAX)) {
+    return `Title must be at most ${REVIEW_TITLE_MAX} characters`;
+  }
+  return null;
+}
+
 // POST /api/reviews — create or update review
 router.post('/reviews', async (req, res) => {
   if (!req.session?.plexUser) return res.status(401).json({ error: 'Not authenticated' });
@@ -4114,6 +4208,8 @@ router.post('/reviews', async (req, res) => {
   if (!mediaType || (tmdbId == null && !ratingKey) || rating == null || !watchedDate) {
     return res.status(400).json({ error: 'mediaType, (tmdbId or ratingKey), rating, and watchedDate are required' });
   }
+  const textError = reviewTextError({ reviewText, title });
+  if (textError) return res.status(400).json({ error: textError });
   if (!['movie', 'tv'].includes(mediaType)) return res.status(400).json({ error: 'Invalid mediaType' });
   const ratingNum = Number(rating);
   if (ratingNum < 0.5 || ratingNum > 5.0 || ratingNum % 0.5 !== 0) {
@@ -4225,6 +4321,8 @@ router.put('/reviews/:id', (req, res) => {
   if (review.user_id !== userId) return res.status(403).json({ error: 'Forbidden' });
 
   const { title, year, rating, reviewText, spoiler, rewatch } = req.body;
+  const textError = reviewTextError({ reviewText, title });
+  if (textError) return res.status(400).json({ error: textError });
   if (rating != null) {
     const ratingNum = Number(rating);
     if (ratingNum < 0.5 || ratingNum > 5.0 || ratingNum % 0.5 !== 0) {
@@ -4310,20 +4408,26 @@ router.get('/reviews/feed', (req, res) => {
   // The global feed is a shared, user-independent dataset (counts are denormalized
   // columns) so it's served from the in-memory cache. The followed-only feed is
   // per-user, so it stays a live query.
+  // Library poster/content rating follow what this viewer may access (Plex
+  // sharing / Jellyfin policy); the review text is user content and stays.
+  const access = req.libraryAccess;
   let reviews;
   let total;
   if (followedOnly === 'true') {
     const followedUserIds = Array.from(followedSet);
-    reviews = db.getPublicReviews(perPageNum, offset, followedUserIds);
+    reviews = db.getPublicReviews(perPageNum, offset, followedUserIds, access);
     total = db.getPublicReviewsCount(followedUserIds);
   } else {
     const cached = reviewFeed.getGlobalFeedPage(perPageNum, offset);
     if (cached) {
-      reviews = cached.rows;
+      // Cached rows carry any copy's artwork: re-resolve (on copies) for a restricted viewer
+      reviews = access
+        ? cached.rows.map(r => ({ ...r, ...db.reviewLibraryArt(r.tmdb_id, r.media_type, access) }))
+        : cached.rows;
       total = cached.total;
     } else {
       // Deep pagination past the cached window — fall back to the DB.
-      reviews = db.getPublicReviews(perPageNum, offset, null);
+      reviews = db.getPublicReviews(perPageNum, offset, null, access);
       total = db.getPublicReviewsCount(null);
     }
   }
@@ -4374,12 +4478,9 @@ router.get('/reviews/media/:mediaType/:tmdbId', (req, res) => {
   const rows = db.getReviewsForMedia(mediaType, tmdbId, currentUserId);
   const reactedSet = new Set(db.getUserReactedReviewIds(currentUserId, rows.map(r => r.id)));
   const followedSet = new Set(db.getFollowedUserIds(currentUserId));
-  // Same artwork resolution as the feed: the matching library item's thumb.
-  const lib = db.getLibraryItemByTmdbId(Number(tmdbId), mediaType);
-  const thumbPath = lib?.thumb || lib?.art || null;
-  const posterUrl = thumbPath
-    ? (thumbPath.startsWith('http') ? thumbPath : `/api/poster?path=${encodeURIComponent(thumbPath)}`)
-    : null;
+  // Same artwork resolution as the feed: the matching library item's thumb,
+  // from a copy this viewer may access (none: no library poster/rating)
+  const art = db.reviewLibraryArt(Number(tmdbId), mediaType, req.libraryAccess);
   res.json({
     reviews: rows.map(r => ({
       id: r.id,
@@ -4390,8 +4491,8 @@ router.get('/reviews/media/:mediaType/:tmdbId', (req, res) => {
       tmdbId: r.tmdb_id,
       title: r.title,
       year: r.year,
-      posterUrl,
-      contentRating: lib?.content_rating || '',
+      posterUrl: art.poster_url,
+      contentRating: art.content_rating,
       rating: r.rating,
       reviewText: r.review_text,
       spoiler: !!r.spoiler,
@@ -4425,12 +4526,8 @@ router.get('/reviews/:id', (req, res) => {
   const commentCount = db.getReviewCommentCount(review.id);
   const hasReacted = db.hasUserReacted(review.id, currentUserId);
   const followedSet = new Set(db.getFollowedUserIds(currentUserId));
-  // Resolve poster + content rating from the matching library item
-  const lib = review.tmdb_id != null ? db.getLibraryItemByTmdbId(review.tmdb_id, review.media_type) : null;
-  const thumbPath = lib?.thumb || lib?.art || null;
-  const posterUrl = thumbPath
-    ? (thumbPath.startsWith('http') ? thumbPath : `/api/poster?path=${encodeURIComponent(thumbPath)}`)
-    : null;
+  // Resolve poster + content rating from a matching library item this viewer may access
+  const art = db.reviewLibraryArt(review.tmdb_id, review.media_type, req.libraryAccess);
   res.json({
     id: review.id,
     userId: review.user_id,
@@ -4440,8 +4537,8 @@ router.get('/reviews/:id', (req, res) => {
     tmdbId: review.tmdb_id,
     title: review.title,
     year: review.year,
-    posterUrl,
-    contentRating: lib?.content_rating || '',
+    posterUrl: art.poster_url,
+    contentRating: art.content_rating,
     rating: review.rating,
     reviewText: review.review_text,
     spoiler: !!review.spoiler,
@@ -4734,7 +4831,8 @@ router.get('/users/:userId/reviews', (req, res) => {
       return res.json({ reviews: [], total: 0, page: pageNum, totalPages: 1 });
     }
   }
-  const reviews = db.getUserPublicReviews(targetId, perPageNum, offset);
+  // Library poster/content rating follow what this viewer may access
+  const reviews = db.getUserPublicReviews(targetId, perPageNum, offset, req.libraryAccess);
   const total = db.getUserPublicReviewsCount(targetId);
   const followedSet = new Set(db.getFollowedUserIds(currentUserId));
   const reactedSet = new Set(db.getUserReactedReviewIds(currentUserId, reviews.map(r => r.id)));
@@ -5018,16 +5116,26 @@ function requireMovieNightMember(req, res, { hostOnly = false } = {}) {
   return { group, userId, privileged };
 }
 
-function movieNightEntryPayload(row) {
+// Whether a viewer (their library access) can't open an entry's title.
+function movieNightEntryRestricted(row, access) {
+  return libraryTitleRestricted(access, { ratingKey: row.rating_key, tmdbId: row.tmdb_id, mediaType: row.media_type });
+}
+
+// `access` is the viewer's (req.libraryAccess). An entry whose title sits in a
+// library they can't access keeps its title and votes — group content — but
+// loses the library poster and rating key, flagged `restricted: true`.
+function movieNightEntryPayload(row, access) {
+  const restricted = movieNightEntryRestricted(row, access);
   return {
     id: row.id,
     groupId: row.group_id,
     mediaType: row.media_type,
     tmdbId: row.tmdb_id,
-    ratingKey: row.rating_key,
+    ratingKey: restricted ? null : row.rating_key,
     title: row.title,
     year: row.year,
-    thumb: row.thumb,
+    thumb: restricted ? null : row.thumb,
+    ...(restricted ? { restricted: true } : {}),
     status: row.status,
     addedAt: row.added_at,
     watchedAt: row.watched_at,
@@ -5047,21 +5155,32 @@ function movieNightIdentityName(userId) {
 }
 
 // Fan-out helper: notifies every human member of a group (optionally excluding
-// the actor), gated on a per-user preference key when one is given.
-function notifyMovieNightMembers({ group, exceptUserId, title, body, data, prefKey }) {
+// the actor), gated on a per-user preference key when one is given. The event
+// type follows the preference (pick → movie_night_added, comment →
+// movie_night_comment); the pref key itself is not an event type.
+const MOVIE_NIGHT_EVENT_FOR_PREF = {
+  notify_movie_night_added: 'movie_night_added',
+  notify_movie_night_comment: 'movie_night_comment',
+};
+// With an `entry`, members who can't access its title get no poster.
+function notifyMovieNightMembers({ group, exceptUserId, title, body, data, prefKey, entry = null }) {
+  const type = MOVIE_NIGHT_EVENT_FOR_PREF[prefKey] || 'movie_night_invite';
   for (const member of db.getMovieNightGroupMembers(group.id)) {
     if (exceptUserId && member.user_id === exceptUserId) continue;
     if (prefKey) {
       const prefs = db.getUserNotificationPrefs(member.user_id);
       if (!prefs[prefKey]) continue;
     }
+    const memberData = entry && data?.thumb && movieNightEntryRestricted(entry, libraryAccess.forUser(member.user_id))
+      ? { ...data, thumb: null }
+      : data;
     const notifId = db.createOrBundleNotification({
-      userId: member.user_id, type: prefKey || 'movie_night_invite', title, body, data,
+      userId: member.user_id, type, title, body, data: memberData,
     });
     enqueueForUser({
       notificationId: notifId,
       userId: member.user_id,
-      payload: { type: prefKey || 'movie_night_invite', title, body, posterUrl: data?.thumb || null, userId: member.user_id },
+      payload: { type, title, body, posterUrl: memberData?.thumb || null, userId: member.user_id },
     });
   }
 }
@@ -5072,9 +5191,11 @@ router.get('/movie-night/groups', (req, res) => {
   const userId = movieNightActor(req);
   const privileged = movieNightPrivileged(req);
   const weekday = new Date().getDay();
+  const access = req.libraryAccess;
   const groups = db.getMovieNightGroupsForUser(userId).map(g => {
     const members = db.getMovieNightGroupMembers(g.id);
-    const entries = db.getMovieNightEntries(g.id, { userId });
+    // Viewer-masked: no posters of titles in libraries they can't access
+    const entries = db.getMovieNightEntries(g.id, { userId }).map(e => movieNightEntryPayload(e, access));
     const next = db.getMovieNightNextPick(g.id);
     return {
       id: g.id,
@@ -5090,7 +5211,7 @@ router.get('/movie-night/groups', (req, res) => {
       posterCollage: entries.filter(e => e.thumb).slice(0, 4).map(e => e.thumb),
       entryCount: entries.length,
       tonightTheme: db.getTonightMovieNightTheme(g.id, weekday),
-      nextUp: next?.entry ? { ...movieNightEntryPayload(next.entry), forName: next.identity?.name || null, fallback: !!next.fallback } : null,
+      nextUp: next?.entry ? { ...movieNightEntryPayload(next.entry, access), forName: next.identity?.name || null, fallback: !!next.fallback } : null,
     };
   });
   res.json({ groups });
@@ -5272,7 +5393,7 @@ router.get('/movie-night/groups/:id/entries', (req, res) => {
   if (!ctx) return undefined;
   const status = ['active', 'watched', 'all'].includes(req.query.status) ? req.query.status : 'active';
   const rows = db.getMovieNightEntries(ctx.group.id, { userId: ctx.userId, status });
-  res.json({ entries: rows.map(movieNightEntryPayload) });
+  res.json({ entries: rows.map(r => movieNightEntryPayload(r, req.libraryAccess)) });
 });
 
 // POST /api/movie-night/groups/:id/entries
@@ -5284,10 +5405,15 @@ router.post('/movie-night/groups/:id/entries', (req, res) => {
   if (!title || !String(title).trim()) return res.status(400).json({ error: 'Title is required' });
   if (!['movie', 'tv'].includes(mediaType)) return res.status(400).json({ error: 'Invalid media type' });
   if (personaId != null && !db.getMovieNightPersona(personaId)) return res.status(400).json({ error: 'Unknown persona' });
+  // A title in a library the adder can't access isn't theirs to nominate
+  const ids = { ratingKey: ratingKey != null ? String(ratingKey) : null, tmdbId: tmdbId != null ? Number(tmdbId) : null, mediaType };
+  if (libraryTitleRestricted(req.libraryAccess, ids)) {
+    return res.status(403).json({ error: requestPolicy.RESTRICTED_MESSAGE, restricted: true });
+  }
   const { entry, deduped } = db.addMovieNightEntry({
     groupId: ctx.group.id, mediaType,
-    tmdbId: tmdbId != null ? Number(tmdbId) : null,
-    ratingKey: ratingKey != null ? String(ratingKey) : null,
+    tmdbId: ids.tmdbId,
+    ratingKey: ids.ratingKey,
     title: String(title).trim().slice(0, 200),
     year: year != null ? Number(year) : null,
     thumb: thumb || null,
@@ -5301,10 +5427,11 @@ router.post('/movie-night/groups/:id/entries', (req, res) => {
       body: `${movieNightIdentityName(ctx.userId).username} added ${entry.title}${entry.year ? ` (${entry.year})` : ''}`,
       data: { groupId: ctx.group.id, entryId: entry.id, thumb: entry.thumb },
       prefKey: 'notify_movie_night_added',
+      entry,
     });
   }
   const row = db.getMovieNightEntries(ctx.group.id, { userId: ctx.userId, status: 'all' }).find(r => r.id === entry.id);
-  res.status(deduped ? 200 : 201).json({ entry: movieNightEntryPayload(row || entry), deduped });
+  res.status(deduped ? 200 : 201).json({ entry: movieNightEntryPayload(row || entry, req.libraryAccess), deduped });
 });
 
 // PATCH /api/movie-night/entries/:id — cancel (soft delete) or reactivate
@@ -5324,7 +5451,7 @@ router.patch('/movie-night/entries/:id', (req, res) => {
       && entry.added_by !== ctx.userId && !personaOwner) {
     return res.status(403).json({ error: 'Forbidden' });
   }
-  res.json({ entry: movieNightEntryPayload(db.setMovieNightEntryStatus(entry.id, status)) });
+  res.json({ entry: movieNightEntryPayload(db.setMovieNightEntryStatus(entry.id, status), req.libraryAccess) });
 });
 
 // POST /api/movie-night/entries/:id/watched
@@ -5340,7 +5467,7 @@ router.post('/movie-night/entries/:id/watched', (req, res) => {
   }
   const updated = db.setMovieNightEntryStatus(entry.id, 'watched');
   if (ctx.group.rotate_mode) db.bumpRotationCursor(entry.group_id);
-  res.json({ entry: movieNightEntryPayload(updated), rotation: db.getMovieNightRotation(entry.group_id) });
+  res.json({ entry: movieNightEntryPayload(updated, req.libraryAccess), rotation: db.getMovieNightRotation(entry.group_id) });
 });
 
 // PUT /api/movie-night/entries/:id/vote
@@ -5410,6 +5537,7 @@ router.post('/movie-night/entries/:id/comments', (req, res) => {
       body: `${who}: ${body.slice(0, 200)}`,
       data: { groupId: entry.group_id, entryId: entry.id, thumb: entry.thumb },
       prefKey: 'notify_movie_night_comment',
+      entry,
     });
   }
   res.status(201).json({
@@ -5453,7 +5581,7 @@ router.get('/movie-night/groups/:id/next', (req, res) => {
   res.json({
     identity: next?.identity || null,
     cursor: db.getMovieNightRotation(ctx.group.id).cursor,
-    entry: row ? movieNightEntryPayload(row) : null,
+    entry: row ? movieNightEntryPayload(row, req.libraryAccess) : null,
     fallback: !!next?.fallback,
   });
 });
@@ -5464,7 +5592,12 @@ router.post('/movie-night/groups/:id/rotate', (req, res) => {
   const ctx = requireMovieNightMember(req, res, { hostOnly: true });
   if (!ctx) return undefined;
   const cursor = db.bumpRotationCursor(ctx.group.id);
-  res.json({ cursor, next: db.getMovieNightNextPick(ctx.group.id) });
+  const next = db.getMovieNightNextPick(ctx.group.id);
+  // Raw row: masked like movieNightEntryPayload for a title the viewer can't access
+  if (next?.entry && movieNightEntryRestricted(next.entry, req.libraryAccess)) {
+    next.entry = { ...next.entry, rating_key: null, thumb: null, restricted: true };
+  }
+  res.json({ cursor, next });
 });
 
 // ── Movie Night themes ───────────────────────────────────────────────────────

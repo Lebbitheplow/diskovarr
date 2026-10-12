@@ -20,6 +20,7 @@ import { posterUrl, posterSrcSet, CARD_SIZES } from '../utils/media'
 import useMissingSeasons from '../hooks/useMissingSeasons'
 import { useTranslation } from 'react-i18next'
 import useModalOpen from '../hooks/useModalOpen'
+import useDialogLayer from '../hooks/useDialogLayer'
 
 export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
   useModalOpen(!!item)
@@ -52,6 +53,15 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
   const [serverReviews, setServerReviews] = useState(null)
   const [movieNightOpen, setMovieNightOpen] = useState(false)
   const [watchPartyOpen, setWatchPartyOpen] = useState(false)
+  // Requests — the full title, or "Request missing seasons" for a show the
+  // library already has. Pages that own a RequestModal (Search, Explore)
+  // receive the item through onRequest; the rest (Home deep links, Discover,
+  // Queue, Reviews, profiles) get one rendered from here.
+  const [requestItem, setRequestItem] = useState(null)
+  const [services, setServices] = useState(null)
+  // Set once a request made from here goes through, so the primary action
+  // turns into Notify Me without the page having to reload the item.
+  const [requestedHere, setRequestedHere] = useState(false)
   const [prevCreditsTmdbId, setPrevCreditsTmdbId] = useState(item?.tmdbId)
   if (item?.tmdbId !== prevCreditsTmdbId) {
     setPrevCreditsTmdbId(item?.tmdbId)
@@ -62,12 +72,9 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
     setFetchedRatings(null)
     setFetchedMeta(null)
     setMovieNightOpen(false)
+    setRequestItem(null)
+    setRequestedHere(false)
   }
-  // "Request missing seasons" for a show the library already has. Pages that
-  // own a RequestModal (Search, Explore) receive the item through onRequest;
-  // the rest (Home, Discover, Queue, profiles) get one rendered from here.
-  const [missingItem, setMissingItem] = useState(null)
-  const [services, setServices] = useState(null)
   const trailerRef = useRef(null)
   const { success, error: toastError } = useToast()
 
@@ -81,7 +88,10 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
     return () => { cancelled = true }
   }, [item?.tmdbId, reviewMediaType])
 
-  const inLibrary = item?.inLibrary ?? !!item?.ratingKey
+  // restricted: the library holds it only where this user can't see it — no
+  // play, request, notify or movie night (the server refuses those too)
+  const restricted = !!item?.restricted
+  const inLibrary = !restricted && (item?.inLibrary ?? !!item?.ratingKey)
   // Only offer "Request missing seasons" when the library copy is actually
   // short a season that isn't already requested.
   const hasMissingSeasons = useMissingSeasons(item)
@@ -117,24 +127,44 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
     }
   }, [item, inLibrary, onClose, onRefresh, toastError, t])
 
+  // Opens the RequestModal rendered here, for pages without their own
+  const openRequest = useCallback(async (reqItem) => {
+    if (!services) {
+      try {
+        const { data } = await exploreApi.getServices()
+        setServices(data || {})
+      } catch {
+        setServices({})
+      }
+    }
+    setRequestItem(reqItem)
+  }, [services])
+
+  const handleRequest = useCallback(() => {
+    if (onRequest) {
+      onRequest(item)
+      onClose()
+      return
+    }
+    // Items built by pages without a request flow sometimes carry only the
+    // Plex-style type; RequestModal keys everything off mediaType.
+    openRequest({ ...item, mediaType: item.mediaType || (item.type === 'show' ? 'tv' : 'movie') })
+  }, [onRequest, item, onClose, openRequest])
+
   const handleNotify = useCallback(async () => {
     try {
       await exploreApi.followRecommendation(item.tmdbId, item.mediaType)
       success('You\'ll be notified when ' + item.title + ' is available')
       onClose()
     } catch (e) {
-      toastError(e.message || t('Notify failed'))
+      // The request this card was following is gone (denied, withdrawn,
+      // fulfilled): offer to request the title instead of a dead end
+      if (e.status === 409 && e.details?.requestable) handleRequest()
+      else toastError(e.message || t('Notify failed'))
     }
-  }, [item, success, toastError, onClose, t])
+  }, [item, success, toastError, onClose, t, handleRequest])
 
-  const handleRequest = useCallback(() => {
-    if (onRequest) {
-      onRequest(item)
-      onClose()
-    }
-  }, [onRequest, item, onClose])
-
-  const handleRequestMissing = useCallback(async () => {
+  const handleRequestMissing = useCallback(() => {
     const reqItem = {
       ...item,
       tmdbId: item.tmdbId,
@@ -150,16 +180,14 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
       onClose()
       return
     }
-    if (!services) {
-      try {
-        const { data } = await exploreApi.getServices()
-        setServices(data || {})
-      } catch {
-        setServices({})
-      }
-    }
-    setMissingItem(reqItem)
-  }, [item, onRequest, onClose, services])
+    openRequest(reqItem)
+  }, [item, onRequest, onClose, openRequest])
+
+  // A whole-title request made here flips the action to Notify Me; missing
+  // seasons re-check themselves through useMissingSeasons instead.
+  const handleRequestSubmitted = useCallback((reqItem) => {
+    if (!reqItem?.inLibrary) setRequestedHere(true)
+  }, [])
 
   // Jump to the search page's "More with X" browse for a cast/crew member.
   const handlePersonClick = useCallback((person) => {
@@ -266,12 +294,9 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
 
   // Escape closes, matching the shared Modal component. Routed through
   // handleClose so the trailer iframe is torn down rather than left playing.
-  // While the missing-seasons dialog is up, Escape belongs to it instead.
-  useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape' && !missingItem) handleClose() }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [handleClose, missingItem])
+  // The layer stack hands Escape to any dialog opened on top of this one
+  // (request, movie night, watch together, share, monitor editor) instead.
+  const closeDialogAbove = useDialogLayer(!!item, handleClose)
 
   // Give the modal its own history entry so Android's Back gesture and the
   // browser's back button close it instead of leaving the page. Closing by any
@@ -279,7 +304,17 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
   // so both paths converge on a single close.
   useEffect(() => {
     window.history.pushState({ diskovarrModal: true }, '')
-    const onPop = () => { closedByPopRef.current = true; handleClose() }
+    const onPop = () => {
+      // Back, like Escape, closes only the topmost dialog: with one open on
+      // top of this modal, close that and put this modal's entry back so the
+      // next Back closes the modal itself.
+      if (closeDialogAbove()) {
+        window.history.pushState({ diskovarrModal: true }, '')
+        return
+      }
+      closedByPopRef.current = true
+      handleClose()
+    }
     window.addEventListener('popstate', onPop)
     return () => {
       window.removeEventListener('popstate', onPop)
@@ -355,13 +390,14 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
               ))}
             </div>
             <DetailActionBar
-              item={item}
+              item={requestedHere && !item.isRequested ? { ...item, isRequested: true } : item}
               inLibrary={inLibrary}
+              restricted={restricted}
               inWatchlist={inWatchlist}
               onWatchlist={handleWatchlist}
               onRequest={handleRequest}
               onNotify={handleNotify}
-              onMovieNight={item.tmdbId ? () => setMovieNightOpen(true) : null}
+              onMovieNight={item.tmdbId && !restricted ? () => setMovieNightOpen(true) : null}
               onWatchTogether={() => setWatchPartyOpen(true)}
             />
             <div className="detail-modal-tabs">
@@ -445,11 +481,16 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
             )}
           </div>
         )}
-        {missingItem && createPortal(
+        {requestItem && createPortal(
           // Stops the dialog's backdrop click from bubbling (in React's tree)
           // up to the detail wrapper's close handler.
           <div onClick={e => e.stopPropagation()}>
-            <RequestModal item={missingItem} services={services || {}} onClose={() => setMissingItem(null)} />
+            <RequestModal
+              item={requestItem}
+              services={services || {}}
+              onClose={() => setRequestItem(null)}
+              onSubmitted={handleRequestSubmitted}
+            />
           </div>,
           document.body
         )}

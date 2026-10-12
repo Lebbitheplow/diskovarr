@@ -1123,19 +1123,35 @@ function YoutubeSection({ youtubeEnabled, youtubeApiKey, youtubeRootFolder, tube
     } finally { setSetupLoading(false) }
   }
 
-  // The same Tuberr key authenticates Sonarr's Torznab indexer — offer it for
-  // copy so admins never have to dig it out of Tuberr's log or data dir.
+  // The same Tuberr key authenticates Sonarr's Torznab indexer and is the
+  // download client's password — offer it for copy so admins never have to
+  // dig it out of Tuberr's data dir.
   const copyableKey = realServiceKey || tuberrApiKey || ''
   const handleCopyKey = async () => {
     if (!copyableKey) return
     try {
       await navigator.clipboard.writeText(copyableKey)
-      onToast?.(t('Tuberr API key copied — paste it into Sonarr’s Torznab indexer'))
+      onToast?.(t('Tuberr API key copied — use it for Sonarr’s Torznab indexer and as the download client password'))
     } catch {
       onToast?.(t('Copy failed — reveal the key field and copy it manually'), 'error')
     }
   }
 
+  // Rotates the key in Tuberr and Diskovarr, then re-runs Set up Sonarr so the
+  // indexer key and download-client password follow it
+  const [regenLoading, setRegenLoading] = useState(false)
+  const handleRegenerateKey = async () => {
+    if (!window.confirm(t('Generate a new Tuberr API key? Sonarr is updated automatically; anything else still using the old key stops working.'))) return
+    setRegenLoading(true)
+    try {
+      const { data } = await adminConnections.regenerateTuberrKey()
+      if (data?.apiKey) onUpdate?.({ tuberr_api_key: data.apiKey })
+      if (data?.sonarr?.ok) onToast?.(t('New Tuberr API key saved and Sonarr updated'))
+      else onToast?.(`${t('New Tuberr API key saved, but Sonarr was not updated — click Set up Sonarr')}${data?.sonarr?.message ? ` (${data.sonarr.message})` : ''}`, 'error')
+    } catch (err) {
+      onToast?.(err.response?.data?.message || err.message || t('Could not regenerate the Tuberr API key'), 'error')
+    } finally { setRegenLoading(false) }
+  }
   const torznabUrl = (buildUrl(host, port) || 'http://<tuberr-host>:9832') + '/torznab'
   const stepStyle = { margin: '0 0 8px', fontSize: '0.82rem', color: 'var(--text-secondary)', lineHeight: 1.5 }
   const codeStyle = { background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 4, padding: '1px 5px', fontSize: '0.78rem', fontFamily: 'monospace' }
@@ -1170,7 +1186,7 @@ function YoutubeSection({ youtubeEnabled, youtubeApiKey, youtubeRootFolder, tube
             <strong>2. {t('Add a YouTube API key')}.</strong> {t('Free from Google Cloud Console (YouTube Data API v3) — used for channel search and episode matching. Hit Test to confirm everything is reachable.')}
           </p>
           <p style={stepStyle}>
-            <strong>3. {t('Wire up Sonarr')}.</strong> {t('Click Set up Sonarr above — it creates the Tuberr indexer and download client in Sonarr automatically (both tagged')} <code style={codeStyle}>yt</code>{t(', category')} <code style={codeStyle}>tv-youtube</code>{t(') so only YouTube series use them. Note: if Sonarr runs on a different machine or in Docker, the Tuberr address above must be one Sonarr can reach (LAN IP, not localhost). Prefer manual setup? Add a qBittorrent download client (host/port of Tuberr, any credentials) and a Torznab indexer:')} <code style={codeStyle}>{torznabUrl}</code> {t('with the Tuberr API key.')}
+            <strong>3. {t('Wire up Sonarr')}.</strong> {t('Click Set up Sonarr above — it creates the Tuberr indexer and download client in Sonarr automatically (both tagged')} <code style={codeStyle}>yt</code>{t(', category')} <code style={codeStyle}>tv-youtube</code>{t(') so only YouTube series use them. Note: if Sonarr runs on a different machine or in Docker, the Tuberr address above must be one Sonarr can reach (LAN IP, not localhost). Prefer manual setup? Add a qBittorrent download client (host/port of Tuberr, username tuberr, password = the Tuberr API key) and a Torznab indexer:')} <code style={codeStyle}>{torznabUrl}</code> {t('with the Tuberr API key.')}
           </p>
           <p style={stepStyle}>
             <strong>4. {t('Flip the toggle above.')}</strong> {t('TV requests gain a “Download via YouTube” option, TVDB-only shows appear in search, and episode matches are reviewed via the Manage Series button in this section.')}
@@ -1178,6 +1194,10 @@ function YoutubeSection({ youtubeEnabled, youtubeApiKey, youtubeRootFolder, tube
           <button type="button" className="btn-admin" onClick={handleCopyKey} disabled={!copyableKey}
             title={!copyableKey ? t('Enter or save the Tuberr API key first') : ''}>
             {t('Copy Tuberr API key for Sonarr')}
+          </button>
+          <button type="button" className="btn-admin" onClick={handleRegenerateKey} disabled={!tuberrApiKey || regenLoading}
+            title={!tuberrApiKey ? t('Enter or save the Tuberr API key first') : ''} style={{ marginLeft: 8 }}>
+            {regenLoading ? t('Regenerating…') : t('Regenerate key')}
           </button>
         </div>
       )}

@@ -908,6 +908,9 @@ async function syncPlexTvWatchlist(userId, userToken) {
   const BATCH = 50;
   const keepKeys = new Set();
   let metaFailed = false;
+  // A title in several sections (4K, kids copies) maps to a copy this user may
+  // access (Plex sharing); null when unrestricted
+  const access = require('./libraryAccess').forUser(userId);
 
   for (let i = 0; i < plexKeys.length; i += BATCH) {
     const batch = plexKeys.slice(i, i + BATCH);
@@ -925,8 +928,15 @@ async function syncPlexTvWatchlist(userId, userToken) {
         const tmdbGuid = guids.find(g => g.id?.startsWith('tmdb://'));
         if (!tmdbGuid) continue;
         const tmdbId = tmdbGuid.id.replace('tmdb://', '');
-        // Plex metadata type is 'movie' | 'show'; TMDB ids only disambiguate with it
-        const libItem = db.getLibraryItemByTmdbId(tmdbId, item.type === 'show' ? 'tv' : 'movie');
+        // Plex metadata type is 'movie' | 'show'; TMDB ids only disambiguate with it.
+        // Plex rows only: a title that's on Jellyfin alone isn't a Plex watchlist
+        // entry, and its GUID must never be stored under the Plex source.
+        // With no accessible copy the first match stays mirrored — GET
+        // /api/watchlist hides it, and a missing or failed access snapshot
+        // must never empty the watchlist through the remove pass below.
+        const mediaType = item.type === 'show' ? 'tv' : 'movie';
+        const libItem = (access && db.getLibraryItemByTmdbId(tmdbId, mediaType, 'plex', access))
+          || db.getLibraryItemByTmdbId(tmdbId, mediaType, 'plex');
         if (libItem) keepKeys.add(String(libItem.rating_key));
       }
     } catch (err) {
@@ -937,7 +947,7 @@ async function syncPlexTvWatchlist(userId, userToken) {
 
   // 3. ADD pass — ensure everything currently on the plex.tv watchlist is in the DB.
   for (const key of keepKeys) {
-    db.addToWatchlistDb(userId, key);
+    db.addToWatchlistDb(userId, key, 'plex');
   }
 
   // 4. REMOVE pass — mirror plex.tv: drop local rows no longer on the watchlist.

@@ -14,6 +14,11 @@ const state = {
   quota: { exceededAt: null, lastError: null },
   cookies: { botCheckAt: null },
   janitor: { lastRunAt: null, removed: 0, freedBytes: 0, lastError: null },
+  // qBittorrent-API logins. `rejectingSince` starts a streak of refused logins
+  // and a successful login ends it, so Diskovarr can tell a download client
+  // with stale credentials (refused for minutes on end) from a brief gap
+  // while its own wiring is being updated.
+  qbitAuth: { lastLoginAt: null, rejectedAt: null, rejectingSince: null, rejectedUser: null, rejectedFrom: null },
   recentFailures: [],
 };
 
@@ -28,6 +33,20 @@ function recordFailure({ videoId, releaseTitle, error, attempts }) {
   if (state.recentFailures.length > FAILURE_RING_SIZE) state.recentFailures.length = FAILURE_RING_SIZE;
 }
 
+function noteQbitLogin(ok, { username, from } = {}) {
+  const a = state.qbitAuth;
+  const now = Date.now();
+  if (ok) {
+    a.lastLoginAt = now;
+    a.rejectingSince = null;
+    return;
+  }
+  a.rejectedAt = now;
+  a.rejectingSince = a.rejectingSince || now;
+  a.rejectedUser = String(username ?? '').slice(0, 64);
+  a.rejectedFrom = String(from || '').slice(0, 64);
+}
+
 function noteQuotaExceeded(message) {
   state.quota.exceededAt = Date.now();
   state.quota.lastError = String(message || 'quotaExceeded').slice(0, 300);
@@ -37,4 +56,4 @@ function noteQuotaOk() {
   state.quota.exceededAt = null;
 }
 
-module.exports = { state, recordFailure, noteQuotaExceeded, noteQuotaOk };
+module.exports = { state, recordFailure, noteQbitLogin, noteQuotaExceeded, noteQuotaOk };

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react'
+import React, { useState, useEffect, useEffectEvent, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { movieNightApi } from '../services/api'
 import { useToast } from '../context/ToastContext'
@@ -17,13 +17,17 @@ export default function MovieNightPickerModal({ item, onClose }) {
   const [selectedId, setSelectedId] = useState(null)
   const [busy, setBusy] = useState(false)
 
+  // Callers pass an inline onClose; reading it through an effect event keeps
+  // each parent re-render from refetching the groups.
+  const closeAfterError = useEffectEvent(() => onClose())
+
   useEffect(() => {
     let active = true
     movieNightApi.getGroups()
       .then(({ data }) => { if (active) setGroups(data.groups || []) })
-      .catch(e => { if (active) { toastError(e?.message || t('Failed to load groups')); onClose() } })
+      .catch(e => { if (active) { toastError(e?.message || t('Failed to load groups')); closeAfterError() } })
     return () => { active = false }
-  }, [onClose, toastError, t])
+  }, [toastError, t])
 
   const selected = useMemo(() => (groups || []).find(g => g.id === selectedId), [groups, selectedId])
 

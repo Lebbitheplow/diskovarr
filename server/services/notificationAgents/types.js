@@ -22,6 +22,7 @@ const NotificationType = {
   MOVIE_NIGHT_COMMENT:   65536,
   MOVIE_NIGHT_TONIGHT:   131072,
   WATCH_PARTY:           262144,
+  MEDIA_DELETION:        524288,
 };
 
 // All notification types combined (for "select all")
@@ -49,6 +50,17 @@ const TYPE_MAP = {
   movie_night_comment:         NotificationType.MOVIE_NIGHT_COMMENT,
   movie_night_tonight:         NotificationType.MOVIE_NIGHT_TONIGHT,
   watch_party_invite:          NotificationType.WATCH_PARTY,
+  deletion:                    NotificationType.MEDIA_DELETION,
+};
+
+// Event names that are delivered under another event's selection. List
+// auto-requests share the "Request auto-approved" toggle (the same one that
+// gates them per user, notify_auto_approved); the notify_* spellings are what
+// Movie Night pick/comment events were mistakenly queued as before 3.4.3.
+const TYPE_ALIASES = {
+  autorequest:                 'request_auto_approved',
+  notify_movie_night_added:    'movie_night_added',
+  notify_movie_night_comment:  'movie_night_comment',
 };
 
 // Human-readable labels for each type
@@ -70,6 +82,7 @@ const TYPE_LABELS = {
   movie_night_comment:         'Movie Night comment',
   movie_night_tonight:         'Movie Night tonight',
   watch_party_invite:          'Watch Together invite',
+  deletion:                    'Media deletion notices',
 };
 
 // Who receives each type: 'admin', 'user', or 'both'
@@ -91,6 +104,7 @@ const TYPE_TARGET = {
   movie_night_comment:         'user',
   movie_night_tonight:         'user',
   watch_party_invite:          'user',
+  deletion:                    'admin',
 };
 
 // Color map for Discord embeds
@@ -112,22 +126,50 @@ const TYPE_COLORS = {
   movie_night_comment:         0x00b4d8,
   movie_night_tonight:         0xe5a00d,
   watch_party_invite:          0xe5a00d,
+  deletion:                    0xff5252,
 };
 
 // ── Helper functions ──────────────────────────────────────────────────────────
 
+function canonicalType(diskovarrType) {
+  return TYPE_ALIASES[diskovarrType] || diskovarrType;
+}
+
+// Flattens a stored type selection into individual event ids. Older admin UIs
+// saved grouped checkboxes as one comma-joined element
+// ("issue_comment_added_admin,issue_comment_added_user"), so every element is
+// split before matching.
+function expandNotificationTypes(list) {
+  const items = Array.isArray(list) ? list : (typeof list === 'string' ? [list] : []);
+  const out = [];
+  for (const item of items) {
+    if (typeof item !== 'string') continue;
+    for (const part of item.split(',')) {
+      const t = part.trim();
+      if (t) out.push(t);
+    }
+  }
+  return out;
+}
+
+// Save-time form of a selection: unique canonical event ids only.
+function normalizeNotificationTypes(list) {
+  const seen = new Set();
+  for (const t of expandNotificationTypes(list)) {
+    if (/^[a-z_]{1,64}$/.test(t)) seen.add(canonicalType(t));
+  }
+  return [...seen];
+}
+
 // Check if a bitmask (agent types or user types) includes a specific type
 function hasNotificationType(mask, diskovarrType) {
   if (mask === 0 || mask === undefined || mask === null) return true;
-  const bit = TYPE_MAP[diskovarrType] || 0;
+  const type = canonicalType(diskovarrType);
+  const bit = TYPE_MAP[type] || 0;
   if (bit === 0) return false;
-  // Handle string-based types (legacy Diskovarr)
-  if (typeof mask === 'string') {
-    return mask.includes(diskovarrType);
-  }
-  // Handle array-based types (legacy Diskovarr)
-  if (Array.isArray(mask)) {
-    return mask.includes(diskovarrType);
+  // String/array selections (Diskovarr's stored form), composite entries expanded
+  if (typeof mask === 'string' || Array.isArray(mask)) {
+    return expandNotificationTypes(mask).some((t) => canonicalType(t) === type);
   }
   // Bitmask check
   return !!(mask & bit);
@@ -136,8 +178,8 @@ function hasNotificationType(mask, diskovarrType) {
 // Convert array of Diskovarr type strings to bitmask
 function typesToBitmask(typeStrings) {
   let mask = 0;
-  for (const t of typeStrings) {
-    mask |= (TYPE_MAP[t] || 0);
+  for (const t of expandNotificationTypes(typeStrings)) {
+    mask |= (TYPE_MAP[canonicalType(t)] || 0);
   }
   return mask;
 }
@@ -175,10 +217,14 @@ module.exports = {
   NotificationType,
   ALL_NOTIFICATION_TYPES,
   TYPE_MAP,
+  TYPE_ALIASES,
   TYPE_LABELS,
   TYPE_TARGET,
   TYPE_COLORS,
   hasNotificationType,
+  canonicalType,
+  expandNotificationTypes,
+  normalizeNotificationTypes,
   typesToBitmask,
   bitmaskToTypes,
   getBitForType,

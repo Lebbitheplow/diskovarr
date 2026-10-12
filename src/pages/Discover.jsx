@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react'
+import React, { useState, useCallback, useEffect, useEffectEvent, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import {
   discoverApi,
@@ -12,6 +12,7 @@ import FilterControls from '../components/FilterControls'
 import { SCORE_VALUES, FACET_FIELDS } from '../components/filterConstants'
 import { useTranslation } from 'react-i18next'
 import { withViewTransition } from '../utils/viewTransition'
+import { createLatestRequest } from '../utils/latestRequest'
 
 const emptyTags = () => Object.fromEntries(FACET_FIELDS.map(f => [f.field, new Set()]))
 
@@ -39,7 +40,13 @@ export default function Discover() {
   const [releaseTo, setReleaseTo] = useState('')
   const [durationMin, setDurationMin] = useState('')
   const [durationMax, setDurationMax] = useState('')
+  // `search` is the text in the box; `query` is the text the results are for,
+  // committed 120ms after typing stops
   const [search, setSearch] = useState('')
+  const [query, setQuery] = useState('')
+  // Range inputs (year, release, runtime) apply on blur/Enter/Clear rather
+  // than per keystroke; each commit bumps this to trigger the refetch
+  const [rangeCommit, setRangeCommit] = useState(0)
   const [results, setResults] = useState([])
   const [loading, setLoading] = useState(false)
   const [page, setPage] = useState(1)
@@ -49,7 +56,12 @@ export default function Discover() {
   const [initialLoad, setInitialLoad] = useState(true)
   const [selectedItem, setSelectedItem] = useState(null)
   const debounceRef = useRef(null)
-  const loadingRef = useRef(false)
+  // Latest query wins: a new one aborts whatever is in flight, and a reply
+  // for a superseded query is dropped instead of replacing newer results
+  const [requests] = useState(createLatestRequest)
+  // Params behind the results on screen, so Load more pages through the same
+  // query even while a range input holds an uncommitted edit
+  const shownQueryRef = useRef(null)
 
   const loadWatchlist = useCallback(async () => {
     try {
@@ -60,16 +72,42 @@ export default function Discover() {
     } catch { /* ignore */ }
   }, [])
 
-  const fetchResults = useCallback(async (reset = true, overridePage, searchOverride) => {
-    if (loadingRef.current) return
-    loadingRef.current = true
+  // Page 1 replaces the results; later pages append to them
+  const loadPage = useCallback(async (params, pageNum) => {
+    const reset = pageNum === 1
     if (reset) {
       setLoading(true)
-      setPage(1)
       setInitialLoad(false)
     }
+    const ticket = requests.start()
+    try {
+      const { data } = await discoverApi.getDiscover(
+        new URLSearchParams({ ...params, page: pageNum }),
+        { signal: ticket.signal },
+      )
+      if (!ticket.current) return
+      if (reset) {
+        shownQueryRef.current = params
+        setResults(data.items || [])
+      } else {
+        setResults(prev => [...prev, ...(data.items || [])])
+      }
+      setPage(pageNum)
+      setTotalPages(data.pages || 1)
+      setTotalResults(data.total || 0)
+      setAvailableContentRatings(data.availableContentRatings || [])
+    } catch (e) {
+      if (ticket.current) toastError(t('Failed to load results'))
+    } finally {
+      // A superseded request leaves the spinner to the one that replaced it
+      if (requests.finish(ticket)) setLoading(false)
+    }
+  }, [requests, toastError, t])
 
-    const params = new URLSearchParams({
+  // Fetches page 1 for the filters as they are right now. An effect event
+  // always sees the latest state, so the effect below only decides when.
+  const fetchFirstPage = useEffectEvent(() => {
+    loadPage({
       type,
       decade,
       minScore,
@@ -90,54 +128,40 @@ export default function Discover() {
       releaseTo,
       durationMin,
       durationMax,
-      page: reset ? 1 : (overridePage || page),
-      q: searchOverride !== undefined ? searchOverride : search,
-    })
-
-    try {
-      const { data } = await discoverApi.getDiscover(params)
-      if (reset) {
-        setResults(data.items || [])
-      } else {
-        setResults(prev => [...prev, ...(data.items || [])])
-      }
-      setTotalPages(data.pages || 1)
-      setTotalResults(data.total || 0)
-      setAvailableContentRatings(data.availableContentRatings || [])
-    } catch (e) {
-      toastError(t('Failed to load results'))
-    } finally {
-      loadingRef.current = false
-      setLoading(false)
-    }
-  }, [type, decade, minScore, sort, tags, filterContentRatings, year, releaseFrom, releaseTo, durationMin, durationMax, search, page, toastError, t])
+      q: query,
+    }, 1)
+  })
 
   useEffect(() => {
     ;(async () => { await loadWatchlist() })()
   }, [loadWatchlist])
 
-  // Debounced fetch for search input — fires 120ms after user stops typing
-  const debouncedFetch = useCallback((reset) => {
-    clearTimeout(debounceRef.current)
-    debounceRef.current = setTimeout(() => fetchResults(reset), 120)
-  }, [fetchResults])
-
-  // Re-fetch when non-text filters change (immediate). Range/value inputs (year, release,
-  // duration) commit via onRangeCommit on blur instead, so they're excluded here.
+  // Refetch when a filter changes (immediately), the search text settles, or a
+  // range input commits
   useEffect(() => {
-    ;(async () => { await fetchResults(true) })()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [type, decade, minScore, sort, tags, filterContentRatings])
+    ;(async () => { await fetchFirstPage() })()
+  }, [type, decade, minScore, sort, tags, filterContentRatings, query, rangeCommit])
+
+  // Leaving the page: drop a pending search and abort the request in flight
+  useEffect(() => () => {
+    clearTimeout(debounceRef.current)
+    requests.cancel()
+  }, [requests])
 
   const handleSearchChange = useCallback((e) => {
-    setSearch(e.target.value)
-    debouncedFetch(true)
-  }, [debouncedFetch])
+    const value = e.target.value
+    setSearch(value)
+    clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(() => setQuery(value), 120)
+  }, [])
 
   const handleSearchClear = useCallback(() => {
+    clearTimeout(debounceRef.current)
     setSearch('')
-    fetchResults(true, undefined, '')
-  }, [fetchResults])
+    setQuery('')
+  }, [])
+
+  const commitRanges = useCallback(() => setRangeCommit(n => n + 1), [])
 
   const handleScoreChange = useCallback((e) => {
     setMinScore(SCORE_VALUES[parseInt(e.target.value)])
@@ -173,14 +197,18 @@ export default function Discover() {
     setReleaseTo('')
     setDurationMin('')
     setDurationMax('')
+    clearTimeout(debounceRef.current)
     setSearch('')
+    setQuery('')
+    setRangeCommit(n => n + 1)
   }, [])
 
+  // Skipped while anything is loading: a page 1 in flight is about to replace
+  // the list, and a second Load more would fetch the same page twice
   const handleLoadMore = useCallback(() => {
-    const nextPage = page + 1
-    setPage(nextPage)
-    fetchResults(false, nextPage)
-  }, [page, fetchResults])
+    if (requests.busy || !shownQueryRef.current) return
+    loadPage(shownQueryRef.current, page + 1)
+  }, [requests, loadPage, page])
 
   const handleToggleWatchlist = useCallback(async (item) => {
     const ratingKey = item.ratingKey
@@ -234,7 +262,9 @@ export default function Discover() {
         search={search} onSearchChange={handleSearchChange} onSearchClear={handleSearchClear}
         type={type} onType={setType}
         decade={decade} onDecade={setDecade}
-        minScore={minScore} onScoreChange={handleScoreChange} onScoreCommit={() => fetchResults(true)} onScoreClear={() => { setMinScore(0); fetchResults(true) }}
+        // The score refetches as the slider moves (it's an immediate filter),
+        // so there's nothing extra to commit on blur
+        minScore={minScore} onScoreChange={handleScoreChange} onScoreClear={() => setMinScore(0)}
         sort={sort} onSort={setSort}
         contentRatings={filterContentRatings} availableContentRatings={availableContentRatings}
         onToggleContentRating={handleToggleContentRating} onClearContentRatings={() => setFilterContentRatings([])}
@@ -242,7 +272,7 @@ export default function Discover() {
         year={year} onYear={setYear}
         releaseFrom={releaseFrom} releaseTo={releaseTo} onReleaseFrom={setReleaseFrom} onReleaseTo={setReleaseTo}
         durationMin={durationMin} durationMax={durationMax} onDurationMin={setDurationMin} onDurationMax={setDurationMax}
-        onRangeCommit={() => fetchResults(true)}
+        onRangeCommit={commitRanges}
         onClearAll={handleClearAll}
       />
 

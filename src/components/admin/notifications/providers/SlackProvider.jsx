@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from 'react'
 import { adminNotifications } from '../../../../services/adminApi'
-import { SHARED_NOTIFICATION_TYPES, DEFAULT_AGENT_TYPES } from '../constants'
+import { SHARED_NOTIFICATION_TYPES, DEFAULT_AGENT_TYPES, initialTypeSelection, isTypeOptionChecked, toggleTypeOption } from '../constants'
 import { useTranslation } from 'react-i18next'
 
 function Checkbox({ checked, onChange, children }) {
@@ -17,12 +17,12 @@ export default function SlackProvider({ initial, onToast, onOpenAgentInfo, onSav
   const [enabled, setEnabled] = useState(initial?.enabled || false)
   const [webhookUrl, setWebhookUrl] = useState(initial?.webhookUrl || '')
   const [notifTypes, setNotifTypes] = useState(
-    (initial?.notificationTypes || []).length > 0 ? initial.notificationTypes : [...DEFAULT_AGENT_TYPES]
+    () => initialTypeSelection(initial?.notificationTypes, DEFAULT_AGENT_TYPES)
   )
   const [testing, setTesting] = useState(false)
 
-  const toggleType = useCallback((setTypes, value) => {
-    setTypes(prev => prev.includes(value) ? prev.filter(t => t !== value) : [...prev, value])
+  const toggleType = useCallback((setTypes, option) => {
+    setTypes(prev => toggleTypeOption(prev, option))
   }, [])
 
   const handleSave = useCallback(async () => {
@@ -69,7 +69,7 @@ export default function SlackProvider({ initial, onToast, onOpenAgentInfo, onSav
           <p style={{ fontSize: '0.72rem', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-secondary)', margin: '0 0 8px' }}>{t('Notification Types')}</p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
             {SHARED_NOTIFICATION_TYPES.map(t => (
-              <Checkbox key={'sl-'+t.value} checked={notifTypes.includes(t.value)} onChange={() => toggleType(setNotifTypes, t.value)}>
+              <Checkbox key={'sl-'+t.value} checked={isTypeOptionChecked(notifTypes, t)} onChange={() => toggleType(setNotifTypes, t)}>
                 {t.label}{t.meta && <span style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>{t.meta}</span>}
               </Checkbox>
             ))}

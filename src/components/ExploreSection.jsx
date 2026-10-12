@@ -19,9 +19,12 @@ const ExploreCard = memo(function ExploreCard({
         {item.posterUrl && <img className="card-poster" src={posterUrl(item.posterUrl, 360)} srcSet={posterSrcSet(item.posterUrl)} sizes={CARD_SIZES} alt="" loading="lazy" decoding="async" />}
         <div className="card-poster-placeholder">{item.title?.charAt(0) || '?'}</div>
       </button>
-      {(upcoming || isFutureRelease)
-        ? <span className={'badge-upcoming-card' + (item.badgeRequested ? ' badge-requested' : '')}>{item.badgeRequested ? t('Requested') : t('Coming Soon')}</span>
-        : <span className={'badge-not-in-library' + (item.badgeRequested ? ' badge-requested' : '')}>{item.badgeRequested ? t('Requested') : t('Not in Library')}</span>}
+      {/* restricted: held only in a library this user can't access */}
+      {item.restricted
+        ? <span className="badge-not-in-library" title={t('In a library you don\'t have access to')}>{t('No Access')}</span>
+        : (upcoming || isFutureRelease)
+          ? <span className={'badge-upcoming-card' + (item.badgeRequested ? ' badge-requested' : '')}>{item.badgeRequested ? t('Requested') : t('Coming Soon')}</span>
+          : <span className={'badge-not-in-library' + (item.badgeRequested ? ' badge-requested' : '')}>{item.badgeRequested ? t('Requested') : t('Not in Library')}</span>}
       {/* Sibling of the poster button, not a child — buttons cannot nest */}
       <div className="card-overlay">
         <div className="card-overlay-actions">
@@ -33,7 +36,7 @@ const ExploreCard = memo(function ExploreCard({
               {inWatchlist ? '✓ ' + t('In Watchlist') : '+ ' + t('Watchlist')}
             </button>
           )}
-          {!item.ratingKey && (
+          {!item.ratingKey && !item.restricted && (
             <button
               className={'btn-icon btn-request' + (item.isMyRequest ? ' btn-request-sent' : '')}
               onClick={(e) => { e.stopPropagation(); !item.isMyRequest && (item.isRequested ? onNotify(item) : onRequest(item)) }}

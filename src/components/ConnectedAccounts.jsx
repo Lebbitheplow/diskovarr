@@ -73,11 +73,18 @@ function MediaServerAccounts() {
     }
   }, [load, checkAuth, toastSuccess, toastError, t])
 
-  // Jellyfin-identity users link Plex through the regular PIN flow with link=1
+  // Jellyfin-identity users link Plex through the regular PIN flow. The server
+  // only enters link mode for a PIN created with link: true; link=1 on the
+  // callback URL just sends the user back to Settings afterwards.
   const handleLinkPlex = useCallback(async () => {
     setBusy(true)
     try {
-      const res = await fetch('/auth/create-pin', { method: 'POST', signal: AbortSignal.timeout(15000) })
+      const res = await fetch('/auth/create-pin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ link: true }),
+        signal: AbortSignal.timeout(15000),
+      })
       if (!res.ok) throw new Error('PIN creation failed')
       const pin = await res.json()
       const appOrigin = window.location.origin

@@ -1,16 +1,14 @@
-import React, { useEffect } from 'react'
+import React from 'react'
 import { useTranslation } from 'react-i18next'
 import useModalOpen from '../hooks/useModalOpen'
+import useDialogLayer from '../hooks/useDialogLayer'
 
 export default function Modal({ isOpen, onClose, children }) {
   useModalOpen(isOpen)
+  // Escape closes only the topmost dialog, so one opened from the detail
+  // modal (request, movie night, watch together) doesn't take it down too.
+  useDialogLayer(isOpen, onClose)
   const { t } = useTranslation()
-  useEffect(() => {
-    if (!isOpen) return
-    const handleEsc = (e) => { if (e.key === 'Escape') onClose() }
-    document.addEventListener('keydown', handleEsc)
-    return () => document.removeEventListener('keydown', handleEsc)
-  }, [isOpen, onClose])
 
   if (!isOpen) return null
 
