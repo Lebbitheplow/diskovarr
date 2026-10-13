@@ -1,7 +1,12 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react'
+import React, { useState, useEffect, useRef, useCallback, useReducer } from 'react'
 import { useTranslation } from 'react-i18next'
 import { posterUrl } from '../utils/media'
 import useCastPlayer from '../hooks/useCastPlayer'
+
+// Slide art known to have loaded this session. Shared by every spotlight (Home
+// and Explore) and kept across remounts, so art already seen shows at once
+// rather than fading in again on the way back to a page.
+const loadedArt = new Set()
 
 const CAST_ICON = (
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="currentColor" style={{ verticalAlign: '-3px', marginRight: '6px' }} aria-hidden="true">
@@ -20,6 +25,13 @@ function runtime(ms) {
   const h = Math.floor(total / 60)
   const m = total % 60
   return h ? `${h}h ${m}m` : `${m}m`
+}
+
+// A slide's background: its key art, or failing that a small poster the
+// stage blurs heavily, where a small copy is indistinguishable
+function slideArt(s) {
+  const art = posterUrl(s.art || s.backdropUrl)
+  return { art, url: art || posterUrl(s.thumb || s.posterUrl, 240) }
 }
 
 // Normalises the two item shapes this hero is fed. Home passes library rows
@@ -50,6 +62,9 @@ function normalise(item) {
  * while a modal covers the page and while the hero is scrolled out of view,
  * and never starts at all under prefers-reduced-motion. The last two also
  * hold the art's zoom and the beam (marquee.css).
+ *
+ * Each slide's art fades in once it has loaded, instead of popping in over
+ * the empty stage after the loading shimmer.
  */
 export default function SpotlightHero({
   items, loading,
@@ -60,7 +75,9 @@ export default function SpotlightHero({
   const { castOpen, castLoading, castingId, clients, handleCastClick, handleCastMedia, canCast, noClientsMessage } = useCastPlayer()
   const slides = (items || []).filter(Boolean).slice(0, MAX_SLIDES)
   const [active, setActive] = useState(0)
-  const [paused, setPaused] = useState(false)
+  const [hovered, setHovered] = useState(false)
+  const [focused, setFocused] = useState(false)
+  const paused = hovered || focused
   const [hidden, setHidden] = useState(false)
   const [covered, setCovered] = useState(false)
   const [offscreen, setOffscreen] = useState(false)
@@ -80,6 +97,26 @@ export default function SpotlightHero({
   // The slide being replaced. Rotation only ever moves forward, so this is
   // the one that should exit to the left; a dot jump just cross-fades.
   const outgoing = count ? (current - 1 + count) % count : 0
+
+  // Watches each slide's art load (the same request the stage's background
+  // makes, so nothing is fetched twice) and re-renders as each arrives. Not
+  // decode(): that would hold every slide's full-size bitmap in memory at once.
+  // A failed load counts as done: the slide shows whatever the browser has.
+  const [, artArrived] = useReducer((n) => n + 1, 0)
+  const artKey = slides.map(s => slideArt(s).url || '').join('\n')
+  useEffect(() => {
+    let live = true
+    for (const url of artKey.split('\n')) {
+      if (!url || loadedArt.has(url)) continue
+      const img = new Image()
+      img.onload = img.onerror = () => {
+        loadedArt.add(url)
+        if (live) artArrived()
+      }
+      img.src = url
+    }
+    return () => { live = false }
+  }, [artKey])
 
   useEffect(() => {
     if (count < 2 || halted || reduced.current) return
@@ -127,10 +164,13 @@ export default function SpotlightHero({
       className="spotlight"
       aria-roledescription="carousel"
       aria-label={t('Top picks for you')}
-      onMouseEnter={() => setPaused(true)}
-      onMouseLeave={() => setPaused(false)}
-      onFocusCapture={() => setPaused(true)}
-      onBlurCapture={() => setPaused(false)}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      // Keyboard focus only. Focus the dialog stack hands back to Details
+      // after a mouse close isn't :focus-visible, and pausing on it held the
+      // hero still until something else happened to take focus.
+      onFocusCapture={(e) => setFocused(e.target.matches(':focus-visible'))}
+      onBlurCapture={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setFocused(false) }}
       // The pager's fill bar runs on the same clock as the rotation and must
       // hold whenever the rotation does
       data-paused={halted ? '' : undefined}
@@ -141,17 +181,15 @@ export default function SpotlightHero({
           outer one owns the slide transform. */}
       <div className="spotlight-stage" aria-hidden="true">
         {slides.map((s, i) => {
-          const art = posterUrl(s.art || s.backdropUrl)
-          // Blurred heavily, so a small copy is indistinguishable
-          const fallback = posterUrl(s.thumb || s.posterUrl, 240)
+          const { art, url } = slideArt(s)
           return (
             <div
               key={s.tmdbId ? `${s.tmdbId}:${s.mediaType || ''}` : (s.ratingKey || i)}
               className={`spotlight-slide${i === current ? ' is-active' : ''}${i === outgoing ? ' is-prev' : ''}`}
             >
               <div
-                className={`spotlight-art${art ? '' : ' spotlight-art-poster'}`}
-                style={{ backgroundImage: `url(${art || fallback})` }}
+                className={`spotlight-art${art ? '' : ' spotlight-art-poster'}${!url || loadedArt.has(url) ? ' is-loaded' : ''}`}
+                style={{ backgroundImage: `url(${url})` }}
               />
             </div>
           )

@@ -16,10 +16,32 @@
   z-index: 99999;
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: 8px;
   pointer-events: none;
 }
 
 .toast {
   pointer-events: auto;
+}
+
+/* App toasts stack in the container. The admin stylesheet's .toast is a lone
+   fixed-position message (the admin pages render their own); inside the
+   container it pinned every toast to the same spot, so a second toast hid
+   the first, and dismissing one suddenly revealed the one beneath. */
+.toast-container .toast {
+  position: relative;
+  bottom: auto;
+  right: auto;
+  z-index: auto;
+}
+
+/* Dismissed or expired: fades out before it is removed (ToastContext) */
+.toast-container .toast-leaving {
+  animation: toast-out 0.2s var(--ease-out) forwards;
+  pointer-events: none;
+}
+
+@keyframes toast-out {
+  to { opacity: 0; transform: translateY(8px) scale(0.96); }
 }

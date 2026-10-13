@@ -48,9 +48,14 @@ export default function Home() {
   const [popularLoading, setPopularLoading] = useState(true)
   const [matureEnabled, setMatureEnabledState] = useState(isMatureEnabled())
   const [shuffling, setShuffling] = useState(false)
+  // The shuffle glyph keeps turning until the turn it is on completes, so it
+  // comes to rest upright instead of snapping or unwinding
+  const [spinning, setSpinning] = useState(false)
+  // Keys the recommendation shelves, so each shuffle lands as fresh tracks
+  // scrolled back to their start
+  const [shuffleGen, setShuffleGen] = useState(0)
   const [selectedItem, setSelectedItem] = useState(null)
   const [watchlistCache, setWatchlistCache] = useState({})
-  const [matureLoading, setMatureLoading] = useState(false)
 
   const openModalParam = searchParams.get('openModal')
   const mediaTypeParam = searchParams.get('mediaType')
@@ -66,31 +71,34 @@ export default function Home() {
     } catch { /* ignore */ }
   }, [])
 
+  // Resolves to the picks to show (null when the server sent nothing); throws
+  // on failure so each caller can word its own error.
+  const loadRecommendations = useCallback(async (showMature) => {
+    const { data } = await recommendationsApi.getRecommendations()
+    if (!data) return null
+    if (showMature !== false) return data
+    const filterItems = (items) => items.filter(item => {
+      return !item.contentRating || !MATURE_RATINGS.has(item.contentRating.toLowerCase())
+    })
+    return {
+      topPicks: filterItems(data.topPicks || []),
+      movies: filterItems(data.movies || []),
+      tvShows: filterItems(data.tvShows || []),
+      anime: filterItems(data.anime || []),
+    }
+  }, [])
+
   const fetchRecommendations = useCallback(async (showMature) => {
     setLoading(true)
     try {
-      const { data } = await recommendationsApi.getRecommendations()
-      if (data) {
-        if (showMature === false) {
-          const filterItems = (items) => items.filter(item => {
-            return !item.contentRating || !MATURE_RATINGS.has(item.contentRating.toLowerCase())
-          })
-          setRecommendations({
-            topPicks: filterItems(data.topPicks || []),
-            movies: filterItems(data.movies || []),
-            tvShows: filterItems(data.tvShows || []),
-            anime: filterItems(data.anime || []),
-          })
-        } else {
-          setRecommendations(data)
-        }
-      }
+      const next = await loadRecommendations(showMature)
+      if (next) setRecommendations(next)
     } catch (e) {
       toastError(t('Failed to load recommendations. Please refresh.'))
     } finally {
       setLoading(false)
     }
-  }, [toastError, t])
+  }, [loadRecommendations, toastError, t])
 
   useEffect(() => {
     ;(async () => { await fetchRecommendations(matureEnabled) })()
@@ -142,24 +150,24 @@ export default function Home() {
       .catch(() => {})
   }, [openModalParam, mediaTypeParam])
 
+  // The current picks stay on screen until the new ones replace them in a
+  // single update. Clearing them first (with loading still false) dropped the
+  // hero and every shelf for the length of the request, collapsing the page.
   const handleShuffle = useCallback(async () => {
     setShuffling(true)
-    setMatureLoading(true)
-    const prev = recommendations
-    setRecommendations(null)
-
-    setTimeout(async () => {
-      try {
-        await fetchRecommendations(matureEnabled)
-      } catch (e) {
-        setRecommendations(prev)
-        toastError(t('Failed to shuffle recommendations'))
-      } finally {
-        setShuffling(false)
-        setMatureLoading(false)
+    setSpinning(true)
+    try {
+      const next = await loadRecommendations(matureEnabled)
+      if (next) {
+        setRecommendations(next)
+        setShuffleGen(g => g + 1)
       }
-    }, 400)
-  }, [matureEnabled, recommendations, fetchRecommendations, toastError, t])
+    } catch (e) {
+      toastError(t('Failed to shuffle recommendations'))
+    } finally {
+      setShuffling(false)
+    }
+  }, [matureEnabled, loadRecommendations, toastError, t])
 
   const handleMatureChange = useCallback((checked) => {
     setMatureEnabledState(checked)
@@ -282,9 +290,12 @@ export default function Home() {
               title={t('Refresh picks')}
               onClick={handleShuffle}
               disabled={shuffling}
-              style={{ transition: 'transform 0.4s ease', transform: shuffling ? 'rotate(360deg)' : '' }}
+              style={spinning ? { animation: 'spin 0.6s linear infinite' } : undefined}
+              onAnimationIteration={() => { if (!shuffling) setSpinning(false) }}
+              // Reduced motion cuts the spin to a single instant pass
+              onAnimationEnd={() => setSpinning(false)}
             >
-              {matureLoading ? '' : '↺'}
+              ↺
             </button>
           </div>
         </div>
@@ -352,7 +363,7 @@ export default function Home() {
                   <h2 className="section-title">{t('Top Picks for You')}</h2>
                   <span className="section-badge">{t('Personalized')}</span>
                 </div>
-                <Carousel>
+                <Carousel key={shuffleGen}>
                   {showTopPicks.map(item => (
                     <MediaCard
                       key={item.ratingKey}
@@ -373,7 +384,7 @@ export default function Home() {
                 <div className="section-header">
                   <h2 className="section-title">{t('Movies')}</h2>
                 </div>
-                <Carousel>
+                <Carousel key={shuffleGen}>
                   {showMovies.map(item => (
                     <MediaCard
                       key={item.ratingKey}
@@ -394,7 +405,7 @@ export default function Home() {
                 <div className="section-header">
                   <h2 className="section-title">{t('TV Shows')}</h2>
                 </div>
-                <Carousel>
+                <Carousel key={shuffleGen}>
                   {showTvShows.map(item => (
                     <MediaCard
                       key={item.ratingKey}
@@ -415,7 +426,7 @@ export default function Home() {
                 <div className="section-header">
                   <h2 className="section-title">{t('Anime')}</h2>
                 </div>
-                <Carousel>
+                <Carousel key={shuffleGen}>
                   {showAnime.map(item => (
                     <MediaCard
                       key={item.ratingKey}

@@ -533,6 +533,16 @@
 }
 
 /* ── Spotlight hero ──────────────────────────────────────────── */
+/* Art fades in once it has loaded (SpotlightHero) rather than popping in
+   over the empty stage after the loading shimmer. Art already seen this
+   session starts loaded, so it never replays. */
+.spotlight-art {
+  opacity: 0;
+  transition: opacity 0.6s var(--ease-out);
+}
+
+.spotlight-art.is-loaded { opacity: 1; }
+
 .spotlight-scrim {
   background:
     linear-gradient(90deg, rgba(var(--bg-rgb), 0.95) 0%, rgba(var(--bg-rgb), 0.62) 44%, transparent 80%),
@@ -552,8 +562,12 @@
     transparent 26deg);
   mix-blend-mode: soft-light;
   transform-origin: 0 0;
-  /* 12 updates a second, like the art's zoom: the soft edge moves ~2px per
-     step, and the soft-light blend makes every update a full hero redraw */
+  /* 12 updates a second, like the art's zoom: the soft-light blend makes
+     every update a full hero redraw. The far edge moves ~3px a step, but
+     across a ramp several hundred pixels wide at 18-30% opacity, so each
+     step is a fraction of a percent of brightness. Doubling the rate cost
+     ~10% of the whole Home page's CPU (beam alone 0.11 -> 0.21 cores) in a
+     software-rendered measurement. */
   animation: spotlight-beam 9s steps(108) infinite alternate;
   pointer-events: none;
   will-change: transform, opacity;
@@ -861,6 +875,15 @@
 
 .detail-modal-wrap.open .detail-modal-card {
   animation: marquee-modal-in 0.36s var(--ease-spring) both;
+}
+
+/* Opened by the poster morph (utils/viewTransition): the morph and the page
+   cross-fade are the entrance. A fade or spring here as well would run under
+   the morph, shifting the spot the poster lands on mid-flight. Decided at
+   mount and never toggled, which would replay the entrance. */
+.detail-modal-wrap.open.is-morphed,
+.detail-modal-wrap.open.is-morphed .detail-modal-card {
+  animation: none;
 }
 
 @keyframes marquee-fade-in {

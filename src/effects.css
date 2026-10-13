@@ -159,27 +159,35 @@
 
 /* Shelves animate as they scroll into view. Gated on data-motion so the cards
    are plainly visible if the observer never runs — an un-revealed shelf must
-   never be able to strand content at opacity 0. */
-[data-motion='on'] .card-grid:not(.is-revealed) .card {
+   never be able to strand content at opacity 0. Skeletons are never held
+   back, and a grid already on screen when it mounts is revealed before its
+   first paint without the entrance (hooks/useShellMotion): it is replacing
+   what was just there, and fading it in from nothing blinked the shelf. */
+[data-motion='on'] .card-grid:not(.is-revealed) .card:not(.card-skeleton) {
   opacity: 0;
 }
 
-[data-motion='on'] .card-grid.is-revealed .card {
+/* Held for one style pass while an on-screen grid is revealed in place */
+[data-motion='on'] .card-grid.is-instant .card {
+  transition: none;
+}
+
+[data-motion='on'] .card-grid.is-arriving .card {
   animation: card-in 0.4s var(--ease-out) backwards;
 }
 
-[data-motion='on'] .card-grid.is-revealed .card:nth-child(1) { animation-delay: 0.03s; }
-[data-motion='on'] .card-grid.is-revealed .card:nth-child(2) { animation-delay: 0.06s; }
-[data-motion='on'] .card-grid.is-revealed .card:nth-child(3) { animation-delay: 0.09s; }
-[data-motion='on'] .card-grid.is-revealed .card:nth-child(4) { animation-delay: 0.12s; }
-[data-motion='on'] .card-grid.is-revealed .card:nth-child(5) { animation-delay: 0.15s; }
-[data-motion='on'] .card-grid.is-revealed .card:nth-child(6) { animation-delay: 0.18s; }
-[data-motion='on'] .card-grid.is-revealed .card:nth-child(7) { animation-delay: 0.21s; }
-[data-motion='on'] .card-grid.is-revealed .card:nth-child(8) { animation-delay: 0.24s; }
-[data-motion='on'] .card-grid.is-revealed .card:nth-child(9) { animation-delay: 0.27s; }
-[data-motion='on'] .card-grid.is-revealed .card:nth-child(10) { animation-delay: 0.3s; }
-[data-motion='on'] .card-grid.is-revealed .card:nth-child(11) { animation-delay: 0.33s; }
-[data-motion='on'] .card-grid.is-revealed .card:nth-child(n + 12) { animation-delay: 0.36s; }
+[data-motion='on'] .card-grid.is-arriving .card:nth-child(1) { animation-delay: 0.03s; }
+[data-motion='on'] .card-grid.is-arriving .card:nth-child(2) { animation-delay: 0.06s; }
+[data-motion='on'] .card-grid.is-arriving .card:nth-child(3) { animation-delay: 0.09s; }
+[data-motion='on'] .card-grid.is-arriving .card:nth-child(4) { animation-delay: 0.12s; }
+[data-motion='on'] .card-grid.is-arriving .card:nth-child(5) { animation-delay: 0.15s; }
+[data-motion='on'] .card-grid.is-arriving .card:nth-child(6) { animation-delay: 0.18s; }
+[data-motion='on'] .card-grid.is-arriving .card:nth-child(7) { animation-delay: 0.21s; }
+[data-motion='on'] .card-grid.is-arriving .card:nth-child(8) { animation-delay: 0.24s; }
+[data-motion='on'] .card-grid.is-arriving .card:nth-child(9) { animation-delay: 0.27s; }
+[data-motion='on'] .card-grid.is-arriving .card:nth-child(10) { animation-delay: 0.3s; }
+[data-motion='on'] .card-grid.is-arriving .card:nth-child(11) { animation-delay: 0.33s; }
+[data-motion='on'] .card-grid.is-arriving .card:nth-child(n + 12) { animation-delay: 0.36s; }
 
 /* ── Snappiness retunes ─────────────────────────────────────── */
 .topbar-menu {
@@ -404,11 +412,19 @@
 }
 
 /* ── Shared element: poster → detail modal ────────────────────
-   viewTransition.js names the clicked poster for the duration of the
-   transition; this element carries the matching name so the browser
-   morphs one into the other instead of cross-fading the whole page. */
+   viewTransition.js lays a frozen stand-in copy of the clicked card over it
+   and names that for the transition; this element carries the matching name
+   so the browser morphs one into the other instead of cross-fading the
+   whole page. Closing runs the same morph the other way. */
 .detail-modal-poster {
   view-transition-name: media-poster;
+}
+
+/* A pinned card (the stand-in, and the clicked card until the morph ends)
+   keeps its scrim where it was; inline styles hold everything else */
+.card.vt-pinned::after {
+  transform: var(--vt-scrim);
+  transition: none;
 }
 
 ::view-transition-group(media-poster) {
@@ -418,11 +434,10 @@
 
 ::view-transition-old(media-poster),
 ::view-transition-new(media-poster) {
-  /* Both snapshots are posters at different sizes — cover keeps the art from
+  /* Both snapshots are 2:3 at different sizes — cover keeps the art from
      stretching while the group animates between the two boxes. */
   height: 100%;
   object-fit: cover;
-  mix-blend-mode: normal;
 }
 
 /* Keep the surrounding page cross-fade brief so the poster leads the eye */

@@ -16,16 +16,46 @@ import CastCrewTab from './CastCrewTab'
 import ReviewsTab from './ReviewsTab'
 import RatingBadges from './RatingBadges'
 import { DetailActionBar, DetailManageRow } from './DetailActions'
-import { posterUrl, posterSrcSet, CARD_SIZES } from '../utils/media'
+import { posterUrl, posterSrcSet, posterCandidates, CARD_SIZES } from '../utils/media'
 import useMissingSeasons from '../hooks/useMissingSeasons'
 import { useTranslation } from 'react-i18next'
 import useModalOpen from '../hooks/useModalOpen'
 import useDialogLayer from '../hooks/useDialogLayer'
+import { morphSource, afterTransition, closeWithTransition } from '../utils/viewTransition'
+
+// Hero art: the modal is at most 780px wide, so this covers it at 1.6x
+// without pulling the full-size original
+const HERO_WIDTH = 1280
 
 export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
   useModalOpen(!!item)
   const { t } = useTranslation()
   const navigate = useNavigate()
+  // The card this modal was morphed out of (utils/viewTransition), decided
+  // once at mount: the morph is then the only entrance motion, and closing
+  // flies the poster back into that card. Never re-evaluated — switching the
+  // entrance off and on later would replay it.
+  const [morphCard] = useState(morphSource)
+  // The poster follows the same fallback chain as the cards. A morph starts
+  // on the candidate the card ended up showing, so it lands on a loaded image
+  // rather than retrying one that already failed there.
+  const posterChoices = posterCandidates(item?.thumb, item?.posterUrl)
+  const posterChoicesKey = posterChoices.join('\n')
+  const [posterFailed, setPosterFailed] = useState(() => {
+    const shown = morphCard?.querySelector('.card-poster')?.getAttribute('src')
+    const at = shown ? posterChoices.findIndex(p => posterUrl(p, 360) === shown) : -1
+    return { key: posterChoicesKey, count: Math.max(0, at) }
+  })
+  const posterFailedCount = posterFailed.key === posterChoicesKey ? posterFailed.count : 0
+  const posterPath = posterChoices[posterFailedCount] || null
+  const posterRef = useRef(null)
+  const cardRef = useRef(null)
+  // Set by the first close. The close can wait (on the capture, or on an
+  // opening morph still landing), and a second Escape, ✕ or Back meanwhile
+  // would queue another one behind it.
+  const closingRef = useRef(false)
+  // Hero art fades in once loaded instead of popping in over the poster
+  const [heroLoaded, setHeroLoaded] = useState(null)
   const [trailerKey, setTrailerKey] = useState(null)
   const [trailerLoading, setTrailerLoading] = useState(!!item?.tmdbId)
   // Reset trailer state when the viewed item changes. This render-phase
@@ -218,9 +248,11 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
     const mt = item.type === 'movie' || item.mediaType === 'movie' ? 'movie' : 'tv'
     let active = true
     libraryApi.getTrailer(item.tmdbId, mt)
-      .then(({ data }) => {
-        if (active && data.trailerKey) setTrailerKey(data.trailerKey)
-      })
+      // Held until the opening morph is over: the embed is heavy to start,
+      // and growing the modal mid-flight would move where the poster lands
+      .then(({ data }) => afterTransition().then(() => {
+        if (active && !closingRef.current && data.trailerKey) setTrailerKey(data.trailerKey)
+      }))
       .catch(() => {})
       .finally(() => { if (active) setTrailerLoading(false) })
 
@@ -284,13 +316,20 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
   // Set when a popstate closed us, so the unmount cleanup doesn't pop again.
   const closedByPopRef = useRef(false)
 
+  // Closes with motion: the poster flies back into the card it came from, or
+  // the modal fades out (utils/viewTransition). The trailer is torn down in
+  // the update itself, so the snapshot the fade starts from still shows it.
   const handleClose = useCallback(() => {
-    if (trailerRef.current) {
-      trailerRef.current.innerHTML = ''
-      trailerRef.current.classList.remove('active')
-    }
-    onClose()
-  }, [onClose])
+    if (closingRef.current) return
+    closingRef.current = true
+    closeWithTransition(() => {
+      if (trailerRef.current) {
+        trailerRef.current.innerHTML = ''
+        trailerRef.current.classList.remove('active')
+      }
+      onClose()
+    }, { poster: posterRef.current, card: morphCard })
+  }, [onClose, morphCard])
 
   // Escape closes, matching the shared Modal component. Routed through
   // handleClose so the trailer iframe is torn down rather than left playing.
@@ -327,6 +366,12 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Focus moves into the dialog, so Enter or Space can't re-click the card
+  // behind it; closing hands it back (useDialogLayer)
+  useEffect(() => {
+    cardRef.current?.focus({ preventScroll: true })
+  }, [])
+
   if (!item) return null
 
   const isShow = item.type === 'show' || item.mediaType === 'tv'
@@ -335,15 +380,27 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
   if (item.year) metaParts.push(item.year)
   metaParts.push(mediaTypeLabel)
   const heroPath = item.art || item.thumb
+  const heroSrc = heroPath ? posterUrl(heroPath, HERO_WIDTH) : null
   // Overview-tab fields, with the lazily fetched details filling any gaps
   const view = fetchedMeta ? { ...item, ...fetchedMeta } : item
 
-  return (
-    <div className="detail-modal-wrap open" aria-hidden="false" onClick={handleClose}>
-      <div className="detail-modal-card" role="dialog" aria-modal="true" onClick={e => e.stopPropagation()}>
+  // Portaled to <body>: a transformed ancestor (the route fade-in) would
+  // otherwise become the containing block of this fixed overlay
+  return createPortal(
+    <div className={'detail-modal-wrap open' + (morphCard ? ' is-morphed' : '')} aria-hidden="false" onClick={handleClose}>
+      <div ref={cardRef} className="detail-modal-card" role="dialog" aria-modal="true" aria-label={item.title} tabIndex={-1} onClick={e => e.stopPropagation()}>
         <button className="detail-modal-close" onClick={handleClose} aria-label={t('Close')}>✕</button>
-        {heroPath && (
-          <div className="detail-modal-hero" style={{ backgroundImage: `url(${posterUrl(heroPath)})` }} />
+        {heroSrc && (
+          <div className="detail-modal-hero">
+            <img
+              key={heroSrc}
+              className={'detail-modal-hero-img' + (heroLoaded === heroSrc ? ' is-loaded' : '')}
+              src={heroSrc}
+              alt=""
+              decoding="async"
+              onLoad={() => setHeroLoaded(heroSrc)}
+            />
+          </div>
         )}
         <div className="detail-modal-body" style={!heroPath ? { marginTop: '0', paddingTop: '22px' } : {}}>
           {/* Same srcset and sizes as the cards, so the browser picks the very
@@ -351,14 +408,20 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
               (utils/viewTransition) snapshots this image as soon as it
               renders; a different size would still be downloading then, and
               the morph would land on an empty frame. */}
-          <img
-            className="detail-modal-poster"
-            src={posterUrl(item.thumb, 360)}
-            srcSet={posterSrcSet(item.thumb)}
-            sizes={CARD_SIZES}
-            alt={item.title}
-            style={item.thumb ? {} : { display: 'none' }}
-          />
+          {posterPath && (
+            <img
+              // A fresh element per source, so a late error from the old one
+              // can't knock out its replacement
+              key={posterPath}
+              ref={posterRef}
+              className="detail-modal-poster"
+              src={posterUrl(posterPath, 360)}
+              srcSet={posterSrcSet(posterPath)}
+              sizes={CARD_SIZES}
+              alt={item.title}
+              onError={() => setPosterFailed({ key: posterChoicesKey, count: posterFailedCount + 1 })}
+            />
+          )}
           <div className="detail-modal-info" style={!heroPath ? { paddingTop: '0' } : {}}>
             <div className="detail-modal-title">{item.title}</div>
             <div className="detail-modal-meta">
@@ -517,6 +580,7 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
           document.body
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }
