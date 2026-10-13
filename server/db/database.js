@@ -82,6 +82,19 @@ db.exec(`
     PRIMARY KEY (tmdb_id, media_type)
   );
 
+  -- One row per (title, genre) so genre browsing is an index lookup instead of
+  -- a parse of every cached title. Kept in step with tmdb_cache by
+  -- setTmdbCache/deleteTmdbCache; original_language lets the user's language
+  -- preference filter in SQL too.
+  CREATE TABLE IF NOT EXISTS tmdb_cache_genres (
+    tmdb_id INTEGER NOT NULL,
+    media_type TEXT NOT NULL,
+    genre TEXT NOT NULL,
+    original_language TEXT,
+    PRIMARY KEY (tmdb_id, media_type, genre)
+  );
+  CREATE INDEX IF NOT EXISTS idx_tmdb_cache_genres_genre ON tmdb_cache_genres (genre, media_type);
+
   CREATE TABLE IF NOT EXISTS discover_pool_cache (
     user_id TEXT PRIMARY KEY,
     pools TEXT NOT NULL,
@@ -1258,6 +1271,30 @@ db.exec(`CREATE TABLE IF NOT EXISTS migrations (name TEXT PRIMARY KEY, ran_at IN
         `);
       },
     },
+    {
+      // Backfill the genre index from the titles already cached. Rows whose
+      // data isn't an object with a genres array (some are malformed, a few
+      // were stored double-stringified) get no index rows, as they matched
+      // no genre before either. The JSON functions raise on malformed text,
+      // so the nested CASEs guard every call rather than a WHERE clause,
+      // whose evaluation order is not guaranteed.
+      name: 'tmdb_cache_genre_index_v1',
+      sql: () => {
+        db.exec(`
+          DELETE FROM tmdb_cache_genres;
+          INSERT OR IGNORE INTO tmdb_cache_genres (tmdb_id, media_type, genre, original_language)
+          SELECT c.tmdb_id, c.media_type, j.value, json_extract(c.doc, '$.originalLanguage')
+          FROM (
+            SELECT tmdb_id, media_type,
+              CASE WHEN json_valid(data)
+                THEN CASE WHEN json_type(data, '$.genres') = 'array' THEN data END
+              END AS doc
+            FROM tmdb_cache
+          ) c, json_each(c.doc, '$.genres') j
+          WHERE j.type = 'text';
+        `);
+      },
+    },
   ].forEach(({ name, sql }) => {
    const already = db.prepare('SELECT 1 FROM migrations WHERE name = ?').get(name);
    if (!already) {
@@ -2208,31 +2245,58 @@ function getTmdbCache(tmdbId, mediaType) {
   try { return JSON.parse(row.data); } catch { return null; }
 }
 
+// The genre index rows for a title are rewritten with its cache row. A
+// savepoint (not BEGIN) so callers already inside a transaction are fine.
 function setTmdbCache(tmdbId, mediaType, data) {
-  db.prepare('INSERT OR REPLACE INTO tmdb_cache (tmdb_id, media_type, data, fetched_at) VALUES (?, ?, ?, ?)')
-    .run(Number(tmdbId), mediaType, JSON.stringify(data), Math.floor(Date.now() / 1000));
+  const id = Number(tmdbId);
+  const genres = data && typeof data === 'object' && Array.isArray(data.genres)
+    ? [...new Set(data.genres.filter(g => typeof g === 'string' && g))]
+    : [];
+  const originalLanguage = data && typeof data === 'object' && typeof data.originalLanguage === 'string'
+    ? data.originalLanguage
+    : null;
+  db.exec('SAVEPOINT tmdb_cache_set');
+  try {
+    db.prepare('INSERT OR REPLACE INTO tmdb_cache (tmdb_id, media_type, data, fetched_at) VALUES (?, ?, ?, ?)')
+      .run(id, mediaType, JSON.stringify(data), Math.floor(Date.now() / 1000));
+    db.prepare('DELETE FROM tmdb_cache_genres WHERE tmdb_id = ? AND media_type = ?').run(id, mediaType);
+    const ins = db.prepare('INSERT OR IGNORE INTO tmdb_cache_genres (tmdb_id, media_type, genre, original_language) VALUES (?, ?, ?, ?)');
+    for (const genre of genres) ins.run(id, mediaType, genre, originalLanguage);
+    db.exec('RELEASE tmdb_cache_set');
+  } catch (e) {
+    db.exec('ROLLBACK TO tmdb_cache_set');
+    db.exec('RELEASE tmdb_cache_set');
+    throw e;
+  }
 }
 
-function getItemsByGenre(mediaType, genreName) {
-  const rows = db.prepare(`SELECT data FROM tmdb_cache WHERE media_type = ?`)
-    .all(mediaType);
-  if (!rows || !rows.length) return [];
-  const items = rows.map(r => {
-    try {
-      const item = JSON.parse(r.data);
-      if (item.genres && Array.isArray(item.genres) && item.genres.some(g => g === genreName)) {
-        return item;
-      }
-      return null;
-    } catch { return null; }
-  }).filter(Boolean);
-  // Sort by TMDB popularity score (popularity field, descending) so most popular shows first
+// Cached titles carrying `genreName`, most popular first. `originalLanguage`
+// narrows to that TMDB language code; titles cached without one never match
+// it (as before, when the caller compared the field in JS).
+function getItemsByGenre(mediaType, genreName, { originalLanguage = null } = {}) {
+  const rows = originalLanguage
+    ? db.prepare(`
+        SELECT c.data FROM tmdb_cache_genres g
+        JOIN tmdb_cache c ON c.tmdb_id = g.tmdb_id AND c.media_type = g.media_type
+        WHERE g.genre = ? AND g.media_type = ? AND g.original_language = ?
+      `).all(genreName, mediaType, originalLanguage)
+    : db.prepare(`
+        SELECT c.data FROM tmdb_cache_genres g
+        JOIN tmdb_cache c ON c.tmdb_id = g.tmdb_id AND c.media_type = g.media_type
+        WHERE g.genre = ? AND g.media_type = ?
+      `).all(genreName, mediaType);
+  const items = [];
+  for (const r of rows) {
+    try { items.push(JSON.parse(r.data)); } catch { /* skip corrupt */ }
+  }
   items.sort((a, b) => (b.popularity || 0) - (a.popularity || 0));
   return items;
 }
 
 function deleteTmdbCache(tmdbId, mediaType) {
   db.prepare('DELETE FROM tmdb_cache WHERE tmdb_id = ? AND media_type = ?')
+    .run(Number(tmdbId), mediaType);
+  db.prepare('DELETE FROM tmdb_cache_genres WHERE tmdb_id = ? AND media_type = ?')
     .run(Number(tmdbId), mediaType);
 }
 

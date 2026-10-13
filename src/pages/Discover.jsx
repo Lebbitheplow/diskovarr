@@ -13,6 +13,7 @@ import { SCORE_VALUES, FACET_FIELDS } from '../components/filterConstants'
 import { useTranslation } from 'react-i18next'
 import { withViewTransition } from '../utils/viewTransition'
 import { createLatestRequest } from '../utils/latestRequest'
+import SkeletonLoader from '../components/SkeletonLoader'
 
 const emptyTags = () => Object.fromEntries(FACET_FIELDS.map(f => [f.field, new Set()]))
 
@@ -290,6 +291,10 @@ export default function Discover() {
             <div className="discover-empty-icon">◈</div>
             <p>{t('Set your filters above and results will appear here')}</p>
           </div>
+        ) : results.length === 0 && loading ? (
+          // First page still in flight with nothing to show: placeholders,
+          // not an empty state the server hasn't confirmed yet.
+          <SkeletonLoader count={12} bare />
         ) : results.length === 0 ? (
           <div className="discover-empty">
             <div className="discover-empty-icon">◈</div>

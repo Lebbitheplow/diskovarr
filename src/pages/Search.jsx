@@ -22,6 +22,9 @@ import useMissingSeasons from '../hooks/useMissingSeasons'
 // access (restricted), as the server does for genre browsing and hideLibrary.
 const inAnyLibrary = (i) => i.inLibrary || i.restricted
 
+// Per-type totals the server reports for a genre browse (after filters).
+const EMPTY_COUNTS = { all: 0, movie: 0, tv: 0 }
+
 // One card for every result grid/carousel on this page. Previously this markup
 // was duplicated four times, each nesting the action buttons inside the poster
 // <button> — invalid HTML. The badges and action overlay are siblings now, and
@@ -116,7 +119,10 @@ export default function Search() {
   const personName = searchParams.get('personName') || ''
 
   const [inputValue, setInputValue] = useState(urlQuery)
-  const [activeTab, setActiveTab] = useState('all')
+  // Genre browse tab: 'all' | 'movie' | 'tv'. The server pages one type at a
+  // time and reports per-type totals in `counts`, so switching tabs refetches.
+  const [genreType, setGenreType] = useState('all')
+  const [counts, setCounts] = useState(EMPTY_COUNTS)
   const [hideLibrary, setHideLibrary] = useState(!!urlGenre)
   const [filterGenres, setFilterGenres] = useState([])
   const [filterYearFrom, setFilterYearFrom] = useState('')
@@ -127,9 +133,9 @@ export default function Search() {
   const [availableContentRatings, setAvailableContentRatings] = useState([])
   const [availableGenres, setAvailableGenres] = useState([])
   const [loading, setLoading] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
-  const [totalResults, setTotalResults] = useState(0)
   const [selectedItem, setSelectedItem] = useState(null)
   const [suggestions, setSuggestions] = useState([])
   const [showSuggestions, setShowSuggestions] = useState(false)
@@ -162,7 +168,11 @@ export default function Search() {
   const [prevSearchResetKey, setPrevSearchResetKey] = useState(searchResetKey)
   if (searchResetKey !== prevSearchResetKey) {
     setPrevSearchResetKey(searchResetKey)
-    setActiveTab('all')
+    setGenreType('all')
+    // Stale results from the previous query would otherwise sit under the new
+    // heading until the fetch lands; clearing them shows the skeleton instead.
+    setResults([])
+    setCounts(EMPTY_COUNTS)
     setHideLibrary(!!urlGenre)
     setFilterGenres([])
     setFilterYearFrom('')
@@ -184,12 +194,13 @@ export default function Search() {
   }, [])
 
   // fetchSearchResults takes args explicitly so it doesn't close over stale state
-  const fetchSearchResults = useCallback(async (q, g, pg = 1, append = false, filters = {}) => {
+  const fetchSearchResults = useCallback(async (q, g, pg = 1, append = false, filters = {}, type = 'all') => {
     if (!q && !g) { setResults([]); return }
     const seq = ++searchSeqRef.current
-    if (!append) setLoading(true)
+    if (append) setLoadingMore(true)
+    else setLoading(true)
     try {
-      const { data } = await searchApi.search(q, pg, g || undefined, undefined, filters)
+      const { data } = await searchApi.search(q, pg, g || undefined, g && type !== 'all' ? type : undefined, filters)
       if (seq !== searchSeqRef.current) return
       if (append) {
         setResults(prev => [...prev, ...(data.results || [])])
@@ -197,18 +208,21 @@ export default function Search() {
         setResults(data.results || [])
       }
       setTotalPages(data.pages || 1)
-      setTotalResults(data.total || 0)
+      setCounts(data.counts || { all: data.total || 0, movie: 0, tv: 0 })
       setAvailableContentRatings(data.availableContentRatings || [])
       setAvailableGenres(data.availableGenres || [])
     } catch {
       if (seq !== searchSeqRef.current) return
       toastError(t('Search failed. Please try again.'))
     } finally {
-      if (seq === searchSeqRef.current) setLoading(false)
+      if (seq === searchSeqRef.current) {
+        setLoading(false)
+        setLoadingMore(false)
+      }
     }
   }, [toastError, t])
 
-  // Refetch when query, genre, or any filter changes — reset to page 1
+  // Refetch when query, genre, tab, or any filter changes — reset to page 1
   useEffect(() => {
     ;(async () => {
       setPage(1)
@@ -218,9 +232,9 @@ export default function Search() {
         yearFrom: filterYearFrom,
         yearTo: filterYearTo,
         minScore: filterMinScore,
-      })
+      }, genreType)
     })()
-  }, [urlQuery, urlGenre, filterGenres, filterContentRatings, filterYearFrom, filterYearTo, filterMinScore]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [urlQuery, urlGenre, genreType, filterGenres, filterContentRatings, filterYearFrom, filterYearTo, filterMinScore]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     ;(async () => {
@@ -373,11 +387,19 @@ export default function Search() {
       yearFrom: filterYearFrom,
       yearTo: filterYearTo,
       minScore: filterMinScore,
-    })
-  }, [page, urlQuery, urlGenre, fetchSearchResults, filterGenres, filterContentRatings, filterYearFrom, filterYearTo, filterMinScore])
+    }, genreType)
+  }, [page, urlQuery, urlGenre, genreType, fetchSearchResults, filterGenres, filterContentRatings, filterYearFrom, filterYearTo, filterMinScore])
+
+  // Switching tabs restarts from page 1 of that type; the old page is cleared
+  // so the skeleton shows rather than the other tab's titles.
+  const handleGenreTab = useCallback((next) => {
+    if (next === genreType) return
+    setResults([])
+    setGenreType(next)
+  }, [genreType])
 
   const handleClearGenre = useCallback(() => {
-    setActiveTab('all')
+    setGenreType('all')
     navigate('/search')
   }, [navigate])
 
@@ -386,8 +408,6 @@ export default function Search() {
     return hideLibrary ? results.filter(i => !inAnyLibrary(i)) : results
   }, [results, hideLibrary])
 
-  const movieResults = useMemo(() => displayResults.filter(item => item.mediaType === 'movie'), [displayResults])
-  const tvResults = useMemo(() => displayResults.filter(item => item.mediaType === 'tv'), [displayResults])
   const displaySimilar = useMemo(() => {
     return hideLibrary ? similarItems.filter(i => !inAnyLibrary(i)) : similarItems
   }, [similarItems, hideLibrary])
@@ -494,10 +514,10 @@ export default function Search() {
         />
       )}
 
-      {results.length > 0 && (
+      {!loading && results.length > 0 && (
         <div className="search-results-meta" id="search-results-header">
           <span id="search-results-count">
-            {totalResults.toLocaleString()} result{totalResults !== 1 ? 's' : ''}{urlGenre ? ' in ' + urlGenre : ' for "' + urlQuery + '"'}
+            {counts.all.toLocaleString()} result{counts.all !== 1 ? 's' : ''}{urlGenre ? ' in ' + urlGenre : ' for "' + urlQuery + '"'}
           </span>
           {urlGenre && (
             <div className="genre-filter-badge">
@@ -508,61 +528,52 @@ export default function Search() {
         </div>
       )}
 
-      {displayResults.length > 0 ? (
-        urlGenre ? (
-          <>
-            <div className="genre-tab-bar">
-              <button
-                className={'genre-tab' + (activeTab === 'all' ? ' active' : '')}
-                onClick={() => setActiveTab('all')}
-              >
-                All ({displayResults.length})
-              </button>
-              {movieResults.length > 0 && (
-                <button
-                  className={'genre-tab' + (activeTab === 'movies' ? ' active' : '')}
-                  onClick={() => setActiveTab('movies')}
-                >
-                  Movies ({movieResults.length})
-                </button>
-              )}
-              {tvResults.length > 0 && (
-                <button
-                  className={'genre-tab' + (activeTab === 'tv' ? ' active' : '')}
-                  onClick={() => setActiveTab('tv')}
-                >
-                  TV Shows ({tvResults.length})
-                </button>
-              )}
-            </div>
-            <div className="card-grid" id="search-grid">
-              {(activeTab === 'all' ? displayResults : activeTab === 'movies' ? movieResults : tvResults).map(item => (
-                <SearchCard
-                  key={item.tmdbId || `tvdb${item.tvdbId}`}
-                  item={item}
-                  inWatchlist={!!(item.ratingKey && watchlistCache[item.ratingKey])}
-                  onOpenModal={handleOpenModal}
-                  onToggleWatchlist={handleToggleWatchlist}
-                  onRequest={setRequestItem}
-                />
-              ))}
-            </div>
-          </>
-        ) : (
-          <div className="card-grid" id="search-grid">
-            {displayResults.map(item => (
-              <SearchCard
-                key={item.tmdbId || `tvdb${item.tvdbId}`}
-                item={item}
-                inWatchlist={!!(item.ratingKey && watchlistCache[item.ratingKey])}
-                onOpenModal={handleOpenModal}
-                onToggleWatchlist={handleToggleWatchlist}
-                onRequest={setRequestItem}
-              />
-            ))}
-          </div>
-        )
-      ) : personId ? null : (
+      {urlGenre && counts.all > 0 && (
+        <div className="genre-tab-bar">
+          <button
+            className={'genre-tab' + (genreType === 'all' ? ' active' : '')}
+            onClick={() => handleGenreTab('all')}
+          >
+            All ({counts.all.toLocaleString()})
+          </button>
+          {counts.movie > 0 && (
+            <button
+              className={'genre-tab' + (genreType === 'movie' ? ' active' : '')}
+              onClick={() => handleGenreTab('movie')}
+            >
+              Movies ({counts.movie.toLocaleString()})
+            </button>
+          )}
+          {counts.tv > 0 && (
+            <button
+              className={'genre-tab' + (genreType === 'tv' ? ' active' : '')}
+              onClick={() => handleGenreTab('tv')}
+            >
+              TV Shows ({counts.tv.toLocaleString()})
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* A page-1 fetch with nothing on screen shows placeholders, never the
+          empty state: "No results" is only true once the server has answered.
+          Filter tweaks keep the previous page up until the new one lands. */}
+      {loading && displayResults.length === 0 ? (
+        <SkeletonLoader count={12} />
+      ) : displayResults.length > 0 ? (
+        <div className="card-grid" id="search-grid">
+          {displayResults.map(item => (
+            <SearchCard
+              key={(item.tmdbId || `tvdb${item.tvdbId}`) + item.mediaType}
+              item={item}
+              inWatchlist={!!(item.ratingKey && watchlistCache[item.ratingKey])}
+              onOpenModal={handleOpenModal}
+              onToggleWatchlist={handleToggleWatchlist}
+              onRequest={setRequestItem}
+            />
+          ))}
+        </div>
+      ) : personId || loading ? null : (
         <div className="search-empty" style={{ gridColumn: '1/-1' }}>
           <p>No results found for "{urlGenre ? urlGenre : urlQuery}".</p>
         </div>
@@ -629,9 +640,9 @@ export default function Search() {
       )}
 
       {page < totalPages && displayResults.length > 0 && (
-        <div id="search-load-more-wrap" style={{ display: 'text-align: center', padding: '32px 0' }}>
-          <button className="btn-load-more" id="btn-search-load-more" onClick={handleLoadMore} disabled={loading}>
-            {t('Load more')}
+        <div id="search-load-more-wrap" style={{ textAlign: 'center', padding: '32px 0' }}>
+          <button className="btn-load-more" id="btn-search-load-more" onClick={handleLoadMore} disabled={loading || loadingMore}>
+            {loadingMore ? t('Loading…') : t('Load more')}
           </button>
         </div>
       )}
