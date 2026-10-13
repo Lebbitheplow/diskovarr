@@ -2,15 +2,15 @@ import React from 'react'
 
 // Mirrors the card's shape: one 2:3 shimmer filling the tile, with the title
 // lines floated over its foot where the real info panel sits.
+//
+// Born revealed: a placeholder has nothing to make an entrance with, and the
+// shelf reveal gate (hooks/useShellMotion) would otherwise hold it hidden.
+// The two-row shelf sits in a .carousel-wrap so it takes the carousel's own
+// track (card width, gaps, padding) and the real shelf replaces it without
+// the page shifting.
 export default function SkeletonLoader({ count = 6, rows = 1 }) {
-  return (
-    <div
-      className="card-grid skeleton-grid"
-      style={rows === 2
-        ? { gridTemplateRows: 'repeat(2, auto)', gridAutoFlow: 'column', gridAutoColumns: '172px' }
-        : {}
-      }
-    >
+  const grid = (
+    <div className="card-grid skeleton-grid is-revealed">
       {Array.from({ length: count }).map((_, i) => (
         <div key={i} className="card card-skeleton">
           <div className="skeleton-poster shimmer" />
@@ -22,4 +22,5 @@ export default function SkeletonLoader({ count = 6, rows = 1 }) {
       ))}
     </div>
   )
+  return rows === 2 ? <div className="carousel-wrap">{grid}</div> : grid
 }

@@ -142,7 +142,11 @@ export default function Explore() {
     return () => clearInterval(tick)
   }, [building])
 
+  // Turns until the turn it is on completes after loading ends, so the glyph
+  // comes to rest upright instead of unwinding (as Home's does)
+  const [spinning, setSpinning] = useState(false)
   const handleShuffle = useCallback(async () => {
+    setSpinning(true)
     await fetchRecommendations(true)
   }, [fetchRecommendations])
 
@@ -360,7 +364,9 @@ export default function Explore() {
               title={t('Refresh picks')}
               onClick={handleShuffle}
               disabled={loading}
-              style={{ transition: 'transform 0.4s ease', transform: loading ? 'rotate(360deg)' : '' }}
+              style={spinning ? { animation: 'spin 0.6s linear infinite' } : undefined}
+              onAnimationIteration={() => { if (!loading) setSpinning(false) }}
+              onAnimationEnd={() => setSpinning(false)}
             >
               ↺
             </button>

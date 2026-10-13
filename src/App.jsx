@@ -1,4 +1,4 @@
-import React, { Suspense, lazy, useEffect, useRef } from 'react'
+import React, { Suspense, lazy, useLayoutEffect, useRef } from 'react'
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from './context/AuthContext'
 import AppShell from './components/AppShell'
@@ -37,11 +37,16 @@ function LoadingScreen() {
 // Replays a short enter animation on every path change. The class is toggled
 // rather than the subtree being keyed by pathname: keying would remount the
 // page on each navigation, throwing away its state and refetching its data.
+//
+// A layout effect, so the scroll reset and the restart land before the new
+// page's first paint. Router navigations are transitions, and React runs a
+// transition's passive effects after the browser has painted: the page could
+// show once, fully opaque at the old scroll offset, then jump and fade in.
 function RouteFade({ children }) {
   const { pathname } = useLocation()
   const ref = useRef(null)
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     // Full page loads used to reset this for free; client-side navigation
     // otherwise lands the new page at the old page's scroll offset. Keyed on
     // pathname only, so query-param changes (search, filters) hold position.

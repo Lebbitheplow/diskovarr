@@ -15,7 +15,9 @@ const ExploreCard = memo(function ExploreCard({
   const isFutureRelease = item.releaseDate && item.releaseDate > new Date().toISOString().slice(0, 10)
   return (
     <div key={item.tmdbId + item.mediaType} className="card" data-tmdb-id={item.tmdbId} data-adult={item.adult ? 'true' : undefined} data-request-tmdb={item.tmdbId} onClick={() => onOpenModal(item)}>
-      <button className="card-poster-link" onClick={() => onOpenModal(item)} type="button" aria-label={item.title}>
+      {/* Stops here so the card's own handler doesn't open the modal a second
+          time — two opens per click cancel the poster morph */}
+      <button className="card-poster-link" onClick={(e) => { e.stopPropagation(); onOpenModal(item) }} type="button" aria-label={item.title}>
         {item.posterUrl && <img className="card-poster" src={posterUrl(item.posterUrl, 360)} srcSet={posterSrcSet(item.posterUrl)} sizes={CARD_SIZES} alt="" loading="lazy" decoding="async" />}
         <div className="card-poster-placeholder">{item.title?.charAt(0) || '?'}</div>
       </button>

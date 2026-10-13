@@ -27,22 +27,29 @@ export default function Carousel({ children, variant = 'home' }) {
     scrollRef.current?.scrollBy({ left: amount, behavior: 'smooth' })
   }
 
+  // One button per side, disabled at the end of the track rather than swapped
+  // for a second element: the same node keeps its opacity transition, so an
+  // arrow fades out at the end instead of popping as a fresh element.
   return (
     <div className="carousel-wrap">
-      {!canScrollLeft && <button className="carousel-arrow carousel-arrow-prev" disabled aria-label={t('Previous')}>❮</button>}
-      {canScrollLeft && (
-        <button className="carousel-arrow carousel-arrow-prev" onClick={() => scrollByAmount(-scrollRef.current?.clientWidth || 0)} aria-label={t('Previous')}>❮</button>
-      )}
+      <button
+        className="carousel-arrow carousel-arrow-prev"
+        disabled={!canScrollLeft}
+        onClick={() => scrollByAmount(-scrollRef.current?.clientWidth || 0)}
+        aria-label={t('Previous')}
+      >❮</button>
       {/* Track shape comes from .carousel-wrap .card-grid in CSS. It used to be
           set inline here, which silently beat the ≤600px rule that narrows the
           columns for phones. */}
       <div className="card-grid" data-variant={variant} ref={scrollRef}>
         {children}
       </div>
-      {!canScrollRight && <button className="carousel-arrow carousel-arrow-next" disabled aria-label={t('Next')}>❯</button>}
-      {canScrollRight && (
-        <button className="carousel-arrow carousel-arrow-next" onClick={() => scrollByAmount(scrollRef.current?.clientWidth || 0)} aria-label={t('Next')}>❯</button>
-      )}
+      <button
+        className="carousel-arrow carousel-arrow-next"
+        disabled={!canScrollRight}
+        onClick={() => scrollByAmount(scrollRef.current?.clientWidth || 0)}
+        aria-label={t('Next')}
+      >❯</button>
     </div>
   )
 }

@@ -3,12 +3,30 @@ import { trackPosterClicks } from '../utils/viewTransition'
 
 const REDUCED = '(prefers-reduced-motion: reduce)'
 
+// The staggered entrance runs 0.4 s, and its last card starts 0.36 s in
+// (effects.css); the class comes off with some slack after that.
+const ENTRANCE_MS = 1000
+
+/**
+ * Whether a box overlaps the viewport. A box with no size (a grid under a
+ * display:none parent) never counts, so it waits for the observer instead.
+ */
+export function isOnScreen(rect, width, height) {
+  return rect.width > 0 && rect.height > 0 &&
+    rect.bottom > 0 && rect.top < height &&
+    rect.right > 0 && rect.left < width
+}
+
 /**
  * Page-level motion wiring, installed once by AppShell.
  *
  * 1. Shelves reveal as they scroll into view rather than all burning their
  *    entrance animation on mount — previously every shelf below the fold had
- *    already finished animating by the time you reached it.
+ *    already finished animating by the time you reached it. A grid that is
+ *    already on screen when it mounts is shown as it is, before its first
+ *    paint: it is usually replacing something the user was looking at (a
+ *    skeleton, the previous shuffle), and fading it in from nothing blinked
+ *    the whole shelf.
  * 2. Sticky section headers learn when they are actually pinned, so the blur
  *    is only composited for a header that's stuck rather than for all six.
  *
@@ -22,11 +40,20 @@ export default function useShellMotion() {
     const root = document.documentElement
     root.setAttribute('data-motion', 'on')
 
+    const timers = new Set()
     const reveal = new IntersectionObserver((entries) => {
       for (const e of entries) {
         if (!e.isIntersecting) continue
-        e.target.classList.add('is-revealed')
-        reveal.unobserve(e.target)
+        const grid = e.target
+        reveal.unobserve(grid)
+        grid.classList.add('is-revealed', 'is-arriving')
+        // The stagger plays once. Cards that arrive in this grid later (a
+        // shuffle, the next page of results) just appear in place.
+        const id = setTimeout(() => {
+          timers.delete(id)
+          grid.classList.remove('is-arriving')
+        }, ENTRANCE_MS)
+        timers.add(id)
       }
     }, { rootMargin: '0px 0px -6% 0px', threshold: 0.01 })
 
@@ -50,20 +77,48 @@ export default function useShellMotion() {
     }
     buildStuckObserver()
 
+    // Each grid is looked at once, when it first appears. Run from the
+    // mutation callback, a microtask after React's commit and its layout
+    // effects (RouteFade's scroll reset included), so the check sees the
+    // final position and lands before the browser paints; the observer
+    // alone reports a frame later, after the grid has painted hidden.
+    const seen = new WeakSet()
+    const scanGrids = () => {
+      const fresh = []
+      document.querySelectorAll('.card-grid:not(.is-revealed)').forEach((el) => {
+        if (!seen.has(el)) { seen.add(el); fresh.push(el) }
+      })
+      if (!fresh.length) return
+      const w = window.innerWidth
+      const h = window.innerHeight
+      const shown = []
+      for (const el of fresh) {
+        if (isOnScreen(el.getBoundingClientRect(), w, h)) shown.push(el)
+        else reveal.observe(el)
+      }
+      if (!shown.length) return
+      // Measuring styled the new cards hidden, so revealing them now would run
+      // the card's own opacity transition up from 0. One style pass with
+      // transitions off (is-instant) lands them visible with nothing to fade.
+      for (const el of shown) el.classList.add('is-revealed', 'is-instant')
+      void document.body.offsetHeight
+      for (const el of shown) el.classList.remove('is-instant')
+    }
+
     let queued = false
-    const scan = () => {
+    const scanHeaders = () => {
       queued = false
-      document.querySelectorAll('.card-grid:not(.is-revealed)').forEach(el => reveal.observe(el))
       document.querySelectorAll('.section-header').forEach(el => stuck.observe(el))
     }
-    scan()
+    scanGrids()
 
     // Routes are lazy and their data arrives async, so shelves appear well
-    // after mount. Re-scan on DOM changes, coalesced to one pass per frame.
+    // after mount. Re-scan on DOM changes; headers coalesce to one pass a frame.
     const mutations = new MutationObserver(() => {
+      scanGrids()
       if (queued) return
       queued = true
-      requestAnimationFrame(scan)
+      requestAnimationFrame(scanHeaders)
     })
     mutations.observe(document.body, { childList: true, subtree: true })
 
@@ -78,6 +133,7 @@ export default function useShellMotion() {
       reveal.disconnect()
       stuck?.disconnect()
       mutations.disconnect()
+      timers.forEach(clearTimeout)
       breakpoint.removeEventListener('change', onBreakpoint)
       stopTracking()
     }
