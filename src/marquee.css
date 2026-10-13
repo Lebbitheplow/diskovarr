@@ -638,6 +638,15 @@
   box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--velvet-text) 25%, transparent);
 }
 
+/* A top pick held only in a library the user can't access: a note, not an action */
+.spotlight-btn.is-restricted,
+.spotlight-btn.is-restricted:hover {
+  background: var(--cream-fill);
+  color: var(--text-secondary);
+  cursor: default;
+  transform: none;
+}
+
 /* "Details" is always the last action: it becomes a text link with an arrow */
 .spotlight-actions > .spotlight-btn-ghost:last-child {
   background: none;
@@ -1064,6 +1073,14 @@
 
 .detail-action:active:not(:disabled) { transform: scale(0.97); }
 .detail-action:disabled { opacity: 0.6; cursor: default; }
+
+/* A title held only in a library the user can't access: a note, not an action */
+.detail-action.is-restricted,
+.detail-action.is-restricted:hover {
+  background: var(--cream-fill);
+  color: var(--text-secondary);
+  cursor: default;
+}
 
 .detail-cast-picker { margin: -12px 0 20px; }
 

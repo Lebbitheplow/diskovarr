@@ -34,8 +34,8 @@ class NotificationManager {
     return active;
   }
 
-  // Enqueue a notification for the polling queue (with bundling).
-  // This is the primary path for request/issue notifications.
+  // Enqueue a notification for the polling queue (with bundling). userId is
+  // the recipient the worker delivers to (see enqueueForUser in ./index.js).
   enqueue(notificationId, agentKey, userId, payload, sendAfter) {
     const agent = this.agents.get(agentKey);
     if (!agent) {
@@ -76,17 +76,21 @@ class NotificationManager {
     return agent.sendTest(payload);
   }
 
-  // Broadcast to all agents
-  sendBroadcast(message) {
-    const promises = [];
-    for (const { key, agent } of this.getActiveAgents()) {
-      promises.push(
-        agent.sendBroadcast(message).catch((err) => {
-          logger.warn(`NotificationManager: broadcast failed for ${key}:`, err.message);
-        })
-      );
-    }
-    return Promise.all(promises);
+  // Broadcast to all agents. Resolves to { [agentKey]: { attempted, sent, failed } }
+  // — real per-destination delivery counts, not "the agent was called".
+  async sendBroadcast(message) {
+    const results = {};
+    await Promise.all(this.getActiveAgents().map(async ({ key, agent }) => {
+      try {
+        const tally = await agent.sendBroadcast(message);
+        results[key] = tally && typeof tally === 'object' && 'attempted' in tally
+          ? tally : { attempted: 0, sent: 0, failed: 0 };
+      } catch (err) {
+        logger.warn(`NotificationManager: broadcast failed for ${key}:`, err.message);
+        results[key] = { attempted: 1, sent: 0, failed: 1 };
+      }
+    }));
+    return results;
   }
 
   // Get all registered agent keys

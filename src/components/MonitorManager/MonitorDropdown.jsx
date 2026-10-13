@@ -11,6 +11,7 @@ export default function MonitorDropdown({ item, onClose, buttonClassName = 'moda
   const [creating, setCreating] = useState(false)
   const [saving, setSaving] = useState(false)
   const ref = useRef(null)
+  const toggleRef = useRef(null)
 
   useEffect(() => {
     const handler = (e) => {
@@ -36,6 +37,10 @@ export default function MonitorDropdown({ item, onClose, buttonClassName = 'moda
 
   const handleCustom = (label, criteria) => {
     const name = `All ${label} content`
+    // The focused menu item unmounts in the same commit the editor mounts, so
+    // hand focus to the toggle first: the editor's layer records it as the
+    // element to refocus when it closes.
+    toggleRef.current?.focus()
     setCreating({ name, criteria })
     setOpen(false)
   }
@@ -111,6 +116,7 @@ export default function MonitorDropdown({ item, onClose, buttonClassName = 'moda
   return (
     <div className="modal-monitor-wrap" ref={ref}>
       <button
+        ref={toggleRef}
         className={buttonClassName + (open ? ' is-open' : '')}
         onClick={() => setOpen(!open)}
         disabled={saving}

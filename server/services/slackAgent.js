@@ -2,6 +2,7 @@ const logger = require('./logger');
 const BaseAgent = require('./notificationAgents/base');
 const { hasNotificationType, TYPE_COLORS } = require('./notificationAgents/types');
 const { toPlainText } = require('./messageFormat');
+const { resolveAudience, runTargets, skipped, ensureOk, emptyTally, tallySend } = require('./notificationAgents/delivery');
 
 // Slack Block Kit agent for incoming webhooks
 
@@ -94,30 +95,29 @@ class SlackAgent extends BaseAgent {
     };
   }
 
-  async send(type, payload) {
+  // Admin feed only — Slack has no per-user destination.
+  async send(type, payload, ctx) {
     const settings = this.getSettings();
-    if (!settings || !settings.enabled || !settings.webhookUrl) return;
-    if (!this.shouldSendType(type)) return;
+    if (!settings || !settings.enabled || !settings.webhookUrl) return skipped('Slack disabled');
+    if (!this.shouldSendType(type)) return skipped(`type ${type} not selected`);
+    if (!resolveAudience(payload, ctx).feed) return skipped('feed copy carried by another queue row');
+    const result = await runTargets([{ id: 'feed', send: () => this.deliver(type, payload) }], ctx);
+    if (result.error) logger.warn('Slack agent error:', result.error);
+    return result;
+  }
 
-    try {
-      const body = this.buildPayload(type, payload);
-      logger.debug(`Slack: sending webhook to ${settings.webhookUrl}`);
-
-      const res = await fetch(settings.webhookUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(10000),
-      });
-
-      if (!res.ok) {
-        throw new Error(`Slack ${res.status}: ${await res.text().catch(() => '')}`);
-      }
-      return true;
-    } catch (err) {
-      logger.warn('Slack agent error:', err.message);
-      return false;
-    }
+  async deliver(type, payload) {
+    const settings = this.getSettings();
+    const body = this.buildPayload(type, payload);
+    logger.debug(`Slack: sending webhook to ${settings.webhookUrl}`);
+    const res = await fetch(settings.webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(10000),
+    });
+    await ensureOk(res, 'Slack');
+    return true;
   }
 
   async sendTest(payload) {
@@ -142,11 +142,15 @@ class SlackAgent extends BaseAgent {
     return true;
   }
 
+  // Broadcasts bypass the type filter. Returns { attempted, sent, failed }.
   async sendBroadcast(message) {
-    await this.send('broadcast', {
-      title: 'Message from Server Admin',
-      body: toPlainText(message),
-    });
+    const tally = emptyTally();
+    const settings = this.getSettings();
+    if (!settings || !settings.enabled || !settings.webhookUrl) return tally;
+    await tallySend(tally,
+      () => this.deliver('broadcast', { title: 'Message from Server Admin', body: toPlainText(message) }),
+      (err) => logger.warn('Slack broadcast failed:', err.message));
+    return tally;
   }
 }
 

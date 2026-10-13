@@ -13,8 +13,10 @@
 const fs = require('fs');
 const path = require('path');
 const logger = require('./logger');
+const { dataPath } = require('../utils/dataDir');
 
-const CACHE_DIR = path.join(__dirname, '../data/og-cache');
+// Lives with the rest of the runtime data (DISKOVARR_DATA_DIR), not the source tree
+const CACHE_DIR = dataPath('og-cache');
 const MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000; // sweep files untouched for 30 days
 
 function ensureDir() {
@@ -91,4 +93,4 @@ function sweepJob() {
   }
 }
 
-module.exports = { getOrCreate, invalidate, sweepJob };
+module.exports = { getOrCreate, invalidate, sweepJob, CACHE_DIR };

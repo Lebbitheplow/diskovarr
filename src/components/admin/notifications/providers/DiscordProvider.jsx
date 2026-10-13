@@ -4,7 +4,11 @@ import { adminNotifications, adminSettings } from '../../../../services/adminApi
 import {
   WEBHOOK_NOTIFICATION_TYPES, BOT_NOTIFICATION_TYPES,
   DEFAULT_WEBHOOK_TYPES, DEFAULT_BOT_TYPES,
+  initialTypeSelection, isTypeOptionChecked, toggleTypeOption, normalizeTypeSelection,
 } from '../constants'
+
+// Same list as the picker's accept attribute; the server re-checks the file bytes
+const AVATAR_TYPES = ['image/png', 'image/jpeg', 'image/gif']
 
 function Checkbox({ checked, onChange, children, style }) {
   return (
@@ -30,10 +34,10 @@ export default function DiscordProvider({ initial, onToast, onOpenAgentInfo, onS
   const [webhookEmbedPoster, setWebhookEmbedPoster] = useState(!!initial?.webhookEmbedPoster)
   const [botEmbedPoster, setBotEmbedPoster] = useState(!!initial?.botEmbedPoster)
   const [webhookNotifTypes, setWebhookNotifTypes] = useState(
-    (initial?.webhookNotificationTypes || []).length > 0 ? initial.webhookNotificationTypes : [...DEFAULT_WEBHOOK_TYPES]
+    () => initialTypeSelection(initial?.webhookNotificationTypes, DEFAULT_WEBHOOK_TYPES)
   )
   const [botNotifTypes, setBotNotifTypes] = useState(
-    (initial?.botNotificationTypes || []).length > 0 ? initial.botNotificationTypes : [...DEFAULT_BOT_TYPES]
+    () => initialTypeSelection(initial?.botNotificationTypes, DEFAULT_BOT_TYPES)
   )
   const [inviteLink, setInviteLink] = useState(initial?.inviteLink || '')
   const [discordTestUserId, setDiscordTestUserId] = useState('')
@@ -42,16 +46,21 @@ export default function DiscordProvider({ initial, onToast, onOpenAgentInfo, onS
   const [avatarRemoving, setAvatarRemoving] = useState(false)
   const [testing, setTesting] = useState(false)
 
-  const getChecked = useCallback((types, value) => types.includes(value), [])
-  const toggleType = useCallback((setTypes, value) => {
-    setTypes(prev => prev.includes(value) ? prev.filter(t => t !== value) : [...prev, value])
+  const getChecked = useCallback((types, option) => isTypeOptionChecked(types, option), [])
+  const toggleType = useCallback((setTypes, option) => {
+    setTypes(prev => toggleTypeOption(prev, option))
   }, [])
-  const collectTypes = useCallback((types) => types.filter(t => t), [])
+  const collectTypes = useCallback((types) => normalizeTypeSelection(types), [])
 
   const handleSave = useCallback(async () => {
     try {
-      if (avatarRemoving) await adminSettings.setDiscordAvatar('', true)
-      else if (avatarFileData) await adminSettings.setDiscordAvatar(avatarFileData, false)
+      try {
+        if (avatarRemoving) await adminSettings.setDiscordAvatar('', true)
+        else if (avatarFileData) await adminSettings.setDiscordAvatar(avatarFileData, false)
+      } catch (err) {
+        // The server says why (too large, not an image…); keep its message
+        throw new Error('Avatar upload failed: ' + (err.message || 'unknown error'))
+      }
 
       const saved = {
         enabled, webhookEnabled, botEnabled, webhookUrl,
@@ -96,6 +105,7 @@ export default function DiscordProvider({ initial, onToast, onOpenAgentInfo, onS
     const file = e.target.files?.[0]
     if (!file) return
     if (file.size > 2 * 1024 * 1024) { if (onToast) onToast('File must be under 2MB', 'error'); e.target.value = ''; return }
+    if (file.type && !AVATAR_TYPES.includes(file.type)) { if (onToast) onToast('Avatar must be a PNG, JPG, or GIF image', 'error'); e.target.value = ''; return }
     const reader = new FileReader()
     reader.onload = (ev) => { setAvatarPreview(ev.target.result); setAvatarFileData(ev.target.result); setAvatarRemoving(false) }
     reader.readAsDataURL(file)
@@ -139,7 +149,7 @@ export default function DiscordProvider({ initial, onToast, onOpenAgentInfo, onS
             <p style={{ fontSize: '0.72rem', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-secondary)', margin: '0 0 8px' }}>{t('Notification Types')}</p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
               {WEBHOOK_NOTIFICATION_TYPES.map(t => (
-                <Checkbox key={t.value} checked={getChecked(webhookNotifTypes, t.value)} onChange={() => toggleType(setWebhookNotifTypes, t.value)}>
+                <Checkbox key={t.value} checked={getChecked(webhookNotifTypes, t)} onChange={() => toggleType(setWebhookNotifTypes, t)}>
                   {t.label}{t.meta && <span style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>{t.meta}</span>}
                 </Checkbox>
               ))}
@@ -193,7 +203,7 @@ export default function DiscordProvider({ initial, onToast, onOpenAgentInfo, onS
             <p style={{ fontSize: '0.72rem', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-secondary)', margin: '0 0 8px' }}>{t('Notification Types')}</p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
               {BOT_NOTIFICATION_TYPES.map(t => (
-                <Checkbox key={t.value} checked={getChecked(botNotifTypes, t.value)} onChange={() => toggleType(setBotNotifTypes, t.value)}>
+                <Checkbox key={t.value} checked={getChecked(botNotifTypes, t)} onChange={() => toggleType(setBotNotifTypes, t)}>
                   {t.label}{t.meta && <span style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>{t.meta}</span>}
                 </Checkbox>
               ))}

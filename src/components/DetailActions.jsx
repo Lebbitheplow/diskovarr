@@ -10,6 +10,8 @@ import MonitorDropdown from './MonitorManager/MonitorDropdown'
 //   DetailActionBar — sits under the title block: the one primary action
 //     (watchlist, or request/notify for titles not in the library) followed
 //     by the ways to watch it (play on a device, watch together, movie night).
+//     A title held only in a library the user can't access ("restricted")
+//     shows a note in place of all of these.
 //   DetailManageRow — a quiet footer under the tab content for everything
 //     about managing the title rather than watching it: missing seasons,
 //     monitors, reporting an issue, TMDB, and "not interested" pinned right.
@@ -29,6 +31,7 @@ const ICONS = {
   flag: <><path d="M5 21V4" {...S} /><path d="M5 4.5c3-1.8 6 1.8 9 0s5-.5 5-.5v9s-2-1.3-5 .5-6-1.8-9 0" {...S} /></>,
   external: <><path d="M14 4h6v6M20 4l-9 9" {...S} /><path d="M18 14v4.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 4 18.5v-11A1.5 1.5 0 0 1 5.5 6H10" {...S} /></>,
   hide: <><path d="M3 3l18 18" {...S} /><path d="M10.6 5.1A9.7 9.7 0 0 1 12 5c6.5 0 10.5 7 10.5 7a17 17 0 0 1-3.2 3.9M6.6 6.6C3.4 8.5 1.5 12 1.5 12S5.5 19 12 19a9.6 9.6 0 0 0 5.4-1.6" {...S} /><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" {...S} /></>,
+  lock: <><rect x="5" y="11" width="14" height="10" rx="2" {...S} /><path d="M8 11V7.5a4 4 0 0 1 8 0V11" {...S} /></>,
 }
 
 function ActionIcon({ name }) {
@@ -40,17 +43,23 @@ function ActionIcon({ name }) {
 }
 
 export function DetailActionBar({
-  item, inLibrary, inWatchlist,
+  item, inLibrary, inWatchlist, restricted = false,
   onWatchlist, onRequest, onNotify, onMovieNight, onWatchTogether,
 }) {
   const { t } = useTranslation()
   const { castOpen, castLoading, castingId, clients, handleCastClick, handleCastMedia, canCast, noClientsMessage } = useCastPlayer()
-  const castable = inLibrary && canCast(item)
+  const castable = inLibrary && !restricted && canCast(item)
 
   return (
     <>
       <div className="detail-actions">
-        {inLibrary ? (
+        {restricted ? (
+          // Nothing to play, request or follow: the server owner decides who sees it
+          <span className="detail-action detail-action-primary is-restricted" role="note" title={t('Ask the server owner for access')}>
+            <ActionIcon name="lock" />
+            {t('In a library you don\'t have access to')}
+          </span>
+        ) : inLibrary ? (
           <button
             className={'modal-btn modal-btn-watchlist detail-action-primary' + (inWatchlist ? ' in-watchlist' : '')}
             onClick={onWatchlist}

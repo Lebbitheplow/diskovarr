@@ -1,6 +1,9 @@
 const db = require('../db/database');
 const logger = require('./logger');
 const { forDiscord } = require('./messageFormat');
+const { hasNotificationType } = require('./notificationAgents/types');
+const { resolveAudience, runTargets, skipped, ensureOk, httpError, permanentError, emptyTally, tallySend } = require('./notificationAgents/delivery');
+const { isDiscordWebhookUrl } = require('./notificationAgents/destinations');
 
 function getConfig() {
   const raw = db.getSetting('discord_agent', null);
@@ -23,8 +26,13 @@ const TYPE_COLORS = {
 
 // ── Webhook mode ───────────────────────────────────────────────────────────────
 
-async function sendWebhookEmbed({ webhookUrl, title, description, color, url, posterUrl, mentionRole, botUsername, botAvatarUrl }) {
+// `personal` marks a user-supplied webhook: it must be a Discord webhook URL
+// (checked again here, not only at save time) and redirects are refused.
+async function sendWebhookEmbed({ webhookUrl, title, description, color, url, posterUrl, mentionRole, botUsername, botAvatarUrl, personal = false }) {
   if (!webhookUrl) return;
+  if (personal && !isDiscordWebhookUrl(webhookUrl)) {
+    throw permanentError('Personal webhook is not a Discord webhook URL');
+  }
   const embed = { title, description, color: color || 0xe5a00d };
   if (url) embed.url = url;
   if (posterUrl) embed.thumbnail = { url: posterUrl };
@@ -37,8 +45,9 @@ async function sendWebhookEmbed({ webhookUrl, title, description, color, url, po
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
     signal: AbortSignal.timeout(10000),
+    ...(personal ? { redirect: 'error' } : {}),
   });
-  if (!res.ok) throw new Error(`Discord webhook ${res.status}: ${await res.text().catch(() => '')}`);
+  await ensureOk(res, 'Discord webhook');
 }
 
 // ── Bot / DM mode ──────────────────────────────────────────────────────────────
@@ -59,9 +68,11 @@ async function discordRequest(method, path, body, botToken) {
   if (!res.ok) {
     const text = await res.text().catch(() => '');
     if (res.status === 403 && text.includes('50007')) {
-      throw new Error('Cannot send DM — the bot must share a server with the user (Discord error 50007)');
+      throw permanentError('Cannot send DM — the bot must share a server with the user (Discord error 50007)');
     }
-    throw new Error(`Discord API ${res.status}: ${text}`);
+    let retryAfter = res.headers?.get?.('retry-after');
+    if (res.status === 429) { try { retryAfter = JSON.parse(text).retry_after ?? retryAfter; } catch { /* keep header */ } }
+    throw httpError('Discord API', res.status, text, retryAfter);
   }
   if (res.status === 204) return null;
   return res.json();
@@ -112,12 +123,15 @@ function _resolveBotEnabled(config) {
   return config.enabled && config.mode === 'bot';
 }
 
-async function sendNotification({ type, title, body, posterUrl, userId, url }) {
+// Feed: the channel webhook. Personal: the recipient's own webhook and bot DM.
+// Returns a DeliveryResult (see notificationAgents/delivery.js).
+async function sendNotification({ type, title, body, posterUrl, userId, url }, ctx) {
   const config = getConfig();
   if (!config || !config.enabled) {
     logger.debug('Discord: agent disabled or no config, skipping');
-    return;
+    return skipped('Discord disabled');
   }
+  const { recipientId, feed } = resolveAudience({ userId }, ctx);
 
   // Backward compat: migrate old single notificationTypes to both webhook/bot types
   const webhookTypes = config.webhookNotificationTypes || config.notificationTypes || [];
@@ -127,65 +141,51 @@ async function sendNotification({ type, title, body, posterUrl, userId, url }) {
   const webhookEmbedPoster = config.webhookEmbedPoster !== undefined ? config.webhookEmbedPoster : config.embedPoster;
   const botEmbedPoster     = config.botEmbedPoster     !== undefined ? config.botEmbedPoster     : config.embedPoster;
 
-  const embed = {
-    title,
-    description: body || '',
-    color: TYPE_COLORS[type] || 0xe5a00d,
-  };
+  const color = TYPE_COLORS[type] || 0xe5a00d;
+  const embed = { title, description: body || '', color };
   if (url) embed.url = url;
   if (botEmbedPoster && posterUrl) embed.image = { url: posterUrl };
 
   // Resolve avatar URL: explicit URL > publicUrl-derived > none
   const avatarUrl = config.botAvatarUrl || (config.publicUrl ? `${config.publicUrl}/discord-avatar.png` : null);
-
-  const webhookEnabled = _resolveWebhookEnabled(config);
-  const botEnabled = _resolveBotEnabled(config);
+  const prefs = recipientId ? db.getUserNotificationPrefs(recipientId) : null;
+  const targets = [];
 
   // Webhook path — independent of bot
-  if (webhookEnabled && config.webhookUrl && webhookTypes.includes(type)) {
-    try {
-      const webhookEmbed = { title, description: body || '', color: TYPE_COLORS[type] || 0xe5a00d };
-      if (url) webhookEmbed.url = url;
-      await sendWebhookEmbed({
+  if (_resolveWebhookEnabled(config) && config.webhookUrl && hasNotificationType(webhookTypes, type)) {
+    const webhookEmbed = { title, description: body || '', color, ...(url ? { url } : {}) };
+    if (feed) {
+      targets.push({ id: 'feed', send: () => sendWebhookEmbed({
         webhookUrl: config.webhookUrl,
         ...webhookEmbed,
         posterUrl: webhookEmbedPoster ? posterUrl : null,
         mentionRole: config.enableMentions ? config.notificationRoleId : null,
         botUsername: config.botUsername,
         botAvatarUrl: avatarUrl,
-      });
-    } catch (err) {
-      logger.warn('Discord webhook error:', err.message);
+      }) });
     }
     // Per-user personal webhook (webhook path only)
-    if (userId) {
-      const prefs = db.getUserNotificationPrefs(userId);
-      if (prefs?.discord_enabled && prefs?.discord_webhook && prefs.discord_webhook !== config.webhookUrl) {
-        try {
-          const userEmbed = { title, description: body || '', color: TYPE_COLORS[type] || 0xe5a00d };
-          if (url) userEmbed.url = url;
-          await sendWebhookEmbed({ webhookUrl: prefs.discord_webhook, ...userEmbed, posterUrl: webhookEmbedPoster ? posterUrl : null, botAvatarUrl: avatarUrl });
-        } catch (err) {
-          logger.warn('Discord per-user webhook error:', err.message);
-        }
-      }
+    if (prefs?.discord_enabled && prefs?.discord_webhook && prefs.discord_webhook !== config.webhookUrl) {
+      targets.push({ id: 'user_webhook', send: () => sendWebhookEmbed({
+        webhookUrl: prefs.discord_webhook, ...webhookEmbed,
+        posterUrl: webhookEmbedPoster ? posterUrl : null, botAvatarUrl: avatarUrl, personal: true,
+      }) });
     }
   }
 
   // Bot path — independent of webhook
-  if (botEnabled && config.botToken && botTypes.includes(type)) {
-    const prefs = userId ? db.getUserNotificationPrefs(userId) : null;
+  if (_resolveBotEnabled(config) && config.botToken && hasNotificationType(botTypes, type)) {
     const discordUserId = prefs?.discord_user_id;
     if (!discordUserId || !prefs?.discord_enabled) {
-      logger.debug(`Discord: userId=${userId} has no discordUserId or discord_enabled=false, skipping bot DM`);
+      logger.debug(`Discord: userId=${recipientId} has no discordUserId or discord_enabled=false, skipping bot DM`);
     } else {
-      try {
-        await sendBotDm(discordUserId, embed, config.botToken, config.botUsername);
-      } catch (err) {
-        logger.warn(`Discord DM to ${discordUserId} failed:`, err.message);
-      }
+      targets.push({ id: 'user_dm', send: () => sendBotDm(discordUserId, embed, config.botToken, config.botUsername) });
     }
   }
+
+  const result = await runTargets(targets, ctx);
+  if (result.error) logger.warn(`Discord delivery (${type}) problem: ${result.error}`);
+  return result;
 }
 
 // ── Test ───────────────────────────────────────────────────────────────────────
@@ -208,38 +208,33 @@ async function sendTest({ mode, webhookUrl, botToken, discordUserId, botUsername
 
 // ── Broadcast (admin message to all users, bypasses type filter) ───────────────
 
+// Returns { attempted, sent, failed } across the channel webhook and bot DMs.
 async function sendBroadcast(message) {
+  const tally = emptyTally();
   const config = getConfig();
-  if (!config || !config.enabled) return;
+  if (!config || !config.enabled) return tally;
   message = forDiscord(message);
 
   const avatarUrl = config.botAvatarUrl || (config.publicUrl ? `${config.publicUrl}/discord-avatar.png` : null);
   const embed = { title: 'Message from Server Admin', description: message, color: 0xe5a00d };
 
-  const webhookEnabled = _resolveWebhookEnabled(config);
-  const botEnabled = _resolveBotEnabled(config);
-
-  if (webhookEnabled && config.webhookUrl) {
-    try {
-      await sendWebhookEmbed({ webhookUrl: config.webhookUrl, title: embed.title, description: message, color: 0xe5a00d, botUsername: config.botUsername, botAvatarUrl: avatarUrl });
-    } catch (err) {
-      logger.warn('Discord broadcast webhook error:', err.message);
-    }
+  if (_resolveWebhookEnabled(config) && config.webhookUrl) {
+    await tallySend(tally,
+      () => sendWebhookEmbed({ webhookUrl: config.webhookUrl, title: embed.title, description: message, color: 0xe5a00d, botUsername: config.botUsername, botAvatarUrl: avatarUrl }),
+      (err) => logger.warn('Discord broadcast webhook error:', err.message));
   }
 
-  if (botEnabled && config.botToken) {
-    const users = db.getKnownUsers();
-    for (const user of users) {
+  if (_resolveBotEnabled(config) && config.botToken) {
+    for (const user of db.getKnownUsers()) {
       const prefs = db.getUserNotificationPrefs(user.user_id);
       if (prefs?.discord_user_id && prefs?.discord_enabled) {
-        try {
-          await sendBotDm(prefs.discord_user_id, embed, config.botToken, config.botUsername);
-        } catch (err) {
-          logger.warn(`Discord broadcast DM to ${prefs.discord_user_id} failed:`, err.message);
-        }
+        await tallySend(tally,
+          () => sendBotDm(prefs.discord_user_id, embed, config.botToken, config.botUsername),
+          (err) => logger.warn(`Discord broadcast DM to ${prefs.discord_user_id} failed:`, err.message));
       }
     }
   }
+  return tally;
 }
 
 // ── Manager compatibility layer ───────────────────────────────────────────────
@@ -255,12 +250,12 @@ function shouldSendType(diskovarrType) {
   const webhookTypes = config.webhookNotificationTypes || config.notificationTypes || [];
   const botTypes = config.botNotificationTypes || config.notificationTypes || [];
   // Check both webhook and bot types
-  return webhookTypes.includes(diskovarrType) || botTypes.includes(diskovarrType);
+  return hasNotificationType(webhookTypes, diskovarrType) || hasNotificationType(botTypes, diskovarrType);
 }
 
-// Manager interface: send(type, payload)
-async function sendForManager(type, payload) {
-  return sendNotification({ type, title: payload.title, body: payload.body, posterUrl: payload.posterUrl, userId: payload.userId, url: payload.url });
+// Manager interface: send(type, payload, ctx)
+async function sendForManager(type, payload, ctx) {
+  return sendNotification({ type, title: payload.title, body: payload.body, posterUrl: payload.posterUrl, userId: payload.userId, url: payload.url }, ctx);
 }
 
 module.exports = {

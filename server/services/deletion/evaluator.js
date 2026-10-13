@@ -155,37 +155,47 @@ function isExcluded(item, ctx, exclusions, minAge) {
   return null;
 }
 
+function minAgeFor(profile) {
+  const explicitMinAge = Number((profile.exclusions || {}).minAgeDays) || 0;
+  return explicitMinAge > 0
+    ? explicitMinAge
+    : (usesWatchData(profile) ? DEFAULT_WATCH_MIN_AGE_DAYS : 0);
+}
+
+/**
+ * Evaluate one item against one profile: { reasons } when it matches,
+ * { excluded: reason } when it matches but an exclusion protects it, null
+ * when it doesn't match. A profile with zero criteria matches nothing.
+ */
+function evaluateItem(profile, item, ctx) {
+  const criteria = profile.criteria || [];
+  if (criteria.length === 0) return null;
+  if (item.type !== (profile.mediaType === 'show' ? 'show' : 'movie')) return null;
+  const reasons = [];
+  for (const criterion of criteria) {
+    const reason = matchCriterion(item, ctx, criterion);
+    if (!reason) return null;
+    reasons.push(reason);
+  }
+  const excluded = isExcluded(item, ctx, profile.exclusions || {}, minAgeFor(profile));
+  return excluded ? { excluded } : { reasons };
+}
+
 /**
  * Evaluate one profile over the library. Returns { matches, excluded } where
  * matches = [{ item, reasons }]. A profile with zero criteria matches nothing —
  * an empty profile must never mean "delete everything".
  */
 function evaluateProfile(profile, items, ctx) {
-  const criteria = profile.criteria || [];
   const matches = [];
   let excluded = 0;
-  if (criteria.length === 0) return { matches, excluded };
-
-  const wantType = profile.mediaType === 'show' ? 'show' : 'movie';
-  const exclusions = profile.exclusions || {};
-  const explicitMinAge = Number(exclusions.minAgeDays) || 0;
-  const minAge = explicitMinAge > 0
-    ? explicitMinAge
-    : (usesWatchData(profile) ? DEFAULT_WATCH_MIN_AGE_DAYS : 0);
   for (const item of items) {
-    if (item.type !== wantType) continue;
-    const reasons = [];
-    let all = true;
-    for (const criterion of criteria) {
-      const reason = matchCriterion(item, ctx, criterion);
-      if (!reason) { all = false; break; }
-      reasons.push(reason);
-    }
-    if (!all) continue;
-    if (isExcluded(item, ctx, exclusions, minAge)) { excluded++; continue; }
-    matches.push({ item, reasons });
+    const result = evaluateItem(profile, item, ctx);
+    if (!result) continue;
+    if (result.excluded) excluded++;
+    else matches.push({ item, reasons: result.reasons });
   }
   return { matches, excluded };
 }
 
-module.exports = { evaluateProfile, usesWatchData, matchCriterion, statsFor, DEFAULT_WATCH_MIN_AGE_DAYS };
+module.exports = { evaluateProfile, evaluateItem, usesWatchData, matchCriterion, statsFor, DEFAULT_WATCH_MIN_AGE_DAYS };

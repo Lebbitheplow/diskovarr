@@ -118,6 +118,186 @@ describe('tuberrHealth.check', () => {
   })
 })
 
+// Records every call so the Sonarr writes (method, path, body) can be checked
+function mockSonarr({ clients, indexers }) {
+  const calls = []
+  globalThis.fetch = async (url, opts = {}) => {
+    const u = new URL(String(url))
+    const method = opts.method || 'GET'
+    calls.push({ method, path: u.pathname, body: opts.body ? JSON.parse(opts.body) : null })
+    const reply = (body) => ({ ok: true, status: 200, json: async () => body, text: async () => JSON.stringify(body) })
+    if (u.pathname === '/manage/health') return reply({ ok: true, sonarr: true, youtubeKey: true, ytDlp: '2026.08.19', ytDlpStatus: {} })
+    if (u.pathname === '/manage/status') return reply({ recentFailures: [], staging: { bytes: 0 } })
+    if (u.pathname === '/api/v3/tag') return reply([{ id: 3, label: 'yt' }])
+    if (u.pathname === '/api/v3/downloadclient' && method === 'GET') return reply(clients)
+    if (u.pathname === '/api/v3/indexer' && method === 'GET') return reply(indexers)
+    if (method === 'PUT' || method === 'POST') return reply({ id: 5, ...JSON.parse(opts.body) })
+    return { ok: false, status: 404, json: async () => ({}), text: async () => 'not found' }
+  }
+  return calls
+}
+
+describe('Sonarr download-client credentials (S01)', () => {
+  const indexer = { id: 7, name: 'Tuberr (YouTube)', enableRss: true, enableAutomaticSearch: true, downloadClientId: 5,
+    fields: [{ name: 'baseUrl', value: 'http://192.168.1.27:9832/torznab' }, { name: 'apiKey', value: 'tk' }] }
+  // Sonarr masks the password in API responses, so wiring looks "ok" either way
+  const client = { id: 5, name: 'Tuberr (YouTube)', enable: true,
+    fields: [{ name: 'host', value: '192.168.1.27' }, { name: 'port', value: 9832 }, { name: 'username', value: 'tuberr' }, { name: 'password', value: '********' }] }
+  const clientWrites = (calls) => calls.filter(c => c.path.startsWith('/api/v3/downloadclient') && c.method !== 'GET')
+  const field = (body, name) => body.fields.find(f => f.name === name)?.value
+
+  beforeAll(() => {
+    db.setSetting('sonarr_url', 'http://sonarr:8989')
+    db.setSetting('sonarr_api_key', 'sk')
+    db.setSetting('tuberr_url', 'http://192.168.1.27:9832')
+    db.setSetting('tuberr_api_key', 'tk')
+    db.setSetting('youtube_enabled', '1')
+  })
+
+  it('setupSonarr logs the download client in as tuberr with the Tuberr API key and records the wiring revision', async () => {
+    db.setSetting('tuberr_sonarr_wiring_rev', '0')
+    const calls = mockSonarr({ clients: [client], indexers: [indexer] })
+    await tuberr.setupSonarr()
+    const [put] = clientWrites(calls)
+    expect(put.method).toBe('PUT')
+    expect(field(put.body, 'username')).toBe('tuberr')
+    expect(field(put.body, 'password')).toBe('tk')
+    expect(db.getSetting('tuberr_sonarr_wiring_rev')).toBe(String(tuberr.SONARR_WIRING_REV))
+    expect(tuberr.sonarrWiringOutdated()).toBe(false)
+  })
+
+  it('health check re-runs setupSonarr once for a client wired with the old fixed password', async () => {
+    db.setSetting('tuberr_auto_wire', '1')
+    db.setSetting('tuberr_sonarr_wiring_rev', '1') // what an upgraded install looks like
+    const calls = mockSonarr({ clients: [client], indexers: [indexer] })
+    const s = await tuberrHealth.check({ force: true })
+    const writes = clientWrites(calls)
+    expect(writes).toHaveLength(1)
+    expect(field(writes[0].body, 'password')).toBe('tk')
+    expect(s.sonarrWiring.ok).toBe(true)
+    expect(s.sonarrWiring.message).toMatch(/auto-repaired/)
+    expect(tuberr.sonarrWiringOutdated()).toBe(false)
+
+    // migrated: later checks leave Sonarr alone
+    const again = mockSonarr({ clients: [client], indexers: [indexer] })
+    await tuberrHealth.check({ force: true })
+    expect(clientWrites(again)).toHaveLength(0)
+  })
+
+  it('keeps retrying the migration while Sonarr rejects it', async () => {
+    db.setSetting('tuberr_auto_wire', '1')
+    db.setSetting('tuberr_sonarr_wiring_rev', '1')
+    mockSonarr({ clients: [client], indexers: [indexer] })
+    const ok = globalThis.fetch
+    let rejectedPuts = 0
+    globalThis.fetch = async (url, opts = {}) => {
+      if (opts.method !== 'PUT') return ok(url, opts)
+      rejectedPuts++
+      return { ok: false, status: 400, json: async () => ({}), text: async () => 'Test was aborted due to an error' }
+    }
+    const s = await tuberrHealth.check() // not forced: an outdated revision bypasses the 6 h wiring interval
+    expect(rejectedPuts).toBe(1)
+    expect(s.sonarrWiring.ok).toBe(false)
+    expect(s.sonarrWiring.message).toMatch(/older version.*auto-repair failed/)
+    expect(s.alerts.some(a => /Sonarr wiring/.test(a))).toBe(true)
+    expect(tuberr.sonarrWiringOutdated()).toBe(true)
+  })
+
+  it('with auto-repair off, alerts instead of touching Sonarr', async () => {
+    db.setSetting('tuberr_auto_wire', '0')
+    db.setSetting('tuberr_sonarr_wiring_rev', '1')
+    const calls = mockSonarr({ clients: [client], indexers: [indexer] })
+    const s = await tuberrHealth.check({ force: true })
+    expect(clientWrites(calls)).toHaveLength(0)
+    expect(s.sonarrWiring.ok).toBe(false)
+    expect(s.sonarrWiring.message).toMatch(/Set up Sonarr/)
+    expect(tuberr.sonarrWiringOutdated()).toBe(true)
+  })
+
+  it('has nothing to migrate when Sonarr has no Tuberr download client', async () => {
+    db.setSetting('tuberr_auto_wire', '0')
+    db.setSetting('tuberr_sonarr_wiring_rev', '1')
+    const calls = mockSonarr({ clients: [], indexers: [indexer] })
+    await tuberrHealth.check({ force: true })
+    expect(clientWrites(calls)).toHaveLength(0)
+    expect(tuberr.sonarrWiringOutdated()).toBe(false)
+  })
+})
+
+describe('Sonarr v4 masked fields', () => {
+  // Sonarr v4 returns the indexer's API key as '********', so a stale key is
+  // judged by the fingerprint of the key setupSonarr last wrote.
+  const masked = { id: 7, name: 'Tuberr (YouTube)', enableRss: true, enableAutomaticSearch: true, downloadClientId: 5,
+    fields: [{ name: 'baseUrl', value: 'http://192.168.1.27:9832/torznab' }, { name: 'apiKey', value: '********' }] }
+  const client = { id: 5, name: 'Tuberr (YouTube)', enable: true,
+    fields: [{ name: 'host', value: '192.168.1.27' }, { name: 'port', value: 9832 }, { name: 'password', value: '********' }] }
+
+  beforeAll(() => {
+    db.setSetting('sonarr_url', 'http://sonarr:8989')
+    db.setSetting('sonarr_api_key', 'sk')
+    db.setSetting('tuberr_url', 'http://192.168.1.27:9832')
+    db.setSetting('tuberr_api_key', 'tk')
+  })
+
+  it('treats a masked key as current once setupSonarr has written this key, and stale after a rotation', async () => {
+    db.setSetting('tuberr_sonarr_wired_key_sha256', '')
+    mockSonarr({ clients: [client], indexers: [masked] })
+    expect((await tuberr.verifySonarrWiring()).message).toMatch(/API key is stale/) // never wired by this version
+
+    mockSonarr({ clients: [client], indexers: [masked] })
+    await tuberr.setupSonarr()
+    mockSonarr({ clients: [client], indexers: [masked] })
+    expect(await tuberr.verifySonarrWiring()).toMatchObject({ ok: true })
+
+    db.setSetting('tuberr_api_key', 'rotated')
+    mockSonarr({ clients: [client], indexers: [masked] })
+    expect((await tuberr.verifySonarrWiring()).message).toMatch(/API key is stale/)
+    db.setSetting('tuberr_api_key', 'tk')
+  })
+
+  it('a healthy masked wiring is not rewritten on every check', async () => {
+    db.setSetting('youtube_enabled', '1')
+    db.setSetting('tuberr_auto_wire', '1')
+    mockSonarr({ clients: [client], indexers: [masked] })
+    await tuberr.setupSonarr()
+    const calls = mockSonarr({ clients: [client], indexers: [masked] })
+    const s = await tuberrHealth.check({ force: true })
+    expect(calls.filter(c => c.method === 'PUT' || c.method === 'POST')).toHaveLength(0)
+    expect(s.sonarrWiring.ok).toBe(true)
+  })
+})
+
+describe('refused download-client logins', () => {
+  const statusWith = (qbitAuth) => {
+    const calls = mockSonarr({ clients: [], indexers: [] })
+    const inner = globalThis.fetch
+    globalThis.fetch = async (url, opts) => (new URL(String(url)).pathname === '/manage/status'
+      ? { ok: true, status: 200, json: async () => ({ recentFailures: [], staging: { bytes: 0 }, qbitAuth }), text: async () => '' }
+      : inner(url, opts))
+    return calls
+  }
+
+  beforeAll(() => {
+    db.setSetting('youtube_enabled', '1')
+    db.setSetting('tuberr_auto_wire', '0')
+  })
+
+  it('alerts when a client has been refused for 10+ minutes without a successful login', async () => {
+    const now = Date.now()
+    statusWith({ lastLoginAt: null, rejectedAt: now - 60e3, rejectingSince: now - 11 * 60e3, rejectedUser: 'admin', rejectedFrom: '10.0.0.5' })
+    const s = await tuberrHealth.check({ force: true })
+    expect(s.alerts.some(a => /refusing a download client's login \(user 'admin' from 10\.0\.0\.5\)/.test(a))).toBe(true)
+  })
+
+  it('stays quiet during a short streak (Sonarr catching up after its wiring changed) and once logins succeed', async () => {
+    const now = Date.now()
+    statusWith({ lastLoginAt: null, rejectedAt: now - 30e3, rejectingSince: now - 2 * 60e3, rejectedUser: 'tuberr', rejectedFrom: '10.0.0.5' })
+    expect((await tuberrHealth.check({ force: true })).alerts.some(a => /refusing/.test(a))).toBe(false)
+    statusWith({ lastLoginAt: now, rejectedAt: now - 20 * 60e3, rejectingSince: null, rejectedUser: 'tuberr', rejectedFrom: '10.0.0.5' })
+    expect((await tuberrHealth.check({ force: true })).alerts.some(a => /refusing/.test(a))).toBe(false)
+  })
+})
+
 describe('tuberrProcess', () => {
   it('reports unmanaged state and an empty log ring without spawning', () => {
     expect(tuberrProcess.isManageable()).toBe(false)

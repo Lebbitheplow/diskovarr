@@ -2,6 +2,7 @@ const logger = require('./logger');
 const BaseAgent = require('./notificationAgents/base');
 const { hasNotificationType } = require('./notificationAgents/types');
 const { toPlainText } = require('./messageFormat');
+const { resolveAudience, runTargets, skipped, ensureOk, emptyTally, tallySend } = require('./notificationAgents/delivery');
 
 // ntfy agent — self-hosted or cloud pub-sub notification service
 // Docs: https://ntfy.sh/docs/publish/
@@ -71,37 +72,37 @@ class NtfyAgent extends BaseAgent {
     return null;
   }
 
-  async send(type, payload) {
+  // Admin feed only — ntfy has no per-user destination.
+  async send(type, payload, ctx) {
     const settings = this.getSettings();
-    if (!settings || !settings.enabled || !settings.url || !settings.topic) return;
-    if (!this.shouldSendType(type)) return;
+    if (!settings || !settings.enabled || !settings.url || !settings.topic) return skipped('ntfy disabled');
+    if (!this.shouldSendType(type)) return skipped(`type ${type} not selected`);
+    if (!resolveAudience(payload, ctx).feed) return skipped('feed copy carried by another queue row');
+    const result = await runTargets([{ id: 'feed', send: () => this.deliver(type, payload) }], ctx);
+    if (result.error) logger.warn('ntfy agent error:', result.error);
+    return result;
+  }
 
-    try {
-      const body = this.buildPayload(type, payload);
-      const headers = { 'Content-Type': 'application/json' };
+  async deliver(type, payload) {
+    const settings = this.getSettings();
+    const body = this.buildPayload(type, payload);
+    const headers = { 'Content-Type': 'application/json' };
 
-      const authHeader = this.buildAuthHeader();
-      if (authHeader) {
-        headers.Authorization = authHeader;
-      }
-
-      logger.debug(`ntfy: sending to ${settings.url} topic=${settings.topic}`);
-
-      const res = await fetch(settings.url.replace(/\/$/, ''), {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(10000),
-      });
-
-      if (!res.ok) {
-        throw new Error(`ntfy ${res.status}: ${await res.text().catch(() => '')}`);
-      }
-      return true;
-    } catch (err) {
-      logger.warn('ntfy agent error:', err.message);
-      return false;
+    const authHeader = this.buildAuthHeader();
+    if (authHeader) {
+      headers.Authorization = authHeader;
     }
+
+    logger.debug(`ntfy: sending to ${settings.url} topic=${settings.topic}`);
+
+    const res = await fetch(settings.url.replace(/\/$/, ''), {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(10000),
+    });
+    await ensureOk(res, 'ntfy');
+    return true;
   }
 
   async sendTest(payload) {
@@ -137,11 +138,15 @@ class NtfyAgent extends BaseAgent {
     return true;
   }
 
+  // Broadcasts bypass the type filter. Returns { attempted, sent, failed }.
   async sendBroadcast(message) {
-    await this.send('broadcast', {
-      title: 'Message from Server Admin',
-      body: toPlainText(message),
-    });
+    const tally = emptyTally();
+    const settings = this.getSettings();
+    if (!settings || !settings.enabled || !settings.url || !settings.topic) return tally;
+    await tallySend(tally,
+      () => this.deliver('broadcast', { title: 'Message from Server Admin', body: toPlainText(message) }),
+      (err) => logger.warn('ntfy broadcast failed:', err.message));
+    return tally;
   }
 }
 

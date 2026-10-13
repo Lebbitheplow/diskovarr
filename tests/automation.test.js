@@ -571,3 +571,95 @@ describe('deletion runProfiles', () => {
     expect(automation.getCandidates({ profileId })).toHaveLength(0)
   })
 })
+
+// ── Approval re-check ─────────────────────────────────────────────────────────
+// A review can wait days; approving must re-evaluate current conditions
+// (watchlists, exclusions, criteria, profile state) before deleting anything.
+// The executor is mocked — nothing here can reach a real server.
+
+describe('deletion approval re-evaluates current conditions', () => {
+  let deleteSpy
+
+  beforeEach(() => {
+    deleteSpy = vi.spyOn(executor, 'deleteItem').mockResolvedValue({ method: 'radarr', notes: [] })
+    vi.spyOn(executor, 'refreshAndEmptyTrash').mockResolvedValue()
+  })
+  afterEach(() => vi.restoreAllMocks())
+
+  function queue(ratingKey, profileFields = {}) {
+    db.upsertManyItems([makeItem({ ratingKey, year: 1990, sectionId: '1' })])
+    const profileId = automation.createDeletionProfile({
+      name: `review-${ratingKey}`, mode: 'review',
+      criteria: [{ field: 'year', op: 'lt', value: 2000 }], ...profileFields,
+    })
+    automation.upsertCandidate({ profileId, ratingKey, title: 'T', mediaType: 'movie', status: 'pending_review' })
+    return { profileId, id: automation.getCandidates({ profileId })[0].id }
+  }
+
+  it('deletes a candidate that still qualifies', async () => {
+    const { id } = queue('re-ok')
+    const result = await deletionService.executeCandidates([id])
+    expect(result).toMatchObject({ deleted: 1, skipped: 0, failed: 0 })
+    expect(deleteSpy).toHaveBeenCalledTimes(1)
+    expect(automation.getCandidateById(id).status).toBe('deleted')
+  })
+
+  it('skips an item watchlisted since it was queued and records why', async () => {
+    const { id } = queue('re-watchlisted')
+    db.addToWatchlistDb('some-user', 're-watchlisted')
+    const result = await deletionService.executeCandidates([id])
+    expect(result).toMatchObject({ deleted: 0, skipped: 1 })
+    expect(deleteSpy).not.toHaveBeenCalled()
+    const row = automation.getCandidateById(id)
+    expect(row.status).toBe('dismissed')
+    expect(row.details.error).toMatch(/watchlist/)
+    db.removeFromWatchlistDb('some-user', 're-watchlisted')
+  })
+
+  it('skips when the profile was disabled, switched to dry-run, or no longer matches', async () => {
+    const disabled = queue('re-disabled')
+    automation.updateDeletionProfile(disabled.profileId, { enabled: false })
+    const dry = queue('re-dry')
+    automation.updateDeletionProfile(dry.profileId, { mode: 'dry_run' })
+    const edited = queue('re-edited')
+    automation.updateDeletionProfile(edited.profileId, { criteria: [{ field: 'year', op: 'lt', value: 1980 }] })
+    const result = await deletionService.executeCandidates([disabled.id, dry.id, edited.id])
+    expect(result.skipped).toBe(3)
+    expect(deleteSpy).not.toHaveBeenCalled()
+    expect(result.skippedItems.map(s => s.reason)).toEqual([
+      'profile is disabled', 'profile is in dry-run mode', 'no longer matches the profile criteria',
+    ])
+  })
+
+  it('never executes history rows (dismissed by an admin, failed, deleted)', async () => {
+    const { id } = queue('re-dismissed')
+    automation.setCandidateStatus(id, 'dismissed')
+    const result = await deletionService.executeCandidates([id])
+    expect(result).toMatchObject({ deleted: 0, skipped: 0, failed: 0 })
+    expect(deleteSpy).not.toHaveBeenCalled()
+  })
+
+  it('re-queues a skipped item for a fresh review once it matches again, but not an admin dismissal', async () => {
+    const skipped = queue('re-requeue')
+    const dismissed = queue('re-keep-dismissed')
+    db.prepare('DELETE FROM deletion_profiles WHERE id NOT IN (?, ?)').run(skipped.profileId, dismissed.profileId)
+    db.prepare('UPDATE deletion_candidates SET first_matched_at = 1 WHERE id = ?').run(skipped.id)
+    automation.setCandidateStatus(dismissed.id, 'dismissed')
+    db.addToWatchlistDb('some-user', 're-requeue')
+    await deletionService.executeCandidates([skipped.id])
+    expect(automation.getCandidateById(skipped.id).status).toBe('dismissed')
+
+    // Still protected: the next run leaves it dismissed
+    await deletionService.runProfiles()
+    expect(automation.getCandidateById(skipped.id).status).toBe('dismissed')
+
+    // Protection gone: it's back in the queue with a new grace anchor
+    db.removeFromWatchlistDb('some-user', 're-requeue')
+    await deletionService.runProfiles()
+    const reopened = automation.getCandidateById(skipped.id)
+    expect(reopened.status).toBe('pending_review')
+    expect(reopened.firstMatchedAt).toBeGreaterThan(1)
+    expect(automation.getCandidateById(dismissed.id).status).toBe('dismissed')
+    expect(deleteSpy).not.toHaveBeenCalled()
+  })
+})

@@ -9,11 +9,20 @@
  *   - square : 1080×1080, for Instagram Stories/Posts and mobile sharing.
  *   - full   : 1200 wide, height grows to fit the whole review (min 630) — the
  *              downloadable image, where truncating the text would lose the review.
+ *              Capped at FULL_MAX_LINES of text (ellipsis past that) and
+ *              FULL_MAX_HEIGHT px, so no review can produce an unbounded bitmap.
  *
  * Spoiler reviews never render their text here — the snippet is replaced with a
  * "Spoiler Review" badge so spoilers can't leak through a public image.
  */
 const { COLORS, accentHex, fetchAsDataUri, truncate, el, txt, brandLogoUri, rasterize } = require('./cardKit');
+
+// Reviews are capped at 2000 characters on write, which fits comfortably; the
+// clamp is for paragraph-break-heavy text (and anything written before the
+// cap), where each short line costs a full 39px row.
+const FULL_MAX_LINES = 36;
+const FULL_MAX_HEIGHT = 2000;
+const FULL_MAX_CHARS = 4000; // layout work is linear in the text — trim before satori
 
 // ── Star row (drawn as an SVG, not an emoji font) ───────────────────────────────
 function starRowDataUri(rating, accent) {
@@ -73,9 +82,10 @@ function buildTree({ posterUri, avatarUri, username, title, year, rating, review
     ]),
   ]);
 
+  const shownTitle = truncate(String(title || ''), 120);
   const titleLine = txt(
     { fontSize: square ? 42 : 40, fontWeight: 600, color: COLORS.text, lineHeight: 1.15 },
-    year ? `${title} (${year})` : title
+    year ? `${shownTitle} (${year})` : shownTitle
   );
 
   const starsRow = el('img', { width: stars.w, height: stars.h }, undefined, stars.uri);
@@ -95,8 +105,8 @@ function buildTree({ posterUri, avatarUri, username, title, year, rating, review
       ])
     : full
       ? txt(
-          { fontSize: 28, color: COLORS.textDim, lineHeight: 1.4, whiteSpace: 'pre-wrap' },
-          (reviewText || '').trim().replace(/\n{3,}/g, '\n\n') || 'No written review.'
+          { fontSize: 28, color: COLORS.textDim, lineHeight: 1.4, whiteSpace: 'pre-wrap', display: 'block', lineClamp: FULL_MAX_LINES },
+          String(reviewText || '').slice(0, FULL_MAX_CHARS).trim().replace(/\n{3,}/g, '\n\n') || 'No written review.'
         )
       : txt(
           { fontSize: square ? 30 : 28, color: COLORS.textDim, lineHeight: 1.4 },
@@ -152,7 +162,7 @@ async function renderPng(cardData, variant = 'og') {
   ]);
 
   const tree = buildTree({ ...cardData, posterUri, avatarUri, square, full, accent });
-  return rasterize(tree, width, height);
+  return rasterize(tree, width, height, full ? { maxHeight: FULL_MAX_HEIGHT } : undefined);
 }
 
-module.exports = { renderPng };
+module.exports = { renderPng, FULL_MAX_LINES, FULL_MAX_HEIGHT };

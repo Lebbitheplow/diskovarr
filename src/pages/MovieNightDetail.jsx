@@ -94,7 +94,9 @@ function AddEntryBar({ groupId, personas, onAdded }) {
               type="button"
               className="mn-persona-option"
               onClick={() => add(item)}
-              disabled={!!busyId}
+              // A title held only in a library this user can't access can't be nominated
+              disabled={!!busyId || item.restricted}
+              title={item.restricted ? t('In a library you don\'t have access to') : undefined}
             >
               {item.posterUrl
                 ? <img src={posterUrl(item.posterUrl, 120)} alt="" style={{ width: 28, height: 42, objectFit: 'cover', borderRadius: 4, background: 'var(--bg-secondary)' }} />
@@ -103,7 +105,9 @@ function AddEntryBar({ groupId, personas, onAdded }) {
                 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 260 }}>{item.title}</span>
                 <span className="mn-persona-sub">{[item.year, item.mediaType === 'tv' ? t('TV') : t('Movie')].filter(Boolean).join(' · ')}</span>
               </span>
-              <span style={{ marginLeft: 'auto', color: 'var(--accent)', fontWeight: 600 }}>{busyId === (item.tmdbId || `${item.title}-${item.year}`) ? '…' : '+ ' + t('Nominate')}</span>
+              {item.restricted
+                ? <span className="mn-badge" style={{ marginLeft: 'auto' }}>{t('No Access')}</span>
+                : <span style={{ marginLeft: 'auto', color: 'var(--accent)', fontWeight: 600 }}>{busyId === (item.tmdbId || `${item.title}-${item.year}`) ? '…' : '+ ' + t('Nominate')}</span>}
             </button>
           ))}
         </div>
@@ -132,6 +136,7 @@ function EntryRow({ entry, personas, isPrivileged, isHost, me, myVote, onVote, o
         <div className="mn-entry-title">
           {entry.title} {entry.year && <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>({entry.year})</span>}
           {entry.mediaType === 'tv' && <span className="mn-badge">TV</span>}
+          {entry.restricted && <span className="mn-badge" title={t('In a library you don\'t have access to')}>{t('No Access')}</span>}
           {entry.status === 'watched' && <span className="mn-watched-tag">✓ {t('Watched')}</span>}
         </div>
         <div className="mn-entry-sub">

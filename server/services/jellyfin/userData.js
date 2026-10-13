@@ -272,6 +272,8 @@ async function syncAllUsers() {
         console.warn(`[jellyfin] User data sync failed for ${u.name}: ${err.message}`);
       }
     }
+    // Library access: re-snapshot users whose Jellyfin policy changed (never throws)
+    await require('../libraryAccess').syncJellyfinPolicies(users);
   } finally {
     _syncInProgress = false;
   }

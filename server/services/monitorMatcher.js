@@ -1,4 +1,5 @@
 const db = require('../db/database');
+const libraryAccess = require('./libraryAccess');
 
 // Criterion types that match against array fields (case-insensitive)
 const ARRAY_FIELDS = {
@@ -151,6 +152,11 @@ function buildContentFromLibrary(item) {
     tmdbId: item.tmdbId,
     mediaType,
     title: item.title,
+    // Which library row this is: "added" alerts only reach monitor owners who
+    // can access its section (services/libraryAccess)
+    ratingKey: item.ratingKey ?? null,
+    sectionId: item.sectionId ?? null,
+    source: item.source || null,
     genres: item.genres || [],
     cast: item.cast || [],
     directors: item.directors || [],
@@ -192,6 +198,15 @@ function buildContentFromTmdb(data) {
   };
 }
 
+// Whether a monitor's owner may see the library row `content` was built from
+// (Plex sharing / Jellyfin policy). Content without a row passes.
+function ownerCanAccess(monitor, content) {
+  if (content.sectionId == null && content.ratingKey == null) return true;
+  return libraryAccess.allows(libraryAccess.forUser(monitor.userId), {
+    sectionId: content.sectionId, ratingKey: content.ratingKey, source: content.source,
+  });
+}
+
 // Evaluate a single piece of content against all enabled monitors
 async function evaluateContent(content, source) {
   if (!content.tmdbId) return [];
@@ -214,6 +229,14 @@ async function evaluateContent(content, source) {
 
     if (isLibraryAdd && !monitor.notifyPlex) continue;
     if (source === 'tmdb' && !monitor.notifyRequestable) continue;
+    // Added to a library section this monitor's owner can't access: not for them
+    if (isLibraryAdd && !ownerCanAccess(monitor, content)) continue;
+    // "Available to request", but the library holds it only in sections the
+    // owner can't access: a request would be refused (409). Required lazily:
+    // requestPolicy brings in the notification stack plain matching doesn't use.
+    if (source === 'tmdb' && require('./requestPolicy').isRestrictedTitle({
+      access: libraryAccess.forUser(monitor.userId), tmdbId: content.tmdbId, mediaType: content.mediaType,
+    })) continue;
 
     if (db.hasNotified(monitor.id, content.tmdbId, content.mediaType, notificationType)) continue;
 

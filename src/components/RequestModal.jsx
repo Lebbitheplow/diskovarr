@@ -190,7 +190,10 @@ export default function RequestModal({ item, services, onClose, onSubmitted }) {
   } else if (!tvdbOnly) {
     if (defaultSvc !== 'overseerr' && hasOverseerr) altOptions.push({ svc: 'overseerr', name: 'Overseerr' })
     if (defaultSvc !== 'riven' && hasRiven) altOptions.push({ svc: 'riven', name: 'DUMB' })
-    if (defaultSvc !== directSvc && hasDirect && (services.directRequestAccess !== '1' || isAdmin)) altOptions.push({ svc: directSvc, name: directName })
+    // directAllowed is the server's per-session answer (admins and request
+    // managers); the server refuses the same pick when it's false
+    const directAllowed = services.directAllowed ?? (services.directRequestAccess !== '1' || isAdmin)
+    if (defaultSvc !== directSvc && hasDirect && directAllowed) altOptions.push({ svc: directSvc, name: directName })
   }
   const effectiveSvc = isYoutubeItem ? 'sonarr' : defaultSvc
   const canSubmit = !submitting && !nothingToRequest && !(missingMode && seasonsLoading)

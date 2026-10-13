@@ -3,6 +3,7 @@ const path = require('path');
 const { db } = require('../db');
 const config = require('../config');
 const sonarr = require('./sonarr');
+const paths = require('./paths');
 const { state } = require('./state');
 
 // Staging cleanup. Sonarr copies (hardlinks off) each finished download into
@@ -16,7 +17,7 @@ const { state } = require('./state');
 //   2. Sonarr history for that infohash has a downloadFolderImported record
 //   3. data.importedPath still exists on disk, or the episode still has a
 //      file in Sonarr, or (record without importedPath) the row is > 7 days old
-//   4. content_path resolves strictly inside config.downloadsDir
+//   4. content_path resolves (through symlinks) strictly inside config.downloadsDir
 // Rows whose content_path no longer exists are just dropped (no fs writes).
 // Any Sonarr error aborts the run — nothing is deleted on guesswork.
 
@@ -27,11 +28,9 @@ const UNCONFIRMED_AGE_SEC = 7 * 24 * 3600;
 
 let running = false;
 
+// Strictly inside, after resolving symlinks (see lib/paths.js)
 function insideDownloadsDir(p) {
-  if (!p) return false;
-  const root = path.resolve(config.downloadsDir);
-  const target = path.resolve(p);
-  return target !== root && target.startsWith(root + path.sep);
+  return paths.isInsideDownloads(p);
 }
 
 function dirSize(p) {

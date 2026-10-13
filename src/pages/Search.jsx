@@ -18,6 +18,10 @@ import { useTranslation } from 'react-i18next'
 import { withViewTransition } from '../utils/viewTransition'
 import useMissingSeasons from '../hooks/useMissingSeasons'
 
+// "Hide in library" also hides titles held only in a library the user can't
+// access (restricted), as the server does for genre browsing and hideLibrary.
+const inAnyLibrary = (i) => i.inLibrary || i.restricted
+
 // One card for every result grid/carousel on this page. Previously this markup
 // was duplicated four times, each nesting the action buttons inside the poster
 // <button> — invalid HTML. The badges and action overlay are siblings now, and
@@ -37,6 +41,9 @@ function SearchCard({ item, inWatchlist, onOpenModal, onToggleWatchlist, onReque
       </button>
       {item.inLibrary ? (
         <span className="badge-in-library">{t('In Library')}</span>
+      ) : item.restricted ? (
+        // Held only in a library this user can't access: no in-library badge, no request
+        <span className="badge-not-in-library" title={t('In a library you don\'t have access to')}>{t('No Access')}</span>
       ) : isUpcoming ? (
         <span className={'badge-upcoming-card' + (item.isRequested ? ' badge-requested' : '')}>
           {item.isRequested ? t('Requested') : t('Coming Soon')}
@@ -63,7 +70,7 @@ function SearchCard({ item, inWatchlist, onOpenModal, onToggleWatchlist, onReque
               {inWatchlist ? '\u2713 ' + t('In Watchlist') : '+ ' + t('Watchlist')}
             </button>
           ) : null}
-          {!item.inLibrary && (
+          {!item.inLibrary && !item.restricted && (
             <button
               className={'btn-icon btn-request' + (item.isRequested ? ' btn-request-sent' : '')}
               onClick={(e) => { e.stopPropagation(); onRequest(item) }}
@@ -376,16 +383,16 @@ export default function Search() {
 
   // Server applies all filters; hideLibrary is a view-only toggle kept client-side.
   const displayResults = useMemo(() => {
-    return hideLibrary ? results.filter(i => !i.inLibrary) : results
+    return hideLibrary ? results.filter(i => !inAnyLibrary(i)) : results
   }, [results, hideLibrary])
 
   const movieResults = useMemo(() => displayResults.filter(item => item.mediaType === 'movie'), [displayResults])
   const tvResults = useMemo(() => displayResults.filter(item => item.mediaType === 'tv'), [displayResults])
   const displaySimilar = useMemo(() => {
-    return hideLibrary ? similarItems.filter(i => !i.inLibrary) : similarItems
+    return hideLibrary ? similarItems.filter(i => !inAnyLibrary(i)) : similarItems
   }, [similarItems, hideLibrary])
   const displayPersonCredits = useMemo(() => {
-    return hideLibrary ? personCredits.filter(i => !i.inLibrary) : personCredits
+    return hideLibrary ? personCredits.filter(i => !inAnyLibrary(i)) : personCredits
   }, [personCredits, hideLibrary])
 
   return (
@@ -405,7 +412,7 @@ export default function Search() {
           {t('Back')}
         </button>
         <div className="search-page-query-wrap">
-          <form className="search-page-form" onSubmit={handleSubmit} autocomplete="off">
+          <form className="search-page-form" onSubmit={handleSubmit} autoComplete="off">
             <div className="search-page-input-wrap" style={{ position: 'relative' }}>
               <svg className="search-page-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" width="17" height="17" fill="none" aria-hidden="true">
                 <circle cx="8.5" cy="8.5" r="5.5" stroke="currentColor" strokeWidth="1.8" />
@@ -420,7 +427,7 @@ export default function Search() {
                 onChange={handleInputChange}
                 onKeyDown={handleKeyDown}
                 placeholder={t('Search movies & TV shows…')}
-                spellcheck="false"
+                spellCheck="false"
                 autoFocus
               />
               {inputValue && (

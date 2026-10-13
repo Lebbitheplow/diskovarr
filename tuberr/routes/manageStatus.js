@@ -87,6 +87,7 @@ router.get('/status', async (req, res) => {
       botCheckAt: state.cookies.botCheckAt,
     },
     quota: { exceededAt: state.quota.exceededAt, lastError: state.quota.lastError },
+    qbitAuth: state.qbitAuth,
     lastRefreshAt: state.lastRefreshAt,
     lastRefreshDurationMs: state.lastRefreshDurationMs,
     lastRefreshError: state.lastRefreshError,

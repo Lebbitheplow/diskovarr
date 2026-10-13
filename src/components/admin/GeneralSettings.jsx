@@ -532,7 +532,7 @@ function ApiKeySection({ hasKey, onRegenerate, resetToken }) {
         <h2 className="section-title">{t('API Key')}</h2>
       </div>
       <p className="section-desc">
-        Use this key to authenticate external applications with Diskovarr's API. Send it as an <code>Authorization: Bearer &lt;key&gt;</code> {t('or')} <code>{t('X-Api-Key')}</code> {t('header. The key grants admin-level access to all API endpoints.')}
+        Use this key to authenticate external applications with Diskovarr's API. Send it as an <code>Authorization: Bearer &lt;key&gt;</code> {t('or')} <code>{t('X-Api-Key')}</code> {t('header. The key grants admin access to the admin API (/admin/*) and to request queue, issue, history and Riven management under /api; other /api endpoints reject it.')}
       </p>
       <div className="conn-block-fields">
         <div className="conn-field-group" style={{ flex: 1, minWidth: 240, maxWidth: 520 }}>

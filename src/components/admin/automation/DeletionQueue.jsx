@@ -86,7 +86,9 @@ export default function DeletionQueue({ onToast }) {
     setBusy(true)
     try {
       const { data } = await adminAutomation.approveCandidates(ids)
-      onToast(t('Deleted {{n}} item(s){{failed}}', { n: data.deleted, failed: data.failed ? `, ${data.failed} failed` : '' }), data.failed ? 'error' : 'success')
+      // Skipped = no longer eligible when re-checked (e.g. watchlisted since); reasons land in history
+      const extra = [data.failed && `${data.failed} failed`, data.skipped && `${data.skipped} skipped (no longer eligible)`].filter(Boolean).join(', ')
+      onToast(t('Deleted {{n}} item(s){{failed}}', { n: data.deleted, failed: extra ? `, ${extra}` : '' }), data.failed ? 'error' : 'success')
       load()
     } catch (e) {
       onToast(e.message || 'Deletion failed', 'error')

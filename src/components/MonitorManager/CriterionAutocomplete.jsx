@@ -83,6 +83,8 @@ export default function CriterionAutocomplete({ type, value, onChange, placehold
       e.preventDefault()
       selectOption(options[highlighted])
     } else if (e.key === 'Escape') {
+      // Consumed here: closing the list shouldn't also close the editor dialog
+      e.preventDefault()
       setShowDropdown(false)
     }
   }

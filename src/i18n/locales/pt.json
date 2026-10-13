@@ -971,7 +971,7 @@
   "from the context menu": "no menu de contexto",
   "h this year": "h este ano",
   "header.": "cabeçalho.",
-  "header. The key grants admin-level access to all API endpoints.": "cabeçalho. A chave concede acesso de administrador a todos os endpoints da API.",
+  "header. The key grants admin access to the admin API (/admin/*) and to request queue, issue, history and Riven management under /api; other /api endpoints reject it.": "cabeçalho. A chave concede acesso de administrador à API de administração (/admin/*) e ao gerenciamento da fila de solicitações, problemas, histórico e Riven em /api; os demais endpoints de /api a recusam.",
   "hours": "horas",
   "hours across": "horas entre",
   "hours in one day": "horas em um dia",
@@ -1218,5 +1218,9 @@
   "Report issue": "Relatar problema",
   "Issue reported": "Problema relatado",
   "Submitting…": "Enviando…",
-  "Description (optional)": "Descrição (opcional)"
+  "Description (optional)": "Descrição (opcional)",
+  "In a library you don't have access to": "Em uma biblioteca à qual você não tem acesso",
+  "Ask the server owner for access": "Peça acesso ao proprietário do servidor",
+  "No Access": "Sem acesso",
+  "Not invited — this title is in a library they don't have access to: {{names}}": "Não convidados — este título está em uma biblioteca à qual eles não têm acesso: {{names}}"
 }

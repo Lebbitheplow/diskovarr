@@ -8,6 +8,7 @@ const {
   TYPE_TARGET,
   TYPE_COLORS,
   hasNotificationType,
+  normalizeNotificationTypes,
   typesToBitmask,
   bitmaskToTypes,
   getBitForType,
@@ -44,6 +45,13 @@ registerAllAgents();
 // Queue one external notification per active agent for a bell notification.
 // Every agent self-filters at send time (admin type list, per-user channel
 // toggles), so the caller only decides *whether* the user gets notified.
+//
+//   enqueueForUser({ notificationId, userId, payload: { type, title, body, posterUrl? }, sendAfter? })
+//
+// `userId` is the recipient: the worker delivers to the queue row's user, so
+// payload.userId is optional and ignored for addressing. A null userId reaches
+// only the providers' admin feeds. Call once per recipient; the admin feeds
+// still get the event once (see notificationAgents/delivery.js).
 function enqueueForUser({ notificationId, userId, payload, sendAfter }) {
   const db = require('../../db/database');
   for (const { key } of manager.getActiveAgents()) {
@@ -62,6 +70,7 @@ module.exports = {
   TYPE_TARGET,
   TYPE_COLORS,
   hasNotificationType,
+  normalizeNotificationTypes,
   typesToBitmask,
   bitmaskToTypes,
   getBitForType,

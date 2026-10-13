@@ -1,12 +1,10 @@
 const { DatabaseSync } = require('node:sqlite');
-const path = require('path');
-const fs = require('fs');
+// Overridable via DISKOVARR_DATA_DIR (tests, non-Docker installs); resolved in one place
+const { dataDir, dataPath } = require('../utils/dataDir');
+// Per-user library access → SQL (pure module, no require cycle)
+const { sqlPredicate } = require('../services/libraryAccess/predicate');
 
-// Overridable for tests and non-Docker installs that keep data elsewhere
-const dataDir = process.env.DISKOVARR_DATA_DIR || path.join(__dirname, '..', 'data');
-if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
-
-const db = new DatabaseSync(path.join(dataDir, 'diskovarr.db'));
+const db = new DatabaseSync(dataPath('diskovarr.db'));
 db.exec('PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;');
 // Enforce ON DELETE CASCADE (reviews→reactions/comments, comment→replies). Without
 // this, foreign_keys defaults to OFF and deletes orphan their child rows. Migrations
@@ -201,12 +199,17 @@ function getUserRequestLimitOverride(userId) {
   };
 }
 
+// Updates only the limit columns: the row also holds the user's own
+// preferences (review privacy, language, auto-request flags...), which a
+// REPLACE would reset to their defaults.
 function setUserRequestLimitOverride(userId, { overrideEnabled, movieLimit, movieWindowDays, seasonLimit, seasonWindowDays }) {
+  db.prepare('INSERT OR IGNORE INTO user_request_limits (user_id) VALUES (?)').run(String(userId));
   db.prepare(`
-    INSERT OR REPLACE INTO user_request_limits (user_id, override_enabled, movie_limit, movie_window_days, season_limit, season_window_days)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).run(String(userId), overrideEnabled ? 1 : 0, Number(movieLimit) || 0, Number(movieWindowDays) || 7,
-         Number(seasonLimit) || 0, Number(seasonWindowDays) || 7);
+    UPDATE user_request_limits
+    SET override_enabled = ?, movie_limit = ?, movie_window_days = ?, season_limit = ?, season_window_days = ?
+    WHERE user_id = ?
+  `).run(overrideEnabled ? 1 : 0, Number(movieLimit) || 0, Number(movieWindowDays) || 7,
+         Number(seasonLimit) || 0, Number(seasonWindowDays) || 7, String(userId));
 }
 
 function getAllUserRequestLimitOverrides() {
@@ -245,10 +248,13 @@ function getEffectiveLimits(userId) {
   };
 }
 
+// "Notify me" follower rows (is_follow = 1) acquire nothing, so they never
+// count against a quota. The column arrives with the request_policy_v1
+// migration, which runs before any request can be counted.
 function countRecentMovieRequests(userId, windowDays) {
   const since = Math.floor(Date.now() / 1000) - windowDays * 86400;
   const row = db.prepare(
-    "SELECT COUNT(*) as cnt FROM discover_requests WHERE user_id = ? AND media_type = 'movie' AND requested_at > ? AND status != 'denied'"
+    "SELECT COUNT(*) as cnt FROM discover_requests WHERE user_id = ? AND media_type = 'movie' AND requested_at > ? AND status != 'denied' AND is_follow = 0"
   ).get(String(userId), since);
   return row?.cnt || 0;
 }
@@ -256,7 +262,7 @@ function countRecentMovieRequests(userId, windowDays) {
 function countRecentSeasonRequests(userId, windowDays) {
   const since = Math.floor(Date.now() / 1000) - windowDays * 86400;
   const row = db.prepare(
-    "SELECT COALESCE(SUM(seasons_count), 0) as cnt FROM discover_requests WHERE user_id = ? AND media_type = 'tv' AND requested_at > ? AND status != 'denied'"
+    "SELECT COALESCE(SUM(seasons_count), 0) as cnt FROM discover_requests WHERE user_id = ? AND media_type = 'tv' AND requested_at > ? AND status != 'denied' AND is_follow = 0"
   ).get(String(userId), since);
   return row?.cnt || 0;
 }
@@ -980,6 +986,73 @@ db.exec(`CREATE TABLE IF NOT EXISTS migrations (name TEXT PRIMARY KEY, ran_at IN
       },
     },
     {
+      // Request policy state on discover_requests:
+      //   is_follow     — a "Notify me" subscription to someone else's request.
+      //                   Acquires nothing: no quota, hidden from pull consumers.
+      //   season_gated  — names specific seasons, so it only counts as available
+      //                   once those seasons are in the library (not merely the show).
+      //   submit_error  — last connector submission failure of an approved row;
+      //                   NULL once a submission succeeds.
+      // Plus the watchlist auto-request worker's bookkeeping tables.
+      name: 'request_policy_v1',
+      sql: () => {
+        for (const col of [
+          'is_follow INTEGER NOT NULL DEFAULT 0',
+          'season_gated INTEGER NOT NULL DEFAULT 0',
+          'submit_error TEXT DEFAULT NULL',
+        ]) {
+          try { db.exec(`ALTER TABLE discover_requests ADD COLUMN ${col}`); } catch {}
+        }
+        // Follow rows used to be indistinguishable approved 'none' rows. They
+        // carried no poster/list/downloader and always shadowed an earlier live
+        // request for the same title by someone else.
+        db.exec(`
+          UPDATE discover_requests SET is_follow = 1
+          WHERE service = 'none' AND status = 'approved'
+            AND poster_url IS NULL AND downloader IS NULL AND tvdb_id IS NULL AND origin_list_id IS NULL
+            AND user_id != 'autorequest' AND substr(user_id, 1, 6) != '__svc_'
+            AND EXISTS (
+              SELECT 1 FROM discover_requests o
+              WHERE o.tmdb_id = discover_requests.tmdb_id AND o.media_type = discover_requests.media_type
+                AND o.user_id != discover_requests.user_id AND o.id < discover_requests.id AND o.status != 'denied'
+            )
+        `);
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS watchlist_auto_request_state (
+            user_id TEXT NOT NULL,
+            media_type TEXT NOT NULL,
+            enabled_since INTEGER NOT NULL,
+            PRIMARY KEY (user_id, media_type)
+          );
+          CREATE TABLE IF NOT EXISTS watchlist_auto_requests (
+            user_id TEXT NOT NULL,
+            media_type TEXT NOT NULL,
+            tmdb_id INTEGER NOT NULL,
+            title TEXT,
+            status TEXT NOT NULL,
+            request_id INTEGER,
+            attempts INTEGER NOT NULL DEFAULT 0,
+            last_error TEXT,
+            updated_at INTEGER NOT NULL,
+            PRIMARY KEY (user_id, media_type, tmdb_id)
+          );
+        `);
+      },
+    },
+    {
+      // direct_request_access is enforced server-side now: store the canonical
+      // '0'/'1' instead of a legacy 'admin'/'all', keeping what those values
+      // did in practice (everyone; see normalizeDirectRequestAccess).
+      name: 'direct_request_access_canonical_v1',
+      sql: () => {
+        const row = db.prepare("SELECT value FROM settings WHERE key = 'direct_request_access'").get();
+        if (row && row.value !== '0' && row.value !== '1') {
+          db.prepare("UPDATE settings SET value = ? WHERE key = 'direct_request_access'")
+            .run(normalizeDirectRequestAccess(row.value));
+        }
+      },
+    },
+    {
       // Movie Night: groups of users (plus in-house personas for shared
       // accounts) with shared watch lists, +1/-1 votes, comments, weekday
       // themes and a round-robin rotation cursor. Entries are never hard
@@ -1140,6 +1213,48 @@ db.exec(`CREATE TABLE IF NOT EXISTS migrations (name TEXT PRIMARY KEY, ran_at IN
             PRIMARY KEY (party_id, user_id)
           );
           CREATE INDEX IF NOT EXISTS idx_wp_members_user ON watch_party_members(user_id);
+        `);
+      },
+    },
+    {
+      // Watch Together: the library title a party was started from and its
+      // section (the party's rating_key is the episode the driver picked), so
+      // invitees are checked against what they may access (services/libraryAccess).
+      name: 'watch_party_library_v1',
+      sql: () => {
+        const cols = db.prepare('PRAGMA table_info(watch_parties)').all().map(c => c.name);
+        if (!cols.includes('library_key')) db.exec('ALTER TABLE watch_parties ADD COLUMN library_key TEXT');
+        if (!cols.includes('section_id')) db.exec('ALTER TABLE watch_parties ADD COLUMN section_id TEXT');
+      },
+    },
+    {
+      // Per-user library access mirrored from the media servers (Plex sharing,
+      // Jellyfin user policy) — services/libraryAccess. Keyed by provider
+      // identity (Plex account id or 'jf_<guid>'), never the canonical id, so
+      // linking/unlinking accounts needs no re-keying (not in USER_ID_TABLES).
+      // user_visible_items lists what a user sees in filtered sections only.
+      name: 'library_access_v1',
+      sql: () => {
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS user_library_access (
+            user_id TEXT NOT NULL,
+            source TEXT NOT NULL,
+            role TEXT NOT NULL,
+            all_sections INTEGER NOT NULL DEFAULT 0,
+            section_ids TEXT NOT NULL DEFAULT '[]',
+            filtered_section_ids TEXT NOT NULL DEFAULT '[]',
+            filters TEXT DEFAULT NULL,
+            fetched_at INTEGER,
+            last_attempt_at INTEGER,
+            last_error TEXT,
+            PRIMARY KEY (user_id, source)
+          );
+          CREATE TABLE IF NOT EXISTS user_visible_items (
+            user_id TEXT NOT NULL,
+            source TEXT NOT NULL,
+            rating_key TEXT NOT NULL,
+            PRIMARY KEY (user_id, source, rating_key)
+          );
         `);
       },
     },
@@ -1306,17 +1421,31 @@ function getLibraryItemsFromDb(sectionId) {
     .all(String(sectionId)).map(rowToItem);
 }
 
-function getLibraryItemsBySource(source, type = null) {
+// `access` (optional, services/libraryAccess) limits the rows to what one user
+// may see; omitted or null keeps the unfiltered admin/background behaviour.
+// That holds for the other optional-access accessors below too, so routes pass
+// req.libraryAccess only where libraryAccess.middleware ran (else forRequest).
+function getLibraryItemsBySource(source, type = null, access = null) {
+  const p = sqlPredicate(access);
   if (type) {
-    return db.prepare('SELECT * FROM library_items WHERE source = ? AND type = ?')
-      .all(String(source), String(type)).map(rowToItem);
+    return db.prepare(`SELECT * FROM library_items WHERE source = ? AND type = ? AND ${p.sql}`)
+      .all(String(source), String(type), ...p.params).map(rowToItem);
   }
-  return db.prepare('SELECT * FROM library_items WHERE source = ?')
-    .all(String(source)).map(rowToItem);
+  return db.prepare(`SELECT * FROM library_items WHERE source = ? AND ${p.sql}`)
+    .all(String(source), ...p.params).map(rowToItem);
 }
 
 function getLibraryItemByKey(ratingKey) {
   const r = db.prepare('SELECT * FROM library_items WHERE rating_key = ?').get(String(ratingKey));
+  return r ? rowToItem(r) : null;
+}
+
+// getLibraryItemByKey for one user: null when the row is missing or the user
+// can't access it (access null = unrestricted, undefined = no access).
+function getLibraryItemByKeyFor(ratingKey, access) {
+  const p = sqlPredicate(access);
+  const r = db.prepare(`SELECT * FROM library_items WHERE rating_key = ? AND ${p.sql}`)
+    .get(String(ratingKey), ...p.params);
   return r ? rowToItem(r) : null;
 }
 
@@ -1847,7 +1976,19 @@ function unlinkJellyfinAccount(jfUserId) {
 // TMDB ids are only unique within a media type (movie 121 = The Two Towers,
 // tv 121 = Doctor Who 1963), so always pass mediaType when the caller knows it.
 // Omitting it keeps the old type-blind behaviour and can match the wrong work.
-function getLibraryItemByTmdbId(tmdbId, mediaType, source = null) {
+// Passing `access` (services/libraryAccess) returns a row that user may see —
+// a title can sit in several sections (4K, kids copies) — or null if none is
+// visible. Leaving it out keeps the unfiltered behaviour below.
+function getLibraryItemByTmdbId(tmdbId, mediaType, source = null, access = undefined) {
+  if (access !== undefined) {
+    const p = sqlPredicate(access);
+    const where = ['tmdb_id = ?'];
+    const params = [String(tmdbId)];
+    if (mediaType) { where.push('type = ?'); params.push(mediaType === 'tv' ? 'show' : 'movie'); }
+    if (source) { where.push('source = ?'); params.push(source); }
+    return db.prepare(`SELECT * FROM library_items WHERE ${where.join(' AND ')} AND ${p.sql} LIMIT 1`)
+      .get(...params, ...p.params) || null;
+  }
   if (mediaType) {
     const plexType = mediaType === 'tv' ? 'show' : 'movie';
     if (source) {
@@ -2118,10 +2259,12 @@ function libraryMediaType(row) {
 // of the Rings: The Two Towers (movie 121) is in the library.
 // Pass a source ('plex' | 'jellyfin') to scope to one server; default is the
 // union of all sources (availability badges treat "on either server" as owned).
-function getLibraryTmdbKeys(source = null) {
+// `access` (optional) narrows the set to the titles one user may see.
+function getLibraryTmdbKeys(source = null, access = null) {
+  const p = sqlPredicate(access);
   const rows = source
-    ? db.prepare('SELECT tmdb_id, type FROM library_items WHERE tmdb_id IS NOT NULL AND source = ?').all(source)
-    : db.prepare('SELECT tmdb_id, type FROM library_items WHERE tmdb_id IS NOT NULL').all();
+    ? db.prepare(`SELECT tmdb_id, type FROM library_items WHERE tmdb_id IS NOT NULL AND source = ? AND ${p.sql}`).all(source, ...p.params)
+    : db.prepare(`SELECT tmdb_id, type FROM library_items WHERE tmdb_id IS NOT NULL AND ${p.sql}`).all(...p.params);
   return new Set(rows.map(r => `${r.tmdb_id}:${libraryMediaType(r)}`));
 }
 
@@ -2129,10 +2272,11 @@ function getLibraryTmdbKeys(source = null) {
 // when TMDB IDs aren't populated yet. Deliberately has no year-less wildcard
 // entry: one would make any candidate with an unknown year match a same-titled
 // library item of any year (Doctor Who 1963 vs 2005, Halloween, The Thing…).
-function getLibraryTitleYearSet(source = null) {
+function getLibraryTitleYearSet(source = null, access = null) {
+  const p = sqlPredicate(access);
   const rows = source
-    ? db.prepare('SELECT title, year, type FROM library_items WHERE source = ?').all(source)
-    : db.prepare('SELECT title, year, type FROM library_items').all();
+    ? db.prepare(`SELECT title, year, type FROM library_items WHERE source = ? AND ${p.sql}`).all(source, ...p.params)
+    : db.prepare(`SELECT title, year, type FROM library_items WHERE ${p.sql}`).all(...p.params);
   const set = new Set();
   for (const r of rows) {
     if (r.title) {
@@ -2166,13 +2310,21 @@ function requestKeysOf(rows) {
   return set;
 }
 
+// Only live, unfulfilled rows count as "requested" (isRequested / isMyRequest):
+// a title whose requests were all denied, or fulfilled and since gone from the
+// library, can be requested again. Mirrors what requestPolicy.followRequest
+// accepts, so "Notify me" is only offered when there is something to follow.
+const LIVE_REQUEST_SQL = "status IN ('pending', 'approved') AND notified_available_at IS NULL";
+
+// The user's own live requests and follows.
 function getRequestedTmdbIds(userId) {
-  const rows = db.prepare('SELECT tmdb_id, tvdb_id, media_type FROM discover_requests WHERE user_id = ?').all(String(userId));
+  const rows = db.prepare(`SELECT tmdb_id, tvdb_id, media_type FROM discover_requests WHERE user_id = ? AND ${LIVE_REQUEST_SQL}`).all(String(userId));
   return requestKeysOf(rows);
 }
 
+// Titles someone is acquiring (followers acquire nothing).
 function getAllRequestedTmdbIds() {
-  const rows = db.prepare('SELECT tmdb_id, tvdb_id, media_type FROM discover_requests').all();
+  const rows = db.prepare(`SELECT tmdb_id, tvdb_id, media_type FROM discover_requests WHERE is_follow = 0 AND ${LIVE_REQUEST_SQL}`).all();
   return requestKeysOf(rows);
 }
 
@@ -2250,8 +2402,18 @@ function getLandingPage() {
   return getSetting('landing_page', 'home'); // 'home' or 'explore'
 }
 
+// Who may send a request straight to Radarr/Sonarr when it isn't the default
+// app: '1' admin only, '0' everyone — the client and services/requestPolicy
+// compare against '1'. Older builds documented 'admin' / 'all', but their
+// client only restricted on '1' and the admin toggle showed a stored 'admin'
+// as "everyone", so legacy values keep meaning everyone (migration
+// direct_request_access_canonical_v1 rewrites them to '0').
+function normalizeDirectRequestAccess(value) {
+  const raw = String(value ?? '').trim().toLowerCase();
+  return raw === '1' || raw === 'true' ? '1' : '0';
+}
 function getDirectRequestAccess() {
-  return getSetting('direct_request_access', 'all'); // 'all' or 'admin'
+  return normalizeDirectRequestAccess(getSetting('direct_request_access', '0'));
 }
 
 // ── Request queue management ──────────────────────────────────────────────────
@@ -2365,7 +2527,9 @@ function deleteRequestsByIds(ids) {
 }
 
 function deleteRequestsByUser(userId) {
+  const titles = db.prepare('SELECT DISTINCT tmdb_id, tvdb_id, media_type FROM discover_requests WHERE user_id = ? AND is_follow = 0').all(String(userId));
   db.prepare('DELETE FROM discover_requests WHERE user_id = ?').run(String(userId));
+  for (const title of titles) pruneOrphanFollowers(title);
 }
 
 function getEffectiveAutoApprove(userId, mediaType) {
@@ -2411,56 +2575,55 @@ function getUserSettings(userId) {
   };
 }
 
-function saveUserSettings(userId, settings) {
-  const {
-    movieLimit = 0,
-    seasonLimit = 0,
-    movieWindowDays = 7,
-    tvWindowDays = 7,
-    overrideGlobal = false,
-    auto_approve_movies = null,
-    auto_approve_tv = null,
-    is_admin = false,
-    region = null,
-    language = null,
-    auto_request_movies = false,
-    auto_request_tv = false,
-    landing_page = null,
-  } = settings;
+// Admin-managed user_request_limits columns, keyed by the getUserSettings field
+// name, with the conversion to the stored value.
+const toFlag = v => (v ? 1 : 0);
+const toOptionalFlag = v => (v === null ? null : (v ? 1 : 0));
+const USER_SETTINGS_COLUMNS = {
+  overrideGlobal:      ['override_enabled', toFlag],
+  movieLimit:          ['movie_limit', v => Number(v) || 0],
+  movieWindowDays:     ['movie_window_days', v => Number(v) || 7],
+  seasonLimit:         ['season_limit', v => Number(v) || 0],
+  tvWindowDays:        ['season_window_days', v => Number(v) || 7],
+  auto_approve_movies: ['auto_approve_movies', toOptionalFlag],
+  auto_approve_tv:     ['auto_approve_tv', toOptionalFlag],
+  region:              ['region', v => v || null],
+  language:            ['language', v => v || null],
+  auto_request_movies: ['auto_request_movies', toFlag],
+  auto_request_tv:     ['auto_request_tv', toFlag],
+  landing_page:        ['landing_page', v => v || null],
+};
 
-  db.prepare(`
-    INSERT OR REPLACE INTO user_request_limits
-      (user_id, override_enabled, movie_limit, movie_window_days, season_limit, season_window_days, auto_approve_movies, auto_approve_tv, region, language, auto_request_movies, auto_request_tv, landing_page)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    String(userId),
-    overrideGlobal ? 1 : 0,
-    Number(movieLimit) || 0,
-    Number(movieWindowDays) || 7,
-    Number(seasonLimit) || 0,
-    Number(tvWindowDays) || 7,
-    auto_approve_movies === null ? null : (auto_approve_movies ? 1 : 0),
-    auto_approve_tv === null ? null : (auto_approve_tv ? 1 : 0),
-    region || null,
-    language || null,
-    auto_request_movies ? 1 : 0,
-    auto_request_tv ? 1 : 0,
-    landing_page || null,
-  );
+// Partial update: only keys present in `settings` are written. The same row
+// holds the user's own preferences (review privacy, mature content, UI
+// language, library source, taste-quiz state) which the admin modal never
+// sends, so an admin edit must not reset them.
+function saveUserSettings(userId, settings = {}) {
+  const uid = String(userId);
+  db.prepare('INSERT OR IGNORE INTO user_request_limits (user_id) VALUES (?)').run(uid);
+  const sets = [];
+  const params = [];
+  for (const [key, [col, toDb]] of Object.entries(USER_SETTINGS_COLUMNS)) {
+    if (settings[key] === undefined) continue;
+    sets.push(`${col} = ?`);
+    params.push(toDb(settings[key]));
+  }
+  if (sets.length) {
+    db.prepare(`UPDATE user_request_limits SET ${sets.join(', ')} WHERE user_id = ?`).run(...params, uid);
+  }
 
-  // Ensure user row exists in known_users before updating is_admin
-  const exists = db.prepare('SELECT 1 FROM known_users WHERE user_id = ?').get(String(userId));
-  if (exists) {
+  // is_admin lives on known_users (no-op when the user has never signed in)
+  if (settings.is_admin !== undefined) {
     db.prepare('UPDATE known_users SET is_admin = ? WHERE user_id = ?')
-      .run(is_admin ? 1 : 0, String(userId));
+      .run(settings.is_admin ? 1 : 0, uid);
   }
 }
 
 function addDiscoverRequestWithStatus(userId, tmdbId, mediaType, title, service, seasonsCount, status = 'approved', seasonsArray = null, posterUrl = null, extra = {}) {
   // tmdb_id is NOT NULL; TVDB-only items (YouTube shows absent from TMDB) use sentinel 0 + tvdb_id
   const result = db.prepare(`
-    INSERT INTO discover_requests (user_id, tmdb_id, media_type, title, service, seasons_count, requested_at, status, seasons_json, poster_url, tvdb_id, downloader, youtube_json)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO discover_requests (user_id, tmdb_id, media_type, title, service, seasons_count, requested_at, status, seasons_json, poster_url, tvdb_id, downloader, youtube_json, is_follow, season_gated)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(String(userId), Number(tmdbId) || 0, mediaType, title, service,
          (typeof seasonsCount === 'number' && seasonsCount > 0) ? seasonsCount : 1,
          Math.floor(Date.now() / 1000),
@@ -2469,13 +2632,54 @@ function addDiscoverRequestWithStatus(userId, tmdbId, mediaType, title, service,
          posterUrl || null,
          extra.tvdbId ? Number(extra.tvdbId) : null,
          extra.downloader || null,
-         extra.youtube ? JSON.stringify(extra.youtube) : null);
+         extra.youtube ? JSON.stringify(extra.youtube) : null,
+         extra.isFollow ? 1 : 0,
+         extra.seasonGated ? 1 : 0);
   return Number(result.lastInsertRowid);
 }
 
-function updateRequest(id, { service, seasonsJson, seasonsCount }) {
-  db.prepare('UPDATE discover_requests SET service=?, seasons_json=?, seasons_count=? WHERE id=?')
-    .run(service, seasonsJson || null, seasonsCount || 1, Number(id));
+// seasonGated: undefined keeps the stored flag (pending-request edits that
+// don't know about it).
+function updateRequest(id, { service, seasonsJson, seasonsCount, seasonGated }) {
+  db.prepare('UPDATE discover_requests SET service=?, seasons_json=?, seasons_count=?, season_gated=COALESCE(?, season_gated) WHERE id=?')
+    .run(service, seasonsJson || null, seasonsCount || 1,
+         seasonGated === undefined ? null : (seasonGated ? 1 : 0), Number(id));
+}
+
+// Record (message) or clear (null) the last connector submission failure.
+function setRequestSubmitError(id, message) {
+  db.prepare('UPDATE discover_requests SET submit_error = ? WHERE id = ?')
+    .run(message ? String(message).slice(0, 500) : null, Number(id));
+}
+
+// Live acquisition requests for one title (pending/approved, never followers),
+// matched by TMDB id or, for TVDB-only rows, TVDB id. Pass userId to scope to
+// one requester.
+function getActiveRequestsForTitle({ tmdbId, tvdbId = null, mediaType, userId = null }) {
+  const params = [String(mediaType), Number(tmdbId) || 0, Number(tvdbId) || 0];
+  let sql = `
+    SELECT * FROM discover_requests
+    WHERE media_type = ? AND status IN ('pending', 'approved') AND is_follow = 0
+      AND ((tmdb_id = ? AND tmdb_id != 0) OR (tvdb_id IS NOT NULL AND tvdb_id = ?))`;
+  if (userId != null) { sql += ' AND user_id = ?'; params.push(String(userId)); }
+  return db.prepare(`${sql} ORDER BY id ASC`).all(...params);
+}
+
+// "Notify me" rows ride on someone else's live request. Call after `request`
+// stopped being one (denied, withdrawn, deleted): when no live request is left
+// for the title, its unnotified followers follow nothing and are dropped, so
+// they no longer read as requested or block a new request. Returns the count.
+function pruneOrphanFollowers(request) {
+  if (!request || request.is_follow) return 0;
+  const title = { tmdbId: request.tmdb_id, tvdbId: request.tvdb_id, mediaType: request.media_type };
+  // An already-fulfilled (notified) request doesn't keep followers of a later
+  // request for the same title alive — e.g. a denied missing-seasons request
+  if (getActiveRequestsForTitle(title).some(r => !r.notified_available_at)) return 0;
+  return db.prepare(`
+    DELETE FROM discover_requests
+    WHERE is_follow = 1 AND notified_available_at IS NULL AND media_type = ?
+      AND ((tmdb_id = ? AND tmdb_id != 0) OR (tvdb_id IS NOT NULL AND tvdb_id = ?))
+  `).run(String(title.mediaType), Number(title.tmdbId) || 0, Number(title.tvdbId) || 0).changes;
 }
 
 function getRequestById(id) {
@@ -2510,12 +2714,28 @@ function setPreferredSource(userId, source) {
     .run(source === 'jellyfin' ? 'jellyfin' : 'plex', String(userId));
 }
 
-function setUserPreferences(userId, { region, language, ui_language, auto_request_movies, auto_request_tv, landing_page, show_mature, review_privacy }) {
+const USER_PREFERENCE_COLUMNS = {
+  region: 'text', language: 'text', ui_language: 'text', landing_page: 'text',
+  auto_request_movies: 'bool', auto_request_tv: 'bool', show_mature: 'bool',
+  review_privacy: 'privacy',
+};
+
+// Partial update: only keys present in `prefs` are written, so saving one
+// setting (e.g. an email address) never resets another (e.g. the
+// admin-managed auto-request flags).
+function setUserPreferences(userId, prefs = {}) {
   // Ensure row exists first
   db.prepare('INSERT OR IGNORE INTO user_request_limits (user_id) VALUES (?)').run(String(userId));
-  const rp = (review_privacy === 'private') ? 'private' : 'public';
-  db.prepare('UPDATE user_request_limits SET region = ?, language = ?, ui_language = ?, auto_request_movies = ?, auto_request_tv = ?, landing_page = ?, show_mature = ?, review_privacy = ? WHERE user_id = ?')
-    .run(region || null, language || null, ui_language || null, auto_request_movies ? 1 : 0, auto_request_tv ? 1 : 0, landing_page || null, show_mature ? 1 : 0, rp, String(userId));
+  const sets = [];
+  const params = [];
+  for (const [col, kind] of Object.entries(USER_PREFERENCE_COLUMNS)) {
+    if (prefs[col] === undefined) continue;
+    const v = prefs[col];
+    sets.push(`${col} = ?`);
+    params.push(kind === 'bool' ? (v ? 1 : 0) : kind === 'privacy' ? (v === 'private' ? 'private' : 'public') : (v || null));
+  }
+  if (!sets.length) return;
+  db.prepare(`UPDATE user_request_limits SET ${sets.join(', ')} WHERE user_id = ?`).run(...params, String(userId));
 }
 
 // ── User Profile ──────────────────────────────────────────────────────────────
@@ -2645,7 +2865,7 @@ function getFolloweeLoved(userId, { minRating = 4, maxAgeDays = 180 } = {}) {
   `).all(String(userId), Number(minRating), cutoff);
 }
 
-function getUserPublicReviews(userId, limit = 20, offset = 0) {
+function getUserPublicReviews(userId, limit = 20, offset = 0, access = undefined) {
   const strUserId = String(userId);
   const clauses = ['r.user_id = ?'];
   const params = [strUserId];
@@ -2660,14 +2880,7 @@ function getUserPublicReviews(userId, limit = 20, offset = 0) {
     ORDER BY r.created_at DESC
     LIMIT ? OFFSET ?
   `).all(...params, Number(limit), Number(offset));
-  for (const r of rows) {
-    const lib = r.tmdb_id != null ? getLibraryItemByTmdbId(r.tmdb_id, r.media_type) : null;
-    const thumbPath = lib?.thumb || lib?.art || null;
-    r.poster_url = thumbPath
-      ? (thumbPath.startsWith('http') ? thumbPath : `/api/poster?path=${encodeURIComponent(thumbPath)}`)
-      : null;
-    r.content_rating = lib?.content_rating || '';
-  }
+  for (const r of rows) Object.assign(r, reviewLibraryArt(r.tmdb_id, r.media_type, access));
   return rows;
 }
 
@@ -2844,18 +3057,105 @@ db.exec(`
   );
 `);
 
+// Notification queue delivery state. `status` is the source of truth
+// (pending → sending → sent | skipped | failed); `sent` = 1 only for real
+// deliveries. Retries are bounded by `attempts` and scheduled by
+// `next_attempt_at`; `delivered` lists provider targets that already succeeded
+// so a retry never re-sends them. `feed` marks the one row per event that
+// carries the provider's admin-feed copy (see notificationAgents/delivery.js).
+for (const col of [
+  "status TEXT DEFAULT 'pending'",
+  'attempts INTEGER DEFAULT 0',
+  'next_attempt_at INTEGER DEFAULT NULL',
+  'claimed_at INTEGER DEFAULT NULL',
+  'last_error TEXT DEFAULT NULL',
+  'delivered TEXT DEFAULT NULL',
+  'feed INTEGER DEFAULT 1',
+  'feed_key TEXT DEFAULT NULL',
+  'updated_at INTEGER DEFAULT NULL',
+]) {
+  try { db.exec(`ALTER TABLE notification_queue ADD COLUMN ${col}`); }
+  catch (e) { if (!e.message.includes('duplicate column')) throw e; }
+}
+// Rows processed before the status column existed; and claims left behind by a
+// crash mid-send go back to the queue (at-least-once delivery).
+db.exec(`
+  UPDATE notification_queue SET status = 'sent' WHERE sent = 1 AND status = 'pending';
+  UPDATE notification_queue SET status = 'pending', claimed_at = NULL WHERE status = 'sending';
+  CREATE INDEX IF NOT EXISTS idx_notification_queue_status ON notification_queue(status, send_after);
+  CREATE INDEX IF NOT EXISTS idx_notification_queue_feed ON notification_queue(agent, feed_key);
+`);
+
+// Saved provider type selections used to hold grouped checkboxes as one
+// comma-joined element, which never matched an event. Rewrites them as flat
+// event ids; returns the settings keys it changed. Runs once as a migration
+// (read-time matching also expands them, for configs saved later by an old
+// browser tab).
+function normalizeStoredNotificationTypes() {
+  const fields = ['notificationTypes', 'webhookNotificationTypes', 'botNotificationTypes'];
+  const changedKeys = [];
+  for (const row of db.prepare("SELECT key, value FROM settings WHERE key LIKE '%\\_agent' ESCAPE '\\'").all()) {
+    let config;
+    try { config = JSON.parse(row.value); } catch { continue; }
+    if (!config || typeof config !== 'object') continue;
+    let changed = false;
+    for (const field of fields) {
+      if (!Array.isArray(config[field])) continue;
+      const flat = [...new Set(config[field].flatMap(t => (typeof t === 'string' ? t.split(',') : [])).map(t => t.trim()).filter(Boolean))];
+      if (flat.length !== config[field].length || flat.some((t, i) => t !== config[field][i])) {
+        config[field] = flat;
+        changed = true;
+      }
+    }
+    if (changed) {
+      db.prepare('UPDATE settings SET value = ? WHERE key = ?').run(JSON.stringify(config), row.key);
+      changedKeys.push(row.key);
+    }
+  }
+  return changedKeys;
+}
+if (!db.prepare("SELECT 1 FROM migrations WHERE name = 'notification_types_flat_v1'").get()) {
+  normalizeStoredNotificationTypes();
+  db.prepare('INSERT INTO migrations (name, ran_at) VALUES (?, ?)').run('notification_types_flat_v1', Date.now());
+}
+
+// Bell bundles are scoped to the resource they belong to, so (for example)
+// picks in two different Movie Night groups never merge into one notification.
+function notificationBundleScope(data) {
+  if (!data || typeof data !== 'object') return '';
+  if (data.groupId != null) return `group${data.groupId}`;
+  if (data.partyId != null) return `party${data.partyId}`;
+  if (data.issueId != null) return `issue${data.issueId}`;
+  return '';
+}
+
+const BUNDLE_SUFFIX = / and \d+ others?(?: titles?)?$/;
+const MAX_BUNDLE_ITEMS = 20;
+
 function createOrBundleNotification({ userId, type, title, body, data, bundleKey: bundleKeyOverride }) {
   const hour = Math.floor(Date.now() / 1000 / 3600);
-  const bundleKey = bundleKeyOverride || `${type}:${userId || 'admin'}:${hour}`;
-  const existing = db.prepare('SELECT id, bundle_count FROM notifications WHERE bundle_key = ? AND read = 0').get(bundleKey);
+  const scope = notificationBundleScope(data);
+  const bundleKey = bundleKeyOverride || `${type}:${userId || 'admin'}:${scope ? `${scope}:` : ''}${hour}`;
+  const existing = db.prepare('SELECT id, bundle_count, title, data FROM notifications WHERE bundle_key = ? AND read = 0').get(bundleKey);
   if (existing) {
     // An explicit key means "once per key" (e.g. the nightly movie-night
     // reminder) — a re-run dedupes instead of inflating the title.
     if (bundleKeyOverride) return existing.id;
+    // The bundle describes its newest item: title, body, data (and so the
+    // click target and poster) all follow it, with a neutral count of the
+    // rest. Earlier items' data is kept in data.bundle for reference.
     const newCount = existing.bundle_count + 1;
-    const newTitle = newCount === 2 ? title + ' and 1 other title' : title.replace(/ and \d+ other title/, '') + ` and ${newCount - 1} other titles`;
-    db.prepare('UPDATE notifications SET bundle_count = ?, title = ? WHERE id = ?')
-      .run(newCount, newTitle, existing.id);
+    const others = newCount - 1;
+    const newTitle = `${String(title).replace(BUNDLE_SUFFIX, '')} and ${others} other${others === 1 ? '' : 's'}`;
+    let prev = {};
+    try { prev = JSON.parse(existing.data || 'null') || {}; } catch { prev = {}; }
+    const { bundle: prevBundle, ...prevItem } = prev;
+    const bundle = [...(Array.isArray(prevBundle) ? prevBundle : []),
+      { ...prevItem, title: prevItem.title || String(existing.title || '').replace(BUNDLE_SUFFIX, '') }]
+      .slice(-MAX_BUNDLE_ITEMS);
+    const newData = { ...(data && typeof data === 'object' ? data : {}), bundle };
+    db.prepare('UPDATE notifications SET bundle_count = ?, title = ?, body = ?, data = ? WHERE id = ?')
+      .run(newCount, newTitle, body || null, JSON.stringify(newData), existing.id);
     return existing.id;
   }
   const result = db.prepare(
@@ -2874,14 +3174,18 @@ function getNotifications(userId, limit = 20) {
     .all(String(userId), Number(limit));
 }
 
+// Marks the given notification ids read. An empty or missing list marks
+// nothing — clearing everything is markAllNotificationsRead, never implied.
 function markNotificationsRead(userId, ids) {
-  if (!ids || ids.length === 0) {
-    db.prepare('UPDATE notifications SET read = 1 WHERE (user_id = ? OR user_id IS NULL)').run(String(userId));
-  } else {
-    const placeholders = ids.map(() => '?').join(',');
-    db.prepare(`UPDATE notifications SET read = 1 WHERE id IN (${placeholders}) AND (user_id = ? OR user_id IS NULL)`)
-      .run(...ids.map(Number), String(userId));
-  }
+  const list = Array.isArray(ids) ? [...new Set(ids.map(Number).filter(n => Number.isInteger(n) && n > 0))].slice(0, 500) : [];
+  if (!list.length) return 0;
+  const placeholders = list.map(() => '?').join(',');
+  return Number(db.prepare(`UPDATE notifications SET read = 1 WHERE id IN (${placeholders}) AND read = 0 AND (user_id = ? OR user_id IS NULL)`)
+    .run(...list, String(userId)).changes || 0);
+}
+
+function markAllNotificationsRead(userId) {
+  return Number(db.prepare('UPDATE notifications SET read = 1 WHERE (user_id = ? OR user_id IS NULL) AND read = 0').run(String(userId)).changes || 0);
 }
 
 function deleteNotification(userId, id) {
@@ -2923,58 +3227,46 @@ function getUserNotificationPrefs(userId) {
   };
 }
 
-function setUserNotificationPrefs(userId, prefs) {
-  // Use individual UPDATE statements for flexibility (not all columns may be present in all versions)
-  const baseSet = [
-    `notify_approved = ${prefs.notify_approved !== false ? 1 : 0}`,
-    `notify_denied = ${prefs.notify_denied !== false ? 1 : 0}`,
-    `notify_available = ${prefs.notify_available !== false ? 1 : 0}`,
-    `notify_pending = ${prefs.notify_pending !== false ? 1 : 0}`,
-    `notify_auto_approved = ${prefs.notify_auto_approved !== false ? 1 : 0}`,
-    `notify_process_failed = ${prefs.notify_process_failed !== false ? 1 : 0}`,
-    `notify_issue_new = ${prefs.notify_issue_new !== false ? 1 : 0}`,
-    `notify_issue_update = ${prefs.notify_issue_update !== false ? 1 : 0}`,
-    `notify_issue_comment = ${prefs.notify_issue_comment !== false ? 1 : 0}`,
-    `discord_webhook = ${sqlValue(prefs.discord_webhook)}`,
-    `discord_enabled = ${prefs.discord_enabled ? 1 : 0}`,
-    `discord_user_id = ${sqlValue(prefs.discord_user_id)}`,
-    `pushover_user_key = ${sqlValue(prefs.pushover_user_key)}`,
-    `pushover_enabled = ${prefs.pushover_enabled ? 1 : 0}`,
-    `pushover_application_token = ${sqlValue(prefs.pushover_application_token)}`,
-    `pushover_sound = ${sqlValue(prefs.pushover_sound)}`,
-    `telegram_chat_id = ${sqlValue(prefs.telegram_chat_id)}`,
-    `telegram_message_thread_id = ${sqlValue(prefs.telegram_message_thread_id)}`,
-    `telegram_send_silently = ${prefs.telegram_send_silently ? 1 : 0}`,
-    `telegram_enabled = ${prefs.telegram_enabled ? 1 : 0}`,
-    `pushbullet_access_token = ${sqlValue(prefs.pushbullet_access_token)}`,
-    `pushbullet_enabled = ${prefs.pushbullet_enabled ? 1 : 0}`,
-    `email_enabled = ${prefs.email_enabled ? 1 : 0}`,
-    `email_address = ${sqlValue(prefs.email_address)}`,
-    `pgp_key = ${sqlValue(prefs.pgp_key)}`,
-    `webpush_enabled = ${prefs.webpush_enabled ? 1 : 0}`,
-    `notify_monitor = ${prefs.notify_monitor !== false ? 1 : 0}`,
-    `notify_movie_night_added = ${prefs.notify_movie_night_added !== false ? 1 : 0}`,
-    `notify_movie_night_comment = ${prefs.notify_movie_night_comment !== false ? 1 : 0}`,
-  ];
+// Column → how its value is stored. Toggles whose default is "on" ('optOut')
+// are only off when explicitly false; channel flags ('flag') only on when truthy.
+const NOTIFICATION_PREF_COLUMNS = {
+  notify_approved: 'optOut', notify_denied: 'optOut', notify_available: 'optOut',
+  notify_pending: 'optOut', notify_auto_approved: 'optOut', notify_process_failed: 'optOut',
+  notify_issue_new: 'optOut', notify_issue_update: 'optOut', notify_issue_comment: 'optOut',
+  notify_monitor: 'optOut', notify_movie_night_added: 'optOut', notify_movie_night_comment: 'optOut',
+  discord_webhook: 'text', discord_enabled: 'flag', discord_user_id: 'text',
+  pushover_user_key: 'text', pushover_enabled: 'flag', pushover_application_token: 'text', pushover_sound: 'text',
+  telegram_chat_id: 'text', telegram_message_thread_id: 'text', telegram_send_silently: 'flag', telegram_enabled: 'flag',
+  pushbullet_access_token: 'text', pushbullet_enabled: 'flag',
+  email_enabled: 'flag', email_address: 'text', pgp_key: 'text',
+  webpush_enabled: 'flag',
+};
 
-  db.prepare(`
-    INSERT OR REPLACE INTO user_notification_prefs (user_id) VALUES (?)
-  `).run(String(userId));
-
-  // Update each field individually to handle missing columns gracefully
-  for (const set of baseSet) {
+// Partial update: only the keys present in `prefs` change; everything else
+// keeps its stored value.
+function setUserNotificationPrefs(userId, prefs = {}) {
+  db.prepare('INSERT OR IGNORE INTO user_notification_prefs (user_id) VALUES (?)').run(String(userId));
+  for (const [col, kind] of Object.entries(NOTIFICATION_PREF_COLUMNS)) {
+    if (prefs[col] === undefined) continue;
+    const v = prefs[col];
+    const value = kind === 'optOut' ? (v !== false ? 1 : 0)
+      : kind === 'flag' ? (v ? 1 : 0)
+      : (v === null || v === '' ? null : String(v));
     try {
-      db.prepare(`UPDATE user_notification_prefs SET ${set} WHERE user_id = ?`).run(String(userId));
+      db.prepare(`UPDATE user_notification_prefs SET ${col} = ? WHERE user_id = ?`).run(value, String(userId));
     } catch {
       // Column may not exist yet — skip
     }
   }
 }
 
-// Helper: convert a value to SQL literal
-function sqlValue(val) {
-  if (val === null || val === undefined) return 'NULL';
-  return `'${String(val).replace(/'/g, "''")}'`;
+// The user's own settings save: content preferences and notification prefs in
+// one transaction, each a partial update (absent keys keep their values).
+function updateOwnUserSettings(userId, { preferences = {}, notificationPrefs = {} } = {}) {
+  withTransaction(() => {
+    setUserPreferences(userId, preferences);
+    setUserNotificationPrefs(userId, notificationPrefs);
+  });
 }
 
 function getAdminUserIds() {
@@ -2997,18 +3289,111 @@ function getRecentReadNotifications(userId, limit = 5) {
     .all(String(userId), Number(limit));
 }
 
+const QUEUE_MAX_ATTEMPTS = 5;
+const QUEUE_BACKOFF_SECONDS = [30, 120, 600, 1800]; // after attempts 1, 2, 3, 4
+const QUEUE_LEASE_SECONDS = 10 * 60;
+const FEED_DEDUPE_SECONDS = 15 * 60;
+const nowSeconds = () => Math.floor(Date.now() / 1000);
+
+// Identity of an event for the admin-feed dedupe: one event fanned out to many
+// recipients (every admin, every group member) is one message in a shared feed.
+function notificationFeedKey(payload) {
+  if (!payload || typeof payload !== 'object') return null;
+  return require('crypto').createHash('sha1')
+    .update(JSON.stringify([payload.type || '', payload.title || '', payload.body || '']))
+    .digest('hex');
+}
+
+// Queues one external delivery. The recipient is the row's user_id (the worker
+// hands it to the provider), not anything inside the payload. The first row
+// for an agent+event within the dedupe window carries the admin-feed copy.
 function enqueueNotification({ notificationId, agent, userId, payload, sendAfter }) {
-  db.prepare('INSERT INTO notification_queue (notification_id, agent, user_id, payload, send_after) VALUES (?, ?, ?, ?, ?)')
-    .run(notificationId || null, agent, userId || null, JSON.stringify(payload), sendAfter || Math.floor(Date.now()/1000) + 120);
+  const now = nowSeconds();
+  const feedKey = notificationFeedKey(payload);
+  const feedTaken = feedKey && db.prepare(
+    'SELECT 1 FROM notification_queue WHERE agent = ? AND feed_key = ? AND feed = 1 AND created_at >= ? LIMIT 1'
+  ).get(agent, feedKey, now - FEED_DEDUPE_SECONDS);
+  const result = db.prepare(
+    "INSERT INTO notification_queue (notification_id, agent, user_id, payload, send_after, status, feed, feed_key) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)"
+  ).run(notificationId || null, agent, userId || null, JSON.stringify(payload), sendAfter || now + 120, feedTaken ? 0 : 1, feedKey);
+  return Number(result.lastInsertRowid);
 }
 
 function getPendingQueuedNotifications() {
-  return db.prepare('SELECT * FROM notification_queue WHERE sent = 0 AND send_after <= ? ORDER BY id ASC LIMIT 50')
-    .all(Math.floor(Date.now()/1000));
+  const now = nowSeconds();
+  return db.prepare("SELECT * FROM notification_queue WHERE status = 'pending' AND send_after <= ? AND (next_attempt_at IS NULL OR next_attempt_at <= ?) ORDER BY id ASC LIMIT 50")
+    .all(now, now);
+}
+
+// Claims due rows for one worker pass (status → 'sending'). Every pending row
+// of a due bundle (same notification, agent and recipient) is claimed with it
+// so the bundle goes out once. A bundle keeps its retry schedule: its rows wait
+// while any of them is still backing off. Claims older than the lease are
+// released first.
+function claimDueQueuedNotifications(limit = 50) {
+  const now = nowSeconds();
+  return withTransaction(() => {
+    db.prepare("UPDATE notification_queue SET status = 'pending', claimed_at = NULL WHERE status = 'sending' AND claimed_at < ?")
+      .run(now - QUEUE_LEASE_SECONDS);
+    const due = db.prepare(`SELECT * FROM notification_queue q
+      WHERE status = 'pending' AND send_after <= ? AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
+        AND (q.notification_id IS NULL OR NOT EXISTS (
+          SELECT 1 FROM notification_queue s WHERE s.status = 'pending' AND s.notification_id = q.notification_id
+            AND s.agent = q.agent AND s.user_id IS q.user_id AND s.next_attempt_at > ?))
+      ORDER BY id ASC LIMIT ?`)
+      .all(now, now, now, Number(limit));
+    const rows = [...due];
+    const ids = new Set(due.map(r => r.id));
+    const groups = new Set();
+    const siblings = db.prepare("SELECT * FROM notification_queue WHERE status = 'pending' AND notification_id = ? AND agent = ? AND user_id IS ? ORDER BY id ASC");
+    for (const r of due) {
+      const key = `${r.notification_id}:${r.agent}:${r.user_id}`;
+      if (!r.notification_id || groups.has(key)) continue;
+      groups.add(key);
+      for (const s of siblings.all(r.notification_id, r.agent, r.user_id)) {
+        if (!ids.has(s.id)) { ids.add(s.id); rows.push(s); }
+      }
+    }
+    const claim = db.prepare("UPDATE notification_queue SET status = 'sending', claimed_at = ? WHERE id = ? AND status = 'pending'");
+    return rows
+      .filter(r => Number(claim.run(now, r.id).changes) === 1)
+      .map(r => ({ ...r, status: 'sending' }))
+      .sort((a, b) => a.id - b.id);
+  });
+}
+
+// Persists the outcome of one claimed row.
+// outcome: { status: 'sent'|'skipped'|'retry'|'failed', delivered?: [targetId], error?, retryAfter? }
+// A retry is rescheduled with backoff until QUEUE_MAX_ATTEMPTS, then 'failed'.
+function recordQueueDelivery(id, outcome) {
+  const now = nowSeconds();
+  const row = db.prepare('SELECT attempts FROM notification_queue WHERE id = ?').get(Number(id));
+  if (!row) return null;
+  const attempts = (row.attempts || 0) + (outcome.status === 'skipped' ? 0 : 1);
+  let status = outcome.status;
+  let nextAttemptAt = null;
+  if (status === 'retry') {
+    if (attempts >= QUEUE_MAX_ATTEMPTS) {
+      status = 'failed';
+    } else {
+      const backoff = QUEUE_BACKOFF_SECONDS[Math.min(attempts - 1, QUEUE_BACKOFF_SECONDS.length - 1)];
+      nextAttemptAt = now + Math.max(backoff, Math.ceil(Number(outcome.retryAfter) || 0));
+      status = 'pending';
+    }
+  }
+  const delivered = outcome.delivered?.length ? JSON.stringify([...new Set(outcome.delivered)]) : null;
+  db.prepare('UPDATE notification_queue SET status = ?, sent = ?, attempts = ?, next_attempt_at = ?, claimed_at = NULL, last_error = ?, delivered = ?, updated_at = ? WHERE id = ?')
+    .run(status, status === 'sent' ? 1 : 0, attempts, nextAttemptAt, outcome.error ? String(outcome.error).slice(0, 1000) : null, delivered, now, Number(id));
+  return { status, attempts, nextAttemptAt };
+}
+
+function getFailedQueuedNotifications(limit = 50) {
+  return db.prepare("SELECT id, notification_id, agent, user_id, payload, attempts, last_error, created_at, updated_at FROM notification_queue WHERE status = 'failed' ORDER BY id DESC LIMIT ?")
+    .all(Math.min(Math.max(Number(limit) || 50, 1), 500));
 }
 
 function markQueueItemSent(id) {
-  db.prepare('UPDATE notification_queue SET sent = 1 WHERE id = ?').run(Number(id));
+  db.prepare("UPDATE notification_queue SET sent = 1, status = 'sent', claimed_at = NULL, updated_at = ? WHERE id = ?").run(nowSeconds(), Number(id));
 }
 
 function deleteQueueItem(id) {
@@ -3178,9 +3563,12 @@ function deleteIssueComment(commentId, requesterId, isAdmin) {
 
 // Set of "<tvdbId>:tv" keys for shows the library knows by TVDB id. TVDB-only
 // requests (YouTube series absent from TMDB, tmdb_id sentinel 0) can only be
-// recognized as available through this set.
-function getLibraryTvdbKeys() {
-  const rows = db.prepare("SELECT tvdb_id FROM library_items WHERE tvdb_id IS NOT NULL AND tvdb_id != '' AND type = 'show'").all();
+// recognized as available through this set. `access` (optional) narrows it to
+// the shows one user may see.
+function getLibraryTvdbKeys(access = null) {
+  const p = sqlPredicate(access);
+  const rows = db.prepare(`SELECT tvdb_id FROM library_items WHERE tvdb_id IS NOT NULL AND tvdb_id != '' AND type = 'show' AND ${p.sql}`)
+    .all(...p.params);
   return new Set(rows.map(r => `${r.tvdb_id}:tv`));
 }
 
@@ -3189,6 +3577,24 @@ function getLibraryTvdbKeys() {
 function requestIsInLibrary(row, tmdbKeys, tvdbKeys) {
   if (row.tmdb_id && tmdbKeys.has(`${row.tmdb_id}:${row.media_type}`)) return true;
   return !!(row.tvdb_id && row.media_type === 'tv' && tvdbKeys.has(`${row.tvdb_id}:tv`));
+}
+
+// True when a request counts as fulfilled for display/edit purposes. A
+// season-gated request (specific seasons, e.g. "request missing seasons" on a
+// show already in the library) is only available once the season-aware
+// fulfillment check stamped it; everything else is available once its title is.
+function requestIsAvailable(row, tmdbKeys, tvdbKeys) {
+  if (!requestIsInLibrary(row, tmdbKeys, tvdbKeys)) return false;
+  return !row.season_gated || !!row.notified_available_at;
+}
+
+// Library rows (any source) holding the show a TV request points at.
+function getLibraryShowsForRequest(row) {
+  return db.prepare(`
+    SELECT * FROM library_items
+    WHERE type = 'show' AND ((? != 0 AND tmdb_id = ?) OR (? != 0 AND tvdb_id = ?))
+  `).all(Number(row.tmdb_id) || 0, String(row.tmdb_id || ''), Number(row.tvdb_id) || 0, String(row.tvdb_id || ''))
+    .map(rowToItem);
 }
 
 function getUnnotifiedFulfilledRequests() {
@@ -3460,7 +3866,7 @@ function getFollowStats(userIds) {
 
 // ── Public Reviews Feed ───────────────────────────────────────────────────────
 
-function getPublicReviews(limit, offset, followedUserIds) {
+function getPublicReviews(limit, offset, followedUserIds, access = undefined) {
   limit = Number(limit) || 20;
   offset = Number(offset) || 0;
   const clauses = [];
@@ -3492,15 +3898,23 @@ function getPublicReviews(limit, offset, followedUserIds) {
   const rows = db.prepare(sql).all(...params);
   // Resolve poster + content rating from the matching library item so the feed card
   // can show artwork and a maturity badge. Done here so cached rows carry it.
-  for (const r of rows) {
-    const lib = r.tmdb_id != null ? getLibraryItemByTmdbId(r.tmdb_id, r.media_type) : null;
-    const thumbPath = lib?.thumb || lib?.art || null;
-    r.poster_url = thumbPath
-      ? (thumbPath.startsWith('http') ? thumbPath : `/api/poster?path=${encodeURIComponent(thumbPath)}`)
-      : null;
-    r.content_rating = lib?.content_rating || '';
-  }
+  for (const r of rows) Object.assign(r, reviewLibraryArt(r.tmdb_id, r.media_type, access));
   return rows;
+}
+
+// Poster + content rating for a review card from the matching library item.
+// `access` (services/libraryAccess) picks a copy that viewer may see; a title
+// only in libraries they can't access gets neither — the review text is user
+// content and stays. Omitted = any copy (cached/shared rows).
+function reviewLibraryArt(tmdbId, mediaType, access = undefined) {
+  const lib = tmdbId != null ? getLibraryItemByTmdbId(tmdbId, mediaType, null, access) : null;
+  const thumbPath = lib?.thumb || lib?.art || null;
+  return {
+    poster_url: thumbPath
+      ? (thumbPath.startsWith('http') ? thumbPath : `/api/poster?path=${encodeURIComponent(thumbPath)}`)
+      : null,
+    content_rating: lib?.content_rating || '',
+  };
 }
 
 // Every review of one title visible to `viewerUserId`: public reviews plus the
@@ -3563,6 +3977,19 @@ db.exec(`
   CREATE UNIQUE INDEX IF NOT EXISTS idx_svc_user_overseerr ON app_service_users(app_id, overseerr_user_id);
 `);
 
+// Service users used to be created with permissions 0 and could still file
+// requests. The shim now requires REQUEST (as Overseerr does), so grant it once
+// to every zero-mask user. Runs here, not in the migrations array: this table
+// doesn't exist yet at that point on a fresh install. The migrations row (not
+// the WHERE clause) keeps it one-shot, so a mask later set back to 0 stays 0.
+if (!db.prepare("SELECT 1 FROM migrations WHERE name = 'shim_service_user_request_v1'").get()) {
+  withTransaction(() => {
+    const { changes } = db.prepare('UPDATE app_service_users SET permissions = 32 WHERE permissions = 0').run();
+    db.prepare('INSERT INTO migrations (name, ran_at) VALUES (?, ?)').run('shim_service_user_request_v1', Date.now());
+    console.log(`[db] Migration applied: shim_service_user_request_v1 (${changes} service users)`);
+  });
+}
+
 function createApiApp(name, type = 'generic') {
   const { randomBytes } = require('crypto');
   const key = randomBytes(32).toString('hex');
@@ -3613,7 +4040,9 @@ function deleteApiApp(id) {
   db.prepare('DELETE FROM api_apps WHERE id = ?').run(Number(id));
 }
 
-function createServiceUser(appId, { username, email, permissions = 0 }) {
+// permissions defaults to 32 (REQUEST), Overseerr's default for new users and
+// the minimum the shim needs to accept the user's requests (shimPolicy)
+function createServiceUser(appId, { username, email, permissions = 32 }) {
   const { randomBytes } = require('crypto');
   const apiKey = randomBytes(32).toString('hex');
   const now = Math.floor(Date.now() / 1000);
@@ -4217,10 +4646,11 @@ function getMovieNightNextPick(groupId) {
 
 // ── Watch Together ───────────────────────────────────────────────────────────
 
-function createWatchParty({ hostId, source, ratingKey, title, subtitle, thumb, durationMs }) {
+function createWatchParty({ hostId, source, ratingKey, title, subtitle, thumb, durationMs, libraryKey = null, sectionId = null }) {
   const result = db.prepare(
-    'INSERT INTO watch_parties (host_id, source, rating_key, title, subtitle, thumb, duration_ms) VALUES (?, ?, ?, ?, ?, ?, ?)'
-  ).run(String(hostId), source === 'jellyfin' ? 'jellyfin' : 'plex', String(ratingKey), title, subtitle || null, thumb || null, Number(durationMs) || 0);
+    'INSERT INTO watch_parties (host_id, source, rating_key, title, subtitle, thumb, duration_ms, library_key, section_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(String(hostId), source === 'jellyfin' ? 'jellyfin' : 'plex', String(ratingKey), title, subtitle || null, thumb || null, Number(durationMs) || 0,
+    libraryKey != null ? String(libraryKey) : null, sectionId != null ? String(sectionId) : null);
   const id = result.lastInsertRowid;
   db.prepare("INSERT INTO watch_party_members (party_id, user_id, role) VALUES (?, ?, 'host')").run(id, String(hostId));
   return getWatchParty(id);
@@ -4292,6 +4722,7 @@ module.exports = {
   upsertJellyfinUser, seedJellyfinUser, resolveCanonicalUserId, getKnownUserById, getLinkedJellyfinRow,
   getJellyfinUsers, linkJellyfinAccount, unlinkJellyfinAccount, mergeUserData, setPreferredSource,
   upsertManyItems, pruneLibrarySectionItems, getLibraryItemsFromDb, getLibraryItemsBySource, getLibraryItemByKey,
+  getLibraryItemByKeyFor, withTransaction,
   updateItemDetailFields, updateLastEpisodeAdded, getItemsNeedingDetailSync,
   replaceWatchedBatch, getWatchedKeysFromDb,
   upsertWatchHistoryBatch, queryWatchHistory, getWatchHistoryUsers, getWatchHistoryCount,
@@ -4311,7 +4742,7 @@ module.exports = {
   getDiscoverCandidates, setDiscoverCandidates, getAllUserPrefsForDiscover,
   isIndividualSeasonsEnabled,
   getLandingPage,
-  getDirectRequestAccess,
+  getDirectRequestAccess, normalizeDirectRequestAccess,
   getGlobalRequestLimits, setGlobalRequestLimits,
   getUserRequestLimitOverride, setUserRequestLimitOverride, getAllUserRequestLimitOverrides,
   getEffectiveLimits, countRecentMovieRequests, countRecentSeasonRequests,
@@ -4324,11 +4755,14 @@ module.exports = {
   addSearchClick, getRecentSearchClicks, getFolloweeLoved,
   getUserRequests,
   addDiscoverRequestWithStatus, updateRequest, getRequestById,
+  setRequestSubmitError, getActiveRequestsForTitle, pruneOrphanFollowers, requestIsAvailable, getLibraryShowsForRequest,
   createOrBundleNotification, getUnreadNotificationCount, getNotifications,
-  markNotificationsRead, deleteNotification, getNotificationById, getRecentReadNotifications,
-  getUserNotificationPrefs, setUserNotificationPrefs,
+  markNotificationsRead, markAllNotificationsRead, deleteNotification, getNotificationById, getRecentReadNotifications,
+  getUserNotificationPrefs, setUserNotificationPrefs, updateOwnUserSettings,
   getAdminUserIds, getPrivilegedUserIds,
   enqueueNotification, getPendingQueuedNotifications, markQueueItemSent, deleteQueueItem,
+  claimDueQueuedNotifications, recordQueueDelivery, getFailedQueuedNotifications,
+  QUEUE_MAX_ATTEMPTS, QUEUE_BACKOFF_SECONDS, normalizeStoredNotificationTypes,
   createIssue, setIssueSearchStatus, getIssueById, getAllIssues, getUserIssues, getIssueUsers, updateIssueStatus, deleteIssue, deleteIssuesByIds,
   createWatchParty, getWatchParty, setWatchPartyStatus, getWatchPartyMembers, getWatchPartyMember,
   addWatchPartyMember, removeWatchPartyMember, setWatchPartyMemberDevice, setWatchPartyMemberStatus,
@@ -4353,7 +4787,7 @@ module.exports = {
   getReviewComments, getReviewCommentCount, createReviewComment, getReviewComment, updateReviewComment, deleteReviewComment,
   followUser, unfollowUser, isFollowing, getFollowedUserIds, getFollowers, getFollowing,
   getFollowerCount, getFollowingCount, seedDefaultFollows, getFollowStats,
-  getPublicReviews, getPublicReviewsCount, getReviewsForMedia,
+  getPublicReviews, getPublicReviewsCount, getReviewsForMedia, reviewLibraryArt,
   // API apps (Agregarr / external integrations)
   createApiApp, getApiApp, getApiAppByKey, listApiApps, updateApiApp, regenerateApiAppKey, deleteApiApp,
   createServiceUser, getServiceUserByKey, getServiceUserById, getServiceUsersByApp, deleteServiceUser,
@@ -4371,4 +4805,6 @@ module.exports = {
   // blocking readers. The destination must not already exist.
   backupTo: (destPath) => db.exec(`VACUUM INTO '${String(destPath).replace(/'/g, "''")}'`),
   close: () => db.close(),
+  // Runtime data location (DISKOVARR_DATA_DIR or server/data)
+  dataDir, dataPath,
 };

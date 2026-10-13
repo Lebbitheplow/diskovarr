@@ -219,7 +219,8 @@ export default function SpotlightHero({
               {isInWatchlist?.(item) ? '✓ ' + t('In Watchlist') : '+ ' + t('Watchlist')}
             </button>
           )}
-          {!item.ratingKey && onRequest && (
+          {/* Not for a title held only in a library this user can't access */}
+          {!item.ratingKey && !item.restricted && onRequest && (
             <button
               className="spotlight-btn spotlight-btn-play"
               onClick={() => (item.isRequested ? onNotify?.(item) : onRequest(item))}
@@ -229,6 +230,11 @@ export default function SpotlightHero({
                 ? t('Requested') + ' ✓'
                 : item.isRequested ? t('Notify Me') : t('Request')}
             </button>
+          )}
+          {!item.ratingKey && item.restricted && (
+            <span className="spotlight-btn spotlight-btn-ghost is-restricted" role="note" title={t('Ask the server owner for access')}>
+              {t('In a library you don\'t have access to')}
+            </span>
           )}
           <button className="spotlight-btn spotlight-btn-ghost" onClick={() => onOpenModal(item)}>
             {t('Details')}

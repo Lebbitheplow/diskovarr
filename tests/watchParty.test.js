@@ -16,9 +16,15 @@ const watchParty = nodeRequire('../server/services/watchParty/index.js')
 const plexDriver = nodeRequire('../server/services/watchParty/plexDriver.js')
 const jellyfinDriver = nodeRequire('../server/services/watchParty/jellyfinDriver.js')
 const jfClient = nodeRequire('../server/services/jellyfin/client.js')
+const libraryAccess = nodeRequire('../server/services/libraryAccess/index.js')
 
 beforeAll(() => {
   db.prepare("INSERT INTO known_users (user_id, username) VALUES ('u1','alice'),('u2','bob'),('u3','carol')").run()
+  // The roster's title is a library row the guests can access (a key that
+  // isn't a row is only for unrestricted users: librarySocialAccess.test.js)
+  db.prepare("INSERT INTO library_items (rating_key, section_id, title, type, source) VALUES ('100', '1', 'Alien', 'movie', 'plex')").run()
+  for (const u of ['u2', 'u3']) libraryAccess.saveSnapshot(u, 'plex', { role: 'shared', sectionIds: ['1'] })
+  libraryAccess.invalidate()
 })
 
 const freshParty = () => db.createWatchParty({ hostId: 'u1', source: 'plex', ratingKey: '100', title: 'Alien', subtitle: '1979', thumb: '/t', durationMs: 7000000 })
@@ -123,7 +129,10 @@ describe('Jellyfin driver', () => {
   })
 
   it('creates a Jellyfin party for a Jellyfin title', async () => {
-    const party = await watchParty.createParty({ hostId: 'jf_guid-9', ratingKey: 'series-1', userIds: [] })
+    // The host's Jellyfin policy covers every folder
+    libraryAccess.saveSnapshot('jf_guid-9', 'jellyfin', { role: 'jellyfin', allSections: true })
+    libraryAccess.invalidate()
+    const { party } = await watchParty.createParty({ hostId: 'jf_guid-9', ratingKey: 'series-1', userIds: [] })
     expect([party.source, party.rating_key]).toEqual(['jellyfin', 'ep-2'])
     expect(watchParty.snapshot(party, 'jf_guid-9').source).toBe('jellyfin')
   })

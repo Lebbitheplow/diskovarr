@@ -6,6 +6,7 @@ import adminApi, {
   adminRequestLimits,
   adminConnections,
 } from '../../services/adminApi'
+import LibraryAccessPanel from './LibraryAccessPanel'
 
 const PER_PAGE_OPTIONS = [10, 25, 50]
 
@@ -809,6 +810,9 @@ export default function UserManagement({ onToast, connections, onOpenUserSetting
           </div>
         </div>
       </div>
+
+      {/* Library Access (Plex sharing / Jellyfin policy) */}
+      <LibraryAccessPanel onToast={showToast} />
 
       {/* Users & Watch Sync */}
       <div className="admin-section">

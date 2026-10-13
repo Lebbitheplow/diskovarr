@@ -207,7 +207,10 @@ export default function Explore() {
       })
       toastSuccess(t("You'll be notified when {{title}} is available", { title: item.title }))
     } catch (e) {
-      toastError(t('Notify failed'))
+      // 409 requestable: nobody has a live request for it any more (the card
+      // is stale) — open the request dialog instead of a dead end
+      if (e.status === 409 && e.details?.requestable) setRequestItem(item)
+      else toastError(e.message || t('Notify failed'))
     }
   }, [toastSuccess, toastError, t])
 

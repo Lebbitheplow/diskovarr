@@ -2,6 +2,7 @@ const logger = require('./logger');
 const BaseAgent = require('./notificationAgents/base');
 const { hasNotificationType } = require('./notificationAgents/types');
 const { forGotify } = require('./messageFormat');
+const { resolveAudience, runTargets, skipped, ensureOk, emptyTally, tallySend } = require('./notificationAgents/delivery');
 
 // Gotify agent — self-hosted notification server
 // Docs: https://gotify.net/docs/push
@@ -45,31 +46,30 @@ class GotifyAgent extends BaseAgent {
     };
   }
 
-  async send(type, payload) {
+  // Admin feed only — Gotify has no per-user destination.
+  async send(type, payload, ctx) {
     const settings = this.getSettings();
-    if (!settings || !settings.enabled || !settings.url || !settings.token) return;
-    if (!this.shouldSendType(type)) return;
+    if (!settings || !settings.enabled || !settings.url || !settings.token) return skipped('Gotify disabled');
+    if (!this.shouldSendType(type)) return skipped(`type ${type} not selected`);
+    if (!resolveAudience(payload, ctx).feed) return skipped('feed copy carried by another queue row');
+    const result = await runTargets([{ id: 'feed', send: () => this.deliver(type, payload) }], ctx);
+    if (result.error) logger.warn('Gotify agent error:', result.error);
+    return result;
+  }
 
-    try {
-      const body = this.buildPayload(type, payload);
-      const endpoint = `${settings.url.replace(/\/$/, '')}/message?token=${settings.token}`;
-      logger.debug(`Gotify: sending to ${settings.url}`);
-
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(10000),
-      });
-
-      if (!res.ok) {
-        throw new Error(`Gotify ${res.status}: ${await res.text().catch(() => '')}`);
-      }
-      return true;
-    } catch (err) {
-      logger.warn('Gotify agent error:', err.message);
-      return false;
-    }
+  async deliver(type, payload) {
+    const settings = this.getSettings();
+    const body = this.buildPayload(type, payload);
+    const endpoint = `${settings.url.replace(/\/$/, '')}/message?token=${settings.token}`;
+    logger.debug(`Gotify: sending to ${settings.url}`);
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(10000),
+    });
+    await ensureOk(res, 'Gotify');
+    return true;
   }
 
   async sendTest(payload) {
@@ -101,11 +101,15 @@ class GotifyAgent extends BaseAgent {
     return true;
   }
 
+  // Broadcasts bypass the type filter. Returns { attempted, sent, failed }.
   async sendBroadcast(message) {
-    await this.send('broadcast', {
-      title: 'Message from Server Admin',
-      body: forGotify(message),
-    });
+    const tally = emptyTally();
+    const settings = this.getSettings();
+    if (!settings || !settings.enabled || !settings.url || !settings.token) return tally;
+    await tallySend(tally,
+      () => this.deliver('broadcast', { title: 'Message from Server Admin', body: forGotify(message) }),
+      (err) => logger.warn('Gotify broadcast failed:', err.message));
+    return tally;
   }
 }
 

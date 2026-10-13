@@ -15,6 +15,7 @@ import { useToast } from '../context/ToastContext'
 import { useAuth } from '../context/AuthContext'
 import { posterUrl } from '../utils/media'
 import { timeAgo as fmtDate } from '../utils/format'
+import { opensRequestEditor } from '../utils/notificationRoutes'
 import { useTranslation } from 'react-i18next'
 
 const STATUS_LABELS = {
@@ -234,26 +235,32 @@ export default function Queue() {
     if (!idParam || deepLinkDone.current) return
     queueApi.getRequest(parseInt(idParam))
       .then(({ data }) => {
-        if (data) {
-          handleEdit(data)
-          deepLinkDone.current = true
-        }
+        deepLinkDone.current = true
+        // Declined/available/notify-only rows can't be edited: just show the queue
+        if (opensRequestEditor(data)) handleEdit(data)
       })
-      .catch(() => {})
+      .catch(() => { deepLinkDone.current = true })
   }, [idParam, handleEdit])
 
   const handleEditSave = useCallback(async () => {
     if (!editRequest) return
-    const seasons = editAllSeasons ? null : editSeasons.filter(s => s.selected).map(s => s.number) || null
+    // YouTube requests are pinned to Sonarr — never send a stale service pick
+    const body = { service: editRequest.downloader === 'youtube' ? 'sonarr' : editService }
+    // No season list shown (TVDB-only/YouTube shows, failed lookup): leave
+    // seasons out so the server keeps the stored selection
+    if (editRequest.media_type === 'tv' && editSeasons.length > 0) {
+      body.seasons = editAllSeasons ? 'all' : editSeasons.filter(s => s.selected).map(s => s.number)
+    }
     try {
-      // YouTube requests are pinned to Sonarr — never send a stale service pick
-      const service = editRequest.downloader === 'youtube' ? 'sonarr' : editService
-      await queueApi.updateRequest(editRequest.id, { service, seasons })
+      await queueApi.updateRequest(editRequest.id, body)
       toastSuccess(t('Request updated'))
       setEditRequest(null)
       loadQueue(currentFilter, page)
     } catch (e) {
       toastError(e.message || t('Save failed'))
+      // 502: the edit was stored but the download app rejected it — refresh so
+      // the row shows "Not sent"; the dialog stays open so Save retries it
+      if (e.status === 502) loadQueue(currentFilter, page)
     }
   }, [editRequest, editService, editAllSeasons, editSeasons, currentFilter, page, loadQueue, toastSuccess, toastError, t])
 
@@ -514,7 +521,13 @@ export default function Queue() {
                       )}
                     </td>
                     <td>{fmtDate(r.requested_at)}</td>
-                    <td><span className={'status-badge-' + ds}>{t(STATUS_LABELS[ds] || ds)}</span></td>
+                    <td>
+                      <span className={'status-badge-' + ds}>{t(STATUS_LABELS[ds] || ds)}</span>
+                      {/* Approved but the download app never accepted it — editing and saving retries */}
+                      {r.submit_error && ds === 'requested' && (
+                        <span className="status-badge-denied" style={{ marginLeft: 6 }} title={r.submit_error}>{t('Not sent')}</span>
+                      )}
+                    </td>
                     <td><div className="queue-actions">
                       {isAdmin && isPending && (
                         <>
@@ -522,16 +535,17 @@ export default function Queue() {
                           <button className="btn-queue-deny" onClick={() => handleDeny(r.id)}>{t('Deny')}</button>
                         </>
                       )}
-                      {isAdmin && (isPending || ds === 'requested') && (
+                      {/* "Notify me" follower rows ride on another request and can't be edited */}
+                      {isAdmin && !r.is_follow && (isPending || ds === 'requested') && (
                         <button className="btn-queue-edit" onClick={() => handleEdit(r)}>{t('Edit')}</button>
                       )}
-                      {!isAdmin && (isPending || ds === 'requested') && String(user?.id) === String(r.user_id) && (
+                      {!isAdmin && !r.is_follow && (isPending || ds === 'requested') && String(user?.id) === String(r.user_id) && (
                         <button className="btn-queue-edit" onClick={() => handleEdit(r)}>{t('Edit')}</button>
                       )}
                       {canRivenReset(r) && (
                         <button className="btn-queue-edit" title={t('Blacklist the torrent Riven downloaded and queue it again')} onClick={() => setRivenTarget({ tmdbId: r.tmdb_id, mediaType, title: r.title })}>{t('Riven reset')}</button>
                       )}
-                      {(isAdmin || (isPending && String(user?.id) === String(r.user_id))) && (
+                      {(isAdmin || ((isPending || r.is_follow) && String(user?.id) === String(r.user_id))) && (
                         <button className="btn-queue-delete" onClick={() => {
                           if (localStorage.getItem('diskovarr_no_confirm_delete') === 'true') {
                             handleDelete(r.id)
@@ -590,9 +604,11 @@ export default function Queue() {
                   <option value="">{t('Default')}</option>
                   {services.overseerr && <option value="overseerr">Overseerr</option>}
                   {services.riven && <option value="riven">DUMB</option>}
-                  {/* Radarr only handles movies, Sonarr only handles shows */}
-                  {editRequest.media_type === 'movie' && services.radarr && <option value="radarr">Radarr</option>}
-                  {editRequest.media_type === 'tv' && services.sonarr && <option value="sonarr">Sonarr</option>}
+                  {/* Radarr only handles movies, Sonarr only handles shows. When the
+                      admin limits direct requests to admins, others keep only the
+                      routing the request already has (the server enforces this). */}
+                  {editRequest.media_type === 'movie' && services.radarr && (services.directAllowed !== false || editRequest.service === 'radarr') && <option value="radarr">Radarr</option>}
+                  {editRequest.media_type === 'tv' && services.sonarr && (services.directAllowed !== false || editRequest.service === 'sonarr') && <option value="sonarr">Sonarr</option>}
                 </select>
               )}
             </div>

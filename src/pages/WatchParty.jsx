@@ -91,7 +91,7 @@ function DevicePicker({ partyId, source, appName, current, onChanged }) {
 
 function InviteMore({ party, onChanged }) {
   const { t } = useTranslation()
-  const { error: toastError } = useToast()
+  const { error: toastError, info: toastInfo } = useToast()
   const [users, setUsers] = useState(null)
 
   const open = async () => {
@@ -108,6 +108,9 @@ function InviteMore({ party, onChanged }) {
       const { data } = await watchPartyApi.invite(party.id, [userId])
       onChanged(data.party)
       setUsers(prev => prev.filter(u => u.user_id !== userId))
+      if (data.skipped?.length) {
+        toastInfo(t("Not invited — this title is in a library they don't have access to: {{names}}", { names: data.skipped.map(s => s.username).join(', ') }))
+      }
     } catch (e) {
       toastError(e.response?.data?.error || e.message)
     }

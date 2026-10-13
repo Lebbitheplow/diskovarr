@@ -384,8 +384,15 @@ function candidateRow(r) {
   };
 }
 
+// A candidate skipped at execution time because it no longer qualified (see
+// markCandidateIneligible) — the one terminal state a later match reopens.
+const REOPENABLE = `(deletion_candidates.status = 'dismissed'
+  AND json_extract(deletion_candidates.details_json, '$.ineligible') = 1)`;
+
 // Upsert a current match. Preserves first_matched_at (grace-period anchor) and never
 // downgrades terminal states — deleted/dismissed/failed rows are history, not matches.
+// The exception is a row skipped as ineligible: matching again reopens it with a
+// fresh grace anchor, so it needs a new review/grace period before deletion.
 function upsertCandidate({ profileId, ratingKey, tmdbId, title, mediaType, status, details }) {
   db.prepare(`
     INSERT INTO deletion_candidates (profile_id, rating_key, tmdb_id, title, media_type, status, details_json)
@@ -393,7 +400,8 @@ function upsertCandidate({ profileId, ratingKey, tmdbId, title, mediaType, statu
     ON CONFLICT(profile_id, rating_key) DO UPDATE SET
       title = excluded.title,
       details_json = excluded.details_json,
-      status = CASE WHEN deletion_candidates.status IN ('matched', 'pending_review')
+      first_matched_at = CASE WHEN ${REOPENABLE} THEN unixepoch() ELSE deletion_candidates.first_matched_at END,
+      status = CASE WHEN deletion_candidates.status IN ('matched', 'pending_review') OR ${REOPENABLE}
                     THEN excluded.status ELSE deletion_candidates.status END
   `).run(
     Number(profileId), String(ratingKey), tmdbId ? String(tmdbId) : null,
@@ -432,6 +440,18 @@ function setCandidateStatus(id, status, { deleteMethod, error } = {}) {
     SET status = ?, deleted_at = COALESCE(?, deleted_at), delete_method = COALESCE(?, delete_method)${detailsUpdate}
     WHERE id = ?
   `).run(...params);
+}
+
+// Execution-time re-check failed (watchlisted since, profile changed, …): record
+// it as dismissed with the reason so it shows in history, flagged so a later
+// run that matches it again re-queues it (upsertCandidate).
+function markCandidateIneligible(id, reason) {
+  db.prepare(`
+    UPDATE deletion_candidates
+    SET status = 'dismissed',
+        details_json = json_set(COALESCE(details_json, '{}'), '$.error', ?, '$.ineligible', 1)
+    WHERE id = ?
+  `).run(String(reason), Number(id));
 }
 
 // Drop open candidates (matched / pending_review) that no longer match the profile.
@@ -486,5 +506,5 @@ module.exports = {
   getCollectionListsForMedia, getListRequestUsage,
   upsertListItem, getListItems, getListItemsInOrder, countListItems,
   createDeletionProfile, getDeletionProfiles, getDeletionProfile, updateDeletionProfile, deleteDeletionProfile, getEnabledDeletionProfiles,
-  upsertCandidate, getCandidates, getCandidateById, setCandidateStatus, pruneStaleCandidates, getDeletionHistory,
+  upsertCandidate, getCandidates, getCandidateById, setCandidateStatus, markCandidateIneligible, pruneStaleCandidates, getDeletionHistory,
 };

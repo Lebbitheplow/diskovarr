@@ -11,6 +11,12 @@ const router = express.Router();
 const db = require('../db/database');
 const logger = require('../services/logger');
 const tmdb = require('../services/tmdb');
+const policy = require('../services/shimPolicy');
+const shimRequests = require('../services/shimRequests');
+const requestNotifications = require('../services/requestNotifications');
+const requestPolicy = require('../services/requestPolicy');
+
+const { Permission } = policy;
 
 // ── In-memory library cache ────────────────────────────────────────────────────
 // Caches library TMDB IDs for 2 minutes so bulk Agregarr list runs don't hit
@@ -40,13 +46,14 @@ router.get('/settings/public', (req, res) => {
     hideAvailable: false,
     localLogin: true,
     newPlexLogin: false,
-    defaultPermissions: 32,
+    defaultPermissions: policy.DEFAULT_PERMISSIONS,
     version: '2.0.0',
   });
 });
 
 // ── Shim auth middleware ───────────────────────────────────────────────────────
-// Sets req.shimApp (always) and req.shimUser (if request is from a service user key)
+// Sets req.shimApp (always), req.shimUser (if request is from a service user key)
+// and req.shimPrincipal, which every route authorises against (services/shimPolicy).
 
 router.use((req, res, next) => {
   const apiKey = req.headers['x-api-key'] || req.headers['authorization']?.replace(/^Bearer\s+/i, '');
@@ -59,6 +66,7 @@ router.use((req, res, next) => {
     if (!app || !app.enabled) return res.status(401).json({ message: 'Unauthorized' });
     req.shimApp = app;
     req.shimUser = svcUser;
+    req.shimPrincipal = policy.principal(app, svcUser);
     return next();
   }
 
@@ -67,6 +75,7 @@ router.use((req, res, next) => {
   if (app) {
     req.shimApp = app;
     req.shimUser = null; // admin-level, no specific service user
+    req.shimPrincipal = policy.principal(app);
     return next();
   }
 
@@ -118,7 +127,7 @@ function shimAdminObj(app) {
   };
 }
 
-// Overseerr status: 1=PENDING 2=APPROVED 3=DECLINED 4=PARTIALLY_APPROVED 5=FAILED
+// Overseerr MediaRequestStatus: 1=PENDING 2=APPROVED 3=DECLINED 4=FAILED 5=COMPLETED
 function toOverseerrStatus(diskoStatus) {
   if (diskoStatus === 'approved') return 2;
   if (diskoStatus === 'denied')   return 3;
@@ -143,14 +152,16 @@ function toOverseerrRequest(row) {
     type: row.media_type, // 'movie' or 'tv' — DUMB reads item.type in log/skip messages
     status: toOverseerrStatus(row.status),
     media: {
-      id: row.tmdb_id,
+      // Shim media id (TMDB id + type in a range of its own; shimRequests.encodeMediaId)
+      id: shimRequests.mediaIdFor(row.tmdb_id, row.media_type),
       mediaType: row.media_type,
       media_type: row.media_type, // snake_case alias — DUMB accesses data.media_type in its fallback path
       tmdbId: row.tmdb_id,
       // DUMB filters for status==2 (approved) && media.status==3 (processing).
-      // Use 5 (Available) when already in Plex library, 3 (Processing) for approved
-      // but not yet downloaded, 2 (Pending) for pending requests.
-      status: getLibraryIdSet().has(`${row.tmdb_id}:${row.media_type === 'tv' ? 'tv' : 'movie'}`) ? 5
+      // Use 5 (Available) once this request is fulfilled, 3 (Processing) for approved
+      // but not yet downloaded — including missing seasons of a show the library
+      // already has — and 2 (Pending) for pending requests.
+      status: shimRequests.requestAvailable(row, getLibraryIdSet()) ? 5
             : row.status === 'approved' ? 3 : 2,
       // Fields Homarr's media-requests-list widget uses for display
       title: row.title || null,
@@ -226,23 +237,32 @@ router.get('/settings/main', (req, res) => {
     hideAvailable: false,
     localLogin: true,
     newPlexLogin: false,
-    defaultPermissions: 32,
+    defaultPermissions: policy.DEFAULT_PERMISSIONS,
     version: '2.0.0',
   });
 });
 
+// Every other /settings route (reads expose connection details; writes trigger
+// syncs) needs MANAGE_SETTINGS, as in Overseerr. /settings/public and
+// /settings/main are registered above and stay open to any valid key.
+router.use('/settings', policy.requirePermission(Permission.MANAGE_SETTINGS));
+
 // ── User management ───────────────────────────────────────────────────────────
 
-// POST /api/v1/user — Agregarr creates service users here
+// POST /api/v1/user — Agregarr creates service users here. Without a
+// `permissions` value the user gets Overseerr's default (REQUEST); unlike
+// Overseerr, an explicit one (even 0) is honoured — only app keys get here.
 router.post('/user', (req, res) => {
-  const { username, email, permissions = 0 } = req.body || {};
+  const { username, email, permissions = policy.DEFAULT_PERMISSIONS } = req.body || {};
   if (!username) return res.status(400).json({ message: 'username required' });
 
   // Only app-level (admin) key can create users
   if (req.shimUser) return res.status(403).json({ message: 'Forbidden' });
+  const mask = policy.parseMask(permissions);
+  if (mask === null) return res.status(400).json({ message: 'Invalid permissions' });
 
   try {
-    const svcUser = db.createServiceUser(req.shimApp.id, { username, email, permissions });
+    const svcUser = db.createServiceUser(req.shimApp.id, { username, email, permissions: mask });
     logger.info(`[shim] Created service user: ${username} for app "${req.shimApp.name}"`);
     res.status(201).json(shimUserObj(svcUser, true));
   } catch (err) {
@@ -327,17 +347,35 @@ router.get('/user/:id', (req, res) => {
   res.json(shimUserObj(svcUser));
 });
 
-// PUT /api/v1/user/:id — Agregarr updates permissions
-router.put('/user/:id', (req, res) => {
+// Shared by PUT /user/:id and POST /user/:id/settings/permissions. App keys may
+// set any mask on their own app's service users; service-user keys need
+// MANAGE_USERS and can't grant bits they lack (see shimPolicy.permissionChangeError).
+function updateServiceUserPermissions(req, res) {
   const svcUser = db.getServiceUserById(req.shimApp.id, parseInt(req.params.id));
   if (!svcUser) return res.status(404).json({ message: 'User not found' });
   const { permissions } = req.body || {};
-  if (permissions !== undefined) {
-    db.prepare('UPDATE app_service_users SET permissions = ? WHERE id = ?')
-      .run(Number(permissions), svcUser.id);
+  if (permissions === undefined) {
+    if (!policy.canManageUser(req.shimPrincipal, svcUser)) return policy.forbid(res);
+    return res.json(shimUserObj(svcUser));
   }
+  const mask = policy.parseMask(permissions);
+  if (mask === null) return res.status(400).json({ message: 'Invalid permissions' });
+  const denied = policy.permissionChangeError(req.shimPrincipal, svcUser, mask);
+  if (denied) return policy.forbid(res, denied);
+  db.prepare('UPDATE app_service_users SET permissions = ? WHERE id = ?').run(mask, svcUser.id);
   res.json(shimUserObj(db.prepare('SELECT * FROM app_service_users WHERE id = ?').get(svcUser.id)));
-});
+}
+
+// Service user for a no-op settings write, or null after sending 404/403.
+function settingsWriteTarget(req, res) {
+  const svcUser = db.getServiceUserById(req.shimApp.id, parseInt(req.params.id));
+  if (!svcUser) { res.status(404).json({ message: 'User not found' }); return null; }
+  if (!policy.canManageUser(req.shimPrincipal, svcUser)) { policy.forbid(res); return null; }
+  return svcUser;
+}
+
+// PUT /api/v1/user/:id — Agregarr updates permissions
+router.put('/user/:id', updateServiceUserPermissions);
 
 // DELETE /api/v1/user/:id — delete a service user
 router.delete('/user/:id', (req, res) => {
@@ -358,36 +396,23 @@ router.get('/user/:id/settings/main', (req, res) => {
 
 // POST /api/v1/user/:id/settings/main — update user general settings (no-op)
 router.post('/user/:id/settings/main', (req, res) => {
-  const svcUser = db.getServiceUserById(req.shimApp.id, parseInt(req.params.id));
-  if (!svcUser) return res.status(404).json({ message: 'User not found' });
-  res.json(shimUserObj(svcUser));
+  const svcUser = settingsWriteTarget(req, res);
+  if (svcUser) res.json(shimUserObj(svcUser));
 });
 
 // POST /api/v1/user/:id/settings — no-op, just return success
 router.post('/user/:id/settings', (req, res) => {
-  const svcUser = db.getServiceUserById(req.shimApp.id, parseInt(req.params.id));
-  if (!svcUser) return res.status(404).json({ message: 'User not found' });
-  res.json(shimUserObj(svcUser));
+  const svcUser = settingsWriteTarget(req, res);
+  if (svcUser) res.json(shimUserObj(svcUser));
 });
 
 // POST /api/v1/user/:id/settings/notifications — Agregarr updates notification prefs
 router.post('/user/:id/settings/notifications', (req, res) => {
-  const svcUser = db.getServiceUserById(req.shimApp.id, parseInt(req.params.id));
-  if (!svcUser) return res.status(404).json({ message: 'User not found' });
-  res.json({ notificationTypes: {}, pgpKey: null });
+  if (settingsWriteTarget(req, res)) res.json({ notificationTypes: {}, pgpKey: null });
 });
 
 // POST /api/v1/user/:id/settings/permissions — Agregarr sets permissions before requests
-router.post('/user/:id/settings/permissions', (req, res) => {
-  const svcUser = db.getServiceUserById(req.shimApp.id, parseInt(req.params.id));
-  if (!svcUser) return res.status(404).json({ message: 'User not found' });
-  const { permissions } = req.body || {};
-  if (permissions !== undefined) {
-    db.prepare('UPDATE app_service_users SET permissions = ? WHERE id = ?')
-      .run(Number(permissions), svcUser.id);
-  }
-  res.json(shimUserObj(db.prepare('SELECT * FROM app_service_users WHERE id = ?').get(svcUser.id)));
-});
+router.post('/user/:id/settings/permissions', updateServiceUserPermissions);
 
 // GET /api/v1/user/:id/settings
 router.get('/user/:id/settings', (req, res) => {
@@ -430,6 +455,15 @@ router.post('/request', async (req, res) => {
     if (!userId) userId = `__app_${req.shimApp.id}__`;
   }
 
+  // The acting user needs REQUEST (or the per-type bit), checked before any side
+  // effect as in Overseerr. An app key without X-API-User acts as admin.
+  const requester = resolvedSvcUser ? policy.principal(req.shimApp, resolvedSvcUser) : req.shimPrincipal;
+  const denied = policy.requestPermissionError(requester, mediaType);
+  if (denied) {
+    logger.info(`[shim] Request refused: user=${userId} lacks permission for ${mediaType} requests (tmdbId=${mediaId})`);
+    return policy.forbid(res, denied);
+  }
+
   // Ensure the app-level virtual user exists in known_users
   if (!resolvedSvcUser) {
     db.prepare('INSERT OR IGNORE INTO known_users (user_id, username, thumb, seen_at) VALUES (?, ?, NULL, ?)')
@@ -459,7 +493,7 @@ router.post('/request', async (req, res) => {
       logger.debug(`[shim] skipping tmdbId=${mediaId} type=${mediaType} — could not resolve title (non-TMDB ID?)`);
       return res.status(201).json({
         id: 0, status: 1,
-        media: { id: Number(mediaId), mediaType, tmdbId: Number(mediaId), status: 1 },
+        media: { id: shimRequests.mediaIdFor(mediaId, mediaType), mediaType, tmdbId: Number(mediaId), status: 1 },
         seasons: Array.isArray(seasons) ? seasons.map(n => ({ id: Number(n), seasonNumber: Number(n), status: 1 })) : [],
         createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
         requestedBy: resolvedSvcUser ? shimUserObj(resolvedSvcUser) : shimAdminObj(req.shimApp),
@@ -498,7 +532,7 @@ router.post('/request', async (req, res) => {
           logger.debug(`[shim] rate limit: user=${userId} movie limit ${limits.movieLimit}/${limits.movieWindowDays}d reached (${count} used) — silently dropping`);
           return res.status(201).json({
             id: 0, status: 1,
-            media: { id: Number(mediaId), mediaType, tmdbId: Number(mediaId), status: 1 },
+            media: { id: shimRequests.mediaIdFor(mediaId, mediaType), mediaType, tmdbId: Number(mediaId), status: 1 },
             seasons: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
             requestedBy: resolvedSvcUser ? shimUserObj(resolvedSvcUser) : shimAdminObj(req.shimApp),
             modifiedBy: null, is4k: false, serverId: 0, profileId: 0, rootFolder: '',
@@ -512,7 +546,7 @@ router.post('/request', async (req, res) => {
           logger.info(`[shim] rate limit blocked: user=${userId} limit=${limits.seasonLimit}/${limits.seasonWindowDays}d — ${count} used + ${limitSeasonsCount} needed = ${count + limitSeasonsCount} > limit — dropping "${title}"`);
           return res.status(201).json({
             id: 0, status: 1,
-            media: { id: Number(mediaId), mediaType, tmdbId: Number(mediaId), status: 1 },
+            media: { id: shimRequests.mediaIdFor(mediaId, mediaType), mediaType, tmdbId: Number(mediaId), status: 1 },
             seasons: seasonsArray ? seasonsArray.map(n => ({ id: n, seasonNumber: n, status: 1 })) : [],
             createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
             requestedBy: resolvedSvcUser ? shimUserObj(resolvedSvcUser) : shimAdminObj(req.shimApp),
@@ -529,7 +563,7 @@ router.post('/request', async (req, res) => {
       // Return a synthetic "available" response matching Overseerr format
       return res.status(201).json({
         id: 0, status: 5, // AVAILABLE
-        media: { id: Number(mediaId), mediaType, tmdbId: Number(mediaId), status: 5 },
+        media: { id: shimRequests.mediaIdFor(mediaId, mediaType), mediaType, tmdbId: Number(mediaId), status: 5 },
         seasons: seasonsArray ? seasonsArray.map(n => ({ id: n, seasonNumber: n, status: 5 })) : [],
         createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
         requestedBy: resolvedSvcUser ? shimUserObj(resolvedSvcUser) : shimAdminObj(req.shimApp),
@@ -537,9 +571,10 @@ router.post('/request', async (req, res) => {
       });
     }
 
-    // Check for an existing non-denied request for this title
+    // Check for an existing non-denied request for this title. "Notify me"
+    // followers acquire nothing, so they never count as one.
     const existing = db.prepare(
-      `SELECT * FROM discover_requests WHERE tmdb_id = ? AND media_type = ? AND status != 'denied' ORDER BY id DESC LIMIT 1`
+      `SELECT * FROM discover_requests WHERE tmdb_id = ? AND media_type = ? AND status != 'denied' AND is_follow = 0 ORDER BY id DESC LIMIT 1`
     ).get(Number(mediaId), mediaType);
     if (existing) {
       logger.debug(`[shim] ${title} already requested (id=${existing.id}) — returning existing`);
@@ -563,38 +598,63 @@ router.post('/request', async (req, res) => {
   }
 });
 
-// GET /api/v1/request — Agregarr fetches existing requests for dedup cache
+// GET /api/v1/request — Agregarr fetches existing requests for dedup cache.
+// Riven polls take=10000 and never pages, so the cap must cover that.
+const MAX_REQUEST_PAGE = 10000;
 router.get('/request', (req, res) => {
   const { filter, take = '500', skip = '0' } = req.query;
-  const limit = Math.min(1000, Math.max(1, parseInt(take) || 500));
+  const limit = Math.min(MAX_REQUEST_PAGE, Math.max(1, parseInt(take) || 500));
   const offset = Math.max(0, parseInt(skip) || 0);
   const statusFilter = filter === 'pending' ? 'pending'
     : filter === 'approved' ? 'approved'
     : filter === 'declined' ? 'denied'
     : null;
-  const { rows, total } = db.getAllRequests(limit, offset, statusFilter);
-  // Hide YouTube-downloader requests (Sonarr+Tuberr only — DUMB polling this
-  // endpoint in pull mode must not try to fetch them via debrid) and TVDB-only
-  // rows (tmdb_id sentinel 0 is meaningless to Overseerr-compatible consumers).
-  const visible = rows.filter(r => r.downloader !== 'youtube' && r.tmdb_id);
-  const hidden = rows.length - visible.length;
+  // YouTube-downloader requests (Sonarr+Tuberr only — DUMB polling this endpoint
+  // in pull mode must not try to fetch them via debrid) and TVDB-only rows
+  // (tmdb_id sentinel 0) are excluded in SQL, so pages and totals stay consistent.
+  // Without MANAGE_REQUESTS/REQUEST_VIEW a service user sees only its own requests.
+  const userId = policy.canViewAllRequests(req.shimPrincipal) ? null : req.shimPrincipal.userId;
+  const { rows, total } = shimRequests.listRequests({ limit, offset, status: statusFilter, userId });
   res.json({
-    pageInfo: { pages: Math.ceil(Math.max(0, total - hidden) / limit), pageSize: limit, results: Math.max(0, total - hidden), page: Math.floor(offset / limit) + 1 },
-    results: visible.map(toOverseerrRequest),
+    pageInfo: { pages: Math.ceil(total / limit), pageSize: limit, results: total, page: Math.floor(offset / limit) + 1 },
+    results: rows.map(toOverseerrRequest),
   });
 });
 
-// POST /api/v1/request/:id/approve
-router.post('/request/:id/approve', async (req, res) => {
+// Load the request named by :id and authorise `allowed(principal, request)`.
+// Returns the row, or null after sending 404/403.
+function authorizedRequest(req, res, allowed) {
   const request = db.getRequestById(req.params.id);
-  if (!request) return res.status(404).json({ message: 'Request not found' });
-  try {
-    // YouTube requests always route to Sonarr and must keep their downloader payload
-    const service = request.downloader === 'youtube' ? 'sonarr'
-      : (request.service || pickService(request.media_type));
-    if (service !== 'none') {
-      const { submitRequestToService } = require('./api');
-      const seasons = request.seasons_json ? JSON.parse(request.seasons_json) : null;
+  if (!request) { res.status(404).json({ message: 'Request not found' }); return null; }
+  if (!allowed(req.shimPrincipal, request)) { policy.forbid(res); return null; }
+  return request;
+}
+
+// Submit a pending request to its download service (unless queue-only) and
+// mark it approved, with the same notifications as the Queue's approve. Shared
+// by the dedicated and generic status endpoints. An already-approved row is
+// left alone (never submitted twice); a denied one must be reset to pending.
+// Runs under the owner's request lock and re-reads the row there, so it can't
+// race the Queue's approve (or another client) into a second submission.
+async function approveRequest(found) {
+  const request = await requestPolicy.withUserLock(found.user_id, () => submitApproval(found.id));
+  if (request) requestNotifications.notifyApproved(request);
+}
+
+async function submitApproval(id) {
+  const request = db.getRequestById(id);
+  if (!request) throw Object.assign(new Error('Request not found'), { shimStatus: 404 });
+  if (request.status === 'approved') return null;
+  if (request.status !== 'pending') throw Object.assign(new Error('Request is not pending'), { shimStatus: 400 });
+  // YouTube requests always route to Sonarr and must keep their downloader payload.
+  // Shim-created rows are stored with service 'none' (queued only); an explicit
+  // approval picks the app now, as the Queue's approve does.
+  const service = request.downloader === 'youtube' ? 'sonarr'
+    : (request.service && request.service !== 'none' ? request.service : pickService(request.media_type));
+  if (service !== 'none') {
+    const { submitRequestToService } = require('./api');
+    const seasons = request.seasons_json ? JSON.parse(request.seasons_json) : null;
+    try {
       await submitRequestToService({
         tmdbId: request.tmdb_id,
         mediaType: request.media_type,
@@ -605,40 +665,99 @@ router.post('/request/:id/approve', async (req, res) => {
         downloader: request.downloader || undefined,
         youtube: request.youtube_json ? JSON.parse(request.youtube_json) : null,
       });
+    } catch (err) {
+      requestNotifications.notifyProcessFailed({
+        title: request.title, tmdbId: request.tmdb_id, mediaType: request.media_type, error: err, posterUrl: request.poster_url,
+      });
+      throw err;
     }
-    db.updateRequestStatus(request.id, 'approved');
+  }
+  db.updateRequestStatus(request.id, 'approved');
+  db.setRequestSubmitError(request.id, null);
+  return request;
+}
+
+// Deny a request like the Queue's deny (same lock, follower cleanup and
+// notification). 409 when an approval or other change landed meanwhile.
+async function declineRequest(request, reason) {
+  const note = typeof reason === 'string' && reason ? reason : null;
+  const { request: row, conflict } = await requestPolicy.denyRequest(request, note);
+  if (!row) throw Object.assign(new Error('Request not found'), { shimStatus: 404 });
+  if (conflict) throw Object.assign(new Error(`Request is ${row.status}`), { shimStatus: 409 });
+}
+
+// POST /api/v1/request/:id/approve
+router.post('/request/:id/approve', async (req, res) => {
+  const request = authorizedRequest(req, res, policy.canManageRequests);
+  if (!request) return;
+  try {
+    await approveRequest(request);
     res.json(toOverseerrRequest(db.getRequestById(request.id)));
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    res.status(err.shimStatus || 500).json({ message: err.message });
   }
 });
 
 // POST /api/v1/request/:id/decline
-router.post('/request/:id/decline', (req, res) => {
-  const request = db.getRequestById(req.params.id);
-  if (!request) return res.status(404).json({ message: 'Request not found' });
-  db.updateRequestStatus(request.id, 'denied', req.body?.reason || null);
+router.post('/request/:id/decline', async (req, res) => {
+  const request = authorizedRequest(req, res, policy.canManageRequests);
+  if (!request) return;
+  try {
+    await declineRequest(request, req.body?.reason);
+  } catch (err) {
+    return res.status(err.shimStatus || 500).json({ message: err.message });
+  }
   res.json(toOverseerrRequest(db.getRequestById(request.id)));
 });
 
-// DELETE /api/v1/request/:id
+// DELETE /api/v1/request/:id — managers, or the requester while it is pending.
+// Riven 0.x sends a request's media.id here rather than its id, so:
+//  - an encoded media id (shimRequests.decodeMediaId) deletes that title's
+//    requests like DELETE /media/:id (MANAGE_REQUESTS; 204, or 404 if none);
+//  - with the DUMB bridge key (Riven's), a plain id is honoured only for a
+//    request that app filed itself. Riven rows stored before media ids were
+//    encoded hold bare TMDB ids, which would name some unrelated request.
 router.delete('/request/:id', (req, res) => {
-  const request = db.getRequestById(req.params.id);
-  if (!request) return res.status(404).json({ message: 'Request not found' });
+  const media = shimRequests.decodeMediaId(req.params.id);
+  if (media) {
+    if (!policy.canManageRequests(req.shimPrincipal)) return policy.forbid(res);
+    const removed = shimRequests.deleteMediaRequests(media.tmdbId, media.mediaType);
+    if (!removed) return res.status(404).json({ message: 'Request not found' });
+    logger.info(`[shim] "${req.shimApp.name}" deleted media ${req.params.id} (tmdbId=${media.tmdbId} ${media.mediaType}): ${removed} request row(s)`);
+    return res.status(204).end();
+  }
+  if (req.shimApp.type === 'dumb') {
+    const target = db.getRequestById(req.params.id);
+    if (target && !policy.createdByApp(req.shimApp, target)) {
+      logger.warn(`[shim] "${req.shimApp.name}": ignored DELETE /request/${req.params.id} — not a request this app filed (likely a TMDB id stored by Riven); nothing deleted`);
+      return res.status(404).json({ message: 'Request not found' });
+    }
+  }
+  const request = authorizedRequest(req, res, policy.canModifyRequest);
+  if (!request) return;
   db.deleteRequest(request.id);
+  db.pruneOrphanFollowers(request);
   res.json({ message: 'Request deleted' });
 });
 
-// PUT /api/v1/request/:id — update request (seasons/service)
+// PUT /api/v1/request/:id — update request (seasons/service); managers, or the
+// requester while it is pending
 router.put('/request/:id', (req, res) => {
-  const request = db.getRequestById(req.params.id);
-  if (!request) return res.status(404).json({ message: 'Request not found' });
+  const request = authorizedRequest(req, res, policy.canModifyRequest);
+  if (!request) return;
   const { seasons } = req.body || {};
   if (Array.isArray(seasons)) {
+    const list = seasons.map(Number);
+    if (!list.every(n => Number.isInteger(n) && n >= 0)) return res.status(400).json({ message: 'Invalid seasons' });
+    // seasons_count is the rate-limit charge (the shim bills a show's full TMDB
+    // season count); a requester editing their own request may not shrink it.
+    const seasonsCount = policy.canManageRequests(req.shimPrincipal)
+      ? list.length
+      : Math.max(list.length, request.seasons_count || 1);
     db.updateRequest(request.id, {
       service: request.service,
-      seasonsJson: JSON.stringify(seasons.map(Number)),
-      seasonsCount: seasons.length,
+      seasonsJson: JSON.stringify(list),
+      seasonsCount,
     });
   }
   res.json(toOverseerrRequest(db.getRequestById(request.id)));
@@ -703,80 +822,100 @@ router.get('/tv/:id/season/:seasonNumber', async (req, res) => {
   });
 });
 
-// GET /api/v1/request/count — DUMB polls this for queue depth; Homarr uses for stats
+// GET /api/v1/request/count — DUMB polls this for queue depth; Homarr uses for stats.
+// Aggregate counts over the same visible rows GET /request lists.
 router.get('/request/count', (req, res) => {
-  const count = (status) => db.prepare('SELECT COUNT(*) AS c FROM discover_requests WHERE status = ?').get(status)?.c || 0;
-  const pending  = count('pending');
-  const approved = count('approved');
-  const declined = count('denied');
-  const counts = db.prepare(`
-    SELECT media_type, status, COUNT(*) AS cnt
-    FROM discover_requests
-    GROUP BY media_type, status
-  `).all();
-  let movie = 0, tv = 0;
-  for (const row of counts) {
-    if (row.status !== 'denied') {
-      if (row.media_type === 'movie') movie += row.cnt;
-      else if (row.media_type === 'tv') tv += row.cnt;
-    }
-  }
-  res.json({ pending, approved, declined, available: 0, processing: 0, failed: 0, total: pending + approved + declined, movie, tv });
+  res.json(shimRequests.requestCounts(getLibraryIdSet()));
 });
 
 // GET /api/v1/request/:id — get single request by ID
 router.get('/request/:id', (req, res) => {
-  const request = db.getRequestById(req.params.id);
-  if (!request) return res.status(404).json({ message: 'Request not found' });
-  res.json(toOverseerrRequest(request));
+  const request = authorizedRequest(req, res, policy.canViewRequest);
+  if (request) res.json(toOverseerrRequest(request));
 });
 
 // POST /api/v1/request/:id/retry — retry a failed request (Diskovarr has no failed state, no-op)
 router.post('/request/:id/retry', (req, res) => {
-  const request = db.getRequestById(req.params.id);
-  if (!request) return res.status(404).json({ message: 'Request not found' });
-  res.json(toOverseerrRequest(request));
+  const request = authorizedRequest(req, res, policy.canManageRequests);
+  if (request) res.json(toOverseerrRequest(request));
 });
 
 // POST /api/v1/request/:id/:status — generic status update (pending/approve/decline)
 // Jellyseerr and newer apps use this form instead of specific /approve and /decline routes.
 router.post('/request/:id/:status', async (req, res) => {
-  const request = db.getRequestById(req.params.id);
-  if (!request) return res.status(404).json({ message: 'Request not found' });
   const { status } = req.params;
+  if (!['approve', 'decline', 'pending'].includes(status)) {
+    return res.status(400).json({ message: 'Invalid status' });
+  }
+  const request = authorizedRequest(req, res, policy.canManageRequests);
+  if (!request) return;
   if (status === 'approve') {
     try {
-      const service = request.service || pickService(request.media_type);
-      if (service !== 'none') {
-        const { submitRequestToService } = require('./api');
-        const seasons = request.seasons_json ? JSON.parse(request.seasons_json) : null;
-        await submitRequestToService({ tmdbId: request.tmdb_id, mediaType: request.media_type, title: request.title, service, seasons });
-      }
-      db.updateRequestStatus(request.id, 'approved');
+      await approveRequest(request);
     } catch (err) {
-      return res.status(500).json({ message: err.message });
+      return res.status(err.shimStatus || 500).json({ message: err.message });
     }
   } else if (status === 'decline') {
-    db.updateRequestStatus(request.id, 'denied', req.body?.reason || null);
-  } else if (status === 'pending') {
+    try {
+      await declineRequest(request, req.body?.reason);
+    } catch (err) {
+      return res.status(err.shimStatus || 500).json({ message: err.message });
+    }
+  } else {
     db.updateRequestStatus(request.id, 'pending');
   }
   res.json(toOverseerrRequest(db.getRequestById(request.id)));
 });
 
-// PUT /api/v1/media/:id/available — DUMB calls this after downloading content
-router.put('/media/:id/available', (req, res) => {
+// Media type hint for the bare-TMDB-id /media/:id routes (movie and TV ids
+// overlap). Accepted from the query string or JSON body, camel or snake case.
+function mediaTypeHint(req) {
+  return req.query.mediaType || req.query.media_type || req.body?.mediaType || req.body?.media_type || null;
+}
+
+// Media named by a /media/:id segment, as { tmdbId, hint }, or null if invalid.
+// An encoded shim media id (the media.id the shim emits) names one exact title:
+// its type replaces any hint, so it is never ambiguous. Anything below the
+// encoded range is a bare TMDB id (Agregarr's GET /media/{tmdbId}, older
+// clients) resolved with the type hint or the requests on file.
+function mediaRef(req) {
+  const decoded = shimRequests.decodeMediaId(req.params.id);
+  if (decoded) return { tmdbId: decoded.tmdbId, hint: decoded.mediaType };
   const tmdbId = parseInt(req.params.id);
-  if (!tmdbId) return res.status(400).json({ message: 'Invalid media id' });
-  const request = db.prepare(
-    `SELECT * FROM discover_requests WHERE tmdb_id = ? AND status = 'approved' ORDER BY requested_at DESC LIMIT 1`
-  ).get(tmdbId);
-  if (!request) return res.status(404).json({ message: 'No approved request found for this media' });
-  notifyRequestAvailable(request);
-  db.markRequestsNotifiedAvailable([request.id]);
-  process.emit('diskovarr:checkFulfilled');
-  logger.info(`[shim] DUMB marked tmdbId=${tmdbId} available — request #${request.id}`);
-  res.json(toOverseerrRequest(request));
+  return tmdbId > 0 && tmdbId < shimRequests.MEDIA_ID_MIN ? { tmdbId, hint: mediaTypeHint(req) } : null;
+}
+
+// Mark one title available: notify every approved requester (not just the
+// newest) and stamp their requests. `ambiguous` when the id has approved
+// requests as both a movie and a show and no hint picks one.
+function markMediaAvailable(tmdbId, hint) {
+  const types = shimRequests.mediaTypesFor(tmdbId, { status: 'approved', visibleOnly: false });
+  const { mediaType, ambiguous } = shimRequests.resolveMediaType(types, hint);
+  if (ambiguous) return { ambiguous, mediaType: null, requests: [] };
+  const requests = mediaType
+    ? shimRequests.mediaRequests(tmdbId, mediaType, { status: 'approved', visibleOnly: false })
+    : [];
+  for (const request of requests) notifyRequestAvailable(request);
+  const unstamped = requests.filter(r => !r.notified_available_at).map(r => r.id);
+  if (unstamped.length) db.markRequestsNotifiedAvailable(unstamped);
+  if (requests.length) process.emit('diskovarr:checkFulfilled');
+  _libCache.expiresAt = 0;
+  return { ambiguous: false, mediaType, requests };
+}
+
+const AMBIGUOUS_MEDIA = { message: 'Ambiguous media id: it matches both a movie and a TV show; pass mediaType' };
+
+// PUT /api/v1/media/:id/available — a downloader marks a title available
+// (Overseerr's form is POST /media/:id/available, below)
+router.put('/media/:id/available', policy.requirePermission(Permission.MANAGE_REQUESTS), (req, res) => {
+  const ref = mediaRef(req);
+  if (!ref) return res.status(400).json({ message: 'Invalid media id' });
+  const { tmdbId } = ref;
+  const { ambiguous, requests } = markMediaAvailable(tmdbId, ref.hint);
+  if (ambiguous) return res.status(409).json(AMBIGUOUS_MEDIA);
+  if (!requests.length) return res.status(404).json({ message: 'No approved request found for this media' });
+  logger.info(`[shim] "${req.shimApp.name}" marked tmdbId=${tmdbId} (${requests[0].media_type}) available — request(s) #${requests.map(r => r.id).join(', #')}`);
+  res.json(toOverseerrRequest(requests[0]));
 });
 
 // GET /api/v1/user/:id/requests — requests made by a specific user
@@ -801,11 +940,12 @@ router.get('/user/:id/requests', (req, res) => {
   }
 
   if (!userId) return res.status(404).json({ message: 'User not found' });
+  // Another user's requests need MANAGE_REQUESTS or REQUEST_VIEW
+  if (userId !== req.shimPrincipal.userId && !policy.canViewAllRequests(req.shimPrincipal)) {
+    return policy.forbid(res);
+  }
 
-  const rows = db.prepare(
-    'SELECT * FROM discover_requests WHERE user_id = ? ORDER BY requested_at DESC LIMIT ? OFFSET ?'
-  ).all(userId, limit, offset);
-  const total = db.prepare('SELECT COUNT(*) AS c FROM discover_requests WHERE user_id = ?').get(userId)?.c || 0;
+  const { rows, total } = shimRequests.listRequests({ limit, offset, userId });
 
   res.json({
     pageInfo: { pages: Math.ceil(total / limit), pageSize: limit, results: total, page: Math.floor(offset / limit) + 1 },
@@ -819,6 +959,7 @@ router.get('/user/:id/quota', (req, res) => {
   let userId = null;
   if (req.shimUser) {
     const svcUser = db.getServiceUserById(req.shimApp.id, id);
+    if (svcUser && !policy.canViewQuota(req.shimPrincipal, svcUser)) return policy.forbid(res);
     userId = svcUser?.user_id;
   } else {
     const ku = db.prepare('SELECT rowid AS rid, user_id FROM known_users WHERE rowid = ?').get(id);
@@ -874,81 +1015,106 @@ router.get('/status/appdata', (req, res) => {
 
 // ── Media lookup ──────────────────────────────────────────────────────────────
 
+// Media entries are derived from requests, one per (tmdb_id, media_type): several
+// users requesting a title yield one entry. Status is computed per title by
+// shimRequests.mediaStatus (5 only when the title is in the library and no
+// approved request for missing seasons is still open).
+const isoTime = secs => new Date((secs || 0) * 1000).toISOString();
+
+// Overseerr GET /media filters, by media status ('approved' is a legacy shim
+// value: any approved request). Unknown/absent filters list everything.
+const MEDIA_FILTERS = {
+  available: m => m.status === 5,
+  allavailable: m => m.status === 5 || m.status === 4,
+  partial: m => m.status === 4,
+  processing: m => m.status === 3,
+  pending: m => m.status === 2,
+  approved: m => m.approved > 0,
+};
+
 // GET /api/v1/media — list media items from requests
 // (Overseerr clients may pass a `sort` query param; not applied here.)
 router.get('/media', (req, res) => {
   const { take = '20', skip = '0', filter } = req.query;
   const limit = Math.min(200, Math.max(1, parseInt(take) || 20));
   const offset = Math.max(0, parseInt(skip) || 0);
-  const statusFilter = filter === 'pending' ? 'pending'
-    : filter === 'approved' ? 'approved'
-    : filter === 'available' ? 'approved'
-    : null;
-  const { rows, total } = db.getAllRequests(limit, offset, statusFilter);
-  const libIds = getLibraryIdSet();
-  const results = rows.map(row => {
-    const inLib = libIds.has(`${row.tmdb_id}:${row.media_type === 'tv' ? 'tv' : 'movie'}`);
-    return {
-      id: row.tmdb_id,
-      mediaType: row.media_type,
-      tmdbId: row.tmdb_id,
-      status: inLib ? 5 : row.status === 'approved' ? 3 : 2,
-      createdAt: new Date((row.requested_at || 0) * 1000).toISOString(),
-      updatedAt: new Date((row.requested_at || 0) * 1000).toISOString(),
-    };
-  });
+  const matches = Object.hasOwn(MEDIA_FILTERS, filter) ? MEDIA_FILTERS[filter] : () => true;
+  const media = shimRequests.listRequestedMedia(getLibraryIdSet()).filter(matches);
   res.json({
-    pageInfo: { pages: Math.ceil(total / limit), pageSize: limit, results: total, page: Math.floor(offset / limit) + 1 },
-    results,
+    pageInfo: { pages: Math.ceil(media.length / limit), pageSize: limit, results: media.length, page: Math.floor(offset / limit) + 1 },
+    results: media.slice(offset, offset + limit).map(m => ({
+      id: shimRequests.mediaIdFor(m.tmdb_id, m.media_type),
+      mediaType: m.media_type,
+      tmdbId: m.tmdb_id,
+      status: m.status,
+      createdAt: isoTime(m.first_requested_at),
+      updatedAt: isoTime(m.last_requested_at),
+    })),
   });
 });
 
-// GET /api/v1/media/:id — media detail by TMDB id
-router.get('/media/:id', async (req, res) => {
-  const tmdbId = parseInt(req.params.id);
-  if (!tmdbId) return res.status(400).json({ message: 'Invalid id' });
-  // Check for an existing request
-  const request = db.prepare(
-    'SELECT * FROM discover_requests WHERE tmdb_id = ? ORDER BY id DESC LIMIT 1'
-  ).get(tmdbId);
-  if (!request) return res.status(404).json({ message: 'Media not found' });
-  const inLib = getLibraryIdSet().has(`${tmdbId}:${request.media_type === 'tv' ? 'tv' : 'movie'}`);
+// Status of one media identity from its visible requests
+function mediaStatusOf(tmdbId, mediaType, requests) {
+  return shimRequests.mediaStatus({
+    inLibrary: getLibraryIdSet().has(shimRequests.libraryKey(tmdbId, mediaType)),
+    approved: requests.filter(r => r.status === 'approved').length,
+    pending: requests.filter(r => r.status === 'pending').length,
+    openSeasons: requests.filter(r => r.status === 'approved' && r.season_gated && !r.notified_available_at).length,
+  });
+}
+
+// GET /api/v1/media/:id — media detail by shim media id or TMDB id (see
+// mediaRef). For a bare TMDB id pass ?mediaType=movie|tv to pick between a movie
+// and a show sharing it; otherwise the most recently requested one is returned.
+// Not in Overseerr; Agregarr reads .status via GET /media/{tmdbId}.
+router.get('/media/:id', (req, res) => {
+  const ref = mediaRef(req);
+  if (!ref) return res.status(400).json({ message: 'Invalid id' });
+  const { tmdbId } = ref;
+  const { mediaType } = shimRequests.resolveMediaType(shimRequests.mediaTypesFor(tmdbId), ref.hint);
+  if (!mediaType) return res.status(404).json({ message: 'Media not found' });
+  const requests = shimRequests.mediaRequests(tmdbId, mediaType);
   res.json({
-    id: tmdbId,
-    mediaType: request.media_type,
+    id: shimRequests.mediaIdFor(tmdbId, mediaType),
+    mediaType,
     tmdbId,
-    status: inLib ? 5 : request.status === 'approved' ? 3 : 2,
-    createdAt: new Date((request.requested_at || 0) * 1000).toISOString(),
-    updatedAt: new Date((request.requested_at || 0) * 1000).toISOString(),
-    requests: [toOverseerrRequest(request)],
+    status: mediaStatusOf(tmdbId, mediaType, requests),
+    createdAt: isoTime(Math.min(...requests.map(r => r.requested_at || 0))),
+    updatedAt: isoTime(Math.max(...requests.map(r => r.requested_at || 0))),
+    requests: requests.filter(r => policy.canViewRequest(req.shimPrincipal, r)).map(toOverseerrRequest),
   });
 });
 
-// DELETE /api/v1/media/:id — delete all requests for a given TMDB ID
-router.delete('/media/:id', (req, res) => {
-  const tmdbId = parseInt(req.params.id);
-  if (!tmdbId) return res.status(400).json({ message: 'Invalid id' });
-  db.prepare('DELETE FROM discover_requests WHERE tmdb_id = ?').run(tmdbId);
+// DELETE /api/v1/media/:id — delete all requests for one title (TMDB id + type)
+router.delete('/media/:id', policy.requirePermission(Permission.MANAGE_REQUESTS), (req, res) => {
+  const ref = mediaRef(req);
+  if (!ref) return res.status(400).json({ message: 'Invalid id' });
+  const { tmdbId } = ref;
+  const { mediaType, ambiguous } = shimRequests.resolveMediaType(shimRequests.mediaTypesFor(tmdbId), ref.hint);
+  if (ambiguous) return res.status(409).json(AMBIGUOUS_MEDIA);
+  if (mediaType) shimRequests.deleteMediaRequests(tmdbId, mediaType);
   res.json({});
 });
 
-// POST /api/v1/media/:id/:status — generic media status update
-router.post('/media/:id/:status', (req, res) => {
-  const tmdbId = parseInt(req.params.id);
-  if (!tmdbId) return res.status(400).json({ message: 'Invalid id' });
-  const { status } = req.params;
-  if (status === 'available') {
-    const request = db.prepare(
-      `SELECT * FROM discover_requests WHERE tmdb_id = ? AND status = 'approved' ORDER BY requested_at DESC LIMIT 1`
-    ).get(tmdbId);
-    if (request) {
-      notifyRequestAvailable(request);
-      db.markRequestsNotifiedAvailable([request.id]);
-      process.emit('diskovarr:checkFulfilled');
-    }
-    _libCache.expiresAt = 0;
+// POST /api/v1/media/:id/:status — generic media status update. Only
+// 'available' acts (notifies requesters); other statuses are derived from the
+// library and requests, so they are acknowledged with the current status.
+router.post('/media/:id/:status', policy.requirePermission(Permission.MANAGE_REQUESTS), (req, res) => {
+  const ref = mediaRef(req);
+  if (!ref) return res.status(400).json({ message: 'Invalid id' });
+  const { tmdbId, hint } = ref;
+  const media = (mediaType, status) => {
+    const type = mediaType || shimRequests.normalizeMediaType(hint) || 'movie';
+    return { id: shimRequests.mediaIdFor(tmdbId, type), mediaType: type, tmdbId, status };
+  };
+  if (req.params.status === 'available') {
+    const { ambiguous, mediaType } = markMediaAvailable(tmdbId, hint);
+    if (ambiguous) return res.status(409).json(AMBIGUOUS_MEDIA);
+    return res.json(media(mediaType, 5));
   }
-  res.json({ id: tmdbId, mediaType: req.body?.mediaType || 'movie', tmdbId, status: 5 });
+  const { mediaType } = shimRequests.resolveMediaType(shimRequests.mediaTypesFor(tmdbId), hint);
+  const status = mediaType ? mediaStatusOf(tmdbId, mediaType, shimRequests.mediaRequests(tmdbId, mediaType)) : 1;
+  res.json(media(mediaType, status));
 });
 
 // ── Settings endpoints ────────────────────────────────────────────────────────
@@ -1096,7 +1262,7 @@ router.get('/search', async (req, res) => {
       `/search/multi?query=${encodeURIComponent(query.trim())}&page=${parseInt(page) || 1}&include_adult=false`
     );
     const libIds = getLibraryIdSet();
-    const requests = db.prepare('SELECT tmdb_id, media_type, status FROM discover_requests WHERE status != ?').all('denied');
+    const requests = db.prepare('SELECT tmdb_id, media_type, status FROM discover_requests WHERE status != ? AND is_follow = 0').all('denied');
     const reqMap = new Map(requests.map(r => [`${r.tmdb_id}:${r.media_type}`, r.status]));
     const results = (json.results || []).map(item => {
       if (!['movie', 'tv'].includes(item.media_type)) return null;
@@ -1235,18 +1401,30 @@ function issueStatusToOverseerr(status) {
   return status === 'open' ? 1 : 2;
 }
 
-// Overseerr media ids are integers. Plex rating keys already are; Jellyfin GUIDs
-// get a stable positive 31-bit FNV-1a hash so clients see a consistent non-zero id.
-function mediaIdOf(ratingKey) {
+// Overseerr media ids are integers. A shim issue on a title outside the library
+// is filed under its encoded media id (POST /issue), reported as it is. An issue
+// on a library title with a TMDB id reports that title's shim media id, as
+// requests do, unless the item's type contradicts the issue's (a legacy shim row
+// holding a bare TMDB id that happens to equal some rating key). Otherwise the
+// rating key gives a stable id folded below the encoded range
+// (shimRequests.foldMediaId): Plex rating keys as they are, Jellyfin GUIDs as an
+// FNV-1a hash.
+function mediaIdOf(ratingKey, mediaType) {
   if (!ratingKey) return 0;
   const s = String(ratingKey);
-  if (/^\d+$/.test(s)) return Number(s);
+  if (shimRequests.decodeMediaId(s)) return Number(s);
+  const item = db.prepare('SELECT tmdb_id, type FROM library_items WHERE rating_key = ?').get(s);
+  const issueType = shimRequests.normalizeMediaType(mediaType);
+  const sameType = !issueType || issueType === shimRequests.normalizeMediaType(item?.type);
+  const encoded = item?.tmdb_id && sameType ? shimRequests.encodeMediaId(item.tmdb_id, item.type) : null;
+  if (encoded) return encoded;
+  if (/^\d+$/.test(s)) return shimRequests.foldMediaId(Number(s));
   let h = 0x811c9dc5;
   for (let i = 0; i < s.length; i++) {
     h ^= s.charCodeAt(i);
     h = Math.imul(h, 0x01000193) >>> 0;
   }
-  return (h & 0x7fffffff) || 1;
+  return shimRequests.foldMediaId(h & 0x7fffffff);
 }
 
 function toOverseerrIssue(row, comments = null) {
@@ -1257,7 +1435,7 @@ function toOverseerrIssue(row, comments = null) {
     status: issueStatusToOverseerr(row.status),
     message: row.description || '',
     media: {
-      id: mediaIdOf(row.rating_key),
+      id: mediaIdOf(row.rating_key, row.media_type),
       mediaType: row.media_type || 'movie',
       title: row.title || null,
       posterPath: row.poster_path || null,
@@ -1282,8 +1460,21 @@ function toOverseerrIssue(row, comments = null) {
   };
 }
 
+// Issues may come from real Diskovarr users. Service-user keys follow Overseerr's
+// issue permissions: VIEW_ISSUES / MANAGE_ISSUES to see everyone's, CREATE_ISSUES
+// to raise (and then see/comment on/close) their own, MANAGE_ISSUES for the rest.
+
+// Load the issue named by :id and authorise `allowed(principal, issue)`.
+// Returns the row, or null after sending 404/403.
+function authorizedIssue(req, res, allowed) {
+  const issue = db.getIssueById(parseInt(req.params.id));
+  if (!issue) { res.status(404).json({ message: 'Issue not found' }); return null; }
+  if (!allowed(req.shimPrincipal, issue)) { policy.forbid(res); return null; }
+  return issue;
+}
+
 // GET /api/v1/issue/count — issue counts by status
-router.get('/issue/count', (req, res) => {
+router.get('/issue/count', policy.requirePermission([Permission.MANAGE_ISSUES, Permission.VIEW_ISSUES], 'or'), (req, res) => {
   const open     = db.prepare("SELECT COUNT(*) AS c FROM issues WHERE status = 'open'").get()?.c || 0;
   const resolved = db.prepare("SELECT COUNT(*) AS c FROM issues WHERE status = 'resolved'").get()?.c || 0;
   const closed   = db.prepare("SELECT COUNT(*) AS c FROM issues WHERE status = 'closed'").get()?.c || 0;
@@ -1296,7 +1487,9 @@ router.get('/issue', (req, res) => {
   const limit = Math.min(200, Math.max(1, parseInt(take) || 20));
   const offset = Math.max(0, parseInt(skip) || 0);
   const statusFilter = filter === 'open' ? 'open' : filter === 'resolved' ? 'resolved' : filter === 'closed' ? 'closed' : null;
-  const { rows, total } = db.getAllIssues(limit, offset, statusFilter);
+  if (!policy.canListIssues(req.shimPrincipal)) return policy.forbid(res);
+  const ownOnly = policy.canViewAllIssues(req.shimPrincipal) ? null : req.shimPrincipal.userId;
+  const { rows, total } = db.getAllIssues(limit, offset, statusFilter, null, ownOnly);
   res.json({
     pageInfo: { pages: Math.ceil(total / limit) || 1, pageSize: limit, results: total, page: Math.floor(offset / limit) + 1 },
     results: rows.map(r => toOverseerrIssue(r)),
@@ -1305,17 +1498,31 @@ router.get('/issue', (req, res) => {
 
 // POST /api/v1/issue — create issue
 router.post('/issue', (req, res) => {
-  const { mediaId, mediaType = 'movie', issueType = 4, message = '' } = req.body || {};
-  if (!mediaId) return res.status(400).json({ message: 'mediaId required' });
-  const userId = req.shimUser?.user_id || `__app_${req.shimApp.id}__`;
-  let title = null;
+  const body = req.body || {};
+  const { issueType = 4, message = '' } = body;
+  if (!body.mediaId) return res.status(400).json({ message: 'mediaId required' });
+  if (!policy.canCreateIssue(req.shimPrincipal)) return policy.forbid(res);
+  const userId = req.shimPrincipal.userId;
+  // Overseerr's mediaId is the media.id the shim emits: decoded, it names one
+  // exact title. Anything else is taken as a TMDB id with the body's mediaType,
+  // as before. The issue is filed under the library item's rating key when the
+  // library has the title, else under its encoded media id: rating keys stay
+  // below 1e9, so a bare TMDB id can't be mistaken for an unrelated item's key.
+  const media = shimRequests.decodeMediaId(body.mediaId);
+  const mediaId = media ? media.tmdbId : body.mediaId;
+  const mediaType = media ? media.mediaType : (body.mediaType || 'movie');
+  const encoded = shimRequests.encodeMediaId(mediaId, mediaType);
+  const libItem = encoded
+    ? db.getLibraryItemByTmdbId(Number(mediaId), shimRequests.normalizeMediaType(mediaType))
+    : null;
+  let title = libItem?.title || null;
   try {
     const cached = db.getTmdbCache(mediaId, mediaType);
-    title = cached?.title || String(mediaId);
+    title = cached?.title || title || String(mediaId);
   } catch {}
   const scopeMap = { 1: 'video', 2: 'audio', 3: 'subtitle', 4: 'series' };
   const issueId = db.createIssue({
-    userId, ratingKey: String(mediaId), title: title || String(mediaId),
+    userId, ratingKey: libItem?.rating_key || String(encoded || mediaId), title: title || String(mediaId),
     mediaType, posterPath: null, scope: scopeMap[issueType] || 'series',
     scopeSeason: null, scopeEpisode: null, description: message,
   });
@@ -1325,18 +1532,18 @@ router.post('/issue', (req, res) => {
 
 // GET /api/v1/issue/:id — single issue with comments (BEFORE /:status route)
 router.get('/issue/:id', (req, res) => {
-  const issue = db.getIssueById(parseInt(req.params.id));
-  if (!issue) return res.status(404).json({ message: 'Issue not found' });
+  const issue = authorizedIssue(req, res, policy.canViewIssue);
+  if (!issue) return;
   const comments = db.getIssueComments(issue.id);
   res.json(toOverseerrIssue(issue, comments));
 });
 
 // POST /api/v1/issue/:id/comment — add comment (BEFORE /:status route)
 router.post('/issue/:id/comment', (req, res) => {
-  const issue = db.getIssueById(parseInt(req.params.id));
-  if (!issue) return res.status(404).json({ message: 'Issue not found' });
+  const issue = authorizedIssue(req, res, policy.canActOnIssue);
+  if (!issue) return;
   const { message = '' } = req.body || {};
-  const userId = req.shimUser?.user_id || `__app_${req.shimApp.id}__`;
+  const userId = req.shimPrincipal.userId;
   const commentId = db.addIssueComment(issue.id, userId, message, false);
   const comment = db.prepare('SELECT ic.*, COALESCE(ku.username, ic.user_id) AS display_name FROM issue_comments ic LEFT JOIN known_users ku ON ku.user_id = ic.user_id WHERE ic.id = ?').get(commentId);
   res.status(201).json({
@@ -1348,20 +1555,20 @@ router.post('/issue/:id/comment', (req, res) => {
   });
 });
 
-// POST /api/v1/issue/:id/:status — update issue status (open/resolved)
+// POST /api/v1/issue/:id/:status — update issue status (open/resolved; Diskovarr also has closed)
 router.post('/issue/:id/:status', (req, res) => {
-  const issue = db.getIssueById(parseInt(req.params.id));
-  if (!issue) return res.status(404).json({ message: 'Issue not found' });
   const { status } = req.params;
-  const diskoStatus = status === 'resolved' ? 'resolved' : status === 'open' ? 'open' : status;
-  db.updateIssueStatus(issue.id, diskoStatus);
+  if (!['open', 'resolved', 'closed'].includes(status)) return res.status(400).json({ message: 'Invalid status' });
+  const issue = authorizedIssue(req, res, policy.canActOnIssue);
+  if (!issue) return;
+  db.updateIssueStatus(issue.id, status);
   res.json(toOverseerrIssue(db.getIssueById(issue.id)));
 });
 
 // DELETE /api/v1/issue/:id
 router.delete('/issue/:id', (req, res) => {
-  const issue = db.getIssueById(parseInt(req.params.id));
-  if (!issue) return res.status(404).json({ message: 'Issue not found' });
+  const issue = authorizedIssue(req, res, policy.canActOnIssue);
+  if (!issue) return;
   db.deleteIssue(issue.id);
   res.json({});
 });
@@ -1370,6 +1577,7 @@ router.delete('/issue/:id', (req, res) => {
 router.get('/issueComment/:id', (req, res) => {
   const comment = db.prepare('SELECT ic.*, COALESCE(ku.username, ic.user_id) AS display_name FROM issue_comments ic LEFT JOIN known_users ku ON ku.user_id = ic.user_id WHERE ic.id = ?').get(parseInt(req.params.id));
   if (!comment) return res.status(404).json({ message: 'Comment not found' });
+  if (!policy.canViewIssue(req.shimPrincipal, db.getIssueById(comment.issue_id))) return policy.forbid(res);
   res.json({ id: comment.id, message: comment.comment, user: { id: 1, username: comment.display_name, displayName: comment.display_name, email: '', avatar: '' }, createdAt: new Date((comment.created_at || 0) * 1000).toISOString(), updatedAt: new Date((comment.created_at || 0) * 1000).toISOString() });
 });
 
@@ -1378,6 +1586,7 @@ router.put('/issueComment/:id', (req, res) => {
   const id = parseInt(req.params.id);
   const comment = db.prepare('SELECT * FROM issue_comments WHERE id = ?').get(id);
   if (!comment) return res.status(404).json({ message: 'Comment not found' });
+  if (!policy.canEditComment(req.shimPrincipal, comment)) return policy.forbid(res);
   const { message = '' } = req.body || {};
   db.prepare('UPDATE issue_comments SET comment = ? WHERE id = ?').run(message, id);
   const updated = db.prepare('SELECT ic.*, COALESCE(ku.username, ic.user_id) AS display_name FROM issue_comments ic LEFT JOIN known_users ku ON ku.user_id = ic.user_id WHERE ic.id = ?').get(id);
@@ -1389,7 +1598,8 @@ router.delete('/issueComment/:id', (req, res) => {
   const id = parseInt(req.params.id);
   const comment = db.prepare('SELECT * FROM issue_comments WHERE id = ?').get(id);
   if (!comment) return res.status(404).json({ message: 'Comment not found' });
-  db.deleteIssueComment(id, req.shimUser?.user_id || `__app_${req.shimApp.id}__`, true);
+  if (!policy.canDeleteComment(req.shimPrincipal, comment)) return policy.forbid(res);
+  db.deleteIssueComment(id, req.shimPrincipal.userId, true);
   res.json({});
 });
 

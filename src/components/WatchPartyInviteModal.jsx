@@ -14,7 +14,7 @@ export default function WatchPartyInviteModal({ item, onClose }) {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const { user } = useAuth()
-  const { error: toastError } = useToast()
+  const { error: toastError, info: toastInfo } = useToast()
   const [users, setUsers] = useState(null)
   const [picked, setPicked] = useState(() => new Set())
   const [busy, setBusy] = useState(false)
@@ -39,13 +39,17 @@ export default function WatchPartyInviteModal({ item, onClose }) {
     setBusy(true)
     try {
       const { data } = await watchPartyApi.create({ ratingKey: item.ratingKey, userIds: [...picked] })
+      // Invitees whose library sharing doesn't include this title were left out
+      if (data.skipped?.length) {
+        toastInfo(t("Not invited — this title is in a library they don't have access to: {{names}}", { names: data.skipped.map(s => s.username).join(', ') }))
+      }
       onClose()
       navigate(`/watch-party/${data.party.id}`)
     } catch (e) {
       toastError(e.response?.data?.error || e.message || t('Could not create the watch party'))
       setBusy(false)
     }
-  }, [item.ratingKey, picked, onClose, navigate, toastError, t])
+  }, [item.ratingKey, picked, onClose, navigate, toastError, toastInfo, t])
 
   return (
     <Modal isOpen onClose={onClose}>

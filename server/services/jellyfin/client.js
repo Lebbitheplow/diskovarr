@@ -70,6 +70,31 @@ async function authenticateByName(username, password) {
     primaryImageTag: data.User.PrimaryImageTag || null,
     isAdmin: !!data.User.Policy?.IsAdministrator,
     accessToken: data.AccessToken,
+    policy: policySummary(data.User.Policy),
+  };
+}
+
+const guidN = (id) => String(id || '').toLowerCase().replace(/-/g, '');
+
+// The parts of a Jellyfin UserPolicy that decide what the user may see —
+// library folders and parental controls — for services/libraryAccess. Folder
+// ids are normalized to Jellyfin's 32-hex "N" form; lists are sorted so two
+// summaries of the same policy compare equal as JSON.
+function policySummary(p) {
+  if (!p) return null;
+  const ids = (arr) => (Array.isArray(arr) ? arr : []).map(guidN).filter(Boolean).sort();
+  const strs = (arr) => (Array.isArray(arr) ? arr : []).map(String).sort();
+  return {
+    isAdministrator: !!p.IsAdministrator,
+    isDisabled: !!p.IsDisabled,
+    enableAllFolders: !!p.EnableAllFolders,
+    enabledFolders: ids(p.EnabledFolders),
+    blockedMediaFolders: ids(p.BlockedMediaFolders),
+    maxParentalRating: p.MaxParentalRating ?? null,
+    maxParentalSubRating: p.MaxParentalSubRating ?? null,
+    blockUnratedItems: strs(p.BlockUnratedItems),
+    blockedTags: strs(p.BlockedTags),
+    allowedTags: strs(p.AllowedTags),
   };
 }
 
@@ -81,6 +106,7 @@ async function getUsers() {
     primaryImageTag: u.PrimaryImageTag || null,
     isAdmin: !!u.Policy?.IsAdministrator,
     isDisabled: !!u.Policy?.IsDisabled,
+    policy: policySummary(u.Policy),
   }));
 }
 
@@ -104,6 +130,6 @@ function getDeepLink(itemId) {
 
 module.exports = {
   getJellyfinUrl, getJellyfinKey, isEnabled,
-  jfFetch, authenticateByName, getUsers, testConnection,
+  jfFetch, authenticateByName, getUsers, policySummary, testConnection,
   getAvatarPath, getDeepLink,
 };

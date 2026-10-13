@@ -50,12 +50,17 @@ router.get('/', (req, res) => {
 });
 
 // POST /api/watch-party — body: { ratingKey, userIds }
+// The host must be able to access the title (403 otherwise); invitees who
+// can't are left out and listed in `skipped` ({ userId, username }).
 router.post('/', handle(async (req, res) => {
   const { ratingKey, userIds } = req.body || {};
   if (!ratingKey) return res.status(400).json({ error: 'ratingKey required' });
+  if (!/^[A-Za-z0-9-]+$/.test(String(ratingKey))) return res.status(400).json({ error: 'Invalid ratingKey' });
   if (userIds != null && !Array.isArray(userIds)) return res.status(400).json({ error: 'userIds must be an array' });
-  const party = await watchParty.createParty({ hostId: actor(req), ratingKey, userIds: userIds || [] });
-  res.status(201).json({ party: watchParty.snapshot(party, actor(req)) });
+  const { party, skipped } = await watchParty.createParty({
+    hostId: actor(req), ratingKey, userIds: userIds || [], access: req.libraryAccess,
+  });
+  res.status(201).json({ party: watchParty.snapshot(party, actor(req)), skipped });
 }));
 
 // GET /api/watch-party/:id
@@ -65,13 +70,14 @@ router.get('/:id', (req, res) => {
 });
 
 // POST /api/watch-party/:id/invite — body: { userIds }
+// Users who can't access the title are not invited and come back in `skipped`.
 router.post('/:id/invite', handle(async (req, res) => {
   const ctx = requireMember(req, res, { hostOnly: true });
   if (!ctx) return;
   if (!Array.isArray(req.body?.userIds)) return res.status(400).json({ error: 'userIds must be an array' });
   if (ctx.party.status === 'ended') return res.status(400).json({ error: 'This party has ended.' });
-  watchParty.invite(ctx.party, req.body.userIds);
-  respond(res, ctx.party.id, ctx.userId);
+  const { skipped } = watchParty.invite(ctx.party, req.body.userIds);
+  res.json({ party: watchParty.snapshot(db.getWatchParty(ctx.party.id), ctx.userId), skipped });
 }));
 
 // POST /api/watch-party/:id/device — body: { clientId }
@@ -80,7 +86,7 @@ router.post('/:id/device', handle(async (req, res) => {
   if (!ctx) return;
   const clientId = req.body?.clientId;
   if (!clientId || typeof clientId !== 'string') return res.status(400).json({ error: 'clientId required' });
-  await watchParty.setDevice(ctx.party, ctx.userId, clientId);
+  await watchParty.setDevice(ctx.party, ctx.userId, clientId, req.libraryAccess);
   respond(res, ctx.party.id, ctx.userId);
 }));
 
@@ -105,7 +111,7 @@ router.post('/:id/start', handle(async (req, res) => {
 router.post('/:id/join', handle(async (req, res) => {
   const ctx = requireMember(req, res);
   if (!ctx) return;
-  await watchParty.joinPlaying(ctx.party, ctx.userId);
+  await watchParty.joinPlaying(ctx.party, ctx.userId, req.libraryAccess);
   respond(res, ctx.party.id, ctx.userId);
 }));
 

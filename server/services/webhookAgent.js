@@ -1,14 +1,16 @@
 const logger = require('./logger');
 const BaseAgent = require('./notificationAgents/base');
-const { hasNotificationType, TYPE_MAP } = require('./notificationAgents/types');
+const { hasNotificationType, TYPE_LABELS } = require('./notificationAgents/types');
 const { toPlainText } = require('./messageFormat');
+const { resolveAudience, runTargets, skipped, ensureOk, emptyTally, tallySend } = require('./notificationAgents/delivery');
 
 // Template variable map for webhook JSON payloads
-// Maps {{variable_name}} → value from notification payload
+// Maps {{variable_name}} → value from notification payload (and the event type,
+// which queued payloads carry as `type` rather than a display `event`)
 const KEY_MAP = {
   // General
-  notification_type: (p) => (p.event || 'test'),
-  event: (p) => (p.event || ''),
+  notification_type: (p, type) => (p.event || type || p.type || 'test'),
+  event: (p, type) => (p.event || TYPE_LABELS[type || p.type] || type || p.type || ''),
   subject: (p) => (p.title || ''),
   message: (p) => (p.body || ''),
   image: (p) => (p.posterUrl || ''),
@@ -94,11 +96,19 @@ class WebhookAgent extends BaseAgent {
     return headers;
   }
 
-  async send(type, payload) {
+  // Admin feed only — the webhook has no per-user destination.
+  async send(type, payload, ctx) {
     const settings = this.getSettings();
-    if (!settings || !settings.enabled || !settings.webhookUrl) return;
-    if (!this.shouldSendType(type)) return;
+    if (!settings || !settings.enabled || !settings.webhookUrl) return skipped('Webhook disabled');
+    if (!this.shouldSendType(type)) return skipped(`type ${type} not selected`);
+    if (!resolveAudience(payload, ctx).feed) return skipped('feed copy carried by another queue row');
+    const result = await runTargets([{ id: 'feed', send: () => this.deliver(type, payload) }], ctx);
+    if (result.error) logger.warn('Webhook agent error:', result.error);
+    return result;
+  }
 
+  async deliver(type, payload) {
+    const settings = this.getSettings();
     let webhookUrl = settings.webhookUrl;
 
     // Support variables in URL
@@ -110,26 +120,18 @@ class WebhookAgent extends BaseAgent {
       });
     }
 
-    try {
-      const body = this.buildPayload(type, payload);
-      const headers = this.buildHeaders();
+    const body = this.buildPayload(type, payload);
+    const headers = this.buildHeaders();
 
-      logger.debug(`Webhook: sending to ${webhookUrl}`);
-      const res = await fetch(webhookUrl, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(10000),
-      });
-
-      if (!res.ok) {
-        throw new Error(`Webhook ${res.status}: ${await res.text().catch(() => '')}`);
-      }
-      return true;
-    } catch (err) {
-      logger.warn('Webhook agent error:', err.message);
-      return false;
-    }
+    logger.debug(`Webhook: sending to ${webhookUrl}`);
+    const res = await fetch(webhookUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(10000),
+    });
+    await ensureOk(res, 'Webhook');
+    return true;
   }
 
   async sendTest(payload) {
@@ -173,13 +175,18 @@ class WebhookAgent extends BaseAgent {
     return true;
   }
 
+  // Broadcasts bypass the type filter. Returns { attempted, sent, failed }.
   async sendBroadcast(message) {
-    await this.send('broadcast', {
+    const tally = emptyTally();
+    const settings = this.getSettings();
+    if (!settings || !settings.enabled || !settings.webhookUrl) return tally;
+    await tallySend(tally, () => this.deliver('broadcast', {
       event: 'Broadcast',
       title: 'Message from Server Admin',
       body: toPlainText(message),
       posterUrl: '',
-    });
+    }), (err) => logger.warn('Webhook broadcast failed:', err.message));
+    return tally;
   }
 }
 

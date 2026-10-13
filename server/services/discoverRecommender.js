@@ -1,8 +1,9 @@
 const plexService = require('./plex');
 const tautulliService = require('./tautulli');
 const tmdbService = require('./tmdb');
-const { buildPreferenceProfile, partialShuffle, tieredSample, getRelatedForItem } = require('./recommender');
+const { buildPreferenceProfile, partialShuffle, tieredSample, getRelatedForItem, seesNothing, resolveAccess } = require('./recommender');
 const db = require('../db/database');
+const libraryAccess = require('./libraryAccess');
 const C = require('./recommend/constants');
 const affinity = require('./recommend/affinity');
 
@@ -36,10 +37,36 @@ function makeInLibraryCheck(libraryTmdbKeys, libraryTitleYears) {
   };
 }
 
-// Per-user in-memory cache: userId -> { pools, builtAt }
+// For a restricted user (access non-null): true for titles the library holds
+// only in sections they can't access — the "restricted" tri-state (no Request
+// or Notify Me). Unrestricted users never get the flag.
+function makeRestrictedCheck(access, allowedTmdbKeys, allowedTitleYears) {
+  if (!access) return () => false;
+  const inLibrary = makeInLibraryCheck(db.getLibraryTmdbKeys(), db.getLibraryTitleYearSet());
+  const allowed = makeInLibraryCheck(allowedTmdbKeys, allowedTitleYears);
+  return (item) => inLibrary(item.tmdbId, item.mediaType, item.title, item.year)
+    && !allowed(item.tmdbId, item.mediaType, item.title, item.year);
+}
+
+// Per-user in-memory cache: userId -> { pools, builtAt, accessFp }. accessFp is
+// the libraryAccess fingerprint the pools were built for (their in-library
+// exclusion only counts titles that user may access); a different one is stale.
 const discoverCache = new Map();
 // Track in-progress background rebuilds to avoid duplicates
 const rebuildInProgress = new Set();
+
+// The persisted copy (discover_pool_cache) keeps the fingerprint inside its pools JSON.
+function savePools(userId, pools, builtAt, accessFp) {
+  discoverCache.set(String(userId), { pools, builtAt, accessFp });
+  db.setDiscoverPool(String(userId), { ...pools, accessFp }, builtAt);
+}
+
+function loadSavedPools(userId) {
+  const saved = db.getDiscoverPool(userId);
+  if (!saved?.pools || !saved.builtAt) return null;
+  const { accessFp = null, ...pools } = saved.pools;
+  return { pools, builtAt: saved.builtAt, accessFp };
+}
 
 function invalidateUserCache(userId) {
   discoverCache.delete(String(userId));
@@ -299,7 +326,7 @@ async function getTopWatchedTmdbIds(userId) {
   // Union: user_watched captures items Tautulli may have missed
   // This catches pre-Tautulli watches, items manually marked as watched in Plex, etc.
   const allKeys = new Set([...counts.keys(), ...dbWatchedKeys]);
-  if (!allKeys.size) return { topMovieIds: [], topTvIds: [] };
+  if (!allKeys.size) return { topMovieIds: [], topTvIds: [], topMovieKeys: [], topTvKeys: [] };
 
   // Score: Tautulli-known items get count + recency bonus; db-only items get base score of 1
   const now = Math.floor(Date.now() / 1000);
@@ -428,7 +455,10 @@ async function fetchSharedCandidates(opts = {}) {
   return enriched;
 }
 
-async function buildDiscoverPools(userId, userToken) {
+// `access` (services/libraryAccess): whose library counts as "already have".
+// The taste profile still reads the whole library (the user's own history).
+async function buildDiscoverPools(userId, userToken, access) {
+  access = resolveAccess(userId, arguments.length >= 3, access);
   // Read user's stored preferences for pool selection
   const prefs = db.getUserPreferences(userId);
   const discoverOpts = {
@@ -457,9 +487,11 @@ async function buildDiscoverPools(userId, userToken) {
   ]);
 
   // Library keys ("<tmdbId>:<mediaType>") to exclude from results, plus a
-  // title+year fallback for when TMDB IDs aren't populated yet.
+  // title+year fallback for when TMDB IDs aren't populated yet. Only titles
+  // this user may access count: one held only in a library they can't see
+  // stays a candidate (flagged restricted when served).
   // Requested items are NOT excluded — they appear as candidates with isRequested flag.
-  const isAlreadyHave = makeInLibraryCheck(db.getLibraryTmdbKeys(), db.getLibraryTitleYearSet());
+  const isAlreadyHave = makeInLibraryCheck(db.getLibraryTmdbKeys(null, access), db.getLibraryTitleYearSet(null, access));
 
   // ── Gather candidates ────────────────────────────────────────────────────
 
@@ -705,7 +737,8 @@ async function buildDiscoverPools(userId, userToken) {
   };
 }
 
-function scheduleRebuild(userId, userToken) {
+function scheduleRebuild(userId, userToken, access) {
+  access = resolveAccess(userId, arguments.length >= 3, access);
   const userIdStr = String(userId);
   if (rebuildInProgress.has(userIdStr)) return;
   rebuildInProgress.add(userIdStr);
@@ -716,12 +749,10 @@ function scheduleRebuild(userId, userToken) {
     console.warn(`[discover] Build timed out for user ${userIdStr}, clearing in-progress flag`);
     rebuildInProgress.delete(userIdStr);
   }, 10 * 60 * 1000);
-  buildDiscoverPools(userId, userToken)
+  buildDiscoverPools(userId, userToken, access)
     .then(pools => {
       if (!timedOut) clearTimeout(timeout);
-      const builtAt = Date.now();
-      discoverCache.set(userIdStr, { pools, builtAt });
-      db.setDiscoverPool(userIdStr, pools, builtAt);
+      savePools(userIdStr, pools, Date.now(), libraryAccess.fingerprint(access));
       console.log(`[discover] Pool rebuilt for user ${userIdStr}`);
     })
     .catch(err => {
@@ -827,36 +858,42 @@ async function buildUpcomingSections(requestedIds, dismissedIds, libraryTmdbKeys
   return { upcomingMovies, upcomingTV };
 }
 
-async function getDiscoverRecommendations(userId, userToken, { mature, hideRequested = false } = {}) {
+// `access` (services/libraryAccess): null is unrestricted; omitted, it is
+// resolved from userId. Routes pass req.libraryAccess (see resolveAccess).
+async function getDiscoverRecommendations(userId, userToken, opts = {}) {
+  let { mature } = opts;
+  const { hideRequested = false } = opts;
+  const access = resolveAccess(userId, 'access' in opts, opts.access);
   // Use stored preference as authoritative source; runtime param can override for post-filter
   const prefs = db.getUserPreferences(userId);
   if (mature === undefined) mature = !!prefs.show_mature;
   const userIdStr = String(userId);
+  const accessFp = libraryAccess.fingerprint(access);
 
   // 1. Check in-memory cache
   let cached = discoverCache.get(userIdStr);
 
   // 2. Fall back to DB cache (survives server restarts)
   if (!cached) {
-    const dbCached = db.getDiscoverPool(userIdStr);
-    if (dbCached?.pools && dbCached.builtAt) {
-      cached = dbCached;
-      discoverCache.set(userIdStr, dbCached);
-    }
+    cached = loadSavedPools(userIdStr);
+    if (cached) discoverCache.set(userIdStr, cached);
   }
 
-  const isStale = !cached || Date.now() - cached.builtAt > CACHE_TTL;
+  // Pools built for other library access are stale like expired ones: still
+  // served (they hold TMDB titles, never library rows) while they rebuild.
+  const otherAccess = !!cached && cached.accessFp !== accessFp;
+  const isStale = !cached || Date.now() - cached.builtAt > CACHE_TTL || otherAccess;
 
   let pools;
   if (cached?.pools && Object.keys(cached.pools).length > 0) {
     // Serve existing cache immediately (fresh or stale)
     pools = cached.pools;
     // Kick off background rebuild if stale
-    if (isStale) scheduleRebuild(userId, userToken);
+    if (isStale) scheduleRebuild(userId, userToken, access);
   } else {
     // No cache at all — kick off background build and signal client to poll
     console.log(`[discover] No cache for user ${userIdStr}, building in background...`);
-    scheduleRebuild(userId, userToken);
+    scheduleRebuild(userId, userToken, access);
     return { status: 'building' };
   }
 
@@ -865,8 +902,20 @@ async function getDiscoverRecommendations(userId, userToken, { mature, hideReque
   const userRequestedIds = db.getRequestedTmdbIds(userId); // this user's own requests
   const dismissedIds = db.getExploreDismissedIds(userId);
 
+  // Only titles this user may access count as "in library" (trending/upcoming
+  // exclusion below); titles held only in libraries they can't see are flagged.
+  const libraryTmdbKeys = db.getLibraryTmdbKeys(null, access);
+  const libraryTitleYears = db.getLibraryTitleYearSet(null, access);
+  const isRestricted = makeRestrictedCheck(access, libraryTmdbKeys, libraryTitleYears);
+  const restrictedFlag = (item) => (isRestricted(item) ? { restricted: true } : {});
+  // A pool built for other access can hold titles the user now has (a share
+  // added, enforcement turned off): drop them until the rebuild lands, or
+  // they'd show as requestable. Pools built for this access already exclude them.
+  const isOwned = otherAccess ? makeInLibraryCheck(libraryTmdbKeys, libraryTitleYears) : null;
+
   function filterAndMark(items) {
     return items
+      .filter(item => !isOwned || !isOwned(item.tmdbId, item.mediaType, item.title, item.year))
       .filter(item => !dismissedIds.has(`${item.tmdbId}:${item.mediaType}`))
       .filter(item => mature || !item.adult)
       .filter(item => !hideRequested || !requestedIds.has(`${item.tmdbId}:${item.mediaType}`))
@@ -879,15 +928,13 @@ async function getDiscoverRecommendations(userId, userToken, { mature, hideReque
           isRequested,
           isMyRequest,
           badgeRequested: isRequested,
+          ...restrictedFlag(item),
         };
       });
   }
 
   // Trending sections run in parallel with the pool sampling — they use
   // the shared TMDB DB cache so they're fast after the first pool build.
-  const libraryTmdbKeys = db.getLibraryTmdbKeys();
-  const libraryTitleYears = db.getLibraryTitleYearSet();
-
   const [trendingResult, upcomingResult] = await Promise.all([
     buildTrendingSections(requestedIds, dismissedIds, libraryTmdbKeys, libraryTitleYears, mature),
     buildUpcomingSections(requestedIds, dismissedIds, libraryTmdbKeys, libraryTitleYears, mature),
@@ -898,7 +945,7 @@ async function getDiscoverRecommendations(userId, userToken, { mature, hideReque
       .filter(item => !hideRequested || !requestedIds.has(`${item.tmdbId}:${item.mediaType}`))
       .map(item => {
         const key = `${item.tmdbId}:${item.mediaType}`;
-        return { ...item, isMyRequest: userRequestedIds.has(key), badgeRequested: requestedIds.has(key) };
+        return { ...item, isMyRequest: userRequestedIds.has(key), badgeRequested: requestedIds.has(key), ...restrictedFlag(item) };
       });
   }
 
@@ -907,7 +954,7 @@ async function getDiscoverRecommendations(userId, userToken, { mature, hideReque
       .filter(item => !hideRequested || !requestedIds.has(`${item.tmdbId}:${item.mediaType}`))
       .map(item => {
         const key = `${item.tmdbId}:${item.mediaType}`;
-        return { ...item, isMyRequest: userRequestedIds.has(key), badgeRequested: requestedIds.has(key) };
+        return { ...item, isMyRequest: userRequestedIds.has(key), badgeRequested: requestedIds.has(key), ...restrictedFlag(item) };
       });
   }
 
@@ -950,6 +997,7 @@ async function refreshSharedCandidatePools() {
 /**
  * Re-score shared candidates for every known user and update their discover_pool_cache.
  * Mirrors recommender.warmAllUserCaches() — called by the 28-min background job in server.js.
+ * Each user's pools are built for their own library access, resolved from the user id.
  */
 async function warmAllUserDiscoverCaches() {
   const usersWithTokens = db.getAllKnownUsersWithTokens();
@@ -962,11 +1010,11 @@ async function warmAllUserDiscoverCaches() {
   if (!allUsers.length) return;
   console.log(`[discoverRec] warmAllUserDiscoverCaches: ${allUsers.length} user(s)`);
   for (const { user_id, plex_token } of allUsers) {
+    const access = libraryAccess.forUser(user_id);
+    if (seesNothing(access)) continue; // no snapshot yet / share removed — built on their next visit
     try {
-      const pools = await buildDiscoverPools(user_id, plex_token);
-      const builtAt = Date.now();
-      discoverCache.set(String(user_id), { pools, builtAt });
-      db.setDiscoverPool(String(user_id), pools, builtAt);
+      const pools = await buildDiscoverPools(user_id, plex_token, access);
+      savePools(user_id, pools, Date.now(), libraryAccess.fingerprint(access));
     } catch (err) {
       console.warn(`[discoverRec] warmAllUserDiscoverCaches failed for user ${user_id}:`, err.message);
     }

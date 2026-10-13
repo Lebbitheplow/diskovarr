@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const db = require('../db/database');
 
 // Thin client for the Tuberr companion service's /manage API.
@@ -54,7 +55,7 @@ async function verifySonarrWiring() {
   else {
     if (!indexer.enableRss || !indexer.enableAutomaticSearch) problems.push('indexer RSS/automatic search disabled');
     if (String(field(indexer, 'baseUrl') || '').replace(/\/$/, '') !== `${c.tuberrUrl.replace(/\/$/, '')}/torznab`) problems.push('indexer URL differs from Tuberr address');
-    if (field(indexer, 'apiKey') !== c.tuberrApiKey) problems.push('indexer API key is stale');
+    if (indexerKeyStale(field(indexer, 'apiKey'), c.tuberrApiKey)) problems.push('indexer API key is stale');
   }
   const client = clients.find(x => x.name === SONARR_ENTRY_NAME);
   if (!client) problems.push('download client missing');
@@ -119,6 +120,39 @@ function isConfigured() {
 // linked, so YouTube series route exclusively through Tuberr. Idempotent —
 // entries are found by name and updated in place.
 const SONARR_ENTRY_NAME = 'Tuberr (YouTube)';
+// The qBittorrent client logs in as 'tuberr' with Tuberr's management API key
+// as the password (Tuberr rejects anything else).
+const QBIT_USERNAME = 'tuberr';
+
+// Revision of what setupSonarr writes, stored once the parts the current
+// revision covers have been written (rev 2: the download client).
+// Bump it when the wiring changes in a way verifySonarrWiring can't observe
+// (Sonarr masks the download-client password in its API): the health job
+// re-runs setupSonarr once for installs wired by an older revision.
+//   2 — download-client password became the Tuberr API key (was 'tuberr')
+const SONARR_WIRING_REV = 2;
+const WIRING_REV_SETTING = 'tuberr_sonarr_wiring_rev';
+
+function sonarrWiringOutdated() {
+  return (Number(db.getSetting(WIRING_REV_SETTING, '0')) || 0) < SONARR_WIRING_REV;
+}
+
+function markSonarrWiringCurrent() {
+  db.setSetting(WIRING_REV_SETTING, String(SONARR_WIRING_REV));
+}
+
+// Sonarr v4 returns ApiKey/Password provider fields masked, so the key in the
+// indexer (and, since rev 2, the download-client password) can't be read back.
+// setupSonarr remembers a fingerprint of the key it last wrote; a masked value
+// is judged against that, a plaintext one (Sonarr v3) directly.
+const SONARR_MASK = '********';
+const WIRED_KEY_SETTING = 'tuberr_sonarr_wired_key_sha256';
+const keyFingerprint = key => crypto.createHash('sha256').update(String(key || '')).digest('hex');
+
+function indexerKeyStale(sonarrValue, tuberrApiKey) {
+  if (sonarrValue === SONARR_MASK) return db.getSetting(WIRED_KEY_SETTING, '') !== keyFingerprint(tuberrApiKey);
+  return sonarrValue !== tuberrApiKey;
+}
 
 async function setupSonarr() {
   const c = db.getConnectionSettings();
@@ -164,8 +198,8 @@ async function setupSonarr() {
       { name: 'port', value: Number(tuberr.port) || 9832 },
       { name: 'useSsl', value: tuberr.protocol === 'https:' },
       { name: 'urlBase', value: '' },
-      { name: 'username', value: 'tuberr' },
-      { name: 'password', value: 'tuberr' },
+      { name: 'username', value: QBIT_USERNAME },
+      { name: 'password', value: c.tuberrApiKey },
       { name: 'tvCategory', value: 'tv-youtube' },
       { name: 'recentTvPriority', value: 0 },
       { name: 'olderTvPriority', value: 0 },
@@ -179,6 +213,9 @@ async function setupSonarr() {
   const client = existingClient
     ? await sonarrFetch(`/downloadclient/${existingClient.id}`, { method: 'PUT', body: JSON.stringify({ ...clientBody, id: existingClient.id }) })
     : await sonarrFetch('/downloadclient', { method: 'POST', body: JSON.stringify(clientBody) });
+  // Rev 2 only covers the client's credentials: record it now, so a failing
+  // indexer step isn't reported as stale credentials and retried every check
+  markSonarrWiringCurrent();
 
   // 3. Torznab indexer, pinned to the download client
   const indexerBody = {
@@ -203,6 +240,7 @@ async function setupSonarr() {
   } else {
     await sonarrFetch('/indexer', { method: 'POST', body: JSON.stringify(indexerBody) });
   }
+  db.setSetting(WIRED_KEY_SETTING, keyFingerprint(c.tuberrApiKey));
 
   return {
     ok: true,
@@ -211,4 +249,7 @@ async function setupSonarr() {
   };
 }
 
-module.exports = { manageFetch, health, status, verifySonarrWiring, pushConfig, searchChannels, createMapping, isConfigured, setupSonarr, regenerateKey };
+module.exports = {
+  manageFetch, health, status, verifySonarrWiring, pushConfig, searchChannels, createMapping, isConfigured,
+  setupSonarr, regenerateKey, sonarrWiringOutdated, markSonarrWiringCurrent, SONARR_WIRING_REV,
+};

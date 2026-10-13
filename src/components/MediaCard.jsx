@@ -1,15 +1,21 @@
 import React, { useState, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import { posterUrl as makePosterSrc, posterSrcSet, CARD_SIZES } from '../utils/media'
+import { posterUrl as makePosterSrc, posterSrcSet, posterCandidates, CARD_SIZES } from '../utils/media'
 
 export default function MediaCard({
   item, onOpenModal, onToggleWatchlist, onDismiss, variant = 'home',
   isInWatchlist = false, isWatched = false
 }) {
   const { t } = useTranslation()
-  const [imgError, setImgError] = useState(false)
   const { title, year, audienceRating, contentRating, thumb, posterUrl, ratingKey, reasons } = item
-  const posterPath = thumb || posterUrl
+  // A poster that fails to load steps to the next candidate. The failure count
+  // is keyed by the candidate list, so new art for this card starts over from
+  // the top instead of staying stuck on the placeholder.
+  const candidates = posterCandidates(thumb, posterUrl)
+  const candidatesKey = candidates.join('\n')
+  const [failed, setFailed] = useState({ key: candidatesKey, count: 0 })
+  const failedCount = failed.key === candidatesKey ? failed.count : 0
+  const posterPath = candidates[failedCount] || null
 
   const handleOpenModal = useCallback(() => {
     if (onOpenModal) onOpenModal(item)
@@ -25,7 +31,7 @@ export default function MediaCard({
     if (onDismiss) onDismiss(item)
   }, [onDismiss, item])
 
-  const posterSrc = posterPath && !imgError ? makePosterSrc(posterPath, 360) : null
+  const posterSrc = posterPath ? makePosterSrc(posterPath, 360) : null
 
   // The poster button, the action overlay and the info panel are siblings
   // stacked over the card rather than nested. Nesting the action buttons inside
@@ -36,6 +42,9 @@ export default function MediaCard({
       <button className="card-poster-link" onClick={handleOpenModal} aria-label={title}>
         {posterSrc ? (
           <img
+            // A fresh element per source, so a late error from the old one
+            // can't knock out its replacement
+            key={posterPath}
             className="card-poster"
             src={posterSrc}
             srcSet={posterSrcSet(posterPath)}
@@ -43,7 +52,7 @@ export default function MediaCard({
             alt=""
             loading="lazy"
             decoding="async"
-            onError={() => setImgError(true)}
+            onError={() => setFailed({ key: candidatesKey, count: failedCount + 1 })}
           />
         ) : (
           <div className="card-poster-placeholder">
