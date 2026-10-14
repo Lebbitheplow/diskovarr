@@ -1423,7 +1423,9 @@ function computeAvailable(pool) {
 router.get('/search', async (req, res) => {
   const q = (req.query.q || '').trim();
   const genre = (req.query.genre || '').trim();
-  const type = (req.query.type || 'movie').toLowerCase();
+  // Movies/TV tab: narrows the page to one media type; counts stay per type.
+  const rawType = String(req.query.type || '').toLowerCase();
+  const type = ['movie', 'tv'].includes(rawType) ? rawType : 'all';
   const page = Math.max(1, parseInt(req.query.page) || 1);
 
   const filterGenres = parseCsv(req.query.filterGenres);
@@ -1486,8 +1488,9 @@ router.get('/search', async (req, res) => {
     const watchedKeys = db.getWatchedKeysFromDb(String(userId));
     const requestedIds = db.getAllRequestedTmdbIds();
 
+    // The genre pool holds both media types; the Movies/TV tab slices it below.
     const poolKey = isGenreSearch
-      ? `g:${genre.toLowerCase()}:${userLanguage || ''}:${userRegion || ''}:${type}`
+      ? `g:${genre.toLowerCase()}:${userLanguage || ''}:${userRegion || ''}`
       : `q:${q.toLowerCase()}:${userLanguage || ''}:${userRegion || ''}`;
 
     let poolEntry = getSearchPool(poolKey);
@@ -1496,29 +1499,31 @@ router.get('/search', async (req, res) => {
     if (!externalResults) {
       let poolPending = [];
       if (isGenreSearch) {
-        let cachedMovies = db.getItemsByGenre('movie', genre);
-        let cachedTV = db.getItemsByGenre('tv', genre);
-
-        if (userLanguage) {
-          cachedMovies = cachedMovies.filter(item => item.originalLanguage === userLanguage);
-          cachedTV = cachedTV.filter(item => item.originalLanguage === userLanguage);
-        }
+        const startedAt = Date.now();
+        const langOpt = { originalLanguage: userLanguage };
+        const cachedMovies = db.getItemsByGenre('movie', genre, langOpt);
+        const cachedTV = db.getItemsByGenre('tv', genre, langOpt);
 
         if (cachedMovies.length > 0 || cachedTV.length > 0) {
           externalResults = [...cachedMovies, ...cachedTV];
-          console.log(`[search] Genre "${genre}": ${cachedMovies.length} movies + ${cachedTV.length} tv from db cache`);
+          console.log(`[search] Genre "${genre}": ${cachedMovies.length} movies + ${cachedTV.length} tv from db cache (${Date.now() - startedAt}ms)`);
         } else {
+          // Nothing cached yet (fresh install): seed from TMDB discover, both
+          // media types, so the Movies and TV tabs each have something.
           const MAX_CANDIDATE_PAGES = 5;
-          const allCandidates = [];
-          const fetchType = ['movie', 'tv'].includes(type) ? type : 'movie';
           const discoverOpts = {};
           if (userRegion) discoverOpts.region = userRegion;
           if (userLanguage) discoverOpts.language = userLanguage;
-          for (let p = 1; p <= MAX_CANDIDATE_PAGES; p++) {
-            const pageResults = await tmdbService.discoverByGenreName(genre, fetchType, p, { includeAdult: true, ...discoverOpts });
-            if (!pageResults.length) break;
-            allCandidates.push(...pageResults);
-          }
+          const candidatesFor = async (fetchType) => {
+            const found = [];
+            for (let p = 1; p <= MAX_CANDIDATE_PAGES; p++) {
+              const pageResults = await tmdbService.discoverByGenreName(genre, fetchType, p, { includeAdult: true, ...discoverOpts });
+              if (!pageResults.length) break;
+              found.push(...pageResults);
+            }
+            return found;
+          };
+          const allCandidates = (await Promise.all(['movie', 'tv'].map(candidatesFor))).flat();
           const enriched = await tmdbService.batchGetDetails(
             allCandidates.map(r => ({ tmdbId: r.tmdbId, mediaType: r.mediaType }))
           );
@@ -1602,18 +1607,24 @@ router.get('/search', async (req, res) => {
     let filteredPool = applySearchFilters(visiblePool, filterOpts);
     const { availableContentRatings, availableGenres } = computeAvailable(visiblePool);
 
+    // Per-type totals of everything matching the filters, so the Movies/TV
+    // tabs can show accurate counts without the client holding the whole set.
+    const counts = { all: filteredPool.length, movie: 0, tv: 0 };
+    for (const item of filteredPool) {
+      if (item.mediaType === 'tv') counts.tv++;
+      else counts.movie++;
+    }
+    if (type !== 'all') filteredPool = filteredPool.filter(item => item.mediaType === type);
+
     // Sort by popularity (fallback voteAverage) so highest-signal items lead.
     filteredPool.sort((a, b) => (b.popularity || 0) - (a.popularity || 0) || (b.voteAverage || 0) - (a.voteAverage || 0));
 
+    // Always paginated. A genre used to ship its whole pool (thousands of
+    // titles) so the tabs could be sliced client-side; the counts above cover
+    // that now, and the page only carries what is about to be drawn.
     const total = filteredPool.length;
-    // Genre browsing needs the full set so the Movies/TV tabs are accurate and
-    // the user sees the same depth as before. Text search paginates to avoid
-    // shipping hundreds of unrelated TMDB hits at once.
-    const usePagination = !isGenreSearch;
-    const pages = usePagination ? Math.max(1, Math.ceil(total / SEARCH_PAGE_SIZE)) : 1;
-    const pageItems = usePagination
-      ? filteredPool.slice((page - 1) * SEARCH_PAGE_SIZE, page * SEARCH_PAGE_SIZE)
-      : filteredPool;
+    const pages = Math.max(1, Math.ceil(total / SEARCH_PAGE_SIZE));
+    const pageItems = filteredPool.slice((page - 1) * SEARCH_PAGE_SIZE, page * SEARCH_PAGE_SIZE);
 
     const results = pageItems.map(item => {
       const libItem = libraryIndex.lookup(item.tmdbId, item.tvdbId, item.mediaType);
@@ -1657,6 +1668,7 @@ router.get('/search', async (req, res) => {
       pages,
       page,
       query: isGenreSearch ? genre : q,
+      counts,
       availableContentRatings,
       availableGenres,
     });

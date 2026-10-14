@@ -8,19 +8,19 @@ import React from 'react'
 // The two-row shelf sits in a .carousel-wrap so it takes the carousel's own
 // track (card width, gaps, padding) and the real shelf replaces it without
 // the page shifting.
-export default function SkeletonLoader({ count = 6, rows = 1 }) {
-  const grid = (
-    <div className="card-grid skeleton-grid is-revealed">
-      {Array.from({ length: count }).map((_, i) => (
-        <div key={i} className="card card-skeleton">
-          <div className="skeleton-poster shimmer" />
-          <div className="skeleton-info">
-            <div className="skeleton-line shimmer" style={{ width: '80%' }} />
-            <div className="skeleton-line shimmer" style={{ width: '50%' }} />
-          </div>
-        </div>
-      ))}
+//
+// `bare` returns only the cards, for a caller that already has a grid open.
+export default function SkeletonLoader({ count = 6, rows = 1, bare = false }) {
+  const cards = Array.from({ length: count }).map((_, i) => (
+    <div key={i} className="card card-skeleton">
+      <div className="skeleton-poster shimmer" />
+      <div className="skeleton-info">
+        <div className="skeleton-line shimmer" style={{ width: '80%' }} />
+        <div className="skeleton-line shimmer" style={{ width: '50%' }} />
+      </div>
     </div>
-  )
+  ))
+  if (bare) return cards
+  const grid = <div className="card-grid skeleton-grid is-revealed">{cards}</div>
   return rows === 2 ? <div className="carousel-wrap">{grid}</div> : grid
 }
