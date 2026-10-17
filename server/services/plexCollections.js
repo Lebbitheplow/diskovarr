@@ -331,8 +331,10 @@ async function syncListCollection(listSource, entries) {
     }
   }
   if (jellyfinEnabled()) {
-    try { await jellyfinCollections().syncListBoxSets(listSource, entries, updatedKeys); }
-    catch (e) { errors.push(`jellyfin: ${e.message}`); }
+    try {
+      const sortPrefixes = { movie: sortPrefixFor(listSource, 'movie'), tv: sortPrefixFor(listSource, 'tv') };
+      await jellyfinCollections().syncListBoxSets(listSource, entries, updatedKeys, { sortPrefixes });
+    } catch (e) { errors.push(`jellyfin: ${e.message}`); }
   }
 
   automation.updateListSource(listSource.id, {
@@ -349,18 +351,29 @@ async function applyVisibility(listSource) {
   if (keys.tv) await setVisibility(plexService.TV_SECTION, keys.tv, listSource.collectionVisibility);
 }
 
-// Delete the Plex collections backing a list (used when removing a list and the
-// admin opts to also remove its collection). Smart collections also drop their label.
+// Delete the Plex collections and Jellyfin BoxSets backing a list (used when
+// removing a list and the admin opts to also remove its collection). Smart
+// collections also drop their label. Each server is handled on its own, so a
+// Plex outage doesn't leave the BoxSets behind (or the other way round).
 async function deleteListCollections(listSource) {
   const keys = parseCollectionKeys(listSource.collectionRatingKey);
-  for (const name of PLEX_KEY_NAMES) if (keys[name]) await deleteCollection(keys[name]);
-  if (listSource.collectionUnwatchedOnly && plexConfigured()) {
-    const label = policy.listLabel(listSource.id);
-    for (const [name, sectionId, plexType] of [['movie', plexService.MOVIES_SECTION, 1], ['tv', plexService.TV_SECTION, 2]]) {
-      if (keys[name]) await labels.syncLabel({ sectionId, plexType, label, wantedKeys: [] }).catch(() => {});
-    }
+  const errors = [];
+  if (PLEX_KEY_NAMES.some(name => keys[name]) && plexConfigured()) {
+    try {
+      for (const name of PLEX_KEY_NAMES) if (keys[name]) await deleteCollection(keys[name]);
+      if (listSource.collectionUnwatchedOnly) {
+        const label = policy.listLabel(listSource.id);
+        for (const [name, sectionId, plexType] of [['movie', plexService.MOVIES_SECTION, 1], ['tv', plexService.TV_SECTION, 2]]) {
+          if (keys[name]) await labels.syncLabel({ sectionId, plexType, label, wantedKeys: [] }).catch(() => {});
+        }
+      }
+    } catch (e) { errors.push(`plex: ${e.message}`); }
   }
-  if (keys.jfMovie || keys.jfTv) await jellyfinCollections().deleteListBoxSets(keys);
+  if ((keys.jfMovie || keys.jfTv) && jellyfinEnabled()) {
+    try { await jellyfinCollections().deleteListBoxSets(keys); }
+    catch (e) { errors.push(`jellyfin: ${e.message}`); }
+  }
+  if (errors.length) throw new Error(errors.join('; '));
 }
 
 module.exports = {

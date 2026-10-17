@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -12,6 +12,7 @@ const nodeRequire = createRequire(import.meta.url)
 const db = nodeRequire('../server/db/database.js')
 const client = nodeRequire('../server/services/jellyfin/client.js')
 const library = nodeRequire('../server/services/jellyfin/library.js')
+const fulfillment = nodeRequire('../server/services/requestFulfillment.js')
 
 // Enable Jellyfin in the scratch settings table (no network — jfFetch is mocked).
 db.setSetting('jellyfin_url', 'http://jellyfin.test:8096')
@@ -95,7 +96,7 @@ describe('parseItem', () => {
       tvdbId: null,
       countries: ['USA'],
       labels: ['favorite-director'],
-      collections: [],
+      collections: null, // no BoxSet map → membership unknown, the upsert keeps stored names
       releaseDate: '1995-12-15',
       duration: 170 * 60 * 1000,
       videoResolution: '1080',
@@ -167,7 +168,7 @@ describe('upsertItemsByIds', () => {
     db.setSyncEnabledSections([{ id: 'jf_folder-tv', enabled: false }])
   })
 
-  it('fetches only enabled folders, keeps Movie/Series in the id list, and stamps details', async () => {
+  it('fetches only enabled folders, keeps requested Movie/Series, and stamps details', async () => {
     const calls = mockFetch([
       foldersHandler,
       (pathname, params) => {
@@ -175,7 +176,7 @@ describe('upsertItemsByIds', () => {
         if (params.get('ParentId') === 'folder-movies') {
           return { Items: [
             jfItem({ Id: 'aaaa-1111' }),
-            jfItem({ Id: 'ep-1', Type: 'Episode', Name: 'Episode' }),      // wrong type
+            jfItem({ Id: 'ep-1', Type: 'Episode', Name: 'Episode' }),      // episode without a series
             jfItem({ Id: 'not-asked', Name: 'Not requested' }),           // not in Ids
           ] }
         }
@@ -192,7 +193,7 @@ describe('upsertItemsByIds', () => {
     const params = new URLSearchParams(itemCalls[0].split('?')[1])
     expect(params.get('ParentId')).toBe('folder-movies')
     expect(params.get('Ids')).toBe('aaaa-1111,ep-1,tv-1')
-    expect(params.get('IncludeItemTypes')).toBe('Movie,Series')
+    expect(params.get('IncludeItemTypes')).toBe('Movie,Series,Season,Episode')
     expect(params.get('Fields')).toContain('Tags')
 
     const row = db.getLibraryItemByKey('aaaa-1111')
@@ -298,5 +299,373 @@ describe('isFolderEnabled', () => {
     expect(library.isFolderEnabled('off')).toBe(false)
     expect(library.isFolderEnabled('on')).toBe(true)
     expect(library.isFolderEnabled('never-toggled')).toBe(true)
+  })
+})
+
+// ── Audit 2026-10-17 regressions ─────────────────────────────────────────────
+
+// Module state (folder cache, poll watermark) belongs to one server URL, so a
+// fresh URL gives each test a clean slate — and exercises that reset (JF-20).
+let urlGen = 0
+function freshConnection() {
+  db.setSetting('jellyfin_url', `http://jellyfin-${++urlGen}.test:8096`)
+}
+
+// /Items stub honouring StartIndex/Limit over a fixed list.
+function paged(list, params) {
+  const start = Number(params.get('StartIndex') || 0)
+  const limit = Number(params.get('Limit') || list.length)
+  return { Items: list.slice(start, start + limit), TotalRecordCount: list.length }
+}
+
+describe('episode and season events resolve to their series (JF-05)', () => {
+  let fulfilled
+  beforeEach(() => {
+    freshConnection()
+    db.prepare("DELETE FROM library_items WHERE source = 'jellyfin'").run()
+    db.setSyncEnabledSections([])
+    fulfilled = vi.spyOn(fulfillment, 'checkAndNotifyFulfilled').mockReturnValue(0)
+  })
+  afterEach(() => vi.restoreAllMocks())
+
+  it('an episode-only import refreshes the existing show, stamps the episode date and runs fulfillment', async () => {
+    db.upsertManyItems([{ ...library.parseItem(jfItem({ Id: 'show-1', Type: 'Series', RecursiveItemCount: 10, ProviderIds: { Tmdb: '1399' } })), sectionId: 'jf_folder-tv' }], { withDetails: true })
+    db.updateLastEpisodeAdded('show-1', 1000)
+    const epDate = '2026-10-01T12:00:00Z'
+    const calls = mockFetch([
+      foldersHandler,
+      (pathname, params) => {
+        if (pathname !== '/Items' || params.get('ParentId') !== 'folder-tv') return undefined
+        if (params.get('IncludeItemTypes') === 'Series') {
+          return { Items: [jfItem({ Id: 'show-1', Type: 'Series', RecursiveItemCount: 12, ProviderIds: { Tmdb: '1399' } })] }
+        }
+        return { Items: [
+          { Id: 'ep-11', Type: 'Episode', SeriesId: 'show-1', DateCreated: epDate },
+          { Id: 'ep-12', Type: 'Episode', SeriesId: 'show-1', DateCreated: '2026-09-30T12:00:00Z' },
+          { Id: 'season-2', Type: 'Season', SeriesId: 'show-1' },
+        ] }
+      },
+    ])
+    const fresh = await library.upsertItemsByIds(['ep-11', 'ep-12', 'season-2'])
+    expect(fresh.map(i => i.ratingKey)).toEqual(['show-1'])
+    const row = db.getLibraryItemByKey('show-1')
+    expect(row.leafCount).toBe(12)
+    expect(row.lastEpisodeAddedAt).toBe(Math.floor(Date.parse(epDate) / 1000))
+    expect(fulfilled).toHaveBeenCalledTimes(1)
+    // the first query asked for episodes and seasons too
+    const first = new URLSearchParams(calls.find(c => c.includes('ParentId=folder-tv')).split('?')[1])
+    expect(first.get('IncludeItemTypes')).toBe('Movie,Series,Season,Episode')
+  })
+
+  it('never moves the last-episode-added date backwards', async () => {
+    db.upsertManyItems([{ ...library.parseItem(jfItem({ Id: 'show-2', Type: 'Series' })), sectionId: 'jf_folder-tv' }], { withDetails: true })
+    db.updateLastEpisodeAdded('show-2', 2_000_000_000)
+    mockFetch([
+      foldersHandler,
+      (pathname, params) => {
+        if (pathname !== '/Items' || params.get('ParentId') !== 'folder-tv') return undefined
+        if (params.get('IncludeItemTypes') === 'Series') return { Items: [jfItem({ Id: 'show-2', Type: 'Series' })] }
+        return { Items: [{ Id: 'old-ep', Type: 'Episode', SeriesId: 'show-2', DateCreated: '2020-01-01T00:00:00Z' }] }
+      },
+    ])
+    await library.upsertItemsByIds(['old-ep'])
+    expect(db.getLibraryItemByKey('show-2').lastEpisodeAddedAt).toBe(2_000_000_000)
+  })
+
+  it('fetches a large id batch in chunks per folder', async () => {
+    const ids = Array.from({ length: 120 }, (_, i) => `m-${i}`)
+    const calls = mockFetch([
+      foldersHandler,
+      (pathname, params) => {
+        if (pathname !== '/Items' || params.get('ParentId') !== 'folder-movies') return undefined
+        return { Items: params.get('Ids').split(',').map(id => jfItem({ Id: id, ProviderIds: {} })) }
+      },
+    ])
+    const fresh = await library.upsertItemsByIds(ids)
+    expect(fresh).toHaveLength(120)
+    const movieCalls = calls.filter(c => c.includes('ParentId=folder-movies'))
+    expect(movieCalls).toHaveLength(3) // 50 + 50 + 20
+    expect(movieCalls.every(c => new URLSearchParams(c.split('?')[1]).get('Ids').split(',').length <= 50)).toBe(true)
+  })
+})
+
+describe('ItemsUpdated refresh (JF-05)', () => {
+  beforeEach(() => {
+    freshConnection()
+    db.prepare("DELETE FROM library_items WHERE source = 'jellyfin'").run()
+    db.setSyncEnabledSections([])
+  })
+  afterEach(() => vi.restoreAllMocks())
+
+  it('refreshes known rows only and reports the ones that just gained a TMDB id', async () => {
+    const fulfilled = vi.spyOn(fulfillment, 'checkAndNotifyFulfilled').mockReturnValue(0)
+    db.upsertManyItems([
+      { ...library.parseItem(jfItem({ Id: 'late', ProviderIds: {} })), sectionId: 'jf_folder-movies' },
+      { ...library.parseItem(jfItem({ Id: 'known', ProviderIds: { Tmdb: '5' } })), sectionId: 'jf_folder-movies' },
+    ], { withDetails: true })
+    const calls = mockFetch([
+      (pathname, params) => {
+        if (pathname !== '/Items') return undefined
+        return { Items: params.get('Ids').split(',').map(id => jfItem({ Id: id, Name: `${id} v2`, ProviderIds: { Tmdb: id === 'late' ? '777' : '5' } })) }
+      },
+    ])
+    const identified = await library.refreshKnownItems(['late', 'known', 'never-seen'])
+    expect(identified.map(i => i.ratingKey)).toEqual(['late'])
+    expect(db.getLibraryItemByKey('late').tmdbId).toBe('777')
+    expect(db.getLibraryItemByKey('known').title).toBe('known v2')
+    expect(db.getLibraryItemByKey('never-seen')).toBeNull()
+    const params = new URLSearchParams(calls[0].split('?')[1])
+    expect(params.get('ParentId')).toBe('folder-movies')
+    expect(params.get('Ids').split(',').sort()).toEqual(['known', 'late'])
+    expect(fulfilled).toHaveBeenCalledTimes(1)
+  })
+
+  it('is a no-op for ids that are not library rows', async () => {
+    const calls = mockFetch([])
+    expect(await library.refreshKnownItems(['ep-x', 'season-y'])).toEqual([])
+    expect(calls).toHaveLength(0)
+  })
+})
+
+describe('fallback poll (JF-15)', () => {
+  const T0 = Date.parse('2026-10-17T10:00:00Z')
+  beforeEach(() => {
+    freshConnection()
+    db.prepare("DELETE FROM library_items WHERE source = 'jellyfin'").run()
+    db.setSyncEnabledSections([])
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(T0)
+  })
+  afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks() })
+
+  it('a failed tick keeps the watermark, so the retry still finds what it missed', async () => {
+    const created = new Date(T0 + 100_000).toISOString()
+    let failTv = false
+    const calls = mockFetch([
+      foldersHandler,
+      (pathname, params) => {
+        if (pathname !== '/Items') return undefined
+        if (params.get('ParentId') === 'folder-tv') {
+          if (failTv) throw new Error('Jellyfin API error 500 for /Items')
+          return { Items: [jfItem({ Id: 'show-new', Type: 'Series', DateCreated: created })] }
+        }
+        return { Items: [] }
+      },
+    ])
+    expect(await library.pollNewItems()).toEqual([]) // watermark = T0
+    failTv = true
+    vi.setSystemTime(T0 + 1_000_000)
+    expect(await library.pollNewItems()).toEqual([])
+    failTv = false
+    vi.setSystemTime(T0 + 2_000_000)
+    const fresh = await library.pollNewItems()
+    expect(fresh.map(i => i.ratingKey)).toEqual(['show-new'])
+    // the failure dropped the folder cache, so the folder list was re-read
+    expect(calls.filter(c => c === '/Library/VirtualFolders')).toHaveLength(2)
+  })
+
+  it('pages past the first 100 new items in a burst and ignores rows already stored', async () => {
+    const burst = Array.from({ length: 150 }, (_, i) => jfItem({ Id: `b-${i}`, DateCreated: new Date(T0 + 60_000 - i * 1000).toISOString(), ProviderIds: {} }))
+    mockFetch([
+      foldersHandler,
+      (pathname, params) => (pathname === '/Items' && params.get('ParentId') === 'folder-movies' ? paged(burst, params) : undefined),
+    ])
+    await library.pollNewItems()
+    vi.setSystemTime(T0 + 120_000)
+    const fresh = await library.pollNewItems()
+    expect(fresh).toHaveLength(150)
+    // the overlap re-reads the same window; stored rows aren't fresh twice
+    vi.setSystemTime(T0 + 180_000)
+    expect(await library.pollNewItems()).toEqual([])
+  })
+
+  it('includes an item created on the watermark second (ties)', async () => {
+    mockFetch([
+      foldersHandler,
+      (pathname, params) => (pathname === '/Items' && params.get('ParentId') === 'folder-movies'
+        ? { Items: [jfItem({ Id: 'tie', DateCreated: new Date(T0).toISOString(), ProviderIds: {} })] }
+        : undefined),
+    ])
+    await library.pollNewItems()
+    vi.setSystemTime(T0 + 60_000)
+    expect((await library.pollNewItems()).map(i => i.ratingKey)).toEqual(['tie'])
+  })
+})
+
+describe('collection names survive incremental updates (JF-16)', () => {
+  beforeEach(() => {
+    freshConnection()
+    db.prepare("DELETE FROM library_items WHERE source = 'jellyfin'").run()
+    db.setSyncEnabledSections([])
+  })
+  afterEach(() => vi.restoreAllMocks())
+
+  const seed = () => db.upsertManyItems([{
+    ...library.parseItem(jfItem({ Id: 'boxed' }), { collectionsById: new Map([['boxed', ['Actual BoxSet']]]) }),
+    sectionId: 'jf_folder-movies',
+  }], { withDetails: true })
+
+  it('a by-id update keeps the stored BoxSet names', async () => {
+    seed()
+    mockFetch([foldersHandler, (pathname, params) => (pathname === '/Items' && params.get('ParentId') === 'folder-movies' ? { Items: [jfItem({ Id: 'boxed', Name: 'Heat (4K)' })] } : undefined)])
+    await library.upsertItemsByIds(['boxed'])
+    const row = db.getLibraryItemByKey('boxed')
+    expect(row.title).toBe('Heat (4K)')
+    expect(row.collections).toEqual(['Actual BoxSet'])
+  })
+
+  it('a full resync with a failed BoxSet lookup keeps them; a successful one propagates removal', async () => {
+    vi.spyOn(fulfillment, 'checkAndNotifyFulfilled').mockReturnValue(0)
+    seed()
+    let boxSetsFail = true
+    mockFetch([
+      foldersHandler,
+      (pathname, params) => {
+        if (pathname !== '/Items') return undefined
+        if (params.get('IncludeItemTypes') === 'BoxSet') {
+          if (boxSetsFail) throw new Error('Jellyfin API error 500 for /Items')
+          return { Items: [] }
+        }
+        if (params.get('ParentId') === 'folder-movies' && params.get('IncludeItemTypes') === 'Movie,Series') return { Items: [jfItem({ Id: 'boxed' })] }
+        return { Items: [] }
+      },
+    ])
+    await library.resyncAll()
+    expect(db.getLibraryItemByKey('boxed').collections).toEqual(['Actual BoxSet'])
+    boxSetsFail = false
+    await library.resyncAll()
+    expect(db.getLibraryItemByKey('boxed').collections).toEqual([])
+  })
+})
+
+describe('fetchBoxSetMap pagination (JF-06)', () => {
+  it('reads every page of BoxSet children', async () => {
+    const children = Array.from({ length: 1500 }, (_, i) => ({ Id: `c-${i}` }))
+    mockFetch([(pathname, params) => {
+      if (pathname !== '/Items') return undefined
+      if (params.get('IncludeItemTypes') === 'BoxSet') return { Items: [{ Id: 'big', Name: 'Big Box', ChildCount: 1500 }] }
+      if (params.get('ParentId') === 'big') return paged(children, params)
+      return undefined
+    }])
+    const map = await library.fetchBoxSetMap()
+    expect(map.size).toBe(1500)
+    expect(map.get('c-1499')).toEqual(['Big Box'])
+  })
+
+  it('throws when a later page fails, rather than returning a partial map', async () => {
+    const children = Array.from({ length: 1500 }, (_, i) => ({ Id: `c-${i}` }))
+    mockFetch([(pathname, params) => {
+      if (pathname !== '/Items') return undefined
+      if (params.get('IncludeItemTypes') === 'BoxSet') return { Items: [{ Id: 'big', Name: 'Big Box', ChildCount: 1500 }] }
+      if (params.get('ParentId') === 'big') {
+        if (Number(params.get('StartIndex')) > 0) throw new Error('Jellyfin API error 502 for /Items')
+        return paged(children, params)
+      }
+      return undefined
+    }])
+    await expect(library.fetchBoxSetMap()).rejects.toThrow('502')
+  })
+})
+
+describe('folder lifecycle (JF-20) and mixed libraries (JF-21)', () => {
+  let folders
+  beforeEach(() => {
+    freshConnection()
+    db.prepare("DELETE FROM library_items WHERE source = 'jellyfin'").run()
+    db.setSyncEnabledSections([])
+    vi.spyOn(fulfillment, 'checkAndNotifyFulfilled').mockReturnValue(0)
+    folders = [
+      { ItemId: 'folder-movies', Name: 'Movies', CollectionType: 'movies' },
+      { ItemId: 'folder-gone', Name: 'Old', CollectionType: 'movies' },
+    ]
+  })
+  afterEach(() => vi.restoreAllMocks())
+
+  const stub = () => mockFetch([
+    (pathname) => {
+      if (pathname !== '/Library/VirtualFolders') return undefined
+      if (folders instanceof Error) throw folders
+      return folders
+    },
+    (pathname, params) => {
+      if (pathname !== '/Items') return undefined
+      if (params.get('IncludeItemTypes') !== 'Movie,Series') return { Items: [] }
+      return { Items: [jfItem({ Id: `in-${params.get('ParentId')}`, ProviderIds: {} })] }
+    },
+  ])
+
+  it('retires the rows of a folder the server no longer has, but never on a failed or empty list', async () => {
+    const calls = stub()
+    await library.resyncAll()
+    expect(db.getLibraryItemByKey('in-folder-gone')?.sectionId).toBe('jf_folder-gone')
+
+    folders = new Error('Jellyfin API error 503 for /Library/VirtualFolders')
+    await expect(library.resyncAll()).rejects.toThrow('503')
+    expect(db.getLibraryItemByKey('in-folder-gone')).not.toBeNull()
+
+    folders = []
+    await library.resyncAll()
+    expect(db.getLibraryItemByKey('in-folder-gone')).not.toBeNull()
+
+    folders = [{ ItemId: 'folder-movies', Name: 'Movies', CollectionType: 'movies' }]
+    await library.resyncAll()
+    expect(db.getLibraryItemByKey('in-folder-gone')).toBeNull()
+    expect(db.getLibraryItemByKey('in-folder-movies')).not.toBeNull()
+    expect(calls.length).toBeGreaterThan(0)
+  })
+
+  it('a new server URL drops the cached folder list; a rotated API key keeps it', async () => {
+    const calls = stub()
+    await library.upsertItemsByIds(['x'])
+    await library.upsertItemsByIds(['x'])
+    expect(calls.filter(c => c === '/Library/VirtualFolders')).toHaveLength(1)
+    db.setSetting('jellyfin_api_key', 'rotated-key')
+    await library.upsertItemsByIds(['x'])
+    expect(calls.filter(c => c === '/Library/VirtualFolders')).toHaveLength(1)
+    freshConnection()
+    await library.upsertItemsByIds(['x'])
+    expect(calls.filter(c => c === '/Library/VirtualFolders')).toHaveLength(2)
+    db.setSetting('jellyfin_api_key', 'test-key')
+  })
+
+  it('lists mixed movie/show libraries and still skips music, photos, home videos and BoxSets', async () => {
+    folders = [
+      { ItemId: 'f-mixed-old', Name: 'Mixed', CollectionType: null },
+      { ItemId: 'f-mixed-new', Name: 'Mixed 10.9', CollectionType: 'mixed' },
+      { ItemId: 'f-music', Name: 'Music', CollectionType: 'music' },
+      { ItemId: 'f-photos', Name: 'Photos', CollectionType: 'homevideos' },
+      { ItemId: 'f-box', Name: 'Collections', CollectionType: 'boxsets' },
+    ]
+    stub()
+    expect(await library.getFolders()).toEqual([
+      { id: 'f-mixed-old', title: 'Mixed', type: 'mixed' },
+      { id: 'f-mixed-new', title: 'Mixed 10.9', type: 'mixed' },
+    ])
+  })
+
+  it('syncs a mixed folder, including its last-episode-added pass', async () => {
+    const calls = stub()
+    await library.syncFolder({ id: 'f-mixed', title: 'Mixed', type: 'mixed' })
+    expect(db.getLibraryItemByKey('in-f-mixed')?.sectionId).toBe('jf_f-mixed')
+    expect(calls.some(c => c.includes('IncludeItemTypes=Episode'))).toBe(true)
+  })
+})
+
+describe('resync hooks (JF-05 / JF-17)', () => {
+  beforeEach(() => {
+    freshConnection()
+    db.setSyncEnabledSections([])
+  })
+  afterEach(() => { vi.restoreAllMocks(); library.onResynced(null) })
+
+  it('every completed resync runs fulfillment and the registered hook; concurrent callers share one run', async () => {
+    const fulfilled = vi.spyOn(fulfillment, 'checkAndNotifyFulfilled').mockReturnValue(0)
+    const hook = vi.fn()
+    library.onResynced(hook)
+    const calls = mockFetch([foldersHandler])
+    await Promise.all([library.resyncAll(), library.resyncAll()])
+    expect(calls.filter(c => c === '/Library/VirtualFolders')).toHaveLength(1)
+    expect(fulfilled).toHaveBeenCalledWith('jellyfin resync')
+    expect(hook).toHaveBeenCalledTimes(1)
   })
 })

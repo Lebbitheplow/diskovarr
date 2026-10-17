@@ -47,7 +47,12 @@ beforeAll(async () => {
 })
 
 afterAll(() => new Promise(resolve => server.close(resolve)))
-afterEach(() => { globalThis.fetch = realFetch; vi.restoreAllMocks() })
+afterEach(async () => {
+  globalThis.fetch = realFetch
+  vi.restoreAllMocks()
+  // Jellyfin sign-ins and links share one per-IP attempt budget; each test gets its own
+  await authRouter.jellyfinCredentialLimiter.resetKey('127.0.0.1')
+})
 
 // Requests to the test server go through the real fetch; anything else
 // (plex.tv) is answered by `routes` [urlNeedle, body] or fails the test.
@@ -331,5 +336,126 @@ describe('Diskovarr API key principal', () => {
 
   it('rejects a wrong key', async () => {
     expect((await call('/api/queue', { headers: { 'X-Api-Key': 'nope' } })).status).toBe(401)
+  })
+})
+
+// Plex PIN sign-in as `user` (fresh browser); returns the session cookie
+async function plexLogin(pinId, user) {
+  const pre = await createPin(pinId, `pin${pinId}`)
+  mockPlexTv([
+    [`/api/v2/pins/${pinId}`, { id: pinId, authToken: `TOKEN_${user.id}` }],
+    ['/api/v2/user', { ...user, thumb: null, uuid: `uuid-${user.id}` }],
+    ['/api/v2/resources', [{ clientIdentifier: 'test-server-id', accessToken: 'SERVER_TOKEN' }]],
+  ])
+  const login = await call('/auth/check-pin', { cookie: pre.cookie })
+  globalThis.fetch = realFetch
+  expect(login.data.status).toBe('authorized')
+  return login.cookie
+}
+
+const linkJellyfin = (cookie, name) =>
+  call('/api/user/link/jellyfin', { method: 'POST', body: { username: name, password: 'pw' }, cookie })
+
+describe('link changes reach sessions in other browsers', () => {
+  it('unlinking drops the Plex identity and its admin role from a Jellyfin sign-in elsewhere', async () => {
+    const plex = await plexLogin(80, { id: 7001, username: 'adminplex' })
+    db.setUserAdmin('7001', true)
+    mockJellyfinAuth('jfrevoke', 'Revoke')
+    expect((await linkJellyfin(plex, 'Revoke')).status).toBe(200)
+    const jf = await jellyfinLogin('jfrevoke', 'Revoke')
+    expect((await call('/auth/check-auth', { cookie: jf })).data.user).toMatchObject({ id: '7001', isAdmin: true })
+    expect((await call('/api/queue/users', { cookie: jf })).status).toBe(200)
+
+    expect((await call('/api/user/link/jellyfin', { method: 'DELETE', cookie: plex })).status).toBe(200)
+
+    expect((await call('/api/queue/users', { cookie: jf })).status).toBe(403)
+    expect((await call('/auth/check-auth', { cookie: jf })).data.user)
+      .toMatchObject({ id: 'jf_jfrevoke', provider: 'jellyfin', isAdmin: false, isPlexLinked: false, hasJellyfin: true })
+    expect((await call('/test/session', { cookie: jf })).data.token).toBeNull() // no Plex token left behind
+    // The Plex sign-in itself is untouched
+    expect((await call('/auth/check-auth', { cookie: plex })).data.user).toMatchObject({ id: '7001', isAdmin: true, hasJellyfin: false })
+  })
+
+  it('a standalone Jellyfin sign-in follows a link made in another browser', async () => {
+    const jf = await jellyfinLogin('jfupgrade', 'Upgrade')
+    const plex = await plexLogin(81, { id: 7002, username: 'upgradeplex' })
+    mockJellyfinAuth('jfupgrade', 'Upgrade')
+    expect((await linkJellyfin(plex, 'Upgrade')).status).toBe(200)
+    expect((await call('/auth/check-auth', { cookie: jf })).data.user)
+      .toMatchObject({ id: '7002', provider: 'jellyfin', isPlexLinked: true, hasJellyfin: true })
+  })
+
+  it('a Plex sign-in loses its attached Jellyfin account once unlinked from the Jellyfin side', async () => {
+    const plex = await plexLogin(82, { id: 7003, username: 'dropplex' })
+    mockJellyfinAuth('jfdrop', 'Drop')
+    expect((await linkJellyfin(plex, 'Drop')).status).toBe(200)
+    expect((await call('/api/user/link', { cookie: plex })).data.jellyfin).toMatchObject({ linked: true })
+    const jf = await jellyfinLogin('jfdrop', 'Drop')
+    expect((await call('/api/user/link/plex', { method: 'DELETE', cookie: jf })).status).toBe(200)
+
+    expect((await call('/api/user/link', { cookie: plex })).data.jellyfin).toBeNull()
+    expect((await call('/auth/check-auth', { cookie: plex })).data.user).toMatchObject({ id: '7003', hasJellyfin: false })
+  })
+})
+
+describe('one Jellyfin account per Plex user', () => {
+  it('refuses a second Jellyfin account from Settings, and re-linking the same one is fine', async () => {
+    const plex = await plexLogin(83, { id: 7004, username: 'oneplex' })
+    mockJellyfinAuth('jfone', 'One')
+    expect((await linkJellyfin(plex, 'One')).status).toBe(200)
+    expect((await linkJellyfin(plex, 'One')).status).toBe(200)
+    mockJellyfinAuth('jftwo', 'Two')
+    const second = await linkJellyfin(plex, 'Two')
+    expect(second.status).toBe(409)
+    expect(second.data.error).toMatch(/already has a Jellyfin account/)
+    expect(db.resolveCanonicalUserId('jf_jftwo')).toBe('jf_jftwo')
+    expect(db.getLinkedJellyfinRow('7004').user_id).toBe('jf_jfone')
+  })
+
+  it('lets only one of two concurrent links win', async () => {
+    const plex = await plexLogin(84, { id: 7005, username: 'raceplex' })
+    vi.spyOn(jellyfinService, 'isEnabled').mockReturnValue(true)
+    vi.spyOn(jellyfinService, 'authenticateByName').mockImplementation(async (username) => {
+      await new Promise(resolve => setTimeout(resolve, 20))
+      return { userId: `race${username}`, name: username, accessToken: `T_${username}`, primaryImageTag: null }
+    })
+    const results = await Promise.all([linkJellyfin(plex, 'A'), linkJellyfin(plex, 'B')])
+    expect(results.map(r => r.status).sort()).toEqual([200, 409])
+    expect(db.prepare("SELECT COUNT(*) AS n FROM known_users WHERE linked_user_id = '7005'").get().n).toBe(1)
+  })
+
+  it('refuses the Plex sign-in link when that Plex account already has a Jellyfin account', async () => {
+    const plex = await plexLogin(85, { id: 7006, username: 'takenplex' })
+    mockJellyfinAuth('jftaken', 'Taken')
+    expect((await linkJellyfin(plex, 'Taken')).status).toBe(200)
+
+    const other = await jellyfinLogin('jfother', 'Other')
+    await createPin(86, 'lnk2', { cookie: other, link: true })
+    mockPlexTv([
+      ['/api/v2/pins/86', { id: 86, authToken: 'TOKEN_7006' }],
+      ['/api/v2/user', { id: 7006, username: 'takenplex', thumb: null, uuid: 'uuid-7006' }],
+      ['/api/v2/resources', [{ clientIdentifier: 'test-server-id', accessToken: 'SERVER_TOKEN' }]],
+    ])
+    const res = await call('/auth/check-pin', { cookie: other })
+    globalThis.fetch = realFetch
+    expect(res.data.status).toBe('link_conflict')
+    expect(db.resolveCanonicalUserId('jf_jfother')).toBe('jf_jfother')
+    expect(db.getLinkedJellyfinRow('7006').user_id).toBe('jf_jftaken')
+    expect((await call('/auth/check-auth', { cookie: other })).data.user.id).toBe('jf_jfother')
+    expect((await call('/auth/check-pin', { cookie: other })).data.status).toBe('expired') // PIN consumed
+  })
+})
+
+describe('Jellyfin credential attempts', () => {
+  it('account linking shares the login limiter, so guessing through it is throttled too', async () => {
+    const plex = await plexLogin(87, { id: 7007, username: 'guesser' })
+    vi.spyOn(jellyfinService, 'isEnabled').mockReturnValue(true)
+    vi.spyOn(jellyfinService, 'authenticateByName').mockResolvedValue(null)
+    const statuses = []
+    for (let i = 0; i < 21; i++) statuses.push((await linkJellyfin(plex, `victim${i}`)).status)
+    expect(statuses.slice(0, 20).every(s => s === 401)).toBe(true)
+    expect(statuses[20]).toBe(429)
+    // ...and the budget is shared with the sign-in form
+    expect((await call('/auth/jellyfin/login', { method: 'POST', body: { username: 'x', password: 'y' } })).status).toBe(429)
   })
 })

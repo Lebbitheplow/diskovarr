@@ -922,6 +922,7 @@
   "Your Rating": "Votre note",
   "Your TMDB session has expired or been revoked. Reconnect to continue syncing ratings.": "Votre session TMDB a expiré ou a été révoquée. Reconnectez-vous pour continuer à synchroniser les notes.",
   "Your account does not have access to this Plex server": "Votre compte n’a pas accès à ce serveur Plex",
+  "That Plex account is already linked to another Jellyfin account": "Ce compte Plex est déjà lié à un autre compte Jellyfin",
   "Your biggest binge.": "Ton plus gros binge.",
   "Your first Wrapped unlocks December 1. Come back then!": "Ton premier Wrapped se débloque le 1er décembre. Reviens à ce moment-là !",
   "Your genres": "Tes genres",
@@ -1222,5 +1223,13 @@
   "In a library you don't have access to": "Dans une bibliothèque à laquelle vous n’avez pas accès",
   "Ask the server owner for access": "Demandez l’accès au propriétaire du serveur",
   "No Access": "Pas d’accès",
-  "Not invited — this title is in a library they don't have access to: {{names}}": "Non invités — ce titre est dans une bibliothèque à laquelle ils n’ont pas accès : {{names}}"
+  "Not invited — this title is in a library they don't have access to: {{names}}": "Non invités — ce titre est dans une bibliothèque à laquelle ils n’ont pas accès : {{names}}",
+  "Mixed": "Mixte",
+  "{{server}} libraries could not be listed: {{error}}": "Impossible de lister les bibliothèques {{server}} : {{error}}",
+  "This step sets up Plex only. Diskovarr does not provision Jellyfin libraries: add the movies and TV folders above to your Jellyfin libraries by hand (Jellyfin → Dashboard → Libraries), using the paths Jellyfin sees.": "Cette étape configure uniquement Plex. Diskovarr ne crée pas de bibliothèques Jellyfin : ajoutez vous-même les dossiers films et séries ci-dessus à vos bibliothèques Jellyfin (Jellyfin → Tableau de bord → Médiathèques), avec les chemins vus par Jellyfin.",
+  "Create the playlist in": "Créer la playlist dans",
+  "Refresh Jellyfin history": "Actualiser l'historique Jellyfin",
+  "Jellyfin history refreshed for {{n}} user(s), with every play from Playback Reporting": "Historique Jellyfin actualisé pour {{n}} utilisateur(s), avec chaque lecture issue de Playback Reporting",
+  "Jellyfin history refreshed for {{n}} user(s). Only each title’s latest play is available; install the Playback Reporting plugin for full history.": "Historique Jellyfin actualisé pour {{n}} utilisateur(s). Seule la dernière lecture de chaque titre est disponible ; installez le plugin Playback Reporting pour l'historique complet.",
+  "History refresh failed — check the Jellyfin connection": "Échec de l'actualisation de l'historique — vérifiez la connexion Jellyfin"
 }

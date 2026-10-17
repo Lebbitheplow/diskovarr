@@ -383,6 +383,28 @@ describe('jellyfin', () => {
     expect(flagged(bob, 42)).toBe(true)
   })
 
+  // JF-14: pools used to be capped over both servers, then filtered by source
+  it('a dominant Plex library cannot crowd the Jellyfin side out of the capped pools', async () => {
+    const ins = db.prepare(`INSERT INTO library_items (rating_key, section_id, title, year, type, tmdb_id, audience_rating, source)
+      VALUES (?, '1', ?, 2015, 'movie', ?, 9.5, 'plex')`)
+    for (let i = 0; i < 220; i++) ins.run(`p${i}`, `Plex Hit ${i}`, String(90000 + i))
+    plex.invalidateCache?.()
+    try {
+      const data = await recommender.getRecommendations(OWNER, null, 'jellyfin', null)
+      expect(keysOf(data.movies)).toEqual(['aaaa1111'])
+      expect(keysOf(data.topPicks)).toContain('aaaa1111')
+      expect(keysOf(data.tvShows)).toEqual(['bbbb2222'])
+      // The Plex side still gets its full capped pool
+      const plexSide = await recommender.getRecommendations(OWNER, null, 'plex', null)
+      expect(plexSide.movies.every(i => (i.source || 'plex') === 'plex')).toBe(true)
+      expect(plexSide.movies.length).toBeGreaterThan(0)
+    } finally {
+      db.prepare("DELETE FROM library_items WHERE rating_key LIKE 'p%' AND source = 'plex'").run()
+      plex.invalidateCache?.()
+      recommender.invalidateAllCaches()
+    }
+  })
+
   it('/popular on the Jellyfin side only lists titles the user may see', async () => {
     const popular = async (user) => {
       const { status, data } = await call('/api/popular', { user, source: 'jellyfin' })

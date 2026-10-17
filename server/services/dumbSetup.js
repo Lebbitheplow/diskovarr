@@ -121,6 +121,9 @@ async function detect() {
       tautulliRequired: tautulliRequired(),
     },
     plex: { configured: plexConfigured, libraries: libraries || [] },
+    // The wizard provisions Plex libraries only; the Plex step says so when
+    // Jellyfin is in use, since its folders must then be added by hand.
+    jellyfin: { enabled: require('./jellyfin/client').isEnabled() },
     providers: Object.entries(PROVIDERS).map(([key, p]) => ({ key, label: p.label })),
     job: job || savedState(),
   };

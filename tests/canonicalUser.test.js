@@ -83,3 +83,86 @@ describe('linking merges per-user data', () => {
     expect(db.getWatchlistFromDb('400')).toEqual(['x'])
   })
 })
+
+describe('linking moves Movie Night and Watch Together ownership', () => {
+  it('re-keys groups, membership, personas, entries, votes, comments and parties', () => {
+    db.seedKnownUser('111', 'plex', null, null)
+    db.seedJellyfinUser('jf_owner', 'jelly', null)
+    db.seedKnownUser('112', 'friend', null, null)
+
+    const group = db.createMovieNightGroup({ name: 'Fridays', mode: 'rolling', createdBy: 'jf_owner' })
+    db.addMovieNightMember(group.id, '112')
+    const persona = db.addMovieNightPersona(group.id, 'Kids', null, 'jf_owner')
+    const { entry } = db.addMovieNightEntry({ groupId: group.id, mediaType: 'movie', tmdbId: 1, title: 'A', addedBy: 'jf_owner' })
+    db.voteMovieNightEntry(entry.id, 'jf_owner', null, 1)
+    db.addMovieNightComment(entry.id, 'jf_owner', 'pick this')
+    const party = db.createWatchParty({ hostId: 'jf_owner', source: 'jellyfin', ratingKey: 'ep', title: 'T', durationMs: 1 })
+    db.addWatchPartyMember(party.id, '112')
+
+    db.linkJellyfinAccount('jf_owner', '111')
+
+    expect(db.getMovieNightGroupsForUser('111').map(g => g.id)).toEqual([group.id])
+    expect(db.getMovieNightGroupsForUser('jf_owner')).toEqual([])
+    expect(db.isMovieNightHost(group.id, '111')).toBe(true)
+    expect(db.prepare('SELECT created_by FROM movie_night_groups WHERE id = ?').get(group.id).created_by).toBe('111')
+    expect(db.prepare('SELECT created_by FROM movie_night_personas WHERE id = ?').get(persona.id).created_by).toBe('111')
+    expect(db.prepare('SELECT added_by FROM movie_night_entries WHERE id = ?').get(entry.id).added_by).toBe('111')
+    expect(db.prepare('SELECT user_id FROM movie_night_votes WHERE entry_id = ?').all(entry.id).map(r => r.user_id)).toEqual(['111'])
+    expect(db.prepare('SELECT user_id FROM movie_night_comments WHERE entry_id = ?').all(entry.id).map(r => r.user_id)).toEqual(['111'])
+    expect(db.getWatchParty(party.id).host_id).toBe('111')
+    expect(db.getOpenWatchPartiesForUser('111').map(p => p.id)).toEqual([party.id])
+    expect(db.getWatchPartyMembers(party.id).map(m => `${m.user_id}:${m.role}`).sort()).toEqual(['111:host', '112:guest'])
+  })
+
+  it('keeps the existing membership and vote on collisions, but carries the host role over', () => {
+    db.seedKnownUser('121', 'plex', null, null)
+    db.seedJellyfinUser('jf_both', 'jelly', null)
+
+    // jf_both hosts; the Plex account is already an ordinary member
+    const group = db.createMovieNightGroup({ name: 'Collide', mode: 'rolling', createdBy: 'jf_both' })
+    db.addMovieNightMember(group.id, '121')
+    const { entry } = db.addMovieNightEntry({ groupId: group.id, mediaType: 'movie', tmdbId: 2, title: 'B', addedBy: '121' })
+    db.voteMovieNightEntry(entry.id, '121', null, 1)
+    db.voteMovieNightEntry(entry.id, 'jf_both', null, -1)
+    const party = db.createWatchParty({ hostId: 'jf_both', source: 'jellyfin', ratingKey: 'ep', title: 'T', durationMs: 1 })
+    db.addWatchPartyMember(party.id, '121')
+
+    db.linkJellyfinAccount('jf_both', '121')
+
+    expect(db.prepare('SELECT user_id, role FROM movie_night_members WHERE group_id = ?').all(group.id).map(r => `${r.user_id}:${r.role}`)).toEqual(['121:host'])
+    expect(db.prepare('SELECT user_id, vote FROM movie_night_votes WHERE entry_id = ?').all(entry.id).map(r => `${r.user_id}:${r.vote}`)).toEqual(['121:1'])
+    expect(db.getWatchPartyMembers(party.id).map(m => `${m.user_id}:${m.role}`)).toEqual(['121:host'])
+    expect(db.getWatchParty(party.id).host_id).toBe('121')
+  })
+})
+
+describe('one Jellyfin account per Plex user', () => {
+  it('refuses a second Jellyfin account and keeps re-linking the same pair idempotent', () => {
+    db.seedKnownUser('500', 'plex', null, null)
+    db.seedJellyfinUser('jf_first', 'one', null)
+    db.seedJellyfinUser('jf_second', 'two', null)
+    db.linkJellyfinAccount('jf_first', '500')
+    expect(() => db.linkJellyfinAccount('jf_second', '500')).toThrow(/already linked/)
+    expect(db.resolveCanonicalUserId('jf_second')).toBe('jf_second')
+    expect(() => db.linkJellyfinAccount('jf_first', '500')).not.toThrow()
+    expect(db.getLinkedJellyfinRow('500').user_id).toBe('jf_first')
+    // Storage enforces it too, not only the helper
+    expect(() => db.prepare("UPDATE known_users SET linked_user_id = '500' WHERE user_id = 'jf_second'").run()).toThrow()
+  })
+
+  it('repairs existing duplicate links by keeping the most recently seen account', () => {
+    db.seedKnownUser('600', 'plex', null, null)
+    for (const [id, seen] of [['jf_old', 10], ['jf_new', 99], ['jf_mid', 50]]) {
+      db.seedJellyfinUser(id, id, null)
+      db.prepare('UPDATE known_users SET seen_at = ? WHERE user_id = ?').run(seen, id)
+    }
+    db.prepare('DROP INDEX IF EXISTS uniq_known_users_linked_user').run()
+    db.prepare("UPDATE known_users SET linked_user_id = '600' WHERE user_id IN ('jf_old', 'jf_new', 'jf_mid')").run()
+
+    expect(db.enforceOneJellyfinLinkPerUser()).toBe(2)
+    expect(db.getLinkedJellyfinRow('600').user_id).toBe('jf_new')
+    expect(db.resolveCanonicalUserId('jf_old')).toBe('jf_old')
+    expect(db.resolveCanonicalUserId('jf_mid')).toBe('jf_mid')
+    expect(() => db.prepare("UPDATE known_users SET linked_user_id = '600' WHERE user_id = 'jf_old'").run()).toThrow()
+  })
+})

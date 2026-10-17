@@ -253,9 +253,10 @@ export const historyApi = {
 export const wrappedApi = {
   getYears: () => api.get('/wrapped/years'),
   getWrapped: (year) => api.get(`/wrapped/${year}`),
-  createPlaylist: (year) => api.post(`/wrapped/${year}/playlist`),
+  createPlaylist: (year, target) => api.post(`/wrapped/${year}/playlist`, target ? { target } : {}),
   recompute: (year) => api.post(`/wrapped/${year}/recompute`),
   backfill: () => api.post('/wrapped/backfill'),
+  refreshJellyfinHistory: () => api.post('/wrapped/backfill/jellyfin'),
 }
 
 /** Reviews */

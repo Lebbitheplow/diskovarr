@@ -17,6 +17,7 @@ const plexDriver = nodeRequire('../server/services/watchParty/plexDriver.js')
 const jellyfinDriver = nodeRequire('../server/services/watchParty/jellyfinDriver.js')
 const jfClient = nodeRequire('../server/services/jellyfin/client.js')
 const libraryAccess = nodeRequire('../server/services/libraryAccess/index.js')
+const accountLinks = nodeRequire('../server/services/accountLinks.js')
 
 beforeAll(() => {
   db.prepare("INSERT INTO known_users (user_id, username) VALUES ('u1','alice'),('u2','bob'),('u3','carol')").run()
@@ -159,6 +160,39 @@ describe('Jellyfin driver', () => {
     expect((await jellyfinDriver.pollTimeline(player, 1020000)).state).toBe('stopped')
     sessionList = []
     expect(await jellyfinDriver.pollTimeline(player, 1021000)).toBeNull()
+  })
+
+  it('stops using cached credentials once the Jellyfin account is unlinked', async () => {
+    db.seedKnownUser('p-link', 'plexy', null, null)
+    db.upsertJellyfinUser('jf_guid-l', 'linky', null, 'l-token')
+    db.linkJellyfinAccount('jf_guid-l', 'p-link')
+    watchParty.rememberCreds({ id: 'p-link', jellyfin: { userId: 'guid-l', token: 'l-token' } })
+    sessionList = [tv()]
+    await expect(jellyfinDriver.registerDevice('p-link', 'sess-1')).resolves.toMatchObject({ clientName: 'Den TV (Jellyfin Android TV)' })
+    db.unlinkJellyfinAccount('jf_guid-l') // even a bare database unlink, without the hook
+    await expect(jellyfinDriver.registerDevice('p-link', 'sess-1')).rejects.toThrow(/linked Jellyfin account/)
+  })
+
+  it('a playing party follows its host when their Jellyfin account is linked to Plex', async () => {
+    db.seedKnownUser('p-host', 'plexhost', null, null)
+    db.upsertJellyfinUser('jf_guid-h', 'jfhost', null, 'h-token')
+    libraryAccess.saveSnapshot('jf_guid-h', 'jellyfin', { role: 'jellyfin', allSections: true })
+    libraryAccess.invalidate()
+    const created = db.createWatchParty({ hostId: 'jf_guid-h', source: 'jellyfin', ratingKey: 'ep-9', title: 'Severance', durationMs: 3000000, libraryKey: 'series-1', sectionId: 'jf_tv' })
+    db.setWatchPartyMemberDevice(created.id, 'jf_guid-h', { clientId: 'sess-h', clientName: 'Den TV' })
+    sessionList = [tv({ Id: 'sess-h', NowPlayingItem: { Id: 'ep-9', RunTimeTicks: 3000000 * TICKS }, PlayState: { PositionTicks: 0, IsPaused: false } })]
+    await watchParty.startParty(db.getWatchParty(created.id))
+    try {
+      accountLinks.link('jf_guid-h', 'p-host')
+      const party = db.getWatchParty(created.id)
+      expect(party.host_id).toBe('p-host')
+      const view = watchParty.snapshot(party, 'p-host')
+      expect(view.isHost).toBe(true)
+      expect(view.members.map(m => m.userId)).toEqual(['p-host'])
+      expect(view.members[0].playback).not.toBeNull() // still the live member, not a stranger
+    } finally {
+      watchParty.endParty(created.id)
+    }
   })
 
   it('sends load, pause, resume and seek as Jellyfin session commands with the member\'s token', async () => {

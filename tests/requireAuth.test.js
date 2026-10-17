@@ -162,3 +162,29 @@ describe('requireAuth', () => {
     expect(Object.keys(req.session)).not.toContain('plexUser')
   })
 })
+
+describe('session identity follows the current account link', () => {
+  const jfSession = (id, extra = {}) => ({
+    id, username: 'Viewer', provider: 'jellyfin', token: 'PLEX_TOKEN', serverToken: 'SRV', jellyfin: { userId: 'guidx', token: 'JF' }, ...extra,
+  })
+
+  it('leaves a session whose link is unchanged untouched (no session write per request)', () => {
+    db.seedKnownUser('900', 'plexer', null, 'PLEX_TOKEN')
+    db.seedJellyfinUser('jf_guidx', 'Viewer', null)
+    db.linkJellyfinAccount('jf_guidx', '900')
+    const plexUser = jfSession('900')
+    const req = makeReq({ session: { plexUser } })
+    requireAuth(req, makeRes(), vi.fn())
+    expect(req.session.plexUser).toBe(plexUser)
+  })
+
+  it('falls back to the standalone Jellyfin identity, without Plex tokens, once unlinked', () => {
+    db.unlinkJellyfinAccount('jf_guidx')
+    const req = makeReq({ session: { plexUser: jfSession('900'), isPlexAdminUser: true } })
+    const next = vi.fn()
+    requireAuth(req, makeRes(), next)
+    expect(next).toHaveBeenCalled()
+    expect(req.session.plexUser).toMatchObject({ id: 'jf_guidx', provider: 'jellyfin', token: null, serverToken: null, jellyfin: { userId: 'guidx' } })
+    expect(req.session.isPlexAdminUser).toBe(false)
+  })
+})

@@ -3286,8 +3286,13 @@ router.get('/user/link', (req, res) => {
 
 // POST /api/user/link/jellyfin — a signed-in Plex user connects their Jellyfin
 // account with its credentials. Any data the Jellyfin identity accumulated
-// merges into the Plex (canonical) account.
-router.post('/user/link/jellyfin', async (req, res) => {
+// merges into the Plex (canonical) account. One Jellyfin account per Plex
+// user. Credential checks share the Jellyfin login's attempt limiter.
+const { jellyfinCredentialLimiter } = require('./auth');
+const accountLinks = require('../services/accountLinks');
+const LINKED_ELSEWHERE = 'That Jellyfin account is already linked to another user';
+const ALREADY_LINKED = 'Your account already has a Jellyfin account linked. Unlink it first.';
+router.post('/user/link/jellyfin', jellyfinCredentialLimiter, async (req, res) => {
   if (!jellyfinService.isEnabled()) return res.status(400).json({ error: 'Jellyfin is not enabled' });
   const user = req.session.plexUser;
   const userId = String(user.id);
@@ -3302,14 +3307,18 @@ router.post('/user/link/jellyfin', async (req, res) => {
     const jfDiskovarrId = `jf_${auth.userId}`;
     const existing = db.getKnownUserById(jfDiskovarrId);
     if (existing?.linked_user_id && String(existing.linked_user_id) !== userId) {
-      return res.status(409).json({ error: 'That Jellyfin account is already linked to another user' });
+      return res.status(409).json({ error: LINKED_ELSEWHERE });
     }
+    const current = db.getLinkedJellyfinRow(userId);
+    if (current && current.user_id !== jfDiskovarrId) return res.status(409).json({ error: ALREADY_LINKED });
     db.upsertJellyfinUser(jfDiskovarrId, auth.name, jellyfinService.getAvatarPath(auth.userId, auth.primaryImageTag), auth.accessToken);
-    db.linkJellyfinAccount(jfDiskovarrId, userId);
+    accountLinks.link(jfDiskovarrId, userId);
     req.session.plexUser = { ...user, jellyfin: { userId: auth.userId, token: auth.accessToken } };
     logger.info(`User ${userId} linked Jellyfin account ${jfDiskovarrId}`);
     res.json({ success: true, jellyfinUsername: auth.name });
   } catch (err) {
+    // A concurrent request linked another account first
+    if (err.code === 'LINK_CONFLICT') return res.status(409).json({ error: ALREADY_LINKED });
     logger.error('Jellyfin link error:', err.message);
     res.status(502).json({ error: 'Could not reach Jellyfin' });
   }
@@ -3323,7 +3332,7 @@ router.delete('/user/link/jellyfin', (req, res) => {
   if (userId.startsWith('jf_')) return res.status(400).json({ error: 'Sign in with Plex to manage links' });
   const jfRow = db.getLinkedJellyfinRow(userId);
   if (!jfRow) return res.status(404).json({ error: 'No linked Jellyfin account' });
-  db.unlinkJellyfinAccount(jfRow.user_id);
+  accountLinks.unlink(jfRow.user_id);
   req.session.plexUser = { ...user, jellyfin: null };
   res.json({ success: true });
 });
@@ -3346,7 +3355,7 @@ router.delete('/user/link/plex', (req, res) => {
   if (!jfRow?.linked_user_id || String(jfRow.linked_user_id) !== userId) {
     return res.status(404).json({ error: 'No linked Plex account' });
   }
-  db.unlinkJellyfinAccount(jfDiskovarrId);
+  accountLinks.unlink(jfDiskovarrId);
   req.session.plexUser = {
     ...user,
     id: jfDiskovarrId,

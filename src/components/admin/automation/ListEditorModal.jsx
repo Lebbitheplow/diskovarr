@@ -42,11 +42,21 @@ const modalStyle = {
 const rowStyle = { display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 12 }
 const dividerStyle = { borderTop: '1px solid var(--border)', paddingTop: 14, marginBottom: 14 }
 
-// `plexConfigured` comes from /admin/status `sources.plex.configured`; the
-// collection mirror is Plex-only until Jellyfin BoxSets land, so the toggle is
-// disabled (with a hint) when there is no Plex server. Absent → assume enabled.
-export default function ListEditorModal({ list, presets, onClose, onSaved, onToast, plexConfigured = true }) {
+// `mirrorTargets` ({ plex, jellyfin }) comes from /admin/status `sources`: the
+// collection mirror writes a Plex collection and/or a Jellyfin BoxSet, so the
+// toggle is only disabled when neither server is set up. Options a BoxSet
+// can't express (promotion, home row, the per-viewer unwatched filter, the
+// descending orders) are labelled Plex-only.
+const JELLYFIN_SORTS = new Set(['list', 'release_asc', 'title'])
+
+export default function ListEditorModal({ list, presets, onClose, onSaved, onToast, mirrorTargets = { plex: true, jellyfin: false } }) {
   const { t } = useTranslation()
+  const canMirror = mirrorTargets.plex || mirrorTargets.jellyfin
+  const mirrorTarget = mirrorTargets.plex && mirrorTargets.jellyfin
+    ? t('Mirrored as a Plex collection and a Jellyfin BoxSet.')
+    : mirrorTargets.jellyfin ? t('Mirrored as a Jellyfin BoxSet.') : t('Mirrored as a Plex collection.')
+  // Hint for a Plex-only option: says so when Jellyfin is mirrored too.
+  const plexOnlyHint = mirrorTargets.jellyfin ? t('Plex only — no Jellyfin equivalent.') : null
   const editing = !!list
   const [sourceMode, setSourceMode] = useState(
     list?.criteria?.length ? 'criteria' : list?.presetKey ? 'preset' : 'url'
@@ -315,13 +325,13 @@ export default function ListEditorModal({ list, presets, onClose, onSaved, onToa
         <div style={dividerStyle}>
           <div className="conn-toggle-row" style={{ marginBottom: 8 }}>
             <span className="conn-toggle-label">
-              {t('Create a Plex collection from this list')}
-              {!plexConfigured && (
-                <span className="conn-hint" style={{ display: 'block' }}>{t('Requires a configured Plex server — collections are not mirrored to Jellyfin yet.')}</span>
-              )}
+              {t('Create a collection from this list')}
+              <span className="conn-hint" style={{ display: 'block' }}>
+                {canMirror ? mirrorTarget : t('Requires a configured Plex or Jellyfin server.')}
+              </span>
             </span>
-            <label className="slide-toggle" title={!plexConfigured ? t('Plex is not configured') : ''}>
-              <input type="checkbox" checked={form.collectionEnabled && plexConfigured} disabled={!plexConfigured} onChange={(e) => set('collectionEnabled', e.target.checked)} />
+            <label className="slide-toggle" title={!canMirror ? t('No media server is configured') : ''}>
+              <input type="checkbox" checked={form.collectionEnabled && canMirror} disabled={!canMirror} onChange={(e) => set('collectionEnabled', e.target.checked)} />
               <span className="slide-track" />
             </label>
           </div>
@@ -332,15 +342,18 @@ export default function ListEditorModal({ list, presets, onClose, onSaved, onToa
                   <label className="conn-field-label">{t('Collection name')}</label>
                   <input type="text" className="conn-input" placeholder={form.name || t('Defaults to list name')} value={form.collectionName} onChange={(e) => set('collectionName', e.target.value)} />
                 </div>
-                <div className="conn-field-group">
-                  <label className="conn-field-label">{t('Show on')}</label>
-                  <select className="conn-select" value={form.collectionVisibility} onChange={(e) => set('collectionVisibility', e.target.value)}>
-                    <option value="home">{t('Everyone’s home + Recommended')}</option>
-                    <option value="owner_home">{t('Owner’s home + Recommended')}</option>
-                    <option value="recommended">{t('Library Recommended tab')}</option>
-                    <option value="library">{t('Library only (no promotion)')}</option>
-                  </select>
-                </div>
+                {mirrorTargets.plex && (
+                  <div className="conn-field-group">
+                    <label className="conn-field-label">{t('Show on')}</label>
+                    <select className="conn-select" value={form.collectionVisibility} onChange={(e) => set('collectionVisibility', e.target.value)}>
+                      <option value="home">{t('Everyone’s home + Recommended')}</option>
+                      <option value="owner_home">{t('Owner’s home + Recommended')}</option>
+                      <option value="recommended">{t('Library Recommended tab')}</option>
+                      <option value="library">{t('Library only (no promotion)')}</option>
+                    </select>
+                    {plexOnlyHint && <span className="conn-hint">{plexOnlyHint}</span>}
+                  </div>
+                )}
               </div>
               <div style={rowStyle}>
                 <div className="conn-field-group">
@@ -348,31 +361,43 @@ export default function ListEditorModal({ list, presets, onClose, onSaved, onToa
                   <select className="conn-select" value={form.collectionSort} onChange={(e) => set('collectionSort', e.target.value)}>
                     {COLLECTION_SORTS.map(s => <option key={s.value} value={s.value}>{t(s.label)}</option>)}
                   </select>
+                  {mirrorTargets.jellyfin && !JELLYFIN_SORTS.has(form.collectionSort) && (
+                    <span className="conn-hint">{mirrorTargets.plex
+                      ? t('Plex only — Jellyfin keeps its own order (it supports list order, oldest release first and title).')
+                      : t('Jellyfin can’t sort this way; it keeps its own order. Use list order, oldest release first or title.')}</span>
+                  )}
                 </div>
-                <div className="conn-field-group">
-                  <label className="conn-field-label">{t('Home position')}</label>
-                  <input type="number" min="0" className="conn-input" style={{ maxWidth: 90 }} value={form.homeOrder} onChange={(e) => set('homeOrder', e.target.value)} />
-                  <span className="conn-hint">{t('Row on the Plex home; 0 = leave')}</span>
-                </div>
+                {mirrorTargets.plex && (
+                  <div className="conn-field-group">
+                    <label className="conn-field-label">{t('Home position')}</label>
+                    <input type="number" min="0" className="conn-input" style={{ maxWidth: 90 }} value={form.homeOrder} onChange={(e) => set('homeOrder', e.target.value)} />
+                    <span className="conn-hint">{t('Row on the Plex home; 0 = leave')}</span>
+                  </div>
+                )}
                 <div className="conn-field-group">
                   <label className="conn-field-label">{t('Library position')}</label>
                   <input type="number" min="0" className="conn-input" style={{ maxWidth: 90 }} value={form.libraryOrder} onChange={(e) => set('libraryOrder', e.target.value)} />
                   <span className="conn-hint">{t('Order in the Collections tab; 0 = alphabetical')}</span>
                 </div>
               </div>
-              <div className="conn-toggle-row" style={{ marginBottom: 8 }}>
-                <span className="conn-toggle-label">
-                  {t('Only show titles the viewer hasn’t watched')}
-                  <span className="conn-hint" style={{ display: 'block' }}>{t('Makes it a smart collection: each user sees only what they haven’t finished. Item order then follows the sort above (list order becomes newest release first).')}</span>
-                </span>
-                <label className="slide-toggle">
-                  <input type="checkbox" checked={form.collectionUnwatchedOnly} onChange={(e) => set('collectionUnwatchedOnly', e.target.checked)} />
-                  <span className="slide-track" />
-                </label>
-              </div>
+              {mirrorTargets.plex && (
+                <div className="conn-toggle-row" style={{ marginBottom: 8 }}>
+                  <span className="conn-toggle-label">
+                    {t('Only show titles the viewer hasn’t watched')}
+                    <span className="conn-hint" style={{ display: 'block' }}>{t('Makes it a smart collection: each user sees only what they haven’t finished. Item order then follows the sort above (list order becomes newest release first).')}</span>
+                    {mirrorTargets.jellyfin && (
+                      <span className="conn-hint" style={{ display: 'block' }}>{t('Plex only — the shared Jellyfin BoxSet always holds every title.')}</span>
+                    )}
+                  </span>
+                  <label className="slide-toggle">
+                    <input type="checkbox" checked={form.collectionUnwatchedOnly} onChange={(e) => set('collectionUnwatchedOnly', e.target.checked)} />
+                    <span className="slide-track" />
+                  </label>
+                </div>
+              )}
               <div className="conn-field-group" style={{ marginBottom: 8 }}>
                 <label className="conn-field-label">{t('Collection summary (optional)')}</label>
-                <input type="text" className="conn-input" value={form.collectionSummary} onChange={(e) => set('collectionSummary', e.target.value)} placeholder={t('Shown on the collection in Plex')} />
+                <input type="text" className="conn-input" value={form.collectionSummary} onChange={(e) => set('collectionSummary', e.target.value)} placeholder={t('Shown on the collection')} />
               </div>
             </>
           )}

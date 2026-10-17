@@ -203,9 +203,10 @@ export default function AutoRequest({ onToast }) {
   const { t } = useTranslation()
   const [lists, setLists] = useState([])
   const [presets, setPresets] = useState([])
-  // Collection mirror is Plex-only; `sources.plex.configured` gates the toggle.
-  // Older backends don't send `sources` — fall back to enabled.
-  const [plexConfigured, setPlexConfigured] = useState(true)
+  // Servers a list collection can be mirrored to (Plex collection, Jellyfin
+  // BoxSet), from /admin/status `sources`. Older backends don't send it —
+  // fall back to Plex only.
+  const [mirrorTargets, setMirrorTargets] = useState({ plex: true, jellyfin: false })
   const [editorOpen, setEditorOpen] = useState(false)
   const [editingList, setEditingList] = useState(null)
   const pollRef = useRef(null)
@@ -231,9 +232,8 @@ export default function AutoRequest({ onToast }) {
     let cancelled = false
     adminStatus.get()
       .then(({ data }) => {
-        if (cancelled) return
-        const configured = data?.sources?.plex?.configured
-        if (typeof configured === 'boolean') setPlexConfigured(configured)
+        if (cancelled || !data?.sources) return
+        setMirrorTargets({ plex: !!data.sources.plex?.configured, jellyfin: !!data.sources.jellyfin?.enabled })
       })
       .catch(() => {})
     return () => { cancelled = true }
@@ -272,7 +272,7 @@ export default function AutoRequest({ onToast }) {
     if (!window.confirm(t('Delete list "{{name}}"? Already-requested items are not affected.', { name: list.name }))) return
     let deleteCollection = false
     if (list.collectionEnabled && list.collectionRatingKey) {
-      deleteCollection = window.confirm(t('Also delete its Plex collection?'))
+      deleteCollection = window.confirm(t('Also delete its collection from your media server?'))
     }
     try {
       await adminAutomation.deleteList(list.id, deleteCollection)
@@ -306,7 +306,7 @@ export default function AutoRequest({ onToast }) {
           <div>
             <h2 className="section-title">{t('Monitored Lists')}</h2>
             <p className="section-desc">
-              {t('Lists are checked on their own schedule; new items are requested automatically (or queued for approval) and can be mirrored into a Plex collection. Collections also pick up newly added library titles every 30 minutes without re-fetching the list.')}
+              {t('Lists are checked on their own schedule; new items are requested automatically (or queued for approval) and can be mirrored into a Plex collection or Jellyfin BoxSet. Collections also pick up newly added library titles every 30 minutes without re-fetching the list.')}
             </p>
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
@@ -330,9 +330,11 @@ export default function AutoRequest({ onToast }) {
                   </span>
                   {list.collectionEnabled && (
                     <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--accent, #e5a00d)' }}>
-                      ◆ {t('Collection')}: {t(VISIBILITY_LABELS[list.collectionVisibility] || list.collectionVisibility)}
-                      {list.collectionUnwatchedOnly ? ` · ${t('unwatched only')}` : ''}
-                      {list.homeOrder > 0 ? ` · ${t('home #{{n}}', { n: list.homeOrder })}` : ''}
+                      ◆ {t('Collection')}
+                      {/* Promotion, unwatched-only and home row are Plex settings */}
+                      {mirrorTargets.plex && `: ${t(VISIBILITY_LABELS[list.collectionVisibility] || list.collectionVisibility)}`}
+                      {mirrorTargets.plex && list.collectionUnwatchedOnly ? ` · ${t('unwatched only')}` : ''}
+                      {mirrorTargets.plex && list.homeOrder > 0 ? ` · ${t('home #{{n}}', { n: list.homeOrder })}` : ''}
                     </span>
                   )}
                 </span>
@@ -372,7 +374,7 @@ export default function AutoRequest({ onToast }) {
 
       {editorOpen && (
         <ListEditorModal
-          plexConfigured={plexConfigured}
+          mirrorTargets={mirrorTargets}
           list={editingList}
           presets={presets}
           onClose={() => setEditorOpen(false)}

@@ -13,7 +13,19 @@ const VISIBILITY_LABELS = {
 }
 const MEDIA_LABELS = { movie: 'Movies', tv: 'TV' }
 
-function CollectionList({ pack, rows, preview }) {
+// With both servers configured each one is planned on its own, so a row can
+// exist on only one of them (preview rows list `providers`; saved rows carry
+// the Plex key and/or Jellyfin BoxSet id).
+function serverTag(c, servers) {
+  if (!servers.plex || !servers.jellyfin) return null
+  const onPlex = c.providers ? c.providers.includes('plex') : !!c.plexKey
+  const onJellyfin = c.providers ? c.providers.includes('jellyfin') : !!c.jfId
+  if (onPlex && !onJellyfin) return 'Plex only'
+  if (onJellyfin && !onPlex) return 'Jellyfin only'
+  return null
+}
+
+function CollectionList({ pack, rows, preview, servers = {} }) {
   const { t } = useTranslation()
   if (rows.length === 0) {
     return <p style={{ color: 'var(--text-muted)', margin: '10px 0 0' }}>{preview ? t('Nothing in the library qualifies yet.') : t('No collections yet.')}</p>
@@ -26,6 +38,9 @@ function CollectionList({ pack, rows, preview }) {
             <span className="library-item-name">
               {c.title}
               <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase' }}>{t(MEDIA_LABELS[c.media] || c.media)}</span>
+              {pack.id !== 'seasonal' && serverTag(c, servers) && (
+                <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--text-muted)' }}>{t(serverTag(c, servers))}</span>
+              )}
               {pack.id === 'seasonal' && c.inSeason && (
                 <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--accent, #e5a00d)' }}>◆ {t('In season')}</span>
               )}
@@ -42,7 +57,7 @@ function CollectionList({ pack, rows, preview }) {
   )
 }
 
-function PackCard({ pack, visibilities, onToast, onChanged }) {
+function PackCard({ pack, visibilities, servers, onToast, onChanged }) {
   const { t } = useTranslation()
   const [form, setForm] = useState(pack.config)
   const [busy, setBusy] = useState(false)
@@ -123,12 +138,15 @@ function PackCard({ pack, visibilities, onToast, onChanged }) {
       </div>
 
       <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-        <div className="conn-field-group">
-          <label className="conn-field-label">{t('Show on')}</label>
-          <select className="conn-select" value={form.visibility} onChange={(e) => setForm(f => ({ ...f, visibility: e.target.value }))}>
-            {visibilities.map(v => <option key={v} value={v}>{t(VISIBILITY_LABELS[v] || v)}</option>)}
-          </select>
-        </div>
+        {servers.plex && (
+          <div className="conn-field-group">
+            <label className="conn-field-label">{t('Show on')}</label>
+            <select className="conn-select" value={form.visibility} onChange={(e) => setForm(f => ({ ...f, visibility: e.target.value }))}>
+              {visibilities.map(v => <option key={v} value={v}>{t(VISIBILITY_LABELS[v] || v)}</option>)}
+            </select>
+            {servers.jellyfin && <span className="conn-hint">{t('Plex only — no Jellyfin equivalent.')}</span>}
+          </div>
+        )}
         {!isSeasonal && pack.id !== 'basic' && (
           <div className="conn-field-group">
             <label className="conn-field-label">{t('Minimum titles')}</label>
@@ -169,10 +187,10 @@ function PackCard({ pack, visibilities, onToast, onChanged }) {
       {open && preview !== null && (
         <>
           <p className="section-desc" style={{ marginTop: 12, marginBottom: 0 }}>{t('Preview: {{n}} collections would be managed with the saved settings.', { n: preview.length })}</p>
-          <CollectionList pack={pack} rows={preview} preview />
+          <CollectionList pack={pack} rows={preview} preview servers={servers} />
         </>
       )}
-      {open && preview === null && (enabled || isSeasonal) && <CollectionList pack={pack} rows={pack.collections} />}
+      {open && preview === null && (enabled || isSeasonal) && <CollectionList pack={pack} rows={pack.collections} servers={servers} />}
     </div>
   )
 }
@@ -214,12 +232,18 @@ export default function Categories({ onToast }) {
         <p className="section-desc">
           {t('Automatic collections for your libraries, the way Kometa’s defaults build them. Studio, network, decade and basic collections are smart collections, so new titles join on their own; seasonal rows come and go with the calendar. A collection that already exists under the same name (for example one Kometa made) is taken over rather than duplicated — remove that pack from Kometa’s config first so the two don’t fight over it.')}
         </p>
+        {data.jellyfinEnabled && (
+          <p className="section-desc">
+            {t('On Jellyfin each collection is a BoxSet rebuilt from the library on every category sync (every 6 hours, or Sync now). Each server is counted on its own, so a collection can exist on just one of them. Home/Recommended promotion and New Episodes are Plex only.')}
+          </p>
+        )}
         {!data.plexConfigured && !data.jellyfinEnabled && (
           <p style={{ color: 'var(--error, #e57373)' }}>{t('No media server is configured.')}</p>
         )}
       </div>
       {data.packs.map(pack => (
-        <PackCard key={`${pack.id}-${JSON.stringify(pack.config)}`} pack={pack} visibilities={data.visibilities} onToast={onToast} onChanged={changed} />
+        <PackCard key={`${pack.id}-${JSON.stringify(pack.config)}`} pack={pack} visibilities={data.visibilities}
+          servers={{ plex: !!data.plexConfigured, jellyfin: !!data.jellyfinEnabled }} onToast={onToast} onChanged={changed} />
       ))}
     </>
   )

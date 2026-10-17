@@ -9,11 +9,26 @@ function authOpts(token) {
   return token ? { token } : {};
 }
 
+const PAGE_SIZE = 200;
+
+// Every playlist the user owns is scanned (paged), so a long playlist list
+// can't hide the old one and leave a duplicate. A failed or short page throws:
+// the caller must not create a second playlist on a partial read.
 async function findPlaylistByName(jfUserId, name, { token = null } = {}) {
-  const params = new URLSearchParams({ IncludeItemTypes: 'Playlist', Recursive: 'true', Limit: '200' });
-  const page = await client.jfFetch(`/Users/${encodeURIComponent(String(jfUserId))}/Items?${params}`, { ...authOpts(token) });
-  const hit = (page?.Items || []).find(p => (p.Name || '') === name);
-  return hit?.Id ? String(hit.Id) : null;
+  for (let start = 0; ; start += PAGE_SIZE) {
+    const params = new URLSearchParams({
+      IncludeItemTypes: 'Playlist', Recursive: 'true', StartIndex: String(start), Limit: String(PAGE_SIZE), EnableTotalRecordCount: 'true',
+    });
+    const page = await client.jfFetch(`/Users/${encodeURIComponent(String(jfUserId))}/Items?${params}`, { ...authOpts(token) });
+    const rows = page?.Items || [];
+    const hit = rows.find(p => (p.Name || '') === name);
+    if (hit?.Id) return String(hit.Id);
+    if (rows.length < PAGE_SIZE) {
+      const total = Number(page?.TotalRecordCount);
+      if (Number.isFinite(total) && start + rows.length < total) throw new Error('Playlist lookup incomplete');
+      return null;
+    }
+  }
 }
 
 // Shows become one episode (NextUp / first) so a series isn't expanded whole.
@@ -30,7 +45,7 @@ async function resolvePlaylistIds(ratingKeys, jfUserId, { token = null } = {}) {
 async function createPlaylistWithItems(jfUserId, name, ratingKeys, { token = null } = {}) {
   const ids = await resolvePlaylistIds(ratingKeys, jfUserId, { token });
   if (!ids.length) throw new Error('No playlist items to add');
-  const existing = await findPlaylistByName(jfUserId, name, { token }).catch(() => null);
+  const existing = await findPlaylistByName(jfUserId, name, { token });
   if (existing) await client.jfFetch(`/Items/${encodeURIComponent(existing)}`, { method: 'DELETE', ...authOpts(token) });
   const created = await client.jfFetch('/Playlists', {
     method: 'POST', ...authOpts(token),

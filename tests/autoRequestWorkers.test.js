@@ -214,3 +214,39 @@ describe('watchlist auto-request worker (F12)', () => {
     expect(requestsFor('wl').map(r => r.tmdb_id)).toEqual([999, 1007])
   })
 })
+
+// ── JF-11: collections quick sync change detection on dual-server installs ───
+
+describe('collections quick sync change detection (JF-11)', () => {
+  const plexCollections = h.nodeRequire('../../server/services/plexCollections.js')
+  const row = (key, source, syncedAt) => db.prepare(
+    "INSERT OR REPLACE INTO library_items (rating_key, section_id, title, type, tmdb_id, source, synced_at) VALUES (?, ?, ?, 'movie', ?, ?, ?)"
+  ).run(key, source === 'plex' ? '1' : 'jf_f', key, key.replace(/\D/g, ''), source, syncedAt)
+
+  afterEach(() => {
+    for (const k of ['plex_url', 'plex_token', 'jellyfin_url', 'jellyfin_api_key', 'jellyfin_enabled']) db.setSetting(k, '')
+  })
+
+  it('a title imported only into Jellyfin triggers the next pass', async () => {
+    db.setSetting('plex_url', 'http://plex.test:32400')
+    db.setSetting('plex_token', 'token')
+    db.setSetting('jellyfin_url', 'http://jellyfin.test:8096')
+    db.setSetting('jellyfin_api_key', 'key')
+    db.setSetting('jellyfin_enabled', '1')
+    const now = Math.floor(Date.now() / 1000)
+    row('p1', 'plex', now - 600)
+    const listId = automation.createListSource({ name: 'Dual', sourceType: 'imdb', url: 'https://www.imdb.com/chart/top/', mediaType: 'movie', collectionEnabled: true })
+    automation.upsertListItem({ listId, tmdbId: 1, mediaType: 'movie', title: 'P1', status: 'in_library', position: 1 })
+    automation.updateListSource(listId, { lastSyncedAt: now - 60 })
+    const mirror = vi.spyOn(plexCollections, 'syncListCollection').mockResolvedValue({})
+
+    await autoRequest.runQuickSync({ force: true })
+    mirror.mockClear()
+    expect(await autoRequest.runQuickSync()).toEqual({ skipped: 'no new library items' })
+
+    row('j2', 'jellyfin', now + 120) // Plex unchanged
+    const result = await autoRequest.runQuickSync()
+    expect(result.updated).toBeGreaterThanOrEqual(1)
+    expect(mirror.mock.calls.map(([list]) => list.id)).toContain(listId)
+  })
+})

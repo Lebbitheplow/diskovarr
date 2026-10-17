@@ -316,19 +316,31 @@ sudo systemctl enable --now diskovarr
 
 ### <img src="docs/icons/config.svg" width="20" alt=""> Jellyfin
 
-Diskovarr runs against Jellyfin as an alternative to Plex, or alongside it. Configure it in *Admin → Connections → Jellyfin*: the server address, an API key (**Jellyfin → Dashboard → API Keys**), then **Test** and flip the toggle. The first save pulls the library and every user's watch data immediately; after that the library re-syncs every 6 hours with a light new-item poll every 10 minutes, and user watch data mirrors every 15 minutes.
+Diskovarr runs against Jellyfin as an alternative to Plex, or alongside it. Configure it in *Admin → Connections → Jellyfin*: the server address, an API key (**Jellyfin → Dashboard → API Keys**), then **Test** and flip the toggle. The first save pulls the library and every user's watch data immediately. After that, new items arrive in real time over Jellyfin's notification socket, a light poll every 10 minutes catches anything the socket missed, the whole library re-syncs every 6 hours, and user watch data mirrors every 15 minutes.
 
 What you get:
 
-* **Library sync** — Jellyfin movies and shows land in the same library the Plex sync fills, tagged `source = jellyfin`. Posters and user avatars proxy through Diskovarr, so a LAN-only Jellyfin server is never exposed to the browser.
+* **Library sync** — movies and shows from Jellyfin Movies, Shows and mixed "Movies and Shows" libraries land in the same library the Plex sync fills, tagged `source = jellyfin`. Pick which libraries sync in *Admin → General → Synced Libraries*. A new episode refreshes its show, so a request for a missing season completes when the episodes arrive. Libraries deleted in Jellyfin drop out at the next full sync. Posters and user avatars proxy through Diskovarr, so a LAN-only Jellyfin server is never exposed to the browser.
 * **Sign in with Jellyfin** — the login page gains a username/password form (Jellyfin has no OAuth or central account service). Only the providers you have configured are shown, so a Jellyfin-only install never mentions Plex.
-* **No Tautulli needed** — Jellyfin tracks played state, play counts, and last-played dates natively, so the admin API key mirrors every user's history the way the Tautulli sync does for Plex. Jellyfin **Favorites** act as the watchlist, and review ratings sync back as likes.
-* **Account linking** — users connect their Plex and Jellyfin accounts from *Settings → Media Server Accounts*. Signing in with either account then lands in the same profile, and the two histories merge into one preference model, so what you watch on one server improves recommendations on the other.
+* **Watch history without Tautulli** — the admin API key mirrors every user's played items, in-progress items and likes. Jellyfin's core API keeps only each title's played state and latest play date, not a log of every play, so Diskovarr builds per-play history from two sources:
+  * its **live session tracker**, which records each play while Diskovarr is running (real playing time, with pauses and seeks excluded);
+  * the **[Playback Reporting](https://github.com/jellyfin/jellyfin-plugin-playbackreporting)** plugin, if installed, which also supplies past plays.
+
+  Without either, a title's history is one entry at its latest play date, with its runtime as the duration. Older rewatches and abandoned plays can't be reconstructed, which affects Wrapped and Popular. *Wrapped → Refresh Jellyfin history* (admin) runs the sync now and reports which kind of history the server provides.
+* **Favorites as the watchlist** — Jellyfin Favorites mirror both ways with the Diskovarr watchlist. Favorites can only hold titles already on the server, so watchlist auto-requests, which need a cloud watchlist, stay Plex-only.
+* **Ratings** — review ratings sync back as a like (3.5★ and up) or dislike (2★ and below); ratings in between clear it. Jellyfin likes and dislikes feed recommendations. Jellyfin has no star ratings, so exact ratings live only in Diskovarr.
+* **Account linking** — users connect their Plex and Jellyfin accounts from *Settings → Media Server Accounts* (one Jellyfin account per Plex account). Signing in with either account then lands in the same profile, and the two histories merge into one preference model, so what you watch on one server improves recommendations on the other. Unlinking takes effect in every signed-in browser at once.
 * **Source toggle** — with both servers configured, a **Plex / Jellyfin** switch appears in the navigation bar. Recommendations, popular rows, search, and in-library availability follow the selection, which is remembered per user.
+* **Play on device and Watch Together** — both work with Jellyfin clients that accept remote control.
+* **Collections** — monitored lists and category packs can mirror to Jellyfin collections (BoxSets), with summary, item order (list order, oldest release first, or title), library order, and pack artwork. The Wrapped "top titles" playlist can be created on either server.
 
 `JELLYFIN_URL` and `JELLYFIN_API_KEY` can also be set as environment variables; the values saved in Admin → Connections take precedence.
 
-Plex-specific features stay Plex-specific: casting, the Plex.tv Watchlist, and Plex collections are not available for Jellyfin items.
+Still Plex-only:
+
+* the Plex.tv Watchlist and watchlist auto-requests;
+* collection options a shared BoxSet can't express: Home/Recommended promotion, home position, the per-viewer "unwatched only" filter, newest-first orders, and the episode-level *New Episodes* category;
+* the DUMB setup wizard's library provisioning (add the Riven folders to Jellyfin by hand).
 
 ### <img src="docs/icons/tuberr.svg" width="20" alt=""> Tuberr (YouTube series through Sonarr)
 

@@ -7,10 +7,28 @@ const client = require('./client');
 // still maps to two BoxSets: "<name>" and "<name> (TV)". Ids persist next to
 // the Plex keys in list_sources.collection_rating_key as jfMovie / jfTv.
 
+const PAGE_SIZE = 1000;
+
+// Every child of a BoxSet. Membership is reconciled against this set (members
+// missing from the list are removed), so it must be complete: any failed page,
+// or a short page while TotalRecordCount says more remain, throws instead.
 async function getBoxSetItemIds(boxSetId) {
-  const params = new URLSearchParams({ ParentId: String(boxSetId), Limit: '1000' });
-  const page = await client.jfFetch(`/Items?${params}`);
-  return new Set((page?.Items || []).map(i => String(i.Id)));
+  const ids = new Set();
+  for (let start = 0; ; start += PAGE_SIZE) {
+    const params = new URLSearchParams({
+      ParentId: String(boxSetId), StartIndex: String(start), Limit: String(PAGE_SIZE), EnableTotalRecordCount: 'true',
+    });
+    const page = await client.jfFetch(`/Items?${params}`);
+    const rows = page?.Items || [];
+    for (const i of rows) ids.add(String(i.Id));
+    if (rows.length < PAGE_SIZE) {
+      const total = Number(page?.TotalRecordCount);
+      if (Number.isFinite(total) && start + rows.length < total) {
+        throw new Error(`BoxSet ${boxSetId} membership read incomplete (${start + rows.length} of ${total})`);
+      }
+      return ids;
+    }
+  }
 }
 
 // Verify a stored BoxSet still exists (the admin may have deleted it in Jellyfin).
@@ -46,6 +64,63 @@ async function deleteBoxSet(boxSetId) {
     .catch(err => { if (!String(err.message).includes(' 404 ')) throw err; });
 }
 
+// Diskovarr item orders a BoxSet can express. BoxSet.DisplayOrder is parsed as
+// an ItemSortBy and always sorted ascending; 'Default' keeps insertion order,
+// and items are added in list order. Descending orders have no equivalent, so
+// those lists leave the BoxSet's own order alone (the editor says so).
+const DISPLAY_ORDERS = { list: 'Default', release_asc: 'PremiereDate', title: 'SortName' };
+
+// What POST /Items/{id} needs to round-trip: it replaces the item's editable
+// metadata wholesale (a missing Tags or ProviderIds is a server error), so the
+// current DTO is read with these fields and sent back with only ours changed.
+const EDIT_FIELDS = 'Overview,Genres,Tags,ProviderIds,Settings,Studios,Taglines,DateCreated,OriginalTitle,CustomRating,SortName';
+
+// Presentation the list/pack settings can express on a BoxSet: `overview`
+// (summary; locked like Plex's summary.locked so a metadata refresh keeps it),
+// `displayOrder` and `forcedSortName` (library order, the Plex titleSort
+// prefix). `dropSortPrefix` clears a sort name we prefixed earlier (leading
+// '!') when there is no library order any more. Undefined fields are left
+// alone; nothing is written when the BoxSet already matches. Returns true
+// when it wrote.
+async function updateBoxSetMetadata(boxSetId, { overview, displayOrder, forcedSortName, dropSortPrefix = false } = {}) {
+  const params = new URLSearchParams({ Ids: String(boxSetId), IncludeItemTypes: 'BoxSet', Recursive: 'true', Fields: EDIT_FIELDS });
+  const dto = ((await client.jfFetch(`/Items?${params}`))?.Items || []).find(i => String(i.Id) === String(boxSetId));
+  if (!dto) return false;
+  const next = { ...dto };
+  if (overview !== undefined && (dto.Overview || '') !== overview) {
+    next.Overview = overview;
+    next.LockedFields = [...new Set([...(dto.LockedFields || []), 'Overview'])];
+  }
+  if (displayOrder !== undefined && (dto.DisplayOrder || null) !== displayOrder) next.DisplayOrder = displayOrder;
+  if (forcedSortName !== undefined && (dto.ForcedSortName || null) !== forcedSortName) next.ForcedSortName = forcedSortName;
+  else if (forcedSortName === undefined && dropSortPrefix && /^!+/.test(dto.ForcedSortName || '')) next.ForcedSortName = null;
+  if (next.Overview === dto.Overview && next.DisplayOrder === dto.DisplayOrder && next.ForcedSortName === dto.ForcedSortName) return false;
+  await client.jfFetch(`/Items/${encodeURIComponent(boxSetId)}`, {
+    method: 'POST',
+    body: { ...next, Tags: next.Tags || [], Genres: next.Genres || [], ProviderIds: next.ProviderIds || {} },
+  });
+  return true;
+}
+
+// Jellyfin downloads the artwork itself, like Plex's /posters?url=.
+async function setBoxSetImage(boxSetId, url) {
+  if (!url) return;
+  const params = new URLSearchParams({ type: 'Primary', imageUrl: url });
+  await client.jfFetch(`/Items/${encodeURIComponent(boxSetId)}/RemoteImages/Download?${params}`, { method: 'POST' });
+}
+
+// The BoxSet half of a list's collection settings. Plex-only options (hub
+// promotion, home position, the per-viewer unwatched smart filter) have no
+// BoxSet equivalent and are not applied — a shared BoxSet is never filtered
+// by one user's watched state.
+function listPresentation(listSource, title, sortPrefix) {
+  return {
+    overview: listSource.collectionSummary || undefined,
+    displayOrder: DISPLAY_ORDERS[listSource.collectionSort || 'list'],
+    ...(sortPrefix ? { forcedSortName: `${sortPrefix}${title}` } : { dropSortPrefix: true }),
+  };
+}
+
 // Mirror one media type of a list into a BoxSet. Returns the (possibly new)
 // BoxSet id, or null when there is nothing to put in it.
 async function syncTypeBoxSet({ title, itemIds, existingId }) {
@@ -76,7 +151,9 @@ function jellyfinItemsFor(entries) {
 
 // Called by plexCollections.syncListCollection alongside the Plex mirror.
 // Mutates and returns `keys` with jfMovie / jfTv set or removed.
-async function syncListBoxSets(listSource, entries, keys) {
+// `sortPrefixes` ({ movie, tv }) are the library-order prefixes the Plex side
+// computes for the same list.
+async function syncListBoxSets(listSource, entries, keys, { sortPrefixes = {} } = {}) {
   if (!client.isEnabled()) return keys;
   const name = listSource.collectionName || listSource.name;
   const byType = jellyfinItemsFor(entries);
@@ -87,8 +164,14 @@ async function syncListBoxSets(listSource, entries, keys) {
   for (const plan of plans) {
     if (listSource.mediaType !== 'all' && listSource.mediaType !== plan.media) continue;
     const id = await syncTypeBoxSet({ title: plan.title, itemIds: byType[plan.media], existingId: keys[plan.keyName] || null });
-    if (id) keys[plan.keyName] = id;
-    else delete keys[plan.keyName];
+    if (id) {
+      keys[plan.keyName] = id;
+      // Cosmetic, like the Plex summary/sort-title writes: never fails the mirror.
+      await updateBoxSetMetadata(id, listPresentation(listSource, plan.title, sortPrefixes[plan.media]))
+        .catch(err => console.warn(`[jellyfin] BoxSet presentation update failed for "${plan.title}": ${err.message}`));
+    } else {
+      delete keys[plan.keyName];
+    }
   }
   return keys;
 }
@@ -102,4 +185,5 @@ async function deleteListBoxSets(keys) {
 module.exports = {
   syncListBoxSets, deleteListBoxSets, syncTypeBoxSet, jellyfinItemsFor,
   createBoxSet, addItems, removeItems, deleteBoxSet, getBoxSetItemIds, boxSetExists,
+  updateBoxSetMetadata, setBoxSetImage, DISPLAY_ORDERS,
 };

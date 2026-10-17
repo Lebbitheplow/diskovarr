@@ -854,6 +854,25 @@ db.exec(`CREATE TABLE IF NOT EXISTS migrations (name TEXT PRIMARY KEY, ran_at IN
       },
     },
     {
+      // Provenance of Jellyfin history rows: 'snapshot' (a stand-in derived from
+      // the item-level played state), 'session' (a play the websocket tracker
+      // observed) or 'plugin' (a Playback Reporting record). Only a snapshot
+      // stand-in may be replaced by a real play. Legacy complete jf: rows
+      // can't be told apart, so they count as stand-ins; the old sync only
+      // wrote complete stand-ins, so an incomplete row was a real play.
+      // Tautulli rows keep NULL.
+      name: 'watch_history_origin_v1',
+      sql: () => {
+        db.exec(`
+          ALTER TABLE watch_history ADD COLUMN origin TEXT;
+          UPDATE watch_history
+            SET origin = CASE WHEN watched_status = 'incomplete' THEN 'session' ELSE 'snapshot' END
+            WHERE source = 'jellyfin';
+          CREATE INDEX IF NOT EXISTS idx_wh_user_item ON watch_history(user_id, rating_key);
+        `);
+      },
+    },
+    {
       // The monitor editor used to re-POST its full criteria list on every
       // save with no server-side replace, so each edit duplicated all rows.
       // One-time dedupe; the editor now swaps criteria atomically via
@@ -1313,6 +1332,13 @@ db.exec(`
     PRIMARY KEY (user_id, rating_key)
   );
 `);
+// Which server a rating was imported from, so one provider's reconcile can
+// drop ratings that disappeared upstream without touching the other's. Plex
+// rating keys are numeric; existing non-numeric keys are Jellyfin item ids.
+try {
+  db.exec("ALTER TABLE user_ratings ADD COLUMN source TEXT NOT NULL DEFAULT 'plex'");
+  db.exec("UPDATE user_ratings SET source = 'jellyfin' WHERE rating_key GLOB '*[^0-9]*'");
+} catch (e) { if (!e.message.includes('duplicate column')) throw e; }
 
 // ── Library items ─────────────────────────────────────────────────────────────
 
@@ -1342,12 +1368,19 @@ const stmtUpsertItem = db.prepare(`
     source=excluded.source
 `);
 
+const stmtItemCollections = db.prepare('SELECT collections FROM library_items WHERE rating_key = ?');
+
 // `withDetails: true` also writes producers/labels and stamps detail_synced_at in
 // the same transaction — for sources whose listing already carries the detail
 // fields (Jellyfin), so those rows never enter the Plex-only detail backfill.
+// `collections: null` means membership is unknown (an incremental Jellyfin
+// fetch, or a failed BoxSet lookup): the row keeps the names it already has.
 function upsertManyItems(items, { withDetails = false } = {}) {
   withTransaction(() => {
     for (const item of items) {
+      const collections = item.collections == null
+        ? (stmtItemCollections.get(String(item.ratingKey))?.collections ?? '[]')
+        : JSON.stringify(item.collections);
       stmtUpsertItem.run(
         item.ratingKey, item.sectionId, item.title, item.year, item.thumb, item.art || null, item.type,
         JSON.stringify(item.genres), JSON.stringify(item.directors), JSON.stringify(item.cast),
@@ -1356,7 +1389,7 @@ function upsertManyItems(items, { withDetails = false } = {}) {
         item.rating, item.ratingImage, item.audienceRatingImage, item.studio,
         item.tmdbId || null, item.tvdbId || null, item.leafCount ?? null,
         JSON.stringify(item.writers || []), JSON.stringify(item.countries || []),
-        JSON.stringify(item.collections || []), item.edition || '',
+        collections, item.edition || '',
         item.releaseDate || '', item.duration || 0,
         item.videoResolution || null, item.fileSize ?? null,
         item.source || 'plex'
@@ -1517,8 +1550,8 @@ const stmtUpsertWatchHistory = db.prepare(`
     (history_id, user_id, rating_key, grandparent_rating_key, parent_rating_key,
      title, parent_title, year, media_type, thumb, watched_at, duration,
      percent_complete, watched_status, user_name, user_thumb, season_number,
-     episode_number, bitrate, resolution, synced_at, source)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+     episode_number, bitrate, resolution, synced_at, source, origin)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
   ON CONFLICT(history_id) DO UPDATE SET
     user_id=excluded.user_id, rating_key=excluded.rating_key,
     grandparent_rating_key=excluded.grandparent_rating_key,
@@ -1529,12 +1562,15 @@ const stmtUpsertWatchHistory = db.prepare(`
     user_name=excluded.user_name, user_thumb=excluded.user_thumb,
     season_number=excluded.season_number, episode_number=excluded.episode_number,
     bitrate=excluded.bitrate, resolution=excluded.resolution, synced_at=excluded.synced_at,
-    source=excluded.source
+    source=excluded.source, origin=excluded.origin
+  WHERE NOT (COALESCE(excluded.origin, '') = 'snapshot'
+             AND COALESCE(watch_history.origin, '') IN ('session', 'plugin'))
 `);
 
 // Bulk upsert mapped history rows (camelCase, as produced by the Tautulli and
 // Jellyfin services). history_id is TEXT: Tautulli rows keep their numeric id
-// as a decimal string, Jellyfin rows use synthetic 'jf:…' keys.
+// as a decimal string, Jellyfin rows use synthetic 'jf…:' keys. A Jellyfin
+// snapshot stand-in never overwrites a real (session/plugin) play.
 function upsertWatchHistoryBatch(rows) {
   if (!Array.isArray(rows) || rows.length === 0) return 0;
   const now = Math.floor(Date.now() / 1000);
@@ -1564,7 +1600,8 @@ function upsertWatchHistoryBatch(rows) {
         r.bitrate || null,
         r.resolution || null,
         now,
-        r.source || 'plex'
+        r.source || 'plex',
+        r.origin || null
       );
       count++;
     }
@@ -1802,7 +1839,11 @@ function getAdminStats() {
   const tvCount = db.prepare("SELECT COUNT(*) as c FROM library_items WHERE type = 'show'").get()?.c || 0;
   const dismissalCount = db.prepare("SELECT COUNT(*) as c FROM dismissals").get()?.c || 0;
 
-  // Per-user watched counts — all known users, counts all watched items (not filtered by current library)
+  // Per-user watched counts — all known users, counts all watched items (not filtered by current library).
+  // last_sync is the newest watched sync for the identity: Plex stamps
+  // watched_<userId>, Jellyfin jf_watched_<guid> (user_id 'jf_<guid>'). A Plex
+  // row also counts the sync of the Jellyfin account linked to it, whose
+  // history lands under the Plex id. 0 = never synced.
   const watchedStats = db.prepare(`
     SELECT
       ku.user_id,
@@ -1812,18 +1853,22 @@ function getAdminStats() {
       ku.linked_user_id,
       ku.seen_at AS last_login,
       COALESCE(w.watched_count, 0) AS watched_count,
-      COALESCE(sl.last_sync, 0) AS last_sync,
+      COALESCE((
+        SELECT MAX(sl.last_sync) FROM sync_log sl
+        WHERE sl.key = 'watched_' || ku.user_id
+           OR (ku.user_id LIKE 'jf\\_%' ESCAPE '\\' AND sl.key = 'jf_watched_' || SUBSTR(ku.user_id, 4))
+           OR sl.key IN (
+             SELECT 'jf_watched_' || SUBSTR(j.user_id, 4) FROM known_users j
+             WHERE j.linked_user_id = ku.user_id AND j.auth_provider = 'jellyfin'
+           )
+      ), 0) AS last_sync,
       COALESCE(r.request_count, 0) AS request_count
     FROM known_users ku
     LEFT JOIN (
-      SELECT uw.user_id, COUNT(*) as watched_count, MAX(uw.synced_at) as last_sync
+      SELECT uw.user_id, COUNT(*) as watched_count
       FROM user_watched uw
       GROUP BY uw.user_id
     ) w ON w.user_id = ku.user_id
-    LEFT JOIN (
-      SELECT SUBSTR(key, 9) AS uid, last_sync
-      FROM sync_log WHERE key LIKE 'watched_%'
-    ) sl ON sl.uid = ku.user_id
     LEFT JOIN (
       SELECT user_id, COUNT(*) as request_count
       FROM discover_requests GROUP BY user_id
@@ -1948,6 +1993,8 @@ function getKnownUserById(userId) {
   return db.prepare('SELECT * FROM known_users WHERE user_id = ?').get(String(userId)) || null;
 }
 
+// At most one row: a Plex user links one Jellyfin account (see
+// enforceOneJellyfinLinkPerUser).
 function getLinkedJellyfinRow(plexUserId) {
   return db.prepare("SELECT * FROM known_users WHERE linked_user_id = ? AND auth_provider = 'jellyfin' LIMIT 1")
     .get(String(plexUserId)) || null;
@@ -1957,7 +2004,44 @@ function getJellyfinUsers() {
   return db.prepare("SELECT * FROM known_users WHERE auth_provider = 'jellyfin'").all();
 }
 
+// One Jellyfin account per Plex user. Everything downstream (library access,
+// Watch Together, the history and Favorites syncs) reads a single linked row,
+// and each account's sync replaces the canonical user's Jellyfin state, so a
+// second link would silently fight the first. Links made before this rule are
+// repaired by keeping the most recently seen account; the others become
+// standalone again (data already merged stays with the Plex account). Returns
+// how many links were removed.
+function enforceOneJellyfinLinkPerUser() {
+  return withTransaction(() => {
+    const rows = db.prepare(`
+      SELECT user_id, linked_user_id FROM known_users WHERE linked_user_id IS NOT NULL
+      ORDER BY linked_user_id, seen_at DESC, user_id
+    `).all();
+    let removed = 0;
+    let kept = null;
+    for (const row of rows) {
+      if (kept?.linked_user_id === row.linked_user_id) {
+        db.prepare('UPDATE known_users SET linked_user_id = NULL WHERE user_id = ?').run(row.user_id);
+        console.warn(`[db] Unlinked ${row.user_id} from ${row.linked_user_id}: ${kept.user_id} stays linked (one Jellyfin account per user)`);
+        removed++;
+      } else {
+        kept = row;
+      }
+    }
+    db.exec('CREATE UNIQUE INDEX IF NOT EXISTS uniq_known_users_linked_user ON known_users(linked_user_id) WHERE linked_user_id IS NOT NULL');
+    return removed;
+  });
+}
+
+if (!db.prepare("SELECT 1 FROM migrations WHERE name = 'jellyfin_link_one_to_one_v1'").get()) {
+  const removed = enforceOneJellyfinLinkPerUser();
+  db.prepare('INSERT INTO migrations (name, ran_at) VALUES (?, ?)').run('jellyfin_link_one_to_one_v1', Date.now());
+  console.log(`[db] Migration applied: jellyfin_link_one_to_one_v1 (${removed} duplicate links removed)`);
+}
+
 // Per-user tables re-keyed when a Jellyfin identity merges into a Plex one.
+// user_library_access / user_visible_items are deliberately absent: they are
+// keyed by provider identity, not the canonical user.
 const USER_ID_TABLES = [
   ['dismissals', 'plex_user_id'],
   ['explore_dismissals', 'plex_user_id'],
@@ -1984,26 +2068,67 @@ const USER_ID_TABLES = [
   ['user_taste', 'user_id'],
   ['user_search_history', 'user_id'],
   ['notification_queue', 'user_id'],
+  ['watchlist_auto_request_state', 'user_id'],
+  ['watchlist_auto_requests', 'user_id'],
+  ['movie_night_groups', 'created_by'],
+  ['movie_night_members', 'user_id'],
+  ['movie_night_personas', 'created_by'],
+  ['movie_night_entries', 'added_by'],
+  ['movie_night_votes', 'user_id'],
+  ['movie_night_comments', 'user_id'],
+  ['watch_parties', 'host_id'],
+  ['watch_party_members', 'user_id'],
 ];
+
+// Memberships whose role must survive a collision: when both ids are in the
+// same group/party the target's row is the one kept, so a host role held by
+// the source is carried onto it first.
+const MEMBER_ROLE_TABLES = [['movie_night_members', 'group_id'], ['watch_party_members', 'party_id']];
+
+function mergeRows(fromId, toId) {
+  const from = String(fromId);
+  const to = String(toId);
+  for (const [table, scope] of MEMBER_ROLE_TABLES) {
+    try {
+      db.prepare(`UPDATE ${table} SET role = 'host' WHERE user_id = ? AND ${scope} IN (
+        SELECT ${scope} FROM ${table} WHERE user_id = ? AND role = 'host')`).run(to, from);
+    } catch (e) { console.warn(`[merge] ${table}.role: ${e.message}`); }
+  }
+  for (const [table, col] of USER_ID_TABLES) {
+    try {
+      db.prepare(`UPDATE OR IGNORE ${table} SET ${col} = ? WHERE ${col} = ?`).run(to, from);
+      db.prepare(`DELETE FROM ${table} WHERE ${col} = ?`).run(from);
+    } catch (e) { console.warn(`[merge] ${table}.${col}: ${e.message}`); }
+  }
+  // A follow between the two accounts became a self-follow; the counters of
+  // everyone whose follows collapsed are recomputed.
+  db.prepare('DELETE FROM user_follows WHERE follower_id = ? AND followee_id = ?').run(to, to);
+  for (const id of new Set([from, to, ...getFollowers(to), ...getFollowing(to)])) updateFollowCounts(id);
+}
 
 // One-time merge of everything keyed by `fromId` into `toId`. UPDATE OR IGNORE
 // keeps the target's row on unique collisions (e.g. both accounts reviewed the
-// same movie); leftover source rows are then dropped.
+// same movie, or voted on the same Movie Night entry); leftover source rows
+// are then dropped.
 function mergeUserData(fromId, toId) {
-  withTransaction(() => {
-    for (const [table, col] of USER_ID_TABLES) {
-      try {
-        db.prepare(`UPDATE OR IGNORE ${table} SET ${col} = ? WHERE ${col} = ?`).run(String(toId), String(fromId));
-        db.prepare(`DELETE FROM ${table} WHERE ${col} = ?`).run(String(fromId));
-      } catch (e) { console.warn(`[merge] ${table}.${col}: ${e.message}`); }
-    }
-  });
+  withTransaction(() => mergeRows(fromId, toId));
 }
 
+// Throws (code 'LINK_CONFLICT') when the Plex user already has a different
+// Jellyfin account; re-linking the same pair is a no-op merge.
 function linkJellyfinAccount(jfUserId, plexUserId) {
-  db.prepare('UPDATE known_users SET linked_user_id = ? WHERE user_id = ?')
-    .run(String(plexUserId), String(jfUserId));
-  mergeUserData(jfUserId, plexUserId);
+  withTransaction(() => {
+    const other = db.prepare('SELECT user_id FROM known_users WHERE linked_user_id = ? AND user_id != ?')
+      .get(String(plexUserId), String(jfUserId));
+    if (other) {
+      const err = new Error(`Plex user ${plexUserId} is already linked to Jellyfin account ${other.user_id}`);
+      err.code = 'LINK_CONFLICT';
+      throw err;
+    }
+    db.prepare('UPDATE known_users SET linked_user_id = ? WHERE user_id = ?')
+      .run(String(plexUserId), String(jfUserId));
+    mergeRows(jfUserId, plexUserId);
+  });
 }
 
 function unlinkJellyfinAccount(jfUserId) {
@@ -2108,16 +2233,29 @@ function updateWatchlistPlexGuid(userId, ratingKey, plexGuid) {
     .run(plexGuid, String(userId), String(ratingKey));
 }
 
-// ── User ratings (Plex star ratings) ─────────────────────────────────────────
+// ── User ratings (Plex star ratings, Jellyfin likes) ─────────────────────────
 
 const stmtUpsertUserRating = db.prepare(
-  'INSERT OR REPLACE INTO user_ratings (user_id, rating_key, user_rating) VALUES (?, ?, ?)'
+  'INSERT OR REPLACE INTO user_ratings (user_id, rating_key, user_rating, source) VALUES (?, ?, ?, ?)'
 );
 
-function upsertUserRatings(userId, ratings) {
+function upsertUserRatings(userId, ratings, source = 'plex') {
   withTransaction(() => {
     for (const { ratingKey, userRating } of ratings) {
-      stmtUpsertUserRating.run(String(userId), String(ratingKey), userRating);
+      stmtUpsertUserRating.run(String(userId), String(ratingKey), userRating, source);
+    }
+  });
+}
+
+// Clear-then-insert one provider's imported ratings, like replaceWatchedBatch.
+// Only call it with a complete upstream read: a rating missing from `ratings`
+// is treated as cleared upstream. Reviews live in their own table and are
+// never touched.
+function replaceUserRatings(userId, ratings, source) {
+  withTransaction(() => {
+    db.prepare('DELETE FROM user_ratings WHERE user_id = ? AND source = ?').run(String(userId), source);
+    for (const { ratingKey, userRating } of ratings) {
+      stmtUpsertUserRating.run(String(userId), String(ratingKey), userRating, source);
     }
   });
 }
@@ -4784,13 +4922,13 @@ module.exports = {
   updateWatchlistPlexIds, getWatchlistPlexIds, updateWatchlistPlexGuid,
   upsertKnownUser, seedKnownUser, touchKnownUser, getKnownUsers, getAllKnownUsersWithTokens, getLibraryItemByTmdbId,
   upsertJellyfinUser, seedJellyfinUser, resolveCanonicalUserId, getKnownUserById, getLinkedJellyfinRow,
-  getJellyfinUsers, linkJellyfinAccount, unlinkJellyfinAccount, mergeUserData, setPreferredSource,
+  getJellyfinUsers, linkJellyfinAccount, unlinkJellyfinAccount, mergeUserData, enforceOneJellyfinLinkPerUser, setPreferredSource,
   upsertManyItems, pruneLibrarySectionItems, getLibraryItemsFromDb, getLibraryItemsBySource, getLibraryItemByKey,
   getLibraryItemByKeyFor, withTransaction,
   updateItemDetailFields, updateLastEpisodeAdded, getItemsNeedingDetailSync,
   replaceWatchedBatch, getWatchedKeysFromDb,
   upsertWatchHistoryBatch, queryWatchHistory, getWatchHistoryUsers, getWatchHistoryCount,
-  upsertUserRatings, getUserRatingsFromDb,
+  upsertUserRatings, replaceUserRatings, getUserRatingsFromDb,
   getSyncTime, setSyncTime,
   getAdminStats, clearUserWatched, clearAllUserWatched,
   clearLibraryDb, clearUserDismissals,

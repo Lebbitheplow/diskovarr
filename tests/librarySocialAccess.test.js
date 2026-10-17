@@ -154,16 +154,20 @@ describe('casting and issues', () => {
       const ins = db.prepare("INSERT INTO library_items (rating_key, section_id, title, type, source) VALUES (?, ?, ?, ?, 'jellyfin')")
       ins.run(JF_HIDDEN, 'jf_hidden', 'JF Secret', 'show')
       ins.run(JF_OPEN, 'jf_open', 'JF Open', 'movie')
-      db.upsertJellyfinUser('jf_jfbasic', 'basicjf', null, null)
-      db.linkJellyfinAccount('jf_jfbasic', BASIC)
-      libraryAccess.saveSnapshot('jf_jfbasic', 'jellyfin', { role: 'jellyfin', sectionIds: ['jf_open'] })
+      // The Jellyfin account a session carries must really be linked
+      // (requireAuth drops one that isn't): jf-<user> for each caster
+      for (const user of [BASIC, OWNER]) {
+        db.upsertJellyfinUser(`jf_jf-${user}`, `jf${user}`, null, null)
+        db.linkJellyfinAccount(`jf_jf-${user}`, user)
+      }
+      libraryAccess.saveSnapshot(`jf_jf-${BASIC}`, 'jellyfin', { role: 'jellyfin', sectionIds: ['jf_open'] })
       libraryAccess.invalidate()
       h.setResponder((url) => (url.includes('/Sessions?')
         ? Response.json([{ Id: 'sess1', DeviceName: 'TV', Client: 'Jellyfin', Capabilities: { PlayableMediaTypes: ['Video'] } }])
         : new Response(null, { status: 204 })))
     })
     afterEach(() => {
-      db.unlinkJellyfinAccount('jf_jfbasic')
+      for (const user of [BASIC, OWNER]) db.unlinkJellyfinAccount(`jf_jf-${user}`)
       db.setSetting('jellyfin_enabled', '0')
       libraryAccess.invalidate()
     })

@@ -93,6 +93,7 @@ export default function StepPlex({ state, form, update, onToast, onBack, onNext,
           </div>
         )}
         {!state?.plex?.configured && <div className="setup-callout warn">{t('Plex is not configured in Admin → Connections, so only the instructions mode is possible.')}</div>}
+        {state?.jellyfin?.enabled && <div className="setup-callout">{t('This step sets up Plex only. Diskovarr does not provision Jellyfin libraries: add the movies and TV folders above to your Jellyfin libraries by hand (Jellyfin → Dashboard → Libraries), using the paths Jellyfin sees.')}</div>}
       </div>
 
       <div className="conn-block">

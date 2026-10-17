@@ -4,8 +4,9 @@ const rateLimit = require('express-rate-limit');
 const db = require('../db/database');
 const logger = require('../services/logger');
 const jellyfinService = require('../services/jellyfin');
-const { regenerateSession, syncSessionRole } = require('../middleware/requireAuth');
+const { regenerateSession, syncSessionRole, syncSessionIdentity } = require('../middleware/requireAuth');
 const libraryAccess = require('../services/libraryAccess');
+const accountLinks = require('../services/accountLinks');
 
 // Pending Plex PIN / account-link state, consumed by a completed login.
 const PIN_STATE = ['plexPinId', 'plexPinCode', 'plexLinkMode'];
@@ -19,7 +20,9 @@ const checkPinLimiter = rateLimit({
 });
 
 // Credential logins get admin-login-strength limiting (Jellyfin auth is
-// username/password — there is no PIN indirection to absorb guessing).
+// username/password — there is no PIN indirection to absorb guessing). The
+// same instance guards POST /api/user/link/jellyfin, which checks Jellyfin
+// credentials too, so the two share one per-IP budget.
 const jellyfinLoginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 20,
@@ -179,11 +182,20 @@ router.get('/check-pin', checkPinLimiter, async (req, res) => {
 
     // Link mode: a signed-in (unlinked) Jellyfin user completing the Plex PIN
     // flow connects the two accounts. The Plex row becomes canonical and the
-    // Jellyfin account's data merges into it.
+    // Jellyfin account's data merges into it. A Plex account that already has
+    // another Jellyfin account linked is refused, and the session stays the
+    // Jellyfin sign-in.
     if (req.session.plexLinkMode && req.session.plexUser?.provider === 'jellyfin'
         && String(req.session.plexUser.id).startsWith('jf_')) {
       const jfDiskovarrId = String(req.session.plexUser.id);
-      db.linkJellyfinAccount(jfDiskovarrId, plexId);
+      try {
+        accountLinks.link(jfDiskovarrId, plexId);
+      } catch (err) {
+        if (err.code !== 'LINK_CONFLICT') throw err;
+        for (const key of PIN_STATE) delete req.session[key];
+        logger.warn(`Link refused: Plex user ${plexId} already has a Jellyfin account linked (${jfDiskovarrId} asked)`);
+        return res.json({ status: 'link_conflict', message: 'That Plex account is already linked to another Jellyfin account' });
+      }
       logger.info(`Linked Jellyfin account ${jfDiskovarrId} to Plex user ${plexId}`);
     }
 
@@ -293,6 +305,7 @@ router.post('/jellyfin/login', jellyfinLoginLimiter, async (req, res) => {
 // GET /auth/check-auth — checks if user is logged in (for React SPA)
 router.get('/check-auth', (req, res) => {
   if (req.session?.plexUser) {
+    syncSessionIdentity(req);
     const sessionUser = req.session.plexUser;
     const userId = String(sessionUser.id);
     const isAdmin = !!req.session.isAdmin || syncSessionRole(req);
@@ -336,3 +349,4 @@ router.get('/logout', (req, res) => {
 });
 
 module.exports = router;
+module.exports.jellyfinCredentialLimiter = jellyfinLoginLimiter;

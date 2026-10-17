@@ -44,10 +44,12 @@ export default function Callback() {
           setStatus('redirecting')
           await checkAuth()
           navigate(isLink ? '/settings' : (data.landingUrl || '/'), { replace: true })
-        } else if (data.status === 'expired' || data.status === 'no_access' || data.status === 'error') {
+        } else if (['expired', 'no_access', 'error', 'link_conflict'].includes(data.status)) {
           clearInterval(pollInterval)
           if (data.status === 'no_access') {
             toastError(t('Your account does not have access to this Plex server'))
+          } else if (data.status === 'link_conflict') {
+            toastError(t('That Plex account is already linked to another Jellyfin account'))
           } else {
             toastError(t('Authentication failed or expired'))
           }
