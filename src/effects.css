@@ -102,10 +102,13 @@
   border-color: var(--glass-border);
 }
 
-/* Every shelf has two arrows; only blur the ones actually showing */
-.carousel-wrap:hover .carousel-arrow:not(:disabled) {
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+/* Every shelf has two arrows; only blur the ones actually showing (pointer
+   devices only — see .carousel-arrow in style.css) */
+@media (hover: hover) and (pointer: fine) {
+  .carousel-wrap:hover .carousel-arrow:not(:disabled) {
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
 }
 
 .carousel-arrow:hover {

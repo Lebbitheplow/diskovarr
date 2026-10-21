@@ -868,7 +868,7 @@ img {
     position: fixed;
     top: 0; left: 0; right: 0;
     z-index: 9010;
-    background: var(--bg);
+    background: var(--bg-primary);
     border-bottom: 1px solid var(--border);
     padding: 0 12px;
     margin: 0;
@@ -1496,9 +1496,15 @@ img {
   pointer-events: none;
 }
 
-.carousel-wrap:hover .carousel-arrow:not(:disabled) {
-  opacity: 1;
-  pointer-events: auto;
+/* Pointer devices only. iOS Safari withholds the click from a tap whose
+   :hover fades something in, so revealing the arrows on any hover made every
+   poster in a shelf take two taps on iPad (wider than the 768px cutoff
+   below). Touch users swipe the shelf instead. */
+@media (hover: hover) and (pointer: fine) {
+  .carousel-wrap:hover .carousel-arrow:not(:disabled) {
+    opacity: 1;
+    pointer-events: auto;
+  }
 }
 
 .carousel-arrow:hover {
