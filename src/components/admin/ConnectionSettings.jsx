@@ -45,7 +45,9 @@ function PlexSection({ plexUrl, plexToken, onUpdate, onSave, onToast }) {
   const [oauthLoading, setOauthLoading] = useState(false)
   const [toast] = useState(null)
   const pollRef = useRef(null)
-  const realToken = token === MASKED ? '' : token
+  // The mask stands for the stored token, not an empty one — saving '' here
+  // would wipe a token the Plex sign-in just stored (blur fires a save).
+  const realToken = token === MASKED ? (plexToken || '') : token
 
   // Sync local fields from props (render-phase adjustment, React's recommended
   // alternative to state-syncing effects).
@@ -181,7 +183,7 @@ function TautulliSection({ tautulliUrl, tautulliApiKey, onUpdate, onSave, onToas
   const [testLoading, setTestLoading] = useState(false)
   const [saveLoading, setSaveLoading] = useState(false)
   const [toast] = useState(null)
-  const realKey = apiKey === MASKED ? '' : apiKey
+  const realKey = apiKey === MASKED ? (tautulliApiKey || '') : apiKey
 
   // Sync local fields from props (render-phase adjustment).
   const [prevTautulliUrl, setPrevTautulliUrl] = useState(tautulliUrl)
@@ -397,7 +399,7 @@ function TmdbSection({ tmdbApiKey, discoverEnabled, onUpdate, onSave, onToast })
   const [testLoading, setTestLoading] = useState(false)
   const [saveLoading, setSaveLoading] = useState(false)
   const [toast] = useState(null)
-  const realKey = apiKey === MASKED ? '' : apiKey
+  const realKey = apiKey === MASKED ? (tmdbApiKey || '') : apiKey
   const hasKey = apiKey === MASKED || !!apiKey
 
   // Sync local fields from props (render-phase adjustment).
