@@ -34,17 +34,19 @@ class FakeWebSocket {
 
 const flush = () => new Promise(r => setImmediate(r))
 
-let upsertCalls, pollCalls, delivered
+let upsertCalls, refreshCalls, pollCalls, delivered
 beforeEach(() => {
   // Only the timer APIs the module uses — leave setImmediate real so flush() works.
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] })
   globalThis.WebSocket = FakeWebSocket
   sockets = []
   upsertCalls = []
+  refreshCalls = []
   pollCalls = 0
   delivered = []
   library.upsertItemsByIds = async (ids) => { upsertCalls.push(ids); return ids.map(id => ({ ratingKey: id })) }
   library.pollNewItems = async () => { pollCalls++; return [{ ratingKey: 'polled' }] }
+  library.refreshKnownItems = async (ids) => { refreshCalls.push(ids); return [{ ratingKey: ids[0] }] }
 })
 afterEach(() => {
   socket.stop()
@@ -110,14 +112,45 @@ describe('jellyfin socket', () => {
     expect(upsertCalls).toEqual([])
   })
 
-  it('more than 50 ids falls back to the poll', async () => {
+  it('a burst of more than 50 ids is still fetched by id (chunked in the library), not reduced to a poll', async () => {
     const ws = openSocket()
     await flush()
-    ws.message({ MessageType: 'LibraryChanged', Data: { ItemsAdded: Array.from({ length: 51 }, (_, i) => `id-${i}`) } })
+    const ids = Array.from({ length: 51 }, (_, i) => `id-${i}`)
+    ws.message({ MessageType: 'LibraryChanged', Data: { ItemsAdded: ids } })
     vi.advanceTimersByTime(3000)
     await flush()
+    expect(upsertCalls).toEqual([ids])
+    expect(pollCalls).toBe(1)
+  })
+
+  it('ItemsUpdated with no adds refreshes known rows; only newly identified items are delivered', async () => {
+    const ws = openSocket()
+    await flush()
+    ws.message({ MessageType: 'LibraryChanged', Data: { ItemsAdded: [], ItemsUpdated: ['u1', 'u2'] } })
+    await flush()
+    expect(refreshCalls).toEqual([['u1', 'u2']])
     expect(upsertCalls).toEqual([])
-    expect(pollCalls).toBe(2)
+    expect(delivered).toEqual([[{ ratingKey: 'u1' }]])
+  })
+
+  it('by-id batches run one at a time', async () => {
+    const order = []
+    let release
+    library.upsertItemsByIds = async (ids) => {
+      order.push(`start ${ids[0]}`)
+      if (ids[0] === 'a') await new Promise(r => { release = r })
+      order.push(`end ${ids[0]}`)
+      return []
+    }
+    const ws = openSocket()
+    await flush()
+    ws.message({ MessageType: 'LibraryChanged', Data: { ItemsAdded: ['a'] } })
+    ws.message({ MessageType: 'LibraryChanged', Data: { ItemsAdded: ['b'] } })
+    await flush()
+    expect(order).toEqual(['start a'])
+    release()
+    await flush(); await flush()
+    expect(order).toEqual(['start a', 'end a', 'start b', 'end b'])
   })
 
   it('a failed by-id fetch falls back to the poll', async () => {
@@ -195,17 +228,22 @@ describe('per-play history from Sessions messages', () => {
     vi.setSystemTime(t0)
     socket.handleSessions([session('tv', movie, 0)])
     expect(socket.trackedPlays()).toBe(1)
+    vi.setSystemTime(t0 + 45_000)
+    socket.handleSessions([session('tv', movie, 45)])
     vi.setSystemTime(t0 + 90_000)
     socket.handleSessions([session('tv', movie, 90)])
     vi.setSystemTime(t0 + 95_000)
     socket.handleSessions([{ Id: 'tv', UserId: 'guid-1', UserName: 'kaleb' }]) // NowPlayingItem gone
     expect(socket.trackedPlays()).toBe(0)
     const [row] = rows()
+    // 90 s observed playing plus the 5 s until it vanished; progress from the last position.
     expect(row).toMatchObject({
       user_id: 'jf_guid-1', rating_key: 'm-1', media_type: 'movie', title: 'Heat', year: 1995,
-      duration: 90, percent_complete: 90, watched_status: 'complete', user_name: 'kaleb', source: 'jellyfin',
+      duration: 95, percent_complete: 90, watched_status: 'complete', user_name: 'kaleb', source: 'jellyfin',
+      origin: 'session', watched_at: Math.floor(t0 / 1000),
     })
-    expect(row.history_id).toBe(`jf:guid-1:m-1:${Math.floor((t0 + 95_000) / 1000)}`)
+    // Identity: user, item, session and start — stable across a reconnect.
+    expect(row.history_id).toBe(`jfs:guid-1:m-1:tv:${Math.floor(t0 / 1000)}`)
   })
 
   it('keys episodes on the series, resolves linked users, and records incomplete plays', () => {
@@ -221,7 +259,7 @@ describe('per-play history from Sessions messages', () => {
     const [row] = rows()
     expect(row).toMatchObject({
       user_id: '777', rating_key: 'e-1', grandparent_rating_key: 's-1', parent_rating_key: 'sea-1', parent_title: 'The Wire',
-      media_type: 'episode', season_number: 1, episode_number: 1, duration: 45, percent_complete: 55, watched_status: 'incomplete',
+      media_type: 'episode', season_number: 1, episode_number: 1, duration: 46, percent_complete: 55, watched_status: 'incomplete',
     })
     db.unlinkJellyfinAccount('jf_guid-1')
   })
@@ -272,6 +310,125 @@ describe('per-play history from Sessions messages', () => {
     socket.handleSessions([])
     const all = rows()
     expect(all).toHaveLength(1)
-    expect(all[0].duration).toBe(40)
+    expect(all[0]).toMatchObject({ duration: 41, origin: 'session' })
+  })
+})
+
+describe('played-time accounting (pauses, seeks, reconnects)', () => {
+  const movie = { Id: 'm-acct', Name: 'Ronin', Type: 'Movie', RunTimeTicks: 2000 * 10_000_000 }
+  const rows = () => db.prepare("SELECT * FROM watch_history WHERE source = 'jellyfin' ORDER BY watched_at, history_id").all()
+  // A session observation: position in seconds (null = the player sent none).
+  const obs = (sid, positionSec, { paused = false, item = movie } = {}) => ({
+    Id: sid, UserId: 'guid-acct', UserName: 'kaleb', NowPlayingItem: item,
+    PlayState: positionSec == null ? { IsPaused: paused } : { PositionTicks: positionSec * 10_000_000, IsPaused: paused },
+  })
+  let t0
+  const at = (sec, list) => { vi.setSystemTime(t0 + sec * 1000); socket.handleSessions(list) }
+  // Observations every 10 s from `from` to `to` (inclusive) for each session,
+  // the position advancing at `rate` from `pos` (null = no position reported).
+  const playFor = (sids, from, to, pos, { rate = 1, paused = false } = {}) => {
+    for (let t = from; t <= to; t += 10) {
+      const p = pos == null ? null : (paused ? pos : pos + (t - from) * rate)
+      at(t, [].concat(sids).map(sid => obs(sid, p, { paused })))
+    }
+  }
+
+  beforeEach(() => {
+    db.prepare("DELETE FROM watch_history").run()
+    db.seedJellyfinUser('jf_guid-acct', 'kaleb', null)
+    t0 = Math.floor(Date.now() / 1000) * 1000
+  })
+
+  it('records nothing for a session paused the whole time', () => {
+    playFor('p1', 0, 3600, 600, { paused: true })
+    at(3601, [])
+    expect(rows()).toEqual([])
+  })
+
+  it('excludes paused time between stretches of playback', () => {
+    playFor('p2', 0, 60, 0)
+    playFor('p2', 61, 661, 61, { paused: true })
+    playFor('p2', 662, 722, 61)
+    at(723, [])
+    expect(rows()).toMatchObject([{ duration: 122, percent_complete: 6 }])
+  })
+
+  it('does not count a forward seek as watched time, even before a long pause', () => {
+    playFor('p3', 0, 30, 0)
+    at(31, [obs('p3', 1830)]) // seek
+    playFor('p3', 32, 3632, 1831, { paused: true })
+    at(3633, [])
+    // Completion still comes from where the player stopped.
+    expect(rows()).toMatchObject([{ duration: 32, percent_complete: 92, watched_status: 'complete' }])
+  })
+
+  it('counts a replayed section after a backward seek', () => {
+    playFor('p4', 0, 120, 0)
+    playFor('p4', 121, 241, 0) // seek back, watch it again
+    at(242, [])
+    expect(rows()).toMatchObject([{ duration: 242, percent_complete: 6 }])
+  })
+
+  it('records wall time at faster playback speeds', () => {
+    playFor('p5', 0, 60, 0, { rate: 2 })
+    at(61, [])
+    expect(rows()).toMatchObject([{ duration: 61, percent_complete: 6 }])
+  })
+
+  it('falls back to playing time when the player reports no position', () => {
+    playFor('p6', 0, 60, null)
+    at(61, [])
+    expect(rows()).toMatchObject([{ duration: 61, percent_complete: 3 }])
+  })
+
+  it('caps the credit for a stretch with no updates before the session vanished', () => {
+    playFor('p7', 0, 60, 0)
+    at(600, []) // nine silent minutes, then gone
+    expect(rows()).toMatchObject([{ duration: 75 }])
+  })
+
+  it('continues one play across a socket reconnect', () => {
+    playFor('p8', 0, 120, 0)
+    vi.setSystemTime(t0 + 121_000)
+    socket.flushPlays() // socket dropped
+    expect(rows()).toMatchObject([{ duration: 121 }])
+    playFor('p8', 180, 300, 178) // reconnected: same session and item
+    at(301, [])
+    const all = rows()
+    expect(all).toHaveLength(1)
+    expect(all[0]).toMatchObject({ duration: 242, watched_at: t0 / 1000, history_id: `jfs:guid-acct:m-acct:p8:${t0 / 1000}` })
+  })
+
+  it('starts a new play when the reconnect comes long after the drop', () => {
+    playFor('p9', 0, 120, 0)
+    vi.setSystemTime(t0 + 121_000)
+    socket.flushPlays()
+    playFor('p9', 1000, 1060, 125)
+    at(1061, [])
+    expect(rows().map(r => r.duration)).toEqual([121, 61])
+  })
+
+  it('keeps two devices playing the same title as two plays', () => {
+    playFor(['tv-a', 'tv-b'], 0, 120, 0)
+    at(121, [])
+    expect(rows().map(r => [r.history_id.split(':')[3], r.duration])).toEqual([['tv-a', 121], ['tv-b', 121]])
+  })
+
+  it('keeps two same-day rewatches as two plays', () => {
+    playFor('p10', 0, 120, 0)
+    at(121, [])
+    playFor('p10', 7200, 7320, 0)
+    at(7321, [])
+    expect(rows().map(r => r.watched_at - t0 / 1000)).toEqual([0, 7200])
+  })
+
+  it('skips a play Playback Reporting already recorded', () => {
+    db.upsertWatchHistoryBatch([{
+      historyId: `jf:guid-acct:m-acct:${t0 / 1000 - 5}`, userId: 'jf_guid-acct', ratingKey: 'm-acct', mediaType: 'movie',
+      title: 'Ronin', watchedAt: t0 / 1000 - 5, duration: 130, source: 'jellyfin', origin: 'plugin',
+    }])
+    playFor('p11', 0, 120, 0)
+    at(121, [])
+    expect(rows().map(r => r.origin)).toEqual(['plugin'])
   })
 })

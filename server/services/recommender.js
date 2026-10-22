@@ -1090,8 +1090,8 @@ function buildTopPicks(scoredMovies, scoredTV, scoredAnime, profile) {
 }
 
 // `sourceFilter` scopes results to one media server ('plex' | 'jellyfin').
-// Pools are built and cached over the union of both libraries; filtering
-// happens at sample time so the nav toggle doesn't force a rebuild.
+// Pools are built and cached over both libraries (each capped per server);
+// filtering happens at sample time so the nav toggle doesn't force a rebuild.
 // `access` (services/libraryAccess) limits the pools to titles the user may
 // see: null is unrestricted; omitted, it is resolved from userId (background
 // warm-up, rec-debug). Routes pass req.libraryAccess (see resolveAccess).
@@ -1196,17 +1196,31 @@ async function getRecommendations(userId, userToken, sourceFilter = null, access
     scoredAnime.sort((a, b) => b.score - a.score);
 
     // Top Picks: diversity-injected blend — buildTopPicks returns full pool sorted by score
-    const topPicksPool = profile
-      ? buildTopPicks(scoredMovies, scoredTV, scoredAnime, profile)
-      : [...scoredMovies.slice(0, 40), ...scoredTV.slice(0, 30), ...scoredAnime.slice(0, 20)]
-          .sort((a, b) => b.score - a.score);
+    const buildPools = (m, t, a) => ({
+      topPicks: profile
+        ? buildTopPicks(m, t, a, profile)
+        : [...m.slice(0, 40), ...t.slice(0, 30), ...a.slice(0, 20)].sort((x, y) => y.score - x.score),
+      movies: m.slice(0, POOL_SIZES.movies),
+      tvShows: t.slice(0, POOL_SIZES.tv),
+      anime: a.slice(0, POOL_SIZES.anime),
+    });
 
-    pools = {
-      topPicks: topPicksPool,
-      movies: scoredMovies.slice(0, POOL_SIZES.movies),
-      tvShows: scoredTV.slice(0, POOL_SIZES.tv),
-      anime: scoredAnime.slice(0, POOL_SIZES.anime),
-    };
+    // Caps apply per media server: the pools are filtered by source at sample
+    // time, so capping the union would let the larger (or higher-scored)
+    // library crowd the other server's rows out entirely.
+    const sourceOf = (i) => i.source || 'plex';
+    const sources = [...new Set([...scoredMovies, ...scoredTV, ...scoredAnime].map(sourceOf))];
+    if (sources.length <= 1) {
+      pools = buildPools(scoredMovies, scoredTV, scoredAnime);
+    } else {
+      const parts = sources.map(s => buildPools(
+        scoredMovies.filter(i => sourceOf(i) === s),
+        scoredTV.filter(i => sourceOf(i) === s),
+        scoredAnime.filter(i => sourceOf(i) === s),
+      ));
+      const merge = (key) => parts.flatMap(p => p[key]).sort((a, b) => b.score - a.score);
+      pools = { topPicks: merge('topPicks'), movies: merge('movies'), tvShows: merge('tvShows'), anime: merge('anime') };
+    }
 
     recCache.set(userIdStr, { pools, builtAt: Date.now(), accessFp });
   }

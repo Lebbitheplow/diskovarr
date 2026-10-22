@@ -8,28 +8,91 @@ const userData = require('./userData');
 // with the admin API key (no session-token dance needed), answers the server's
 // keep-alive protocol, and reconnects with backoff.
 //
-// LibraryChanged events carry the added item ids (Data.ItemsAdded). Small
-// batches are fetched directly by id (library.upsertItemsByIds); anything
-// larger, or a message with no id list, falls back to a debounced
-// pollNewItems() — the same bounded, enabled-folder-aware path the 10-minute
-// fallback poll uses, so request fulfillment and monitor evaluation stay in
-// one place.
-
-const MAX_DIRECT_IDS = 50;
+// LibraryChanged events carry the added and updated item ids (Data.ItemsAdded,
+// Data.ItemsUpdated). Added ids are fetched by id in chunks
+// (library.upsertItemsByIds, which resolves episodes/seasons to their series);
+// updated ids refresh rows already in the library (library.refreshKnownItems).
+// A message with no id list, or a failed fetch, falls back to a debounced
+// pollNewItems() — the same enabled-folder-aware path the 10-minute fallback
+// poll uses, so request fulfillment and monitor evaluation stay in one place.
 
 // ── Per-play watch history from Sessions messages ────────────────────────────
 // After SessionsStart the server pushes the full session list every 1.5 s. We
-// remember what each session is playing; when the item disappears (stopped,
-// switched, session gone) we write one watch_history row with the real
-// played length and progress — Jellyfin's core API only tracks item-level
-// played state, so this is what gives Wrapped/Popular per-play data.
+// follow what each session is playing; when the item disappears (stopped,
+// switched, session gone) we write one watch_history row with the time
+// actually spent playing and the final progress — Jellyfin's core API only
+// tracks item-level played state, so this is what gives Wrapped/Popular
+// per-play data.
+//
+// Played time accumulates between observations while the player is not
+// paused (PlayState.IsPaused), each gap capped so a missed stretch of updates
+// can't claim a long play. When the player reports positions, that time is
+// also bounded by the forward progress playback can explain: a jump further
+// than the elapsed playing time allows (a seek) or a jump backwards is not
+// progress, while a replayed section is. So pauses, seeks and faster playback
+// speeds can't inflate a play. Progress for the row comes from the last
+// reported position.
 const SESSIONS_INTERVAL = '0,1500';
 const MIN_PLAY_SECONDS = 30; // shorter "plays" are channel-surfing noise
-const nowPlaying = new Map(); // sessionId → { item, userId, userName, userThumb, startTicks, maxTicks, startedAt, lastSeen }
+const MAX_GAP_SECONDS = 60; // most playing time one observation gap may add
+const MAX_PLAYBACK_RATE = 2.5; // fastest playback speed treated as progress
+const REPORT_SLACK_SECONDS = 15; // clients report their position every ~10 s
+const RESUME_GAP_SECONDS = 5 * 60; // a play flushed by a socket drop resumes within this
+const nowPlaying = new Map(); // sessionId → play (see startPlay)
+const suspended = new Map(); // `${sessionId}|${itemId}` → { play, at } — flushed by a socket drop
 
 function ticksOf(v) {
   const n = Number(v);
   return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+// The reported position, or null when the player sent none.
+function positionOf(s) {
+  const raw = s.PlayState?.PositionTicks;
+  if (raw == null || raw === '') return null;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
+function startPlay(s, item, itemId, pos, now) {
+  return {
+    sessionId: String(s.Id),
+    item: { ...item, Id: itemId },
+    userId: String(s.UserId),
+    userName: s.UserName || '',
+    userThumb: client.getAvatarPath(String(s.UserId), s.UserPrimaryImageTag || null),
+    startedAt: now, // identity and watched_at of the play
+    lastObsAt: now,
+    paused: !!s.PlayState?.IsPaused,
+    playingSec: 0, // wall time observed while not paused
+    progressSec: 0, // forward position movement that playback explains
+    positionsSeen: pos != null,
+    anchorTicks: pos, // last distinct reported position…
+    anchorPlayingSec: 0, // …and playingSec when it was first seen
+    lastTicks: pos ?? 0,
+  };
+}
+
+// Fold one observation (at `now`) into the play's timers.
+function observe(play, now, pos, paused) {
+  const gap = Math.min(Math.max(0, now - play.lastObsAt), MAX_GAP_SECONDS);
+  if (!play.paused) play.playingSec += gap;
+  if (pos != null) {
+    if (play.anchorTicks == null) {
+      play.anchorTicks = pos;
+      play.anchorPlayingSec = play.playingSec;
+    } else if (pos !== play.anchorTicks) {
+      const delta = (pos - play.anchorTicks) / 10_000_000;
+      const window = play.playingSec - play.anchorPlayingSec;
+      if (delta > 0 && delta <= window * MAX_PLAYBACK_RATE + REPORT_SLACK_SECONDS) play.progressSec += delta;
+      play.anchorTicks = pos;
+      play.anchorPlayingSec = play.playingSec;
+    }
+    play.positionsSeen = true;
+    play.lastTicks = pos;
+  }
+  play.paused = paused;
+  play.lastObsAt = now;
 }
 
 function trackSession(s, now) {
@@ -41,39 +104,45 @@ function trackSession(s, now) {
   const trackable = itemId && (item.Type === 'Movie' || item.Type === 'Episode') && s.UserId;
   if (active && active.item.Id !== itemId) finalizePlay(sid, active, now); // switched or stopped
   if (!trackable) return;
-  const pos = ticksOf(s.PlayState?.PositionTicks);
+  const pos = positionOf(s);
+  const paused = !!s.PlayState?.IsPaused;
   const current = nowPlaying.get(sid);
   if (current && current.item.Id === itemId) {
-    current.maxTicks = Math.max(current.maxTicks, pos);
-    current.lastSeen = now;
+    observe(current, now, pos, paused);
     return;
   }
-  nowPlaying.set(sid, {
-    item: { ...item, Id: itemId },
-    userId: String(s.UserId),
-    userName: s.UserName || '',
-    userThumb: client.getAvatarPath(String(s.UserId), s.UserPrimaryImageTag || null),
-    startTicks: pos,
-    maxTicks: pos,
-    startedAt: now,
-    lastSeen: now,
-  });
+  // Same session and item back right after a socket drop: one play, not two.
+  const key = `${sid}|${itemId}`;
+  const resumed = suspended.get(key);
+  suspended.delete(key);
+  const age = resumed ? now - resumed.at : -1;
+  if (resumed && age >= 0 && age <= RESUME_GAP_SECONDS && resumed.play.userId === String(s.UserId)) {
+    const play = resumed.play;
+    Object.assign(play, { lastObsAt: now, paused, anchorTicks: pos, anchorPlayingSec: play.playingSec });
+    if (pos != null) { play.positionsSeen = true; play.lastTicks = pos; }
+    nowPlaying.set(sid, play);
+    return;
+  }
+  nowPlaying.set(sid, startPlay(s, item, itemId, pos, now));
 }
 
-function finalizePlay(sid, play, now) {
+// `suspend`: the socket is going away, not the play — keep it resumable.
+function finalizePlay(sid, play, now, { suspend = false } = {}) {
   nowPlaying.delete(sid);
+  observe(play, now, null, play.paused); // the stretch since the last observation
+  if (suspend) suspended.set(`${sid}|${play.item.Id}`, { play, at: now });
   try {
     const runtimeTicks = ticksOf(play.item.RunTimeTicks);
-    const wall = Math.max(0, now - play.startedAt);
-    // Progress made this play (position delta) — bounded by wall-clock time so a
-    // seek to the end can't claim a full watch — falls back to wall time when
-    // the player never reported positions.
-    const progressed = Math.max(0, play.maxTicks - play.startTicks) / 10_000_000;
-    const duration = Math.round(progressed > 0 ? Math.min(progressed, wall + 5) : wall);
+    const duration = Math.round(play.positionsSeen
+      ? Math.min(play.playingSec, play.progressSec + REPORT_SLACK_SECONDS)
+      : play.playingSec);
     if (duration < MIN_PLAY_SECONDS) return;
     const canonicalId = db.resolveCanonicalUserId(`jf_${play.userId}`);
-    const row = userData.historyRowFor(play.userId, canonicalId, play.userName, play.userThumb, play.item, { ts: now, duration });
-    if (runtimeTicks) row.percentComplete = Math.min(100, Math.round((play.maxTicks / runtimeTicks) * 100));
+    const row = userData.historyRowFor(play.userId, canonicalId, play.userName, play.userThumb, play.item, {
+      ts: play.startedAt, duration, origin: 'session',
+      historyId: `jfs:${play.userId}:${play.item.Id}:${play.sessionId}:${play.startedAt}`,
+    });
+    if (runtimeTicks && play.positionsSeen) row.percentComplete = Math.min(100, Math.round((play.lastTicks / runtimeTicks) * 100));
     row.watchedStatus = row.percentComplete >= userData.COMPLETE_PERCENT ? 'complete' : 'incomplete';
     userData.replaceJellyfinHistoryRow(row);
     console.log(`[jellyfin ws] play recorded: "${row.parentTitle ? `${row.parentTitle} — ` : ''}${row.title}" ${duration}s (${row.percentComplete}%) for ${canonicalId}`);
@@ -85,6 +154,9 @@ function finalizePlay(sid, play, now) {
 function handleSessions(list) {
   if (!Array.isArray(list)) return;
   const now = Math.floor(Date.now() / 1000);
+  for (const [key, entry] of [...suspended]) {
+    if (now - entry.at > RESUME_GAP_SECONDS) suspended.delete(key);
+  }
   const seen = new Set();
   for (const s of list) {
     try {
@@ -100,10 +172,12 @@ function handleSessions(list) {
   }
 }
 
-// Flush everything still playing (socket closing / server stopping).
+// Flush everything still playing (socket closing / server stopping). Each play
+// is recorded now and stays resumable for RESUME_GAP_SECONDS, so a reconnect
+// continues it under the same row instead of starting a second play.
 function flushPlays() {
   const now = Math.floor(Date.now() / 1000);
-  for (const [sid, play] of [...nowPlaying]) finalizePlay(sid, play, now);
+  for (const [sid, play] of [...nowPlaying]) finalizePlay(sid, play, now, { suspend: true });
 }
 
 let ws = null;
@@ -161,15 +235,29 @@ function triggerPoll(reason) {
   console.log(`[jellyfin ws] LibraryChanged (${reason}) — polling shortly`);
 }
 
+// By-id work runs one batch at a time, so an import burst queues up instead
+// of fanning out concurrent requests.
+let byIdQueue = Promise.resolve();
+function enqueue(task) {
+  byIdQueue = byIdQueue.then(task, task);
+  return byIdQueue;
+}
+
 // Direct by-id upsert; a failure degrades to the poll fallback.
 function fetchAdded(ids) {
   console.log(`[jellyfin ws] LibraryChanged (${ids.length} added) — fetching by id`);
-  return library.upsertItemsByIds(ids)
+  return enqueue(() => library.upsertItemsByIds(ids)
     .then(fresh => deliver(fresh, 'LibraryChanged'))
     .catch(err => {
       console.warn('[jellyfin ws] Fetch by id failed, falling back to poll:', err.message);
       triggerPoll('fallback');
-    });
+    }));
+}
+
+function refreshUpdated(ids) {
+  return enqueue(() => library.refreshKnownItems(ids)
+    .then(fresh => deliver(fresh, 'LibraryChanged update'))
+    .catch(err => console.warn('[jellyfin ws] Refresh of updated items failed:', err.message)));
 }
 
 function handleMessage(raw) {
@@ -188,9 +276,9 @@ function handleMessage(raw) {
   } else if (msg.MessageType === 'LibraryChanged') {
     const added = msg.Data?.ItemsAdded;
     if (!Array.isArray(added)) return triggerPoll('no id list'); // unexpected shape — be safe
-    if (added.length === 0) return; // updates/removals only — nothing to add
-    if (added.length > MAX_DIRECT_IDS) return triggerPoll(`${added.length} added`);
-    return fetchAdded(added.map(String));
+    const updated = Array.isArray(msg.Data?.ItemsUpdated) ? msg.Data.ItemsUpdated.map(String) : [];
+    if (added.length > 0) fetchAdded(added.map(String));
+    if (updated.length > 0) refreshUpdated(updated);
   }
 }
 

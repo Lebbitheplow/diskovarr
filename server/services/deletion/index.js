@@ -28,12 +28,21 @@ function buildContext() {
 // Sections whose items may be deletion candidates. Jellyfin sections join the
 // pool only while Jellyfin is enabled: their play stats come from the mirrored
 // watch_history (source='jellyfin') and the fallback delete path is
-// Jellyfin's own DELETE /Items/{id}.
+// Jellyfin's own DELETE /Items/{id}. They follow the Jellyfin sync's own rule
+// (jellyfin/library.js isFolderEnabled): every synced folder counts unless the
+// admin explicitly disabled it, including folders never listed in settings.
 function candidateSections() {
   const sectionIds = new Set([String(plexService.MOVIES_SECTION), String(plexService.TV_SECTION)]);
-  try { for (const id of db.getEnabledSectionIds()) sectionIds.add(String(id)); } catch {}
+  try { for (const id of db.getEnabledSectionIds()) if (!String(id).startsWith('jf_')) sectionIds.add(String(id)); } catch {}
   const jellyfinEnabled = (() => { try { return require('../jellyfin').isEnabled(); } catch { return false; } })();
-  return [...sectionIds].filter(id => jellyfinEnabled || !id.startsWith('jf_'));
+  if (jellyfinEnabled) {
+    const library = require('../jellyfin/library');
+    const synced = db.prepare("SELECT DISTINCT section_id FROM library_items WHERE source = 'jellyfin' AND section_id LIKE 'jf\\_%' ESCAPE '\\'").all();
+    for (const { section_id: sid } of synced) {
+      if (library.isFolderEnabled(String(sid).slice(library.SECTION_PREFIX.length))) sectionIds.add(String(sid));
+    }
+  }
+  return [...sectionIds];
 }
 
 // An item belongs to its section's server (a stray cross-source row never does).

@@ -119,6 +119,7 @@ export default function Wrapped() {
   const { user, isPlexLinked, hasJellyfin, availableSources } = useAuth()
   const canPlaylist = isPlexLinked || hasJellyfin
   const hasPlexSource = !availableSources || availableSources.includes('plex')
+  const hasJellyfinSource = !!availableSources?.includes('jellyfin')
   const { success: toastSuccess, error: toastError } = useToast() || {}
   const isAdmin = !!(user?.isAdmin || user?.isElevated)
 
@@ -204,6 +205,19 @@ export default function Wrapped() {
       const { data } = await wrappedApi.backfill()
       toastSuccess?.(`${t('Backfill complete')} — ${data.rows} ${t('rows')}`)
     } catch { toastError?.(t('Backfill failed — check the Tautulli connection')) }
+    setAdminWorking(false)
+  }
+
+  // Jellyfin's counterpart: re-mirror every user's history now. Without the
+  // Playback Reporting plugin Jellyfin only knows each title's latest play.
+  const refreshJellyfin = async () => {
+    setAdminWorking(true)
+    try {
+      const { data } = await wrappedApi.refreshJellyfinHistory()
+      toastSuccess?.(data.playbackReporting
+        ? t('Jellyfin history refreshed for {{n}} user(s), with every play from Playback Reporting', { n: data.users })
+        : t('Jellyfin history refreshed for {{n}} user(s). Only each title’s latest play is available; install the Playback Reporting plugin for full history.', { n: data.users }))
+    } catch { toastError?.(t('History refresh failed — check the Jellyfin connection')) }
     setAdminWorking(false)
   }
 
@@ -296,6 +310,7 @@ export default function Wrapped() {
           <span>{t('Admin')}:</span>
           <button onClick={recompute} disabled={adminWorking}>{t('Recompute this year')}</button>
           {hasPlexSource && <button onClick={backfill} disabled={adminWorking}>{t('Backfill full Tautulli history')}</button>}
+          {hasJellyfinSource && <button onClick={refreshJellyfin} disabled={adminWorking}>{t('Refresh Jellyfin history')}</button>}
         </div>
       )}
     </div>

@@ -256,6 +256,7 @@ function LibrarySyncSection({ stats, syncStatus, autoSync, onSyncNow, onAutoSync
 function LibrarySelectionSection({ onToast }) {
   const { t } = useTranslation()
   const [libraries, setLibraries] = useState([])
+  const [libErrors, setLibErrors] = useState({})
   const [localSections, setLocalSections] = useState([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -269,6 +270,7 @@ function LibrarySelectionSection({ onToast }) {
       const res = await adminSync.getLibraries()
       const sections = res.data.sections || []
       setLibraries(sections)
+      setLibErrors(res.data.errors || {})
       setLocalSections(sections.map(s => ({ id: s.id, enabled: s.enabled })))
       setHasChanges(false)
     } catch (err) {
@@ -303,6 +305,7 @@ function LibrarySelectionSection({ onToast }) {
       await adminSync.setLibraries(localSections)
       const res = await adminSync.getLibraries()
       setLibraries(res.data.sections || [])
+      setLibErrors(res.data.errors || {})
       setLocalSections((res.data.sections || []).map(s => ({ id: s.id, enabled: s.enabled })))
       setHasChanges(false)
       setModalOpen(false)
@@ -322,6 +325,9 @@ function LibrarySelectionSection({ onToast }) {
   if (loading) return null
 
   const enabledCount = libraries.filter(l => l.enabled).length
+  // A server that couldn't list its libraries (the other one still did)
+  const libErrorText = Object.entries(libErrors)
+    .map(([src, msg]) => t('{{server}} libraries could not be listed: {{error}}', { server: src === 'jellyfin' ? 'Jellyfin' : 'Plex', error: msg }))
 
   return (
     <div style={{ marginTop: 24, paddingTop: 20, borderTop: '1px solid var(--border)' }}>
@@ -347,6 +353,9 @@ function LibrarySelectionSection({ onToast }) {
           ? t('No Movie or TV libraries found. Make sure Plex or Jellyfin is configured in the Connections tab.')
           : `${enabledCount} of ${libraries.length} ${libraries.length === 1 ? 'library' : 'libraries'} synced.`}
       </div>
+      {libErrorText.map(text => (
+        <div key={text} style={{ paddingTop: 4, color: 'var(--danger, #e57373)', fontSize: '0.8rem' }}>{text}</div>
+      ))}
 
       {modalOpen && (
         <div
@@ -399,7 +408,7 @@ function LibrarySelectionSection({ onToast }) {
                           <div className="library-item" key={lib.id}>
                             <div className="library-item-info">
                               <span className={`library-type-badge ${lib.type === 'movie' ? 'type-movie' : 'type-tv'}`}>
-                                {lib.type === 'movie' ? 'Movie' : 'TV'}
+                                {lib.type === 'movie' ? 'Movie' : lib.type === 'mixed' ? t('Mixed') : 'TV'}
                               </span>
                               <span className="library-item-name">{lib.title}</span>
                               {lib.enabled && lib.itemCount > 0 && (

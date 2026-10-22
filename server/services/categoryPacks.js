@@ -144,10 +144,36 @@ async function plexNetworks(sectionId) {
   return out;
 }
 
-// Planned collections for a library pack: [{ pack, packKey, media, title, count, rule }].
-// Counts come from the primary server (Plex when configured, else Jellyfin).
+// Servers a pack is planned for. Each one is counted on its own, so a
+// category that meets the minimum on only one server is still created there.
+function packSources() {
+  const sources = [];
+  if (plexCollections.plexConfigured()) sources.push('plex');
+  if (jellyfinEnabled()) sources.push('jellyfin');
+  return sources;
+}
+
+// Planned collections for a library pack: [{ pack, packKey, media, title,
+// count, rule, providers }]. `providers` lists the servers where the entry
+// meets cfg.minItems; `count` is the largest of those servers' counts.
 async function planPack(pack, cfg) {
-  const source = plexCollections.plexConfigured() ? 'plex' : 'jellyfin';
+  const merged = new Map();
+  for (const source of packSources()) {
+    for (const p of await planSource(source, pack, cfg)) {
+      if (p.count < cfg.minItems) continue;
+      const key = `${p.packKey}:${p.media}`;
+      const entry = merged.get(key);
+      // Plex plans first, so a shared entry keeps its rule (network ids).
+      if (!entry) merged.set(key, { ...p, providers: [source] });
+      else { entry.providers.push(source); entry.count = Math.max(entry.count, p.count); }
+    }
+  }
+  // Movies before TV; within a type each server's own order (Plex first).
+  return [...merged.values()].sort((a, b) => (a.media === b.media ? 0 : a.media === 'movie' ? -1 : 1));
+}
+
+// One server's candidate collections for a pack, before the minimum applies.
+async function planSource(source, pack, cfg) {
   const item = (packKey, media, title, count, rule) => ({ pack, packKey: String(packKey), media, title, count, rule });
   const planned = [];
   const medias = mediaList(source);
@@ -184,7 +210,7 @@ async function planPack(pack, cfg) {
       planned.push(item(n.name, 'tv', n.name, n.c, { kind: 'network', id: n.id, name: n.name }));
     }
   }
-  return planned.filter(p => p.count >= cfg.minItems);
+  return planned;
 }
 
 // Titles other packs already own, so a preview/sync of one pack dedupes the
@@ -202,7 +228,7 @@ async function previewPack(pack) {
   if (pack === 'seasonal') return seasonalStatus();
   const cfg = getConfig()[pack];
   return policy.dedupeTitles(await planPack(pack, cfg), takenByOtherPacks(pack))
-    .map(({ packKey, media, title, count }) => ({ packKey, media, title, count }));
+    .map(({ packKey, media, title, count, providers }) => ({ packKey, media, title, count, providers }));
 }
 
 // ── Plex / Jellyfin apply ─────────────────────────────────────────────────────
@@ -241,6 +267,23 @@ async function applyPlex(p, row, cfg, collectionsByTitle) {
   return key;
 }
 
+// Static BoxSet for one planned entry (Jellyfin has no smart collections, and
+// the episode-level New Episodes row is never planned for it). A new BoxSet
+// gets the pack artwork; the sort name groups packs in the Collections view
+// the way Plex's titleSort does. Hub promotion has no Jellyfin equivalent.
+async function applyJellyfin(p, existingId) {
+  const jfc = jellyfinCollections();
+  const id = await jfc.syncTypeBoxSet({ title: p.title, itemIds: jellyfinIdsFor(p.media, p.rule), existingId });
+  if (!id) return null;
+  if (id !== existingId) {
+    await jfc.setBoxSetImage(id, policy.posterUrl(p.pack, p.packKey, p.title))
+      .catch(e => logger.warn(`[categories] artwork for "${p.title}" on Jellyfin: ${e.message}`));
+  }
+  await jfc.updateBoxSetMetadata(id, { forcedSortName: policy.sortTitle(p.pack, p.title) })
+    .catch(e => logger.warn(`[categories] sort name for "${p.title}" on Jellyfin: ${e.message}`));
+  return id;
+}
+
 async function removeRow(row) {
   if (row.plexKey && plexCollections.plexConfigured()) await plexCollections.deleteCollection(row.plexKey);
   if (row.jfId && jellyfinEnabled()) await jellyfinCollections().deleteBoxSet(row.jfId);
@@ -270,13 +313,18 @@ async function syncLibraryPack(pack, taken) {
     let plexKey = row?.plexKey || null;
     let jfId = row?.jfId || null;
     const errors = [];
+    // Each server keeps the collection only while it qualifies there; the
+    // other server's copy is removed on its own (delete_below_minimum).
     if (plexCollections.plexConfigured()) {
-      try { plexKey = await applyPlex(p, row, cfg, collectionsByTitle); }
-      catch (e) { errors.push(`plex: ${e.message}`); }
-    }
-    if (jellyfinEnabled() && p.rule.kind !== 'new_episodes') {
       try {
-        jfId = await jellyfinCollections().syncTypeBoxSet({ title: p.title, itemIds: jellyfinIdsFor(p.media, p.rule), existingId: jfId });
+        if (p.providers.includes('plex')) plexKey = await applyPlex(p, row, cfg, collectionsByTitle);
+        else if (plexKey) { await plexCollections.deleteCollection(plexKey); plexKey = null; }
+      } catch (e) { errors.push(`plex: ${e.message}`); }
+    }
+    if (jellyfinEnabled()) {
+      try {
+        if (p.providers.includes('jellyfin')) jfId = await applyJellyfin(p, jfId);
+        else if (jfId) { await jellyfinCollections().deleteBoxSet(jfId); jfId = null; }
       } catch (e) { errors.push(`jellyfin: ${e.message}`); }
     }
     if (!row && (plexKey || jfId)) summary.created++;

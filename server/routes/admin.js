@@ -192,15 +192,23 @@ router.post('/sync/library', requireAdmin, async (req, res) => {
   // Run in background — respond immediately
   res.json({ success: true, message: 'Library sync started' });
 
+  // Each configured server syncs independently: one being down (or absent)
+  // never stops the other. Failures are reported per server in lastSyncError.
+  const failures = [];
   try {
-    plexService.invalidateCache();
-    const enabledIds = db.getEnabledSectionIds().filter(id => !String(id).startsWith('jf_'));
-    await plexService.warmCache(enabledIds);
-    // Jellyfin sections resync too (no-op when Jellyfin is disabled)
-    try {
-      await require('../services/jellyfin').resyncAll();
-    } catch (jfErr) {
-      console.warn('[Admin] Jellyfin library sync failed:', jfErr.message);
+    if (plexService.isConfigured()) {
+      try {
+        plexService.invalidateCache();
+        const enabledIds = db.getEnabledSectionIds().filter(id => !String(id).startsWith('jf_'));
+        await plexService.warmCache(enabledIds);
+      } catch (err) {
+        failures.push(`Plex: ${err.message}`);
+      }
+    }
+    const jellyfin = require('../services/jellyfin');
+    if (jellyfin.isEnabled()) {
+      try { await jellyfin.resyncAll(); }
+      catch (err) { failures.push(`Jellyfin: ${err.message}`); }
     }
     recommender.invalidateAllCaches();
     discoverRecommender.invalidateAllCaches();
@@ -212,10 +220,12 @@ router.post('/sync/library', requireAdmin, async (req, res) => {
       console.warn('[Admin] Fulfillment check after sync failed:', fulfillErr.message);
     }
 
-    console.log('[Admin] Manual library sync completed');
-  } catch (err) {
-    lastSyncError = err.message;
-    console.error('[Admin] Library sync error:', err.message);
+    if (failures.length) {
+      lastSyncError = failures.join('; ');
+      console.error('[Admin] Library sync error:', lastSyncError);
+    } else {
+      console.log('[Admin] Manual library sync completed');
+    }
   } finally {
     syncInProgress = false;
   }
@@ -235,9 +245,26 @@ router.post('/sync/auto/disable', requireAdmin, (req, res) => {
 
 // ── Library section management ────────────────────────────────────────────────
 
+// Lists each configured server's libraries independently. A server that fails
+// is reported in `errors` (keyed by source) while the other's libraries still
+// list; only when every configured server fails is it a 500.
 router.get('/sync/libraries', requireAdmin, async (req, res) => {
   try {
-    const plexSections = await plexService.getPlexSections();
+    const jellyfin = require('../services/jellyfin');
+    const errors = {};
+    const [plexSections, jfFolders] = await Promise.all([
+      plexService.isConfigured()
+        ? plexService.getPlexSections().catch(err => { errors.plex = err.message; return []; })
+        : [],
+      jellyfin.isEnabled()
+        ? jellyfin.getFolders().catch(err => { errors.jellyfin = err.message; return []; })
+        : [],
+    ]);
+    const configured = (plexService.isConfigured() ? 1 : 0) + (jellyfin.isEnabled() ? 1 : 0);
+    if (configured > 0 && Object.keys(errors).length === configured) {
+      return res.status(500).json({ error: 'Failed to fetch library sections', message: Object.values(errors).join('; '), errors });
+    }
+    for (const [source, message] of Object.entries(errors)) console.warn(`[Admin] ${source} library list failed:`, message);
     const enabledSections = db.getSyncEnabledSections();
     const enabledIds = new Set(enabledSections.filter(s => s.enabled).map(s => String(s.id)));
     const explicitIds = new Set(enabledSections.map(s => String(s.id)));
@@ -261,20 +288,12 @@ router.get('/sync/libraries', requireAdmin, async (req, res) => {
       };
     };
 
-    const result = plexSections.map(s => sectionRow(s, 'plex'));
+    const result = [
+      ...plexSections.map(s => sectionRow(s, 'plex')),
+      ...jfFolders.map(f => sectionRow({ id: jellyfin.SECTION_PREFIX + f.id, title: f.title, type: f.type }, 'jellyfin')),
+    ];
 
-    const jellyfin = require('../services/jellyfin');
-    if (jellyfin.isEnabled()) {
-      try {
-        const folders = await jellyfin.getFolders();
-        result.push(...folders.map(f => sectionRow(
-          { id: jellyfin.SECTION_PREFIX + f.id, title: f.title, type: f.type }, 'jellyfin')));
-      } catch (err) {
-        console.warn('[Admin] Jellyfin folder list failed:', err.message);
-      }
-    }
-
-    res.json({ sections: result });
+    res.json({ sections: result, errors });
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch library sections', message: err.message });
   }
@@ -331,18 +350,26 @@ router.post('/sync/libraries', requireAdmin, async (req, res) => {
       syncInProgress = true;
       lastSyncError = null;
       (async () => {
+        // Per server, like the manual sync: a Plex failure doesn't skip Jellyfin
+        const failures = [];
         try {
           const plexIds = newlyEnabledIds.filter(id => !id.startsWith('jf_'));
-          if (plexIds.length > 0) await plexService.warmCache(plexIds);
+          if (plexIds.length > 0) {
+            try { await plexService.warmCache(plexIds); }
+            catch (err) { failures.push(`Plex: ${err.message}`); }
+          }
           if (newlyEnabledIds.some(id => id.startsWith('jf_'))) {
-            await require('../services/jellyfin').resyncAll();
+            try { await require('../services/jellyfin').resyncAll(); }
+            catch (err) { failures.push(`Jellyfin: ${err.message}`); }
           }
           recommender.invalidateAllCaches();
           discoverRecommender.invalidateAllCaches();
-          console.log(`[Admin] Auto-synced newly-enabled libraries: ${newlyEnabledIds.join(', ')}`);
-        } catch (err) {
-          lastSyncError = err.message;
-          console.error('[Admin] Auto-sync of newly-enabled libraries failed:', err.message);
+          if (failures.length) {
+            lastSyncError = failures.join('; ');
+            console.error('[Admin] Auto-sync of newly-enabled libraries failed:', lastSyncError);
+          } else {
+            console.log(`[Admin] Auto-synced newly-enabled libraries: ${newlyEnabledIds.join(', ')}`);
+          }
         } finally {
           syncInProgress = false;
         }
@@ -679,8 +706,7 @@ router.post('/connections/save', requireAdmin, (req, res) => {
     // Start/stop/reconnect the realtime LibraryChanged socket to match the settings
     try { require('../services/jellyfin/socket').sync(); } catch (e) { console.warn('[jellyfin ws] sync failed:', e.message); }
     if (jellyfin.isEnabled()) {
-      jellyfin.resyncAll()
-        .then(() => jellyfin.syncAllUsers())
+      jellyfin.syncLibraryAndUsers()
         .catch(e => console.warn('[jellyfin] post-save sync failed:', e.message));
     }
   }

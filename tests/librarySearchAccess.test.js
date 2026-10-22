@@ -72,6 +72,7 @@ const keysOf = (items) => items.map(i => i.ratingKey).sort()
 const byId = (list) => Object.fromEntries(list.map(r => [`${r.tmdbId}:${r.mediaType}`, r]))
 
 beforeAll(async () => {
+  db.setSetting('plex_url', 'http://plex.test:32400') // the fixture's sections live on a configured Plex
   for (const id of [OWNER, BASIC, TUBE, KID, NOSNAP, 'boss']) db.upsertKnownUser(id, `user${id}`, null, null)
   db.setOwnerUserId(OWNER)
   await h.start()

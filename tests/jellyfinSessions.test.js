@@ -147,4 +147,28 @@ describe('playlists.createPlaylistWithItems', () => {
     mockFetch(() => ({ Items: [] }))
     await expect(playlists.createPlaylistWithItems('u1', 'x', [])).rejects.toThrow(/No playlist items/)
   })
+
+  // JF-06: the same-name lookup used to stop at 200 playlists
+  const playlistPages = (count, failAt = null) => (pathname, params, opts) => {
+    if (pathname === '/Users/u1/Items' && params.get('IncludeItemTypes') === 'Playlist') {
+      const start = Number(params.get('StartIndex') || 0)
+      if (failAt !== null && start >= failAt) throw new Error('Jellyfin API error 503 for /Users/u1/Items')
+      const all = Array.from({ length: count }, (_, i) => ({ Id: `pl-${i}`, Name: i === count - 1 ? 'Diskovarr Wrapped 2026' : `List ${i}` }))
+      return { Items: all.slice(start, start + Number(params.get('Limit'))), TotalRecordCount: count }
+    }
+    if (pathname === '/Playlists' && opts.method === 'POST') return { Id: 'new-pl' }
+    return undefined
+  }
+
+  it('finds the old playlist past the first page and replaces it', async () => {
+    const calls = mockFetch(playlistPages(450))
+    await playlists.createPlaylistWithItems('u1', 'Diskovarr Wrapped 2026', ['movie-1'])
+    expect(calls.filter(c => c.method === 'DELETE').map(c => c.path)).toEqual(['/Items/pl-449'])
+  })
+
+  it('a failed lookup page aborts instead of creating a duplicate', async () => {
+    const calls = mockFetch(playlistPages(450, 200))
+    await expect(playlists.createPlaylistWithItems('u1', 'Diskovarr Wrapped 2026', ['movie-1'])).rejects.toThrow(/503/)
+    expect(calls.some(c => c.path === '/Playlists')).toBe(false)
+  })
 })

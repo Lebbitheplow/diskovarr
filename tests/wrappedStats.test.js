@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -240,5 +240,168 @@ describe('pickShowBuddy', () => {
   })
   it('returns null when the user is not among the watchers', () => {
     expect(wrapped.pickShowBuddy('ghost', new Map([['a', 1], ['b', 2]]))).toBe(null)
+  })
+})
+
+// ── Jellyfin history feeding Wrapped ─────────────────────────────────────────
+
+describe('Wrapped totals from a Jellyfin user across repeated syncs', () => {
+  const db = nodeRequire('../server/db/database.js')
+  const client = nodeRequire('../server/services/jellyfin/client.js')
+  const userData = nodeRequire('../server/services/jellyfin/userData.js')
+  const pad = (n) => String(n).padStart(2, '0')
+  const local = (ts) => {
+    const d = new Date(ts * 1000)
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+  }
+
+  it('counts each real play once and keeps seconds/plays stable', async () => {
+    db.setSetting('jellyfin_url', 'http://jellyfin.test:8096')
+    db.setSetting('jellyfin_api_key', 'test-key')
+    db.setSetting('jellyfin_enabled', '1')
+    db.seedJellyfinUser('jf_wrap-1', 'wrapper', null)
+    const T = Math.floor(new Date(2025, 5, 14, 20, 0).getTime() / 1000)
+    const movie = { Id: 'w-mv', Type: 'Movie', Name: 'Collateral', RunTimeTicks: 3600 * 10_000_000 }
+    const episode = { Id: 'w-ep', Type: 'Episode', Name: 'Pilot', SeriesId: 'w-show', RunTimeTicks: 1800 * 10_000_000 }
+
+    // The websocket tracker saw the first play; Playback Reporting has both.
+    userData.replaceJellyfinHistoryRow(userData.historyRowFor('wrap-1', 'jf_wrap-1', 'wrapper', null, movie,
+      { ts: T + 15, duration: 2900, origin: 'session', historyId: `jfs:wrap-1:w-mv:tv:${T + 15}` }))
+    client.jfFetch = async (p) => {
+      const [pathname, qs = ''] = p.split('?')
+      const params = new URLSearchParams(qs)
+      if (pathname === '/user_usage_stats/submit_custom_query') {
+        return { colums: ['DateCreated', 'ItemId', 'PlayDuration', 'UserId', 'ItemType', 'ItemName'], results: [
+          [local(T), 'w-mv', '3000', 'wrap-1', 'Movie', 'Collateral'],          // 83%: qualifies on time
+          [local(T + 7200), 'w-mv', '3600', 'wrap-1', 'Movie', 'Collateral'],   // same-day rewatch
+        ] }
+      }
+      const key = `${params.get('Filters')}:${params.get('IncludeItemTypes')}`
+      const lists = {
+        'IsPlayed:Movie': [{ ...movie, UserData: { Played: true, LastPlayedDate: new Date((T + 7200) * 1000).toISOString() } }],
+        'IsPlayed:Episode': [{ ...episode, UserData: { Played: true, LastPlayedDate: new Date((T + 86400) * 1000).toISOString() } }],
+      }
+      const items = lists[key] || []
+      return { Items: items, TotalRecordCount: items.length }
+    }
+
+    const totals = []
+    for (let i = 0; i < 3; i++) {
+      await userData.probePlaybackReporting(true)
+      await userData.syncUserData({ id: 'wrap-1', name: 'wrapper', primaryImageTag: null })
+      wrapped.computeWrappedYear(2025)
+      totals.push(JSON.parse(db.prepare('SELECT payload FROM wrapped_global WHERE year = 2025').get().payload).totals)
+    }
+    // Two plugin plays of the movie (the websocket copy and the stand-in drop
+    // out) plus the episode's stand-in.
+    expect(totals[0]).toMatchObject({ plays: 3, seconds: 3000 + 3600 + 1800 })
+    expect(totals[1]).toEqual(totals[0])
+    expect(totals[2]).toEqual(totals[0])
+  })
+})
+
+// ── Playlist target + Jellyfin history refresh (JF-18) ───────────────────────
+
+describe('Wrapped playlist target (JF-18)', () => {
+  const express = nodeRequire('../server/node_modules/express')
+  const db = nodeRequire('../server/db/database.js')
+  const plex = nodeRequire('../server/services/plex.js')
+  const jellyfin = nodeRequire('../server/services/jellyfin/index.js')
+  const jfPlaylists = nodeRequire('../server/services/jellyfin/playlists.js')
+  const router = nodeRequire('../server/routes/wrapped.js')
+  let server, base
+
+  const lib = (ratingKey, type, tmdbId, source, title) => ({
+    ratingKey, sectionId: source === 'plex' ? '1' : 'jf_x', title, year: 2015, thumb: null, art: null, type,
+    genres: [], directors: [], cast: [], audienceRating: 0, contentRating: '', addedAt: 0, summary: '',
+    rating: 0, ratingImage: '', audienceRatingImage: '', studio: '', tmdbId, source,
+  })
+  const pick = (key, title) => ({ ratingKey: key, libraryKey: key, title, year: 2015, seconds: 9000, plays: 2 })
+
+  beforeAll(async () => {
+    db.setSetting('jellyfin_url', 'http://jellyfin.test:8096')
+    db.setSetting('jellyfin_api_key', 'admin-key')
+    db.setSetting('jellyfin_enabled', '1')
+    db.upsertManyItems([
+      lib('55', 'movie', '100', 'plex', 'Shared Movie'), lib('jf-1', 'movie', '100', 'jellyfin', 'Shared Movie'),
+      lib('jf-2', 'movie', '200', 'jellyfin', 'Jellyfin Only'),
+      lib('77', 'show', '300', 'plex', 'Shared Show'), lib('jf-s', 'show', '300', 'jellyfin', 'Shared Show'),
+    ])
+    // History keys: one Plex play, one Jellyfin-only title, one show watched on Plex
+    vi.spyOn(wrapped, 'isYearUnlocked').mockReturnValue(true)
+    vi.spyOn(wrapped, 'getWrapped').mockReturnValue({
+      payload: {
+        topMovies: { bySeconds: [pick('55', 'Shared Movie'), pick('jf-2', 'Jellyfin Only')] },
+        topShows: { bySeconds: [pick('77', 'Shared Show')] },
+      },
+    })
+    const app = express()
+    app.use(express.json())
+    app.use((req, res, next) => {
+      const linked = req.get('x-linked') === '1'
+      req.session = {
+        plexUser: {
+          id: 'u1', username: 'u1', provider: 'plex',
+          token: req.get('x-no-plex') ? null : 'PLEX_TOKEN',
+          jellyfin: linked ? { userId: 'jfu', token: 'JF_TOKEN' } : null,
+        },
+        activeSource: req.get('x-source') || 'plex',
+        isAdmin: req.get('x-admin') === '1',
+      }
+      next()
+    })
+    app.use('/api/wrapped', router)
+    await new Promise(resolve => { server = app.listen(0, '127.0.0.1', resolve) })
+    base = `http://127.0.0.1:${server.address().port}`
+  })
+  afterAll(async () => {
+    vi.restoreAllMocks()
+    if (server) await new Promise(resolve => server.close(resolve))
+  })
+
+  async function post(path, { headers = {}, body } = {}) {
+    const res = await fetch(base + path, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body || {}) })
+    return { status: res.status, data: await res.json() }
+  }
+
+  it('builds it on Jellyfin for a linked user browsing Jellyfin, matching titles by TMDB id', async () => {
+    const plexCreate = vi.spyOn(plex, 'createPlaylistWithItems').mockResolvedValue({ playlistId: 'p', count: 0 })
+    const jfCreate = vi.spyOn(jfPlaylists, 'createPlaylistWithItems').mockResolvedValue({ playlistId: 'jp', count: 3 })
+    const { status, data } = await post('/api/wrapped/2025/playlist', { headers: { 'x-linked': '1', 'x-source': 'jellyfin' } })
+    expect(status).toBe(200)
+    expect(data.source).toBe('jellyfin')
+    expect(plexCreate).not.toHaveBeenCalled()
+    expect(jfCreate).toHaveBeenCalledWith('jfu', 'Diskovarr Wrapped 2025', ['jf-1', 'jf-2', 'jf-s'], { token: 'JF_TOKEN' })
+  })
+
+  it('an explicit target wins over the active source; Plex gets only the titles it has', async () => {
+    const plexCreate = vi.spyOn(plex, 'createPlaylistWithItems').mockResolvedValue({ playlistId: 'p', count: 2 })
+    const { status, data } = await post('/api/wrapped/2025/playlist', { headers: { 'x-linked': '1', 'x-source': 'jellyfin' }, body: { target: 'plex' } })
+    expect(status).toBe(200)
+    expect(data.source).toBe('plex')
+    expect(plexCreate).toHaveBeenCalledWith('PLEX_TOKEN', 'Diskovarr Wrapped 2025', ['55', '77'])
+  })
+
+  it('refuses a target the session cannot use, and falls back when none is asked for', async () => {
+    expect((await post('/api/wrapped/2025/playlist', { body: { target: 'jellyfin' } })).status).toBe(400)
+    expect((await post('/api/wrapped/2025/playlist', { body: { target: 'emby' } })).status).toBe(400)
+    // Jellyfin-only session (no Plex token) still lands on Jellyfin with no target
+    const jfCreate = vi.spyOn(jfPlaylists, 'createPlaylistWithItems').mockResolvedValue({ playlistId: 'jp', count: 3 })
+    const { data } = await post('/api/wrapped/2025/playlist', { headers: { 'x-linked': '1', 'x-no-plex': '1' } })
+    expect(data.source).toBe('jellyfin')
+    expect(jfCreate).toHaveBeenCalled()
+  })
+
+  it('admin Jellyfin history refresh reports what Jellyfin can provide', async () => {
+    const sync = vi.spyOn(jellyfin, 'syncAllUsers').mockResolvedValue(3)
+    const probe = vi.spyOn(jellyfin, 'probePlaybackReporting').mockResolvedValue(false)
+    expect((await post('/api/wrapped/backfill/jellyfin')).status).toBe(403)
+    expect(sync).not.toHaveBeenCalled()
+    const { status, data } = await post('/api/wrapped/backfill/jellyfin', { headers: { 'x-admin': '1' } })
+    expect(status).toBe(200)
+    expect(data).toEqual({ users: 3, playbackReporting: false, history: 'latest-play' })
+    expect(probe).toHaveBeenCalledWith(true)
+    probe.mockResolvedValue(true)
+    expect((await post('/api/wrapped/backfill/jellyfin', { headers: { 'x-admin': '1' } })).data.history).toBe('per-play')
   })
 })

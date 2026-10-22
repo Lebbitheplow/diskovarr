@@ -5,6 +5,11 @@ function getPlexUrl()      { return db.getSetting('plex_url', null)   || process
 function getPlexToken()    { return db.getSetting('plex_token', null) || process.env.PLEX_TOKEN; }
 function getPlexServerId() { return process.env.PLEX_SERVER_ID; }
 
+// A server to talk to. Jellyfin-only installs have no Plex URL, and every Plex
+// fetch would go to "undefined/...", so library jobs skip Plex entirely. (The
+// token stays optional: a LAN server may allow unauthenticated access.)
+function isConfigured() { return !!getPlexUrl(); }
+
 function getMoviesSection() { return process.env.PLEX_MOVIES_SECTION_ID || '1'; }
 function getTvSection()     { return process.env.PLEX_TV_SECTION_ID     || '2'; }
 
@@ -279,6 +284,7 @@ async function fetchAndUpsertItem(ratingKey, sectionId) {
 }
 
 async function warmCache(sectionIds = null) {
+  if (!isConfigured()) return;
   if (sectionIds && sectionIds.length > 0) {
     await Promise.all(sectionIds.map(id => fetchSection(String(id))));
   } else {
@@ -297,6 +303,7 @@ async function warmCache(sectionIds = null) {
 // lazy path, which serves DB rows without pruning, so their deletions would never
 // be reconciled. Falls back to movies+TV if nothing is configured yet.
 async function resyncAllSections() {
+  if (!isConfigured()) return;
   // Jellyfin folders (jf_*) live in the same enabled list but sync via jellyfin/library.js.
   const enabled = db.getEnabledSectionIds().filter(id => !String(id).startsWith('jf_'));
   const sectionIds = enabled.length > 0 ? enabled : [getMoviesSection(), getTvSection()];
@@ -989,6 +996,7 @@ async function syncAllUserWatchlists() {
 }
 
 module.exports = {
+  isConfigured,
   get MOVIES_SECTION() { return getMoviesSection(); },
   get TV_SECTION()     { return getTvSection(); },
   getLibraryItems,

@@ -55,6 +55,43 @@ function syncSessionRole(req) {
   return isPlexAdmin;
 }
 
+// Account links change while sessions live (unlinked in one browser, linked in
+// another), so a session holding a Jellyfin account re-derives its identity
+// from the current link on every authenticated request instead of trusting
+// the one resolved at sign-in: one primary-key lookup of the Jellyfin row.
+// - Jellyfin sign-in: the session becomes whatever a fresh Jellyfin login
+//   would give now — the linked Plex account, or the standalone 'jf_' one
+//   (then without Plex tokens, as DELETE /api/user/link/plex leaves it).
+// - Plex sign-in: an attached Jellyfin account is dropped once unlinked; the
+//   Plex identity itself never changes.
+// Run before syncSessionRole, which then reads the role of the identity kept.
+function syncSessionIdentity(req) {
+  const user = req.session.plexUser;
+  const jfGuid = user?.jellyfin?.userId;
+  if (!jfGuid) return;
+  const jfId = `jf_${jfGuid}`;
+  const row = db.getKnownUserById(jfId);
+  const canonicalId = row?.linked_user_id ? String(row.linked_user_id) : jfId;
+  if (canonicalId === String(user.id)) return;
+  if (user.provider !== 'jellyfin') {
+    req.session.plexUser = { ...user, jellyfin: null };
+    return;
+  }
+  if (canonicalId === jfId) {
+    req.session.plexUser = {
+      ...user, id: jfId, username: row?.username || user.username, thumb: row?.thumb || user.thumb,
+      token: null, serverToken: null,
+    };
+    if (req.session.activeSource === 'plex' && require('../services/jellyfin').isEnabled()) req.session.activeSource = 'jellyfin';
+  } else {
+    const plexRow = db.getKnownUserById(canonicalId);
+    req.session.plexUser = {
+      ...user, id: canonicalId, username: plexRow?.username || user.username, thumb: plexRow?.thumb || user.thumb,
+      token: plexRow?.plex_token || null, serverToken: null,
+    };
+  }
+}
+
 // Shared policy for admin-or-request-manager operations. session.isAdmin is the
 // password admin (or the API key, per request); everyone else is checked
 // against the current database (is_admin users plus the server owner).
@@ -67,7 +104,10 @@ function isPrivilegedRequest(req) {
 
 function requireAuth(req, res, next) {
   if (req.session && req.session.plexUser) {
-    if (!req.apiKeyAuth) syncSessionRole(req);
+    if (!req.apiKeyAuth) {
+      syncSessionIdentity(req);
+      syncSessionRole(req);
+    }
     return next();
   }
   // API key auth (for external integrations)
@@ -112,5 +152,6 @@ module.exports = requireAuth;
 module.exports.hasApiKey = hasApiKey;
 module.exports.API_KEY_USER_ID = API_KEY_USER_ID;
 module.exports.syncSessionRole = syncSessionRole;
+module.exports.syncSessionIdentity = syncSessionIdentity;
 module.exports.isPrivilegedRequest = isPrivilegedRequest;
 module.exports.regenerateSession = regenerateSession;

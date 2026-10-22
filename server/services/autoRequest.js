@@ -364,13 +364,25 @@ async function runDueLists() {
   }
 }
 
+// Servers a collection can be mirrored to right now.
+function collectionProviders() {
+  const providers = [];
+  if (plexCollections.plexConfigured()) providers.push('plex');
+  try { if (require('./jellyfin').isEnabled()) providers.push('jellyfin'); } catch { /* not configured */ }
+  return providers;
+}
+
 // Quick sync: rebuild every collection from the items cached by its last full
 // sync (no source fetches) so titles that arrived in the library since then
-// join their collections. Skipped when nothing was added since the last pass.
+// join their collections. Each configured server's library rows are checked
+// on their own, so a Jellyfin-only import counts too. Skipped when nothing was
+// added since the last pass.
 let lastQuickSyncAt = 0;
 async function runQuickSync({ force = false } = {}) {
-  if (!plexCollections.plexConfigured()) return { skipped: 'plex not configured' };
-  const newest = db.prepare("SELECT MAX(synced_at) AS t FROM library_items WHERE source = 'plex'").get()?.t || 0;
+  const providers = collectionProviders();
+  if (providers.length === 0) return { skipped: 'no media server configured' };
+  const newestOf = db.prepare('SELECT MAX(synced_at) AS t FROM library_items WHERE source = ?');
+  const newest = Math.max(0, ...providers.map(p => newestOf.get(p)?.t || 0));
   if (!force && lastQuickSyncAt && newest <= lastQuickSyncAt) return { skipped: 'no new library items' };
   const lists = automation.getListSources()
     .filter(l => l.enabled && l.collectionEnabled && l.lastSyncedAt > 0 && policy.inSchedule(l));

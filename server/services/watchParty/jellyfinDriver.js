@@ -15,17 +15,26 @@ const MAX_EXTRAPOLATE_MS = 15000;
 
 const _creds = new Map(); // canonical userId -> { jfUserId, token }
 
+// A session without a Jellyfin account attached (it was unlinked) drops what
+// an earlier request cached for that user.
 function rememberCreds(sessionUser) {
-  if (!sessionUser?.id || !sessionUser.jellyfin?.userId) return;
+  if (!sessionUser?.id) return;
+  if (!sessionUser.jellyfin?.userId) { _creds.delete(String(sessionUser.id)); return; }
   _creds.set(String(sessionUser.id), { jfUserId: String(sessionUser.jellyfin.userId), token: sessionUser.jellyfin.token || null });
+}
+
+function forgetCreds(userId) {
+  _creds.delete(String(userId));
 }
 
 // Falls back to the stored identity: the user's own row for a Jellyfin-only
 // account, else the Jellyfin account linked to their Plex one. A missing token
-// is fine — the admin API key can drive sessions too.
+// is fine — the admin API key can drive sessions too. Cached credentials are
+// used only while that Jellyfin account still belongs to the user.
 function credsFor(userId) {
   const cached = _creds.get(String(userId));
-  if (cached) return cached;
+  if (cached && db.resolveCanonicalUserId(`jf_${cached.jfUserId}`) === String(userId)) return cached;
+  if (cached) _creds.delete(String(userId));
   const own = db.getKnownUserById(userId);
   const row = own?.auth_provider === 'jellyfin' ? own : db.getLinkedJellyfinRow(userId);
   if (!row) return null;
@@ -130,5 +139,5 @@ async function pollTimeline(player, now = Date.now()) {
 
 module.exports = {
   appName: 'Jellyfin',
-  rememberCreds, resolveItem, registerDevice, playerFor, load, sendCommand, pollTimeline,
+  rememberCreds, forgetCreds, resolveItem, registerDevice, playerFor, load, sendCommand, pollTimeline,
 };

@@ -202,14 +202,15 @@ function fingerprint(access) {
 
 /**
  * The library a user may browse: Plex's movie and TV sections (the two the
- * pools have always read) plus, when Jellyfin is enabled, its rows.
+ * pools have always read) when Plex is configured, plus, when Jellyfin is
+ * enabled, its rows.
  * source: null (both) | 'plex' | 'jellyfin'; type: null | 'movie' | 'show'.
  */
 async function libraryPool(access, { source = null, type = null } = {}) {
   access = known(access);
   const plex = require('../plex');
   const items = [];
-  if (source !== 'jellyfin' && (!access || access.plex)) {
+  if (source !== 'jellyfin' && (!access || access.plex) && plex.isConfigured()) {
     const sections = [];
     if (type !== 'show') sections.push(plex.MOVIES_SECTION);
     if (type !== 'movie') sections.push(plex.TV_SECTION);

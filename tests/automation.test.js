@@ -529,6 +529,25 @@ describe('deletion executor — Jellyfin items', () => {
     db.setSetting('jellyfin_enabled', '1')
     db.setSyncEnabledSections([])
   })
+
+  // JF-22: an unlisted Jellyfin folder is synced (default-enabled), so it is a candidate too
+  it('previewProfile follows the ingestion rules for folders never toggled (dry run)', () => {
+    db.setSyncEnabledSections([{ id: '1', enabled: true }, { id: '2', enabled: true }])
+    db.upsertManyItems([
+      { ...jfItem({ ratingKey: 'guid-new', year: 1990 }), sectionId: 'jf_new' },
+      { ...jfItem({ ratingKey: 'guid-off', year: 1990 }), sectionId: 'jf_off' },
+    ])
+    const profile = { name: 'old', mode: 'dry_run', criteria: [{ field: 'year', op: 'lt', value: 2000 }], match: 'all' }
+    const matched = () => deletionService.previewProfile(profile).matches.map(m => m.ratingKey)
+    expect(matched()).toContain('guid-new')
+    expect(matched()).toContain('guid-off')
+    // Explicitly disabled in Synced Libraries → out, the same as ingestion skips it
+    db.setSyncEnabledSections([{ id: '1', enabled: true }, { id: '2', enabled: true }, { id: 'jf_off', enabled: false }])
+    expect(matched()).toContain('guid-new')
+    expect(matched()).not.toContain('guid-off')
+    expect(calls).toEqual([]) // preview never deletes
+    db.setSyncEnabledSections([])
+  })
 })
 
 // ── runProfiles safety ────────────────────────────────────────────────────────

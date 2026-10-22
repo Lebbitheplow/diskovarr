@@ -276,3 +276,90 @@ describe('seasonal pack', () => {
     expect(automation.getDueListSources().map(l => l.id)).toContain(id)
   })
 })
+
+// ── JF-13: each server is planned and counted on its own ─────────────────────
+
+describe('dual-server category planning (JF-13)', () => {
+  const jfClient = nodeRequire('../server/services/jellyfin/client.js')
+  const realJfFetch = jfClient.jfFetch
+  const jf = (key, extra) => item(key, 'movie', { sectionId: 'jf_x', source: 'jellyfin', ...extra })
+
+  // Fake Jellyfin: BoxSets by id with their members, plus every write.
+  function stubJellyfin() {
+    const state = { boxes: new Map(), next: 1, writes: [] }
+    jfClient.jfFetch = async (p, opts = {}) => {
+      const method = opts.method || 'GET'
+      const [pathname, qs = ''] = p.split('?')
+      const params = new URLSearchParams(qs)
+      if (method !== 'GET') state.writes.push({ method, pathname, params, body: opts.body || null })
+      if (pathname === '/Collections' && method === 'POST') {
+        const id = `box-${state.next++}`
+        state.boxes.set(id, { Id: id, Name: params.get('Name'), Type: 'BoxSet', Tags: [], Genres: [], ProviderIds: {}, members: params.get('Ids').split(',') })
+        return { Id: id }
+      }
+      if (pathname === '/Items' && params.get('Ids')) {
+        const box = state.boxes.get(params.get('Ids'))
+        return { Items: box ? [box] : [] }
+      }
+      if (pathname === '/Items' && params.get('ParentId')) {
+        return { Items: (state.boxes.get(params.get('ParentId'))?.members || []).map(Id => ({ Id })) }
+      }
+      const del = pathname.match(/^\/Items\/(box-\d+)$/)
+      if (del && method === 'DELETE') { state.boxes.delete(del[1]); return null }
+      if (del && method === 'POST') { Object.assign(state.boxes.get(del[1]), opts.body); return null }
+      return null
+    }
+    return state
+  }
+
+  beforeEach(() => {
+    db.prepare('DELETE FROM library_items').run()
+    db.prepare('DELETE FROM category_collections').run()
+    db.setSetting('category_packs', '{}')
+    db.setSetting('jellyfin_url', 'http://jellyfin.test:8096')
+    db.setSetting('jellyfin_api_key', 'admin-key')
+    db.setSetting('jellyfin_enabled', '1')
+    db.upsertManyItems([
+      item('m1', 'movie', { year: 2003 }), item('m2', 'movie', { year: 2005 }),
+      jf('j1', { year: 1994 }), jf('j2', { year: 1997 }), jf('j3', { year: 2004 }),
+    ])
+  })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    jfClient.jfFetch = realJfFetch
+    db.setSetting('jellyfin_enabled', '0')
+  })
+
+  it('plans a decade that only Jellyfin has enough titles for', async () => {
+    const planned = await packs.planPack('decade', { ...packs.getConfig().decade, minItems: 2 })
+    expect(planned.map(p => `${p.media}:${p.title}:${p.providers.join('+')}`))
+      .toEqual(['movie:Best of 2000s:plex', 'movie:Best of 1990s:jellyfin'])
+  })
+
+  it('builds each collection only where it qualifies, and keeps the Jellyfin copy when Plex drops out', async () => {
+    const plex = { nextKey: 900, collections: [] }
+    stubPlex(plex)
+    const jfState = stubJellyfin()
+    await packs.updatePack('decade', { enabled: true, minItems: 2, visibility: 'library' })
+    expect(await packs.syncPack('decade')).toMatchObject({ collections: 2, created: 2, failed: 0 })
+    expect(plex.collections.map(c => c.title)).toEqual(['Best of 2000s'])
+    expect([...jfState.boxes.values()].map(b => b.Name)).toEqual(['Best of 1990s'])
+    // Pack artwork and library grouping, like the Plex side
+    const box = [...jfState.boxes.values()][0]
+    expect(jfState.writes.some(w => w.pathname === `/Items/${box.Id}/RemoteImages/Download`
+      && w.params.get('type') === 'Primary' && w.params.get('imageUrl') === policy.posterUrl('decade', '1990', 'Best of 1990s'))).toBe(true)
+    expect(box.ForcedSortName).toBe(policy.sortTitle('decade', 'Best of 1990s'))
+
+    // Jellyfin gains a 2000s title (both servers qualify), then Plex loses one
+    db.upsertManyItems([jf('j4', { year: 2008 })])
+    await packs.syncPack('decade')
+    expect([...jfState.boxes.values()].map(b => b.Name).sort()).toEqual(['Best of 1990s', 'Best of 2000s'])
+    db.prepare("DELETE FROM library_items WHERE rating_key = 'm2'").run()
+    const summary = await packs.syncPack('decade')
+    expect(summary).toMatchObject({ collections: 2, removed: 0, failed: 0 })
+    expect(plex.collections).toEqual([])
+    const row = packs.getRows('decade').find(r => r.title === 'Best of 2000s')
+    expect(row).toMatchObject({ plexKey: null })
+    expect(jfState.boxes.has(row.jfId)).toBe(true)
+  })
+})

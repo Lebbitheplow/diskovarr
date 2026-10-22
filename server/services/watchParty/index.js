@@ -300,6 +300,35 @@ function endParty(partyId) {
   db.setWatchPartyStatus(partyId, 'ended');
 }
 
+// A playing party's runtime keyed by `fromId` follows it to `toId` (the
+// database rows were re-keyed by the account merge). As there, a member
+// already present under `toId` wins; a pending hold timer is dropped and the
+// next tick releases that hold as overdue.
+function rekeyRuntime(rt, fromId, toId) {
+  if (rt.state.hostId === fromId) rt.state.hostId = toId;
+  if (rt.holdTimers.has(fromId)) {
+    clearTimeout(rt.holdTimers.get(fromId));
+    rt.holdTimers.delete(fromId);
+  }
+  const player = rt.players.get(fromId);
+  rt.players.delete(fromId);
+  if (player && !rt.players.has(toId)) rt.players.set(toId, player);
+  const member = rt.state.members.get(fromId);
+  rt.state.members.delete(fromId);
+  if (member && !rt.state.members.has(toId)) {
+    member.userId = toId;
+    rt.state.members.set(toId, member);
+  }
+}
+
+// A Jellyfin account was linked to (merged into, `merged`) or unlinked from a
+// Plex account: cached Jellyfin credentials for either id are dropped, and on
+// a merge live parties follow the Plex id.
+function onAccountLink(jfId, plexId, { merged = false } = {}) {
+  for (const id of [jfId, plexId]) DRIVERS.jellyfin.forgetCreds(id);
+  if (merged) for (const rt of _live.values()) rekeyRuntime(rt, String(jfId), String(plexId));
+}
+
 function snapshot(party, viewerId) {
   const rt = _live.get(party.id);
   const now = Date.now();
@@ -345,4 +374,5 @@ function init() {
 
 module.exports = {
   PartyError, rememberCreds, createParty, invite, setDevice, startParty, joinPlaying, control, endParty, snapshot, init,
+  onAccountLink,
 };

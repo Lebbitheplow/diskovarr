@@ -494,6 +494,20 @@
 
 .wrapped-playlist-btn:disabled { opacity: 0.6; cursor: default; }
 
+.wrapped-playlist-targets { display: inline-flex; gap: 6px; }
+
+.wrapped-playlist-targets button {
+  padding: 5px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.wrapped-playlist-targets button.active { border-color: var(--accent); color: var(--text-primary); }
+
 .wrapped-playlist-open { color: var(--accent); font-size: 0.9rem; text-decoration: none; }
 
 .wrapped-playlist-open:hover { text-decoration: underline; }

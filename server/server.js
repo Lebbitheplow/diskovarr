@@ -524,9 +524,9 @@ const server = app.listen(PORT, '0.0.0.0', () => {
     )
 
     // Jellyfin: full library + all-user data sync shortly after boot. Both are
-    // no-ops when Jellyfin isn't configured/enabled.
-    setTimeout(() => jellyfinService.resyncAll()
-      .then(() => jellyfinService.syncAllUsers())
+    // no-ops when Jellyfin isn't configured/enabled. The rec caches warmed at
+    // ~30s predate it; syncLibraryAndUsers drops them once the data is in.
+    setTimeout(() => jellyfinService.syncLibraryAndUsers()
       .then(n => { if (n) logger.info(`Jellyfin user data synced for ${n} user(s)`) })
       .catch(err => logger.warn('Startup Jellyfin sync failed:', err.message)),
       55_000
@@ -646,14 +646,15 @@ const server = app.listen(PORT, '0.0.0.0', () => {
     }
   }
 
+  // Every completed full resync — this 6h job, boot, manual sync, connection
+  // save, a newly enabled folder — drops the rec caches and evaluates monitors
+  // (the resync itself runs the fulfillment check).
+  jellyfinService.onResynced(() => {
+    recommender.invalidateAllCaches()
+    discoverRecommender.invalidateAllCaches()
+    evaluateJellyfinMonitors(db.getLibraryItemsBySource('jellyfin'))
+  })
   setInterval(() => jellyfinService.resyncAll()
-    .then(() => {
-      if (jellyfinService.isEnabled()) {
-        recommender.invalidateAllCaches()
-        discoverRecommender.invalidateAllCaches()
-        evaluateJellyfinMonitors(db.getLibraryItemsBySource('jellyfin'))
-      }
-    })
     .catch(err => logger.warn('Periodic Jellyfin library re-sync failed:', err.message)),
     6 * 60 * 60 * 1000
   )
