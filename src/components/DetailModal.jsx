@@ -220,13 +220,15 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
   }, [])
 
   // Jump to the search page's "More with X" browse for a cast/crew member.
+  // It takes over the modal's history entry, so Back from it returns to the
+  // page the modal was opened on.
   const handlePersonClick = useCallback((person) => {
     if (!person?.id) return
     const params = new URLSearchParams()
     params.set('personId', person.id)
     if (person.name) params.set('personName', person.name)
     onClose()
-    navigate('/search?' + params.toString())
+    navigate('/search?' + params.toString(), { replace: true })
   }, [navigate, onClose])
 
   const handleMonitorCast = useCallback(async (person) => {
@@ -357,9 +359,11 @@ export default function DetailModal({ item, onClose, onRefresh, onRequest }) {
     window.addEventListener('popstate', onPop)
     return () => {
       window.removeEventListener('popstate', onPop)
-      // Unmounted without the entry being popped (route change while open):
-      // drop it so Back doesn't have to be pressed twice to leave.
-      if (!closedByPopRef.current) window.history.back()
+      // Closed without Back: drop the entry so Back doesn't have to be pressed
+      // twice to leave. Only while it's still the current one — after a
+      // navigation from inside the modal (cast/crew, Watch Together) going
+      // back would undo that navigation.
+      if (!closedByPopRef.current && window.history.state?.diskovarrModal) window.history.back()
     }
     // Mounts once per modal — handleClose only changes with onClose, which the
     // pages keep stable, and re-running this would push duplicate entries.
