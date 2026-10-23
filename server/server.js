@@ -12,6 +12,13 @@ const { dataDir } = require('./utils/dataDir')
 const filePerms = require('./utils/filePerms')
 filePerms.hardenDataDir(dataDir, [path.join(__dirname, '.env'), path.resolve('.env')])
 
+// Before any route or job can call plex.tv: never let Diskovarr's identity
+// headers relabel the Plex server when the admin token is the server's own.
+require('./services/plexTvIdentity').install({
+  getToken: () => require('./services/plex').getPlexToken(),
+  getUrl: () => require('./services/plex').getPlexUrl(),
+})
+
 const { DatabaseSync } = require('node:sqlite')
 
 class SQLiteStore extends session.Store {
