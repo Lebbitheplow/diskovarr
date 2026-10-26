@@ -30,11 +30,15 @@ function isEnabled() {
 const JF_AUTH_HEADER =
   'MediaBrowser Client="Diskovarr", Device="Diskovarr", DeviceId="diskovarr-app", Version="1.0.0"';
 
+function getJellyfinAuthorization(token = getJellyfinKey()) {
+  return `${JF_AUTH_HEADER}, Token="${token}"`;
+}
+
 async function jfFetch(path, { method = 'GET', token = null, body = null, timeout = 15000, baseUrl = null, apiKey = null } = {}) {
   const url = `${baseUrl != null ? baseUrl.replace(/\/+$/, '') : getJellyfinUrl()}${path}`;
   const headers = {
     'Accept': 'application/json',
-    'Authorization': `${JF_AUTH_HEADER}, Token="${token || apiKey || getJellyfinKey()}"`,
+    'Authorization': getJellyfinAuthorization(token || apiKey || getJellyfinKey()),
   };
   if (body != null) headers['Content-Type'] = 'application/json';
   const res = await fetch(url, {
@@ -133,7 +137,7 @@ function getDeepLink(itemId) {
 }
 
 module.exports = {
-  getJellyfinUrl, getJellyfinExternalUrl, getJellyfinKey, isEnabled,
+  getJellyfinUrl, getJellyfinExternalUrl, getJellyfinKey, getJellyfinAuthorization, isEnabled,
   jfFetch, authenticateByName, getUsers, policySummary, testConnection,
   getAvatarPath, getDeepLink,
 };

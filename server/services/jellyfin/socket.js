@@ -196,7 +196,7 @@ function currentConfig() {
 
 function socketUrl() {
   const base = client.getJellyfinUrl().replace(/^http/i, 'ws');
-  return `${base}/socket?api_key=${encodeURIComponent(client.getJellyfinKey())}&deviceId=diskovarr-app`;
+  return `${base}/socket?deviceId=diskovarr-app`;
 }
 
 function clearTimers() {
@@ -287,7 +287,9 @@ function connect() {
   connConfig = currentConfig();
   let socket;
   try {
-    socket = new WebSocket(socketUrl());
+    socket = new WebSocket(socketUrl(), {
+      headers: { Authorization: client.getJellyfinAuthorization() },
+    });
   } catch (err) {
     scheduleReconnect(err.message);
     return;
