@@ -22,7 +22,7 @@ function isEnabled() {
 }
 
 // Jellyfin requires this header shape on anonymous auth endpoints; on
-// authenticated calls the token rides along in X-Emby-Token.
+// authenticated calls use the Token parameter accepted by current Jellyfin.
 const JF_AUTH_HEADER =
   'MediaBrowser Client="Diskovarr", Device="Diskovarr", DeviceId="diskovarr-app", Version="1.0.0"';
 
@@ -30,8 +30,7 @@ async function jfFetch(path, { method = 'GET', token = null, body = null, timeou
   const url = `${baseUrl != null ? baseUrl.replace(/\/+$/, '') : getJellyfinUrl()}${path}`;
   const headers = {
     'Accept': 'application/json',
-    'Authorization': JF_AUTH_HEADER,
-    'X-Emby-Token': token || apiKey || getJellyfinKey(),
+    'Authorization': `${JF_AUTH_HEADER}, Token="${token || apiKey || getJellyfinKey()}"`,
   };
   if (body != null) headers['Content-Type'] = 'application/json';
   const res = await fetch(url, {
