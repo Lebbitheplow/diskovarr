@@ -173,3 +173,17 @@ describe('admin watched-sync timestamps (JF-24)', () => {
     expect(statFor('p-never').last_sync).toBe(0)
   })
 })
+
+describe('Jellyfin browser URL settings', () => {
+  it('saves the external URL separately from the API address', async () => {
+    const externalUrl = 'https://media.example.test:8096'
+    const saved = await h.call('POST', '/admin/connections/save', {
+      role: 'panel', body: { jellyfin_external_url: externalUrl },
+    })
+    expect(saved.status).toBe(200)
+    const settings = await h.call('GET', '/admin/connections/settings', { role: 'panel' })
+    expect(settings.data.jellyfin_url).toBe(JF)
+    expect(settings.data.jellyfin_external_url).toBe(externalUrl)
+    expect(jellyfin.getDeepLink('movie-id')).toBe(`${externalUrl}/web/index.html#!/details?id=movie-id`)
+  })
+})

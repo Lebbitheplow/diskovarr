@@ -9,6 +9,10 @@ function getJellyfinUrl() {
   const url = db.getSetting('jellyfin_url', null) || process.env.JELLYFIN_URL || '';
   return url.replace(/\/+$/, '');
 }
+function getJellyfinExternalUrl() {
+  const url = db.getSetting('jellyfin_external_url', null) || process.env.JELLYFIN_EXTERNAL_URL || '';
+  return url.replace(/\/+$/, '');
+}
 function getJellyfinKey() {
   return db.getSetting('jellyfin_api_key', null) || process.env.JELLYFIN_API_KEY || '';
 }
@@ -121,14 +125,15 @@ function getAvatarPath(jfGuid, primaryImageTag) {
   return `/api/jellyfin/avatar/${jfGuid}?tag=${encodeURIComponent(primaryImageTag)}`;
 }
 
-// Jellyfin web deep link. Uses the configured server URL, so the admin should
-// configure the externally reachable one for links to work outside the LAN.
+// Browser links use the separate external URL. Never expose a Docker-only API
+// address to users; without a browser URL, no Play link is available.
 function getDeepLink(itemId) {
-  return `${getJellyfinUrl()}/web/index.html#!/details?id=${itemId}`;
+  const url = getJellyfinExternalUrl();
+  return url ? `${url}/web/index.html#!/details?id=${itemId}` : null;
 }
 
 module.exports = {
-  getJellyfinUrl, getJellyfinKey, isEnabled,
+  getJellyfinUrl, getJellyfinExternalUrl, getJellyfinKey, isEnabled,
   jfFetch, authenticateByName, getUsers, policySummary, testConnection,
   getAvatarPath, getDeepLink,
 };

@@ -12,6 +12,7 @@ const client = nodeRequire('../server/services/jellyfin/client.js')
 beforeEach(() => {
   db.setSetting('jellyfin_url', 'http://jellyfin:8096')
   db.setSetting('jellyfin_api_key', 'server-key')
+  db.setSetting('jellyfin_external_url', '')
 })
 afterEach(() => vi.unstubAllGlobals())
 
@@ -41,5 +42,20 @@ describe('Jellyfin authentication', () => {
     const headers = fetch.mock.calls[0][1].headers
     expect(headers.Authorization).not.toContain('Token=')
     expect(headers['X-Emby-Token']).toBeUndefined()
+  })
+})
+
+describe('Jellyfin browser links', () => {
+  it('uses the browser URL and its base path while API calls use the Docker address', async () => {
+    db.setSetting('jellyfin_external_url', 'https://media.example.test/jellyfin/')
+    const fetch = vi.fn(async () => Response.json({}))
+    vi.stubGlobal('fetch', fetch)
+    await client.jfFetch('/System/Info')
+    expect(fetch.mock.calls[0][0]).toBe('http://jellyfin:8096/System/Info')
+    expect(client.getDeepLink('movie-id')).toBe('https://media.example.test/jellyfin/web/index.html#!/details?id=movie-id')
+  })
+
+  it('does not send users to an internal API address when the browser URL is unset', () => {
+    expect(client.getDeepLink('movie-id')).toBeNull()
   })
 })

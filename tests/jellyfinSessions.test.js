@@ -13,6 +13,7 @@ const sessions = nodeRequire('../server/services/jellyfin/sessions.js')
 const playlists = nodeRequire('../server/services/jellyfin/playlists.js')
 
 db.setSetting('jellyfin_url', 'http://jellyfin.test:8096')
+db.setSetting('jellyfin_external_url', 'https://jellyfin-browser.test/media')
 db.setSetting('jellyfin_api_key', 'admin-key')
 db.setSetting('jellyfin_enabled', '1')
 
@@ -140,7 +141,7 @@ describe('playlists.createPlaylistWithItems', () => {
     expect(calls.some(c => c.method === 'DELETE' && c.path === '/Items/old-pl')).toBe(true)
     const create = calls.find(c => c.path === '/Playlists')
     expect(create).toMatchObject({ method: 'POST', token: 't', body: { Name: 'Diskovarr Wrapped 2026', Ids: ['movie-1', 'ep-1'], UserId: 'u1', MediaType: 'Video' } })
-    expect(playlists.getPlaylistDeepLink('new-pl')).toBe('http://jellyfin.test:8096/web/index.html#!/details?id=new-pl')
+    expect(playlists.getPlaylistDeepLink('new-pl')).toBe('https://jellyfin-browser.test/media/web/index.html#!/details?id=new-pl')
   })
 
   it('throws when nothing resolves', async () => {

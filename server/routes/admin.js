@@ -628,7 +628,7 @@ const CONNECTION_KEYS = [
   'sonarr_url', 'sonarr_api_key', 'sonarr_enabled', 'sonarr_quality_profile_id', 'sonarr_quality_profile_name',
   'riven_url', 'riven_api_key', 'riven_rdkey', 'riven_enabled', 'dumb_request_mode',
   'youtube_enabled', 'youtube_api_key', 'youtube_root_folder', 'tuberr_url', 'tuberr_api_key',
-  'jellyfin_url', 'jellyfin_api_key', 'jellyfin_enabled',
+  'jellyfin_url', 'jellyfin_external_url', 'jellyfin_api_key', 'jellyfin_enabled',
   'default_request_service',
   'individual_seasons_enabled',
   'direct_request_access',
@@ -665,6 +665,7 @@ router.get('/connections/settings', requireAdmin, (req, res) => {
     youtube_root_folder:         db.getSetting('youtube_root_folder', ''),
     tuberr_url:                  db.getSetting('tuberr_url', ''),
     jellyfin_url:                db.getSetting('jellyfin_url', '') || process.env.JELLYFIN_URL || '',
+    jellyfin_external_url:       db.getSetting('jellyfin_external_url', '') || process.env.JELLYFIN_EXTERNAL_URL || '',
     jellyfin_enabled:            require('../services/jellyfin').isEnabled(),
     default_request_service:     db.getSetting('default_request_service', 'overseerr'),
     // Normalized like the enforcement in services/requestPolicy, so a legacy

@@ -43,6 +43,7 @@ services:
       # Can also be configured in Admin → Connections (those values win).
       # Jellyfin tracks watch history natively, so Tautulli isn't needed.
       # - JELLYFIN_URL=http://192.168.1.x:8096
+      # - JELLYFIN_EXTERNAL_URL=https://jellyfin.example.com # browser Play links
       # - JELLYFIN_API_KEY=your_jellyfin_api_key
       # ── Tuberr (bundled YouTube→Sonarr downloader, v2.5.0) ─────────
       # Starts automatically and pairs itself in Admin → Connections.
