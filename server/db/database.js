@@ -2357,6 +2357,7 @@ function getConnectionSettings() {
     tuberrUrl: getSetting('tuberr_url', ''),
     tuberrApiKey: getSetting('tuberr_api_key', ''),
     jellyfinUrl: getSetting('jellyfin_url', '') || process.env.JELLYFIN_URL || '',
+    jellyfinExternalUrl: getSetting('jellyfin_external_url', '') || process.env.JELLYFIN_EXTERNAL_URL || '',
     jellyfinApiKey: !!(getSetting('jellyfin_api_key', '') || process.env.JELLYFIN_API_KEY),
     jellyfinEnabled: getSetting('jellyfin_enabled', '0') === '1',
   };

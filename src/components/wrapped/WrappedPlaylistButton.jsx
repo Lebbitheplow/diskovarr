@@ -53,7 +53,8 @@ export default function WrappedPlaylistButton({ year }) {
         </svg>
         {working ? t('Creating…') : result ? t('Rebuild playlist') : t('Create playlist “Diskovarr Wrapped {{year}}”', { year })}
       </button>
-      {result && (
+      {/* Jellyfin has no link without a Browser URL configured. */}
+      {(result?.deepLink || result?.url) && (
         <a className="wrapped-playlist-open" href={result.deepLink || result.url} target="_blank" rel="noopener noreferrer">
           {t('Open playlist in {{server}}', { server: serverName(result.source) })} ({result.count} {t('items')}) ↗
         </a>
