@@ -269,10 +269,11 @@ function TautulliSection({ tautulliUrl, tautulliApiKey, onUpdate, onSave, onToas
   )
 }
 
-function JellyfinSection({ jellyfinUrl, jellyfinApiKey, jellyfinEnabled, onUpdate, onToast }) {
+function JellyfinSection({ jellyfinUrl, jellyfinExternalUrl, jellyfinApiKey, jellyfinEnabled, onUpdate, onToast }) {
   const { t } = useTranslation()
   const [host, setHost] = useState(parseHost(jellyfinUrl))
   const [port, setPort] = useState(parsePort(jellyfinUrl))
+  const [externalUrl, setExternalUrl] = useState(jellyfinExternalUrl || '')
   const [apiKey, setApiKey] = useState(jellyfinApiKey ? MASKED : '')
   const [apiKeyVisible, setApiKeyVisible] = useState(false)
   const [testLoading, setTestLoading] = useState(false)
@@ -286,6 +287,11 @@ function JellyfinSection({ jellyfinUrl, jellyfinApiKey, jellyfinEnabled, onUpdat
     setPrevJellyfinUrl(jellyfinUrl)
     setHost(parseHost(jellyfinUrl))
     setPort(parsePort(jellyfinUrl))
+  }
+  const [prevExternalUrl, setPrevExternalUrl] = useState(jellyfinExternalUrl)
+  if (jellyfinExternalUrl !== prevExternalUrl) {
+    setPrevExternalUrl(jellyfinExternalUrl)
+    setExternalUrl(jellyfinExternalUrl || '')
   }
   const [prevJellyfinApiKey, setPrevJellyfinApiKey] = useState(jellyfinApiKey)
   if (jellyfinApiKey !== prevJellyfinApiKey) {
@@ -303,11 +309,11 @@ function JellyfinSection({ jellyfinUrl, jellyfinApiKey, jellyfinEnabled, onUpdat
   const handleBlur = useCallback(() => {
     const url = buildUrl(host, port)
     if (apiKey === MASKED) {
-      onUpdate?.({ jellyfin_url: url })
+      onUpdate?.({ jellyfin_url: url, jellyfin_external_url: externalUrl })
     } else {
-      onUpdate?.({ jellyfin_url: url, jellyfin_api_key: apiKey })
+      onUpdate?.({ jellyfin_url: url, jellyfin_external_url: externalUrl, jellyfin_api_key: apiKey })
     }
-  }, [host, port, apiKey, onUpdate])
+  }, [host, port, externalUrl, apiKey, onUpdate])
 
   const handleEnabledToggle = async (checked) => {
     setEnabled(checked)
@@ -320,7 +326,7 @@ function JellyfinSection({ jellyfinUrl, jellyfinApiKey, jellyfinEnabled, onUpdat
   const handleSave = async () => {
     setSaveLoading(true)
     try {
-      const patch = { jellyfin_url: buildUrl(host, port) }
+      const patch = { jellyfin_url: buildUrl(host, port), jellyfin_external_url: externalUrl }
       if (apiKey !== MASKED) patch.jellyfin_api_key = apiKey
       await adminConnections.save(patch)
       onUpdate?.(patch)
@@ -379,6 +385,12 @@ function JellyfinSection({ jellyfinUrl, jellyfinApiKey, jellyfinEnabled, onUpdat
                 onClick={() => setApiKeyVisible(!apiKeyVisible)} title={t('Show / hide')} />
             </div>
           </div>
+        </div>
+        <div className="conn-field-group conn-field-host">
+          <span className="conn-field-label">{t('Browser URL')}</span>
+          <input type="url" className="conn-input" placeholder="https://jellyfin.example.com"
+            title={t('Address used by Play links. Leave empty to hide them.')}
+            value={externalUrl} onChange={(e) => setExternalUrl(e.target.value)} onBlur={handleBlur} />
         </div>
         <button className="btn-admin conn-action-btn" onClick={handleTest} disabled={testLoading || !hasBothFields}>
           {testLoading ? 'Testing...' : 'Test'}
@@ -1648,6 +1660,7 @@ export default function ConnectionSettings({ onDataLoaded, onToast }) {
 
         <JellyfinSection
           jellyfinUrl={fields.jellyfin_url}
+          jellyfinExternalUrl={fields.jellyfin_external_url}
           jellyfinApiKey={fields.jellyfin_api_key}
           jellyfinEnabled={fields.jellyfin_enabled}
           onUpdate={handleJellyfinUpdate}

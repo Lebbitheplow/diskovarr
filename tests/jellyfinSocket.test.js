@@ -19,7 +19,8 @@ db.setSetting('jellyfin_enabled', '1')
 // module assigns so a test can drive open/message/close by hand.
 let sockets = []
 class FakeWebSocket {
-  constructor(url) {
+  constructor(url, options) {
+    this.options = options
     this.url = url
     this.sent = []
     this.closed = false
@@ -65,7 +66,10 @@ describe('jellyfin socket', () => {
   it('connects with the api key, seeds the poll watermark on open, and reports isConnected', async () => {
     expect(socket.isConnected()).toBe(false)
     const ws = openSocket()
-    expect(ws.url).toBe('ws://jellyfin.test:8096/socket?api_key=test-key&deviceId=diskovarr-app')
+    expect(ws.url).toBe('ws://jellyfin.test:8096/socket?deviceId=diskovarr-app')
+    expect(ws.options.headers.Authorization).toMatch(/^MediaBrowser /)
+    expect(ws.options.headers.Authorization).toContain('Token="test-key"')
+    expect(ws.url).not.toContain('test-key')
     expect(socket.isConnected()).toBe(true)
     await flush()
     expect(pollCalls).toBe(1) // watermark only; nothing delivered

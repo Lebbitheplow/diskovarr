@@ -334,7 +334,7 @@ What you get:
 * **Play on device and Watch Together** — both work with Jellyfin clients that accept remote control.
 * **Collections** — monitored lists and category packs can mirror to Jellyfin collections (BoxSets), with summary, item order (list order, oldest release first, or title), library order, and pack artwork. The Wrapped "top titles" playlist can be created on either server.
 
-`JELLYFIN_URL` and `JELLYFIN_API_KEY` can also be set as environment variables; the values saved in Admin → Connections take precedence.
+`JELLYFIN_URL`, `JELLYFIN_EXTERNAL_URL`, and `JELLYFIN_API_KEY` can also be set as environment variables; the values saved in Admin → Connections take precedence. The server address is for API calls and may use a Docker service name. Set **Browser URL** to the address users can open, including any base path, for Play links. Without a Browser URL, Play links are hidden; the internal API address is never used as a browser destination.
 
 Still Plex-only:
 
@@ -442,6 +442,7 @@ All runtime settings are read by the Express server from environment variables. 
 | `TMDB_API_KEY` | TMDB API key for metadata; enables the Requests tab |
 | `RIVEN_SETTINGS_PATH` | Path to Riven `settings.json`; enables DUMB/Riven integration (default: `/opt/riven/settings.json`) |
 | `JELLYFIN_URL` | Jellyfin server URL, e.g. `http://192.168.1.x:8096` (can also be set in Admin → Connections) |
+| `JELLYFIN_EXTERNAL_URL` | Browser-reachable Jellyfin URL for Play links, e.g. `https://jellyfin.example.com`; leave unset to hide Play links |
 | `JELLYFIN_API_KEY` | Jellyfin API key (Jellyfin → Dashboard → API Keys) — used for library sync and mirroring every user's watch data |
 | `APP_URL` | Public URL of your Diskovarr instance — used for the Plex OAuth callback when running behind a reverse proxy. Auto-detected if omitted. |
 | `TRUST_PROXY` | Which reverse proxies may set `X-Forwarded-For`/`X-Forwarded-Proto` (client IP for rate limiting, HTTPS detection for secure cookies). Accepts Express's `trust proxy` formats: a hop count, `true`/`false`, or comma-separated IPs/CIDRs and the `loopback`, `linklocal`, `uniquelocal` presets. Default `loopback, linklocal, uniquelocal` — a proxy on the same host, LAN or Docker network. Use your proxy's address (or e.g. add `100.64.0.0/10` for Tailscale) if it connects from elsewhere; `true` lets any client spoof its IP and is not recommended. |
