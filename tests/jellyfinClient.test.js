@@ -58,4 +58,11 @@ describe('Jellyfin browser links', () => {
   it('does not send users to an internal API address when the browser URL is unset', () => {
     expect(client.getDeepLink('movie-id')).toBeNull()
   })
+
+  it.each(['javascript:alert(1)', 'jellyfin.example.test', '//jellyfin.example.test', 'https://'])(
+    'treats a browser URL that is not absolute http(s) as unset: %s', (value) => {
+      db.setSetting('jellyfin_external_url', value)
+      expect(client.getJellyfinExternalUrl()).toBe('')
+      expect(client.getDeepLink('movie-id')).toBeNull()
+    })
 })

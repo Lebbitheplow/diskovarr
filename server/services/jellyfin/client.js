@@ -9,9 +9,11 @@ function getJellyfinUrl() {
   const url = db.getSetting('jellyfin_url', null) || process.env.JELLYFIN_URL || '';
   return url.replace(/\/+$/, '');
 }
+// Browser-facing address for Play links. It ends up in an href, so anything
+// but an absolute http(s) URL is treated as unset.
 function getJellyfinExternalUrl() {
-  const url = db.getSetting('jellyfin_external_url', null) || process.env.JELLYFIN_EXTERNAL_URL || '';
-  return url.replace(/\/+$/, '');
+  const url = (db.getSetting('jellyfin_external_url', null) || process.env.JELLYFIN_EXTERNAL_URL || '').trim();
+  return /^https?:\/\/[^/\s]/i.test(url) ? url.replace(/\/+$/, '') : '';
 }
 function getJellyfinKey() {
   return db.getSetting('jellyfin_api_key', null) || process.env.JELLYFIN_API_KEY || '';

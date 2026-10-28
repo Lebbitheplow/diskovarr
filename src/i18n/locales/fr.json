@@ -1231,5 +1231,7 @@
   "Refresh Jellyfin history": "Actualiser l'historique Jellyfin",
   "Jellyfin history refreshed for {{n}} user(s), with every play from Playback Reporting": "Historique Jellyfin actualisé pour {{n}} utilisateur(s), avec chaque lecture issue de Playback Reporting",
   "Jellyfin history refreshed for {{n}} user(s). Only each title’s latest play is available; install the Playback Reporting plugin for full history.": "Historique Jellyfin actualisé pour {{n}} utilisateur(s). Seule la dernière lecture de chaque titre est disponible ; installez le plugin Playback Reporting pour l'historique complet.",
-  "History refresh failed — check the Jellyfin connection": "Échec de l'actualisation de l'historique — vérifiez la connexion Jellyfin"
+  "History refresh failed — check the Jellyfin connection": "Échec de l'actualisation de l'historique — vérifiez la connexion Jellyfin",
+  "Browser URL": "URL du navigateur",
+  "Address used by Play links. Leave empty to hide them.": "Adresse utilisée par les liens de lecture. Laisse vide pour les masquer."
 }

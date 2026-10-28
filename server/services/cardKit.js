@@ -71,7 +71,7 @@ async function fetchAsDataUri(src) {
         const jellyfin = require('./jellyfin');
         if (!jellyfin.isEnabled()) return null;
         url = posterUpstream.upstreamUrl(src, { width: CARD_IMAGE_WIDTH, jellyfinUrl: jellyfin.getJellyfinUrl() });
-        headers['X-Emby-Token'] = jellyfin.getJellyfinKey();
+        headers['Authorization'] = jellyfin.getJellyfinAuthorization();
       }
       if (!url) return null;
     }

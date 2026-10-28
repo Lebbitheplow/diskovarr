@@ -1180,7 +1180,7 @@ router.get('/settings/jellyfin', (req, res) => {
     port,
     useSsl,
     urlBase,
-    externalHostname: c.jellyfinUrl || '',
+    externalHostname: c.jellyfinExternalUrl || c.jellyfinUrl || '',
     jellyfinForgotPasswordUrl: '',
     libraries,
     serverId: '',
