@@ -13,9 +13,14 @@
     "express": "^5.2.1",
     "express-rate-limit": "^8.5.1",
     "express-session": "^1.18.0",
-    "nodemailer": "^10.0.5",
-    "satori": "^0.26.0",
+    "nodemailer": "^10.4.0",
+    "satori": "^0.33.5",
     "web-push": "^3.6.7"
+  },
+  "overrides": {
+    "satori": {
+      "fflate": "0.7.5"
+    }
   },
   "engines": {
     "node": ">=23.4.0"
